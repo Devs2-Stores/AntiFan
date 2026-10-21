@@ -275,6 +275,8 @@ interface HookSettingsFinding {
   id?: string;
   file: string;
   line?: number;
+  /** JSON pointer for a finding in a minified single-line file, where no line can be named. */
+  pointer?: string;
   message?: string;
   detail?: string;
 }
@@ -818,9 +820,21 @@ function scopedSkipText(mode: EditMode, changedFiles: number | null): string {
     changedFiles === null
       ? `${EDIT_GUARD_MARKER} ${label}: edit finished`
       : `${EDIT_GUARD_MARKER} ${label}: ${changedFiles} file(s) changed`;
-  return `${head} — storefront QA skipped (send [🧠Core-Context] to run it)`;
+  // Super-Fast blocks every MCP call, so naming theme.qa_validate there would send the agent
+  // into a refusal; only a Core-mode prompt from the user can run QA in that mode.
+  const remedy =
+    mode === "fast"
+      ? "theme.qa_validate is disabled in Super-Fast; ask the user to send a prompt in Core mode to run it"
+      : "call theme.qa_validate with tabId + workspaceRoot to run it now, or ask the user to send a prompt in Core mode";
+  return `${head} — storefront QA skipped (${remedy})`;
 }
 
+/** `file:line`, `file#pointer` when the source is a single line, or the bare file. */
+function findingLocation(f: HookSettingsFinding): string {
+  if (f.line) return `${f.file}:${f.line}`;
+  if (f.pointer) return `${f.file}#${f.pointer}`;
+  return f.file;
+}
 
 interface ScopedSessionState {
   lastEmittedSeq: number | null;
@@ -1622,7 +1636,7 @@ function reminderText(): string {
     const shown = allFindings.slice(0, 5);
     const formatted = shown
       .map((f) => {
-        const loc = f.line ? `${f.file}:${f.line}` : f.file;
+        const loc = findingLocation(f);
         const idPart = f.id ? ` (${f.id})` : "";
         const idVal = f.id ?? "";
         const fixHint =
@@ -1644,7 +1658,8 @@ function reminderText(): string {
   const structuralLine =
     structural.length > 0
       ? `STRUCTURAL PASS, not CERTIFIED: ${[...new Set(structural.flat())].join("; ") || "no per-viewport baseline diff"}. ` +
-        `Promote baselines (anti.visual.promote_baseline per width) and rerun theme.qa_validate, or declare QA_STRUCTURAL_ONLY (debt stays until CERTIFIED). `
+        `Promote baselines (anti.visual.promote_baseline per width) and rerun theme.qa_validate, or declare QA_STRUCTURAL_ONLY (debt stays until CERTIFIED). ` +
+        `A brand-new theme with no baseline to promote: rerun theme.qa_validate with greenfield {reason} so the three widths are graded by absolute gates. `
       : "";
   return (
     `\n\n${GATE_MARKER} QA GATE PENDING — theme file(s) under ${roots} edited without a CERTIFIED AntiFan QA receipt. ` +
@@ -1656,7 +1671,7 @@ function reminderText(): string {
     `QA_INCONCLUSIVE (environment failure such as CAPTURE_FRAME_STARVATION or TARGET_STALE, after one retry), ` +
     `QA_PENDING_SYNC (user must sync the theme; list files), ` +
     `QA_MICRO_STATIC (one plain assets/ CSS file, <=10 changed lines, no Liquid). ` +
-    `QA_FAILED does not clear the gate. QA_PASSED without a CERTIFIED receipt is a contract violation.` +
+    `QA_FAILED does not clear the gate: fix the reported findings and rerun theme.qa_validate. QA_PASSED without a CERTIFIED receipt is a contract violation.` +
     debtReminder()
   );
 }
@@ -1914,7 +1929,7 @@ function readLatestRatchetStats(workspaceRoot: string, minReceiptTime = 0): Ratc
           const modeLabel = MODE_LABELS[mode];
           const hasFindings = stats.newCount > 0 && Array.isArray(stats.findings) && stats.findings.length > 0;
           const findingSuffix = hasFindings
-            ? `: ${stats.findings!.map((f) => `${f.rule} at ${f.line ? `${f.file}:${f.line}` : f.file}${f.id ? ` (${f.id})` : ""}`).join("; ")}`
+            ? `: ${stats.findings!.map((f) => `${f.rule} at ${findingLocation(f)}${f.id ? ` (${f.id})` : ""}`).join("; ")}`
             : "";
           pi.sendMessage?.({
             customType: "theme-qa-gate",

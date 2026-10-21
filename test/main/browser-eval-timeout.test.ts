@@ -318,6 +318,44 @@ describe('TabDevToolsHost evaluation failures cross the Electron boundary readab
     await assert.rejects(() => makeHost().evalJs('(() => { throw null; })()', 'tab-1', 'desktop', false, 2_000), readable(/^null$/));
   });
 
+  it('a page exception is an EVAL_EXCEPTION carrying its name, message and call frame', async () => {
+    const expression = `(function checkoutStep() { throw new TypeError('cart is empty'); })()`;
+    await assert.rejects(
+      () => makeHost().evalJs(expression, 'tab-1', 'desktop', false, 2_000),
+      (err: unknown) => {
+        assert.ok(err instanceof CapabilityError, `expected CapabilityError, got ${String(err)}`);
+        assert.strictEqual(err.code, 'EVAL_EXCEPTION');
+        assert.match(err.message, /TypeError: cart is empty/);
+        assert.strictEqual(err.details?.['name'], 'TypeError');
+        assert.strictEqual(err.details?.['message'], 'cart is empty');
+        assert.strictEqual(err.details?.['tabId'], 'tab-1');
+        assert.match(String(err.details?.['stackFirstLine']), /^at /);
+        return true;
+      }
+    );
+  });
+
+  it('a DOMException thrown in the page is an EVAL_EXCEPTION named after the DOMException', async () => {
+    await assert.rejects(
+      () => makeHost().evalJs(invalidSelector, 'tab-1', 'desktop', false, 2_000),
+      (err: unknown) => err instanceof CapabilityError
+        && err.code === 'EVAL_EXCEPTION'
+        && err.details?.['name'] === 'SyntaxError'
+    );
+  });
+
+  it('a hung expression stays a timeout, never an EVAL_EXCEPTION', async () => {
+    await assert.rejects(
+      () => makeHost().evalJs('new Promise(()=>{})', 'tab-1', 'desktop', false, 80),
+      (err: unknown) => {
+        const code = err instanceof CapabilityError ? err.code : undefined;
+        assert.notStrictEqual(code, 'EVAL_EXCEPTION');
+        assert.match(err instanceof Error ? err.message : String(err), /Evaluation timed out after 80ms/);
+        return true;
+      }
+    );
+  });
+
   it('a DOMException thrown in a child frame is reported with its name and message', async () => {
     await assert.rejects(
       () => makeHost().evalJsInFrame(invalidSelector, 'checkout.example', 'tab-1', 'desktop', false, 2_000),

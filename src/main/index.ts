@@ -23,6 +23,7 @@ protocol.registerSchemesAsPrivileged([
 ]);
 import { registerPreviewProtocolHandler } from './server/preview-protocol-handler';
 import { StorageLocations, DISK_CACHE_BYTES, MEDIA_CACHE_BYTES } from './config/storage-locations';
+import { appendBootIdentity, BOOT_IDENTITY_JOURNAL_FILE } from './config/boot-identity-journal';
 import { WorkspaceCapsuleManager, findReusableCapsule, type WorkspaceCapsule } from './project/workspace-capsule';
 import { ProjectRegistry } from './project/project-registry';
 import { ProjectPreferences, PROJECT_PREFERENCES_FILE } from './project/project-preferences';
@@ -839,8 +840,26 @@ export function registerExecutionBackend(backend: ExecutionBackend): void {
   executionBackends.set(backend.id, backend);
 }
 let localIpcServer: LocalIpcServer | null = null;
+// Identity journal: written BEFORE the lock is requested so a process that loses it still
+// leaves a record of the profile it chose. Never allowed to fail the boot.
+let bootIdentityJournalPath: string | null = null;
+try {
+  bootIdentityJournalPath = path.join(StorageLocations.getRuntimeDir(), BOOT_IDENTITY_JOURNAL_FILE);
+  appendBootIdentity(bootIdentityJournalPath, {
+    pid: process.pid,
+    ppid: process.ppid,
+    userData: persistentUserData,
+    dataRoot: StorageLocations.getDataRoot(),
+    bridgePort: null,
+    argv: process.argv.slice(1),
+    gotLock: null,
+  });
+} catch {
+  bootIdentityJournalPath = null;
+}
 // Enforce single instance lock
 const gotTheLock = app.requestSingleInstanceLock();
+if (bootIdentityJournalPath) appendBootIdentity(bootIdentityJournalPath, { pid: process.pid, gotLock: gotTheLock });
 if (!gotTheLock) {
   const failOnContention = process.env.ANTIFAN_FAIL_ON_LOCK_CONTENTION === '1';
   const exitCode = singleInstanceLockExitCode(gotTheLock, failOnContention);
@@ -1607,6 +1626,7 @@ function handleShellClosed(shell: ProjectWindowShell): void {
   // Windows logoff/shutdown destroys windows without a quit, so it is excluded the same way.
   if (closeCoordinator.applicationPhase() === 'open' && !isShuttingDown && !osSessionEnding) {
     updateOpenWindowLedger('user-close', (filePath) => markWindowClosed(filePath, ownerKey(shell.owner)));
+    journalProjectShellClosedWithLiveTerminals(shell.owner);
   }
   // Electron fires `closed` before `window-all-closed`, so the keep-alive there never
   // gets its turn: a benchmark run that loses its window — to an incidental close, a
@@ -1631,6 +1651,32 @@ function handleShellClosed(shell: ProjectWindowShell): void {
     ...(remaining > 0 ? { offScreenShells: remaining } : {}),
   });
   requestApplicationQuit('last-browser-shell-closed');
+}
+
+/**
+ * A project shell the user closed while its terminals live on leaves those terminals owned by a
+ * project with no window. That is deliberate (the close stays closed) and the mint resolver
+ * reopens the shell only when an agent in one of those terminals asks for a tab; the journal
+ * line is what lets a later "no window for this project" refusal be traced to the close.
+ */
+function journalProjectShellClosedWithLiveTerminals(owner: WindowOwner): void {
+  if (owner.kind !== 'project') return;
+  try {
+    const terminal = TerminalManager.getInstance();
+    const key = ownerKey(owner);
+    let liveTerminals = 0;
+    for (const summary of terminal.listSessions()) {
+      const sessionId = summary?.id;
+      if (typeof sessionId !== 'string' || !sessionId) continue;
+      if (summary.state === 'closed') continue;
+      if (terminal.sessionOwnerKey(sessionId) === key) liveTerminals += 1;
+    }
+    if (liveTerminals > 0) {
+      recordLifecycleEvent('detached-shell.closed-with-live-terminals', { projectId: owner.projectId, liveTerminals });
+    }
+  } catch {
+    // A journal line must never disturb the close it describes.
+  }
 }
 
 /**
@@ -2145,6 +2191,20 @@ export async function restoreDetachedProjectShells(
 }
 
 /**
+ * The boot leg that brings the shared Terminal Manager back when it was open at the last exit.
+ * `openAtLastExit` is the ledger snapshot (`null` when it was never written or is unreadable,
+ * which restores nothing: there is no evidence it was open). Returns whether `open` ran.
+ */
+export async function restoreTerminalManagerIfOpenAtLastExit(
+  openAtLastExit: ReadonlySet<string> | null,
+  open: (intent: 'restore') => Promise<unknown>,
+): Promise<boolean> {
+  if (!openAtLastExit?.has(ownerKey({ kind: 'unassigned' }))) return false;
+  await open('restore');
+  return true;
+}
+
+/**
  * Test-only seams for `ensureDetachedProjectShell`: `node --test` never runs
  * `createWindow` (the Electron stub never resolves `app.whenReady`), so the
  * manager, the placement manager, the capsule store and the host constructor
@@ -2166,6 +2226,10 @@ export function setCapsuleManagerForTesting(manager: WorkspaceCapsuleManager | n
 }
 export function setBootProjectIdForTesting(projectId: string | null): void {
   bootProjectIdValue = projectId;
+}
+/** The OS session-end latch is one-way in production; a harness that emits `session-end` resets it. */
+export function resetOsSessionEndingForTesting(): void {
+  osSessionEnding = false;
 }
 
 /**
@@ -2576,6 +2640,50 @@ export interface BridgeMintResolverDeps {
    * a refused or elsewhere-routed mint never reopens it.
    */
   ensureHubHost(): Promise<NativeTabHost>;
+  /**
+   * Reopens the detached shell of a project that is marked detached but has no live window,
+   * without taking focus, and returns its host. `null` when the project must stay closed (a
+   * reattach in flight, or the registry/capsule admission refuses it). Optional: a resolver
+   * built without it refuses a windowless detached project exactly as before.
+   */
+  restoreDetachedShell?(projectId: string): Promise<NativeTabHost | null>;
+  /** True while `projectId` is mid-reattach; names the refusal when the restore answers `null`. */
+  reattachInProgress?(projectId: string): boolean;
+}
+
+type DetachedRestoreRefusal =
+  | { readonly attempted: false }
+  | { readonly attempted: true; readonly reason: 'reattach-in-progress' | 'not-admitted' | 'restore-failed'; readonly cause?: string };
+
+/**
+ * One restore attempt for a detached-but-windowless project. Never throws: a failing restore
+ * is a refusal reason, not a different error class for the agent to decode.
+ */
+async function restoreDetachedShellOnce(
+  deps: BridgeMintResolverDeps,
+  projectId: string,
+): Promise<{ readonly host: NativeTabHost } | DetachedRestoreRefusal> {
+  if (!deps.restoreDetachedShell) return { attempted: false };
+  try {
+    const host = await deps.restoreDetachedShell(projectId);
+    if (host) return { host };
+    return { attempted: true, reason: deps.reattachInProgress?.(projectId) ? 'reattach-in-progress' : 'not-admitted' };
+  } catch (err) {
+    return { attempted: true, reason: 'restore-failed', cause: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/** The `details` a refusal carries when a restore was attempted and did not produce a host. */
+function restoreFailureDetails(failure: DetachedRestoreRefusal): Record<string, string> {
+  if (!failure.attempted) return {};
+  const recovery = failure.reason === 'reattach-in-progress'
+    ? 'Đợi reattach của project này hoàn tất rồi gọi lại.'
+    : 'Mở lại project này từ Project Picker rồi gọi lại.';
+  return {
+    reason: failure.reason,
+    recovery,
+    ...(failure.cause ? { cause: failure.cause } : {}),
+  };
 }
 
 /**
@@ -2588,14 +2696,17 @@ export interface BridgeMintResolverDeps {
  * - `terminalSessionId` → the terminal's owner key decides the host. A
  *   `project:<id>`-owned session routes to the project's live detached shell
  *   when one exists, to the hub when the project was never detached, and REFUSES
- *   (`TERMINAL_SCOPE_UNRESOLVED`) when the project is detached-but-windowless:
- *   minting onto the hub would re-home a tab under the wrong window identity and
+ *   (`TERMINAL_SCOPE_UNRESOLVED`) when the project is detached-but-windowless
+ *   and cannot be reopened: a windowless detached project is first reopened once
+ *   through `restoreDetachedShell` (unfocused; refused while a reattach runs or
+ *   when admission fails, with `details.reason` and `details.recovery`). Minting
+ *   onto the hub would re-home a tab under the wrong window identity and
  *   double-present the project. Malformed owner keys and project claims with no
  *   owning window refuse rather than borrowing the ambient window — the incident
  *   anchor that landed in another project's window and died with it.
- * - `projectId` → the validated claim mints on the live detached shell, refuses
- *   typed while detached-but-windowless, and otherwise lands on the hub pinned
- *   to the project's capsule.
+ * - `projectId` → the validated claim mints on the live detached shell (reopened
+ *   once when windowless), refuses typed when it cannot be reopened, and otherwise
+ *   lands on the hub pinned to the project's capsule.
  * - No claim → the hub, unpinned; a closed hub is reopened off-screen first.
  * - A `boundTabId` that is gone, with no other claim → `undefined`: reopening the
  *   hub would only host the bridge's TAB_NOT_FOUND refusal.
@@ -2640,6 +2751,15 @@ export function createBridgeMintHostResolver(deps: BridgeMintResolverDeps): Brid
           ?? (projectClaim && !claimedDetached ? await deps.ensureHubHost() : null)
           ?? undefined;
       }
+      // A detached project whose shell is gone while one of its terminals is alive and asking
+      // for a tab: reopen that shell (unfocused) once instead of refusing a request the project
+      // itself made. Admission and reattach gating live in the dependency, never here.
+      let restoreFailure: DetachedRestoreRefusal | undefined;
+      if (projectClaim && !host && claimedDetached && claimedProjectId) {
+        const restored = await restoreDetachedShellOnce(deps, claimedProjectId);
+        if ('host' in restored) host = restored.host;
+        else restoreFailure = restored;
+      }
       if (projectClaim && !host) {
         // Fail closed: minting into a host the claim does not own is exactly how the
         // incident anchor landed in another project's window and died with it.
@@ -2651,7 +2771,12 @@ export function createBridgeMintHostResolver(deps: BridgeMintResolverDeps): Brid
         throw new CapabilityError(
           'TERMINAL_SCOPE_UNRESOLVED',
           `TERMINAL_SCOPE_UNRESOLVED: ${refusal}`,
-          { terminalSessionId: opts.terminalSessionId, ownerKey: ownerKeyValue, ...(claimedProjectId ? { projectId: claimedProjectId } : {}) },
+          {
+            terminalSessionId: opts.terminalSessionId,
+            ownerKey: ownerKeyValue,
+            ...(claimedProjectId ? { projectId: claimedProjectId } : {}),
+            ...(restoreFailure ? restoreFailureDetails(restoreFailure) : {}),
+          },
         );
       }
       // The stamp follows the claim the tab is pinned under: the terminal's own project
@@ -2674,11 +2799,13 @@ export function createBridgeMintHostResolver(deps: BridgeMintResolverDeps): Brid
       const detachedHost = deps.hostForOwnerKey(ownerKey({ kind: 'project', projectId: opts.projectId }));
       if (detachedHost) return { host: detachedHost, capsuleId: assignment, projectId: opts.projectId };
       if (deps.projectDetached(opts.projectId)) {
+        const restored = await restoreDetachedShellOnce(deps, opts.projectId);
+        if ('host' in restored) return { host: restored.host, capsuleId: assignment, projectId: opts.projectId };
         throw new CapabilityError(
           'TERMINAL_SCOPE_UNRESOLVED',
           `TERMINAL_SCOPE_UNRESOLVED: Project '${opts.projectId}' is detached but owns no live window; ` +
             'refusing to mint an agent tab into the hub window.',
-          { projectId: opts.projectId },
+          { projectId: opts.projectId, ...restoreFailureDetails(restored) },
         );
       }
       return { host: await deps.ensureHubHost(), capsuleId: assignment, ...(assignment ? { projectId: opts.projectId } : {}) };
@@ -4426,7 +4553,7 @@ async function createWindow(): Promise<void> {
   // stay closed, and a Terminal Manager that was open comes back.
   const openAtLastExit = readOpenWindowLedger(openWindowLedgerPath(savedTabsFilePath()));
   await restoreDetachedProjectShells(openAtLastExit);
-  if (openAtLastExit?.has(ownerKey({ kind: 'unassigned' }))) await openSharedTerminalManagerWindow('restore');
+  await restoreTerminalManagerIfOpenAtLastExit(openAtLastExit, (intent) => openSharedTerminalManagerWindow(intent));
 
   // One reservation table for both seams, installed before either can serve a request:
   // the registry refuses a mint, a rebind or an adoption onto a page a close attempt has
@@ -4850,6 +4977,13 @@ async function createWindow(): Promise<void> {
       projectDetached: (projectId) => reattachInProgress.has(projectId)
         || liveProjectShells().some((s) => s.owner.kind === 'project' && s.owner.projectId === projectId)
         || savedTabsOwnerIsDetached(savedTabsFilePath(), projectId),
+      reattachInProgress: (projectId) => reattachInProgress.has(projectId),
+      restoreDetachedShell: async (projectId) => {
+        if (reattachInProgress.has(projectId) || !detachedRestoreAdmitsProject(projectId)) return null;
+        const { host } = await ensureDetachedProjectShell(projectId, 'restore');
+        recordLifecycleEvent('detached-shell.restored-on-demand', { projectId });
+        return host;
+      },
       isBootProject: (projectId) => projectId === bootProjectIdValue,
       ensureHubHost: async () => {
         const live = hostForOwnerKey('web');

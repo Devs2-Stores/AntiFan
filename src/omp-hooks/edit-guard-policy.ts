@@ -139,7 +139,7 @@ export function planToolCall(params: {
     return {
       decision: "block",
       code: REFUSAL_CODES.FAST_MODE_TOOL,
-      reason: `${REFUSAL_CODES.FAST_MODE_TOOL}: '${tool}' is disabled in Super-Fast (${label} edits files directly; no shell, no dispatch). Send [Core-Context] to run it.`,
+      reason: `${REFUSAL_CODES.FAST_MODE_TOOL}: '${tool}' is disabled in Super-Fast (${label} edits files directly; no shell, no dispatch). Use the file edit tools instead, or ask the user to re-send the request in Core mode (the [🧠Core-Context] tag) to run it.`,
       targets: fileTargets,
       device,
     };
@@ -148,7 +148,7 @@ export function planToolCall(params: {
     return {
       decision: "block",
       code: REFUSAL_CODES.FAST_MODE_MCP,
-      reason: `${REFUSAL_CODES.FAST_MODE_MCP}: ${device ? deviceLabel(device) : tool} is a live-browser/device call and is disabled in Super-Fast. Send [Core-Context] to use it.`,
+      reason: `${REFUSAL_CODES.FAST_MODE_MCP}: ${device ? deviceLabel(device) : tool} is a live-browser/device call and is disabled in Super-Fast. Ask the user to re-send the request in Core mode (the [🧠Core-Context] tag) to use it.`,
       targets: fileTargets,
       device,
     };

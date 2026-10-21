@@ -163,6 +163,39 @@ describe('classifyDiagnostics — critical vs warning matrix', () => {
     assert.strictEqual(result.criticalIssues[0]?.message.includes('token=SECRET'), false);
     assert.ok(result.criticalIssues[0]?.message.includes('https://store.example.com/api'));
   });
+
+  it('demotes dev-server hot-reload and account-menu chatter to tagged warnings', () => {
+    const firstParty = { source: 'https://store.example.com/app.js', origin: 'store.example.com', isFirstParty: true };
+    const result = classifyDiagnostics(
+      {
+        console: [
+          { level: 3, message: '[HotReload] connection lost, retrying', ...firstParty },
+          { level: 3, message: '[shopify-account] Menu main-menu not found', ...firstParty },
+        ],
+      },
+      contextUrl
+    );
+    assert.strictEqual(result.criticalIssues.length, 0);
+    assert.strictEqual(result.warnings.length, 2);
+    assert.ok(result.warnings.every((w) => w.noise === 'dev-server'));
+  });
+
+  it('keeps a first-party TypeError critical beside dev-server chatter', () => {
+    const firstParty = { source: 'https://store.example.com/app.js', origin: 'store.example.com', isFirstParty: true };
+    const result = classifyDiagnostics(
+      {
+        console: [
+          { level: 3, message: '[HotReload] connection lost, retrying', ...firstParty },
+          { level: 3, message: "Uncaught TypeError: Cannot read properties of undefined (reading 'x')", ...firstParty },
+        ],
+      },
+      contextUrl
+    );
+    assert.strictEqual(result.criticalIssues.length, 1);
+    assert.match(result.criticalIssues[0]!.message, /TypeError/);
+    assert.strictEqual(result.criticalIssues[0]!.noise, undefined);
+    assert.strictEqual(result.warnings.length, 1);
+  });
 });
 
 describe('sanitizeDiagnosticText / stripUrlQuery — prompt-bound output safety', () => {

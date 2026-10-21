@@ -270,7 +270,16 @@ describe('Terminal Capabilities, Generation Tracking & Wait Lifecycle (Phase 04)
           },
           { lease, leaseToken: lease.token, projectId, workspaceId, grant: 'read' }
         ),
-      (err: unknown) => err instanceof CapabilityError && err.code === 'WAIT_TIMEOUT'
+      (err: unknown) => {
+        assert.ok(err instanceof CapabilityError);
+        assert.strictEqual(err.code, 'WAIT_TIMEOUT');
+        // The caller learns where the session stood when the deadline passed.
+        assert.strictEqual(err.details?.sessionId, sessionId);
+        assert.strictEqual(typeof err.details?.outputTail, 'string');
+        assert.strictEqual(typeof err.details?.lastSeq, 'number');
+        assert.strictEqual(typeof err.details?.sessionGeneration, 'number');
+        return true;
+      }
     );
   });
 
@@ -300,7 +309,15 @@ describe('Terminal Capabilities, Generation Tracking & Wait Lifecycle (Phase 04)
             signal: controller.signal,
           }
         ),
-      (err: unknown) => err instanceof CapabilityError && err.code === 'WAIT_ABORTED'
+      (err: unknown) => {
+        assert.ok(err instanceof CapabilityError);
+        assert.strictEqual(err.code, 'WAIT_ABORTED');
+        assert.strictEqual(err.details?.sessionId, sessionId);
+        assert.strictEqual(typeof err.details?.outputTail, 'string');
+        assert.strictEqual(typeof err.details?.lastSeq, 'number');
+        assert.strictEqual(typeof err.details?.sessionGeneration, 'number');
+        return true;
+      }
     );
   });
 
@@ -457,7 +474,7 @@ describe('Terminal Capabilities, Generation Tracking & Wait Lifecycle (Phase 04)
       );
 
       const listed = (await scoped.dispatch('terminal.list', {}, contextOf('att-mine'))) as {
-        sessions: Array<{ id: string }>;
+        sessions: Array<{ id: string; owned: boolean }>;
         omittedForeignAgentTerminals?: number;
       };
       const listedIds = listed.sessions.map((s) => s.id);
@@ -465,6 +482,16 @@ describe('Terminal Capabilities, Generation Tracking & Wait Lifecycle (Phase 04)
       assert.ok(listedIds.includes(userPlane), 'the caller sees the user plane');
       assert.ok(!listedIds.includes(foreign), 'a foreign agent terminal must not be advertised for addressing');
       assert.strictEqual(listed.omittedForeignAgentTerminals, 1);
+      // `owned` tells the caller which visible rows it may drive: its own terminal yes, the user plane only to observe.
+      assert.strictEqual(listed.sessions.find((s) => s.id === mine)?.owned, true);
+      assert.strictEqual(listed.sessions.find((s) => s.id === userPlane)?.owned, false);
+
+      // A caller with no attachment has no ownership question, so every row is owned.
+      const unboundListed = (await scoped.dispatch('terminal.list', {}, { lease, leaseToken: lease.token, projectId, workspaceId, grant: 'read' })) as {
+        sessions: Array<{ id: string; owned: boolean }>;
+      };
+      assert.ok(unboundListed.sessions.length >= 3);
+      assert.ok(unboundListed.sessions.every((s) => s.owned === true));
 
       // A caller whose bound tab cannot be resolved is refused rather than allowed unverified.
       await assert.rejects(

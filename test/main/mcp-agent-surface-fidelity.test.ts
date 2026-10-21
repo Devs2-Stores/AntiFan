@@ -294,7 +294,7 @@ describe('advertised MCP schemas', () => {
 describe('tools that navigate or reload are never classed as reads', () => {
   // A read may be replayed by the proxy after a reconnect; replaying a navigation sweep or a
   // reload changes the tab under the agent.
-  for (const name of ['anti.qa.batch_matrix', 'anti.theme.await_cdn_sync']) {
+  for (const name of ['anti.qa.batch_matrix', 'anti.theme.await_cdn_sync', 'anti.sheet.write_cell']) {
     it(`${name} is a write in the catalogue and absent from the proxy's read-safe set`, () => {
       const scope = makeScope();
       registerBrowserCapabilities(scope.catalogue, new BrowserControlPort(baseHost({})));

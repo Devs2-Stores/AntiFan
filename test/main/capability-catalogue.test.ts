@@ -971,10 +971,14 @@ describe('Capability catalogue', () => {
     );
     assert.strictEqual(hostNavigateCalls, 2, 'host.navigate must not be called on stale target with explicitTabId');
 
-    // 6. Unknown explicit tabId must be rejected with CAPABILITY_NOT_FOUND before host.navigate
+    // 6. Unknown explicit tabId must be rejected as a stale target with a recovery before host.navigate
     await assert.rejects(
       async () => browser.navigate(boundTarget, 'https://example.com/new', 'tab-unknown'),
-      (err: unknown) => err instanceof CapabilityError && err.code === 'CAPABILITY_NOT_FOUND'
+      (err: unknown) => err instanceof CapabilityError
+        && err.code === 'TARGET_STALE'
+        && err.details?.tabId === 'tab-unknown'
+        && err.details?.canRebind === true
+        && err.details?.recovery === 'anti.browser.tabs.list'
     );
     assert.strictEqual(hostNavigateCalls, 2, 'host.navigate must not be called on unknown explicit tabId');
 

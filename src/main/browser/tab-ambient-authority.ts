@@ -34,6 +34,25 @@ export interface TabAmbientAuthorityDeps {
   journal?: (event: string, fields?: Record<string, unknown>) => void;
 }
 
+/**
+ * The project ids of the live windows that are project windows. The shared hub, the
+ * Terminal Manager and agent windows own no project of their own, so they contribute
+ * nothing here. Building refusal details must never replace the typed refusal itself:
+ * a host that cannot name its owner is skipped.
+ */
+function liveProjectIdsOf(hosts: readonly NativeTabHost[]): string[] {
+  const ids: string[] = [];
+  for (const host of hosts) {
+    try {
+      const owner = parseOwnerKey(host.windowOwnerKey());
+      if (owner.kind === 'project' && !ids.includes(owner.projectId)) ids.push(owner.projectId);
+    } catch {
+      // skipped: see above
+    }
+  }
+  return ids;
+}
+
 export class TabAmbientAuthority {
   /** Ids already journaled as unowned — a dead binding polls many seams per dispatch. */
   private readonly journaledUnowned = new Set<string>();
@@ -60,12 +79,26 @@ export class TabAmbientAuthority {
     if (automationHost) return automationHost;
     if (hosts.length === 1) return hosts[0]!;
     if (hosts.length === 0) {
-      throw new CapabilityError('TARGET_REQUIRED', 'No project window is live, so no tab host can serve this request');
+      throw new CapabilityError(
+        'TARGET_REQUIRED',
+        'No project window is live, so no tab host can serve this request',
+        {
+          liveHosts: 0,
+          liveProjectIds: [],
+          ...(projectId ? { projectId } : {}),
+          recovery: 'Open the project window in AntiFan (or start the session from a terminal assigned to a project), then retry; anti.browser.tabs.list shows tabs once a window is live.',
+        }
+      );
     }
     throw new CapabilityError(
       'TARGET_REQUIRED',
       `${hosts.length} project windows are live and this request names no window, tab or sender`,
-      { liveHosts: hosts.length, ...(projectId ? { projectId } : {}) }
+      {
+        liveHosts: hosts.length,
+        ...(projectId ? { projectId } : {}),
+        liveProjectIds: liveProjectIdsOf(hosts),
+        recovery: 'Run from a terminal assigned to a project, or call anti.browser.tabs.list and then anti.browser.rebind_target {tabId} with an agent tab of your project.',
+      }
     );
   }
 
@@ -82,7 +115,11 @@ export class TabAmbientAuthority {
       const owner = this.deps.directory.hostForTab(tabId);
       if (owner) return owner;
       this.noteUnowned(tabId, 'bootstrap-refusal');
-      throw new CapabilityError('TARGET_STALE', `Target tab '${tabId}' is not owned by any live window`, { tabId });
+      throw new CapabilityError('TARGET_STALE', `Target tab '${tabId}' is not owned by any live window`, {
+        tabId,
+        canRebind: true,
+        recovery: 'anti.browser.tabs.list',
+      });
     }
     return this.ambientHostOrThrow(projectId);
   }

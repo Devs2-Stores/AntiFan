@@ -3395,6 +3395,15 @@ export class TerminalManager extends EventEmitter {
       let timeoutTimer: NodeJS.Timeout | null = null;
       let silenceTimer: NodeJS.Timeout | null = null;
 
+      // What the session had produced when the wait ended without a verdict: a caller that
+      // timed out or was aborted can then see whether the shell was still working.
+      const waitProgressDetails = () => ({
+        sessionId: input.sessionId,
+        outputTail: safeSliceTail(s.buffer, 4096),
+        lastSeq: s.lastSeq || 0,
+        sessionGeneration: s.sessionGeneration,
+      });
+
       const cleanup = () => {
         settled = true;
         if (timeoutTimer) {
@@ -3416,7 +3425,7 @@ export class TerminalManager extends EventEmitter {
       const onAbort = () => {
         if (settled) return;
         cleanup();
-        reject(new CapabilityError('WAIT_ABORTED', 'Terminal wait was aborted'));
+        reject(new CapabilityError('WAIT_ABORTED', 'Terminal wait was aborted', waitProgressDetails()));
       };
 
       if (signal?.aborted) {
@@ -3431,7 +3440,7 @@ export class TerminalManager extends EventEmitter {
       timeoutTimer = setTimeout(() => {
         if (settled) return;
         cleanup();
-        reject(new CapabilityError('WAIT_TIMEOUT', `Terminal wait timed out after ${timeoutMs}ms`));
+        reject(new CapabilityError('WAIT_TIMEOUT', `Terminal wait timed out after ${timeoutMs}ms`, waitProgressDetails()));
       }, timeoutMs);
       timeoutTimer.unref?.();
 

@@ -71,6 +71,8 @@ import { UnmeasuredReason } from '../diagnostics/mcp-dispatch-accounting';
 import { WindowStateManager, WindowState } from './window-state';
 import { BridgeServer } from '../bridge/bridge-server';
 import { ViewportGate } from '../tools/browser-control-port';
+import { describeRelayedFailure } from '../tools/capability-transport';
+import { tabShareGrants, type TabShareGrant } from './tab-share-grants';
 import { safeSendWebContents } from './web-contents-guard';
 import { ownerKey, ownerLabel, type ProjectWindowShell, type WindowOwner, type ChromeSurface } from './project-window-shell';
 import { installChromeIpcOnce, type IpcRoute, type IpcEvent } from './ipc-router';
@@ -2119,6 +2121,7 @@ export class NativeTabHost extends EventEmitter {
   constructor(shell: ProjectWindowShell, capsuleManager?: WorkspaceCapsuleManager) {
     super();
     this.shell = shell;
+    tabShareGrants.setJournal((event, fields) => recordLifecycleEvent(event, fields));
     const stateDir = app ? app.getPath('userData') : StorageLocations.getConfigDir();
     this.terminalWindowStateManager = new WindowStateManager(stateDir, 900, 600, 'terminal-popout-window-state.json');
     this.capsuleManager = capsuleManager || new WorkspaceCapsuleManager({ filePath: path.join(stateDir, 'workspace-capsules.json') });
@@ -4404,9 +4407,15 @@ export class NativeTabHost extends EventEmitter {
           },
         };
       } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : String(err);
-        const code = err && typeof err === 'object' && 'code' in err ? err.code : undefined;
-        return { ok: false, error: { code: typeof code === 'string' && code ? code : 'CAPABILITY_ERROR', message } };
+        const relayed = describeRelayedFailure(err);
+        return {
+          ok: false,
+          error: {
+            code: relayed.code,
+            message: relayed.message,
+            ...(relayed.details ? { details: relayed.details } : {}),
+          },
+        };
       } finally {
         if (session) {
           try {
@@ -5840,6 +5849,21 @@ export class NativeTabHost extends EventEmitter {
           },
         })
       );
+
+        const shareTabId = this.findTabByWebContents(wc)?.tabId;
+        const shareState = this.getTabShareMenuState(shareTabId);
+        if (shareTabId && shareState.available) {
+          menu.append(new MenuItem({ type: 'separator' }));
+          menu.append(
+            new MenuItem({
+              label: shareState.shared ? '🚫 Thu hồi quyền dùng tab của agent' : '🤝 Cho agent của project này dùng tab',
+              click: () => {
+                if (shareState.shared) this.revokeTabShare(shareTabId);
+                else this.shareTabWithAgent(shareTabId);
+              },
+            })
+          );
+        }
 
         menu.popup({ window: this.shell.window });
       } catch {}
@@ -9660,6 +9684,7 @@ export class NativeTabHost extends EventEmitter {
    * diagnostics query-stripping; capsuleId/projectId carry the attribution.
    */
   private recordTabClosedTelemetry(tabId: string, target: NativeTabRecord, source: string): void {
+    tabShareGrants.revokeForClosedTab(tabId);
     const url = typeof target.state.url === 'string' ? target.state.url : '';
     let urlOrigin: string | undefined;
     try {
@@ -12635,6 +12660,60 @@ export class NativeTabHost extends EventEmitter {
 
   public isTabAllowed(primaryOrBoundTabId: string, requestedTabId: string): boolean {
     return this.isTabAllowedForPrimary(primaryOrBoundTabId, requestedTabId);
+  }
+
+  /** The live user-issued share grant of a tab, or undefined when it has none or it expired. */
+  public getTabShareGrant(tabId: string): TabShareGrant | undefined {
+    const resolved = this.resolveTargetTabId(tabId);
+    return resolved ? tabShareGrants.get(resolved) : undefined;
+  }
+
+  /**
+   * The project a tab can be shared under: the one its measured capsule names, else the
+   * one it was stamped with at mint, else the owning `project:` window's. A tab with no
+   * project, an agent surface, or evidence naming two projects is refused — the grant
+   * would otherwise carry authority for a project nobody established.
+   */
+  private resolveTabShareProject(tabId: string):
+    | { ok: true; tabId: string; projectId: string }
+    | { ok: false; reason: 'NO_TAB' | 'AGENT_TAB' | 'NO_PROJECT' | 'PROJECT_AMBIGUOUS' } {
+    const resolved = this.resolveTargetTabId(tabId);
+    const tab = resolved ? this.tabs.get(resolved) : undefined;
+    if (!resolved || !tab) return { ok: false, reason: 'NO_TAB' };
+    if (tab.state.ephemeral === true) return { ok: false, reason: 'AGENT_TAB' };
+    const capsuleId = this.getTabCapsuleId(resolved);
+    const capsule = capsuleId ? this.capsuleManager.list().find((c) => c.id === capsuleId) : undefined;
+    const measured = capsule?.projectId?.trim() || undefined;
+    const stamped = tab.projectId?.trim() || undefined;
+    if (measured && stamped && measured !== stamped) return { ok: false, reason: 'PROJECT_AMBIGUOUS' };
+    const owner = parseOwnerKey(this.windowOwnerKey());
+    const projectId = measured ?? stamped ?? (owner.kind === 'project' ? owner.projectId : undefined);
+    if (!projectId || isBootProjectId(projectId)) return { ok: false, reason: 'NO_PROJECT' };
+    return { ok: true, tabId: resolved, projectId };
+  }
+
+  /** What the context menu offers for a tab: share it, withdraw an existing share, or nothing. */
+  public getTabShareMenuState(tabId: string | undefined): { available: boolean; shared: boolean } {
+    if (!tabId) return { available: false, shared: false };
+    const resolved = this.resolveTargetTabId(tabId);
+    if (resolved && tabShareGrants.get(resolved)) return { available: true, shared: true };
+    return { available: resolved ? this.resolveTabShareProject(resolved).ok : false, shared: false };
+  }
+
+  /**
+   * Hand a user tab to the agents of the tab's own project. Reached only from the user's
+   * context-menu click in this process; no capability, IPC route or bridge call invokes it.
+   */
+  public shareTabWithAgent(tabId: string, ttlMs?: number): { ok: true; grant: TabShareGrant } | { ok: false; reason: string } {
+    const target = this.resolveTabShareProject(tabId);
+    if (!target.ok) return target;
+    return { ok: true, grant: tabShareGrants.grant(target.tabId, target.projectId, ttlMs) };
+  }
+
+  /** Withdraw a tab's share grant. Returns whether a live grant was removed. */
+  public revokeTabShare(tabId: string): boolean {
+    const resolved = this.resolveTargetTabId(tabId) ?? tabId;
+    return tabShareGrants.revoke(resolved);
   }
 
   /**

@@ -130,9 +130,16 @@ export function validateAuthorizedWorkspaceRoot(
   });
 
   if (!isAuthorized) {
+    const rootsText = authorizedRoots.length > 0 ? authorizedRoots.join(', ') : '(none configured)';
     throw new CapabilityError(
       'OUTSIDE_WORKSPACE',
-      `Access denied: workspaceRoot "${candidateRoot}" is not within authorized project roots`
+      `Access denied: workspaceRoot "${candidateRoot}" is not within authorized project roots (${rootsText})`,
+      {
+        workspaceRoot: candidateRoot,
+        authorizedRoots: [...authorizedRoots],
+        failedCheck: 'workspaceRoot',
+        recovery: 'pass a workspaceRoot inside one of authorizedRoots, or omit workspaceRoot to use the bound workspace',
+      }
     );
   }
 

@@ -51,6 +51,22 @@ function relayErrorMessage(err: unknown): string {
   return text;
 }
 
+/**
+ * The wire shape of a thrown value: its own string `code` and plain-object `details`
+ * survive, whatever class carried them (a `CapabilityError`, a capture or host error
+ * that only shares the `code`/`details` shape, or a plain object). Only a throw that
+ * names no code of its own is labelled `CAPABILITY_ERROR`.
+ */
+export function describeRelayedFailure(err: unknown): { code: string; message: string; details?: Record<string, unknown> } {
+  const typed = err as { code?: unknown; details?: unknown } | null | undefined;
+  const code = typed && typeof typed === 'object' && typeof typed.code === 'string' && typed.code ? typed.code : 'CAPABILITY_ERROR';
+  const rawDetails = typed && typeof typed === 'object' ? typed.details : undefined;
+  const details = rawDetails && typeof rawDetails === 'object' && !Array.isArray(rawDetails)
+    ? (rawDetails as Record<string, unknown>)
+    : undefined;
+  return { code, message: relayErrorMessage(err), ...(details ? { details } : {}) };
+}
+
 type EffectMarker = 'not-started' | 'effect-started' | 'effect-committed';
 type EffectAcknowledgement = 'no-effect' | 'effect-possible' | 'effect-committed';
 
@@ -92,6 +108,15 @@ export interface CapabilityTransportResponse {
   };
   evidence?: Record<string, unknown>;
   replacementAuthorityRevision?: string;
+  /**
+   * Set when this dispatch moved the attachment's bound tab: the call healed onto a failover
+   * tab, rebound, or opened the tab that is now its target. Absent when the binding is unchanged.
+   */
+  bindingChanged?: {
+    oldTabId?: string;
+    newTabId: string;
+    reason: 'heal-failover' | 'rebind' | 'open-tab';
+  };
   /** Terminal ledger state when known: 'completed' on success, classified state on failure, 'in_progress' for pending-cleanup. Lets callers (workflow retry gate) distinguish failed-clean from unknown/in-flight. */
   state?: InvocationState;
 }
@@ -728,8 +753,8 @@ export class CapabilityTransportAdapter {
               'TARGET_MISMATCH',
               `Tab ID '${resolvedRequested}' is outside this session's authority (bound '${authorityTabId}'). It belongs to another project, session or window (for example a tab the user opened), so this session cannot take it over. Rebind only to session-managed or same-project tabs: list them with anti.browser.tabs.list (affiliated rows) or open one with anti.browser.tabs.create.`,
               failoverId
-                ? { candidateTabIds: [failoverId], failoverTabId: failoverId, recovery: 'anti.browser.rebind_target' }
-                : { recovery: 'anti.browser.rebind_target' }
+                ? { candidateTabIds: [failoverId], failoverTabId: failoverId, recovery: 'anti.browser.rebind_target', alternativeRecovery: 'anti.browser.tabs.create {url}', boundTabId: authorityTabId }
+                : { recovery: 'anti.browser.rebind_target', alternativeRecovery: 'anti.browser.tabs.create {url}', boundTabId: authorityTabId }
             );
           }
         }
@@ -742,7 +767,11 @@ export class CapabilityTransportAdapter {
         const anchorTabId = this.catalogue.resolveTabId(requestedAnchor.trim());
         const generation = anchorTabId ? this.catalogue.getDocumentGeneration(anchorTabId) : undefined;
         if (!anchorTabId || typeof generation !== 'number' || generation <= 0) {
-          throw new CapabilityError('TARGET_STALE', `Anchor tab '${requestedAnchor}' no longer exists`);
+          throw new CapabilityError('TARGET_STALE', `Anchor tab '${requestedAnchor}' no longer exists`, {
+            anchorTabId: requestedAnchor,
+            canRebind: true,
+            recovery: 'anti.browser.tabs.list',
+          });
         }
         if (anchorTabId !== authorityTabId && !this.catalogue.isTabAllowedForRetarget(authorityTabId || '', anchorTabId, {
           projectId: authContext.projectId,
@@ -751,8 +780,12 @@ export class CapabilityTransportAdapter {
           const failoverId = authorityTabId ? this.catalogue.resolveFailoverTabId(authorityTabId) : undefined;
           throw new CapabilityError(
             'TARGET_MISMATCH',
-            `Anchor tab '${anchorTabId}' is outside this attachment's authority`,
-            failoverId ? { candidateTabIds: [failoverId], failoverTabId: failoverId } : undefined
+            `Anchor tab '${anchorTabId}' is outside this attachment's authority (bound '${authorityTabId ?? 'none'}'). It belongs to another project, session or window.`,
+            {
+              ...(failoverId ? { candidateTabIds: [failoverId], failoverTabId: failoverId } : {}),
+              boundTabId: authorityTabId,
+              recovery: 'anti.browser.rebind_target',
+            }
           );
         }
         authContext.browserTarget = {
@@ -850,9 +883,19 @@ export class CapabilityTransportAdapter {
            this.catalogue.getDocumentGeneration?.(attachedTabIdForInspection))
         : undefined;
       let replacementAuthorityRevision: string | undefined;
+      // The binding this dispatch ended on, when it moved. The first reason named for a tab
+      // stands, so a heal that a later step confirms is still reported as a heal.
+      const bindingTransition: { current?: { newTabId: string; reason: 'heal-failover' | 'rebind' | 'open-tab' } } = {};
+      const noteBindingTransition = (newTabId: string, reason: 'heal-failover' | 'rebind' | 'open-tab'): void => {
+        if (bindingTransition.current?.newTabId === newTabId) return;
+        bindingTransition.current = { newTabId, reason };
+      };
       if (healedBoundTabId) {
         const healedRev = await this.attachmentRegistry.updateAttachmentTab(authority.attachmentId, healedBoundTabId);
-        if (healedRev) replacementAuthorityRevision = healedRev;
+        if (healedRev) {
+          replacementAuthorityRevision = healedRev;
+          noteBindingTransition(healedBoundTabId, 'heal-failover');
+        }
       }
       const p = intent.params as Record<string, unknown> | undefined;
       const isSetTarget = intent.name === 'browser.set-automation-target' || intent.name === 'antifan_set_automation_target';
@@ -875,6 +918,7 @@ export class CapabilityTransportAdapter {
           const newRev = await this.attachmentRegistry.updateAttachmentTab(authority.attachmentId, newTabId);
           if (newRev) {
             replacementAuthorityRevision = newRev;
+            noteBindingTransition(newTabId, isOpenTab ? 'open-tab' : 'rebind');
           } else if (isOpenTab) {
             throw new CapabilityError(
               'TARGET_TRANSITION_UNCOMMITTED',
@@ -923,6 +967,7 @@ export class CapabilityTransportAdapter {
             const newRev = await this.attachmentRegistry.updateAttachmentTab(authority.attachmentId, switchTarget);
             if (newRev) {
               replacementAuthorityRevision = newRev;
+              noteBindingTransition(switchTarget, 'rebind');
             } else {
               throw new CapabilityError(
                 'ATTACHMENT_REBIND_FAILED',
@@ -961,6 +1006,7 @@ export class CapabilityTransportAdapter {
           );
           if (newRev) {
             replacementAuthorityRevision = newRev;
+            noteBindingTransition(targetTabId, 'rebind');
           } else {
             // navigate/reload moved the live target but authority did not rotate:
             // the underlying mutation committed, but authority transition was uncommitted.
@@ -1001,6 +1047,7 @@ export class CapabilityTransportAdapter {
           );
           if (newRev) {
             replacementAuthorityRevision = newRev;
+            noteBindingTransition(targetTabId, 'rebind');
           } else {
             throw new CapabilityError(
               'ATTACHMENT_REBIND_FAILED',
@@ -1048,7 +1095,10 @@ export class CapabilityTransportAdapter {
                 : (authority.browserTarget?.documentGeneration ?? record.documentGeneration ?? 1),
               { expectedTabId: closedCanonicalId }
             );
-            if (newRev) replacementAuthorityRevision = newRev;
+            if (newRev) {
+              replacementAuthorityRevision = newRev;
+              noteBindingTransition(failoverCandidate, 'rebind');
+            }
           }
         }
       } else if (isInspection) {
@@ -1144,6 +1194,15 @@ export class CapabilityTransportAdapter {
         state: 'completed',
         data,
         ...(replacementAuthorityRevision ? { replacementAuthorityRevision } : {}),
+        ...(bindingTransition.current && bindingTransition.current.newTabId !== authorityTabId
+          ? {
+              bindingChanged: {
+                ...(authorityTabId ? { oldTabId: authorityTabId } : {}),
+                newTabId: bindingTransition.current.newTabId,
+                reason: bindingTransition.current.reason,
+              },
+            }
+          : {}),
       };
     } catch (error: unknown) {
       // Step 7: Persist terminal receipt (classified error)
@@ -1316,11 +1375,12 @@ export class CapabilityTransportAdapter {
       };
     }
 
+    const relayed = describeRelayedFailure(err);
     return {
       state: 'failed',
-      code: typedCode || 'CAPABILITY_ERROR',
-      message: relayErrorMessage(err),
-      details: typed?.details,
+      code: relayed.code,
+      message: relayed.message,
+      details: relayed.details,
     };
   }
 

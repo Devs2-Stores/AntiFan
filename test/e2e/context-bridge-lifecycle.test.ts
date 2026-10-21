@@ -249,7 +249,10 @@ describe('Context Bridge Lifecycle E2E (Audit #29)', () => {
     delete env.ANTIFAN_MCP_BOOTSTRAP;
     delete env.ANTIFAN_ATTACHMENT_SECRET;
     delete env.ANTIFAN_ATTACHMENT_ID;
-    delete env.ANTIFAN_DATA_ROOT;
+    // An unset data root falls back to the installation default, where bridge discovery
+    // finds the live app. Pin it to this test's tempdir so discovery finds nothing.
+    env.ANTIFAN_DATA_ROOT = path.join(tmpDir, 'data');
+    env.ANTIFAN_CONFIG_DIR = path.join(tmpDir, 'data', 'config');
 
     const proc = spawn(process.execPath, [mcpScript], {
       cwd: rootDir,

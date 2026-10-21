@@ -237,8 +237,11 @@ when the session's mode is `direct` or `fast`, the reminder path returns early �
 append, no receipt demand, no churn or MCP-first advisories. Instead `turn_end` appends exactly one line:
 
 ```
-[edit-guard] Direct-Edit: 3 file(s) changed — storefront QA skipped (send [🧠Core-Context] to run it)
+[edit-guard] Direct-Edit: 3 file(s) changed — storefront QA skipped (call theme.qa_validate with tabId + workspaceRoot to run it now, or ask the user to send a prompt in Core mode)
 ```
+
+Super-Fast blocks every MCP call, so its line names the only way out instead:
+`… storefront QA skipped (theme.qa_validate is disabled in Super-Fast; ask the user to send a prompt in Core mode to run it)`.
 
 The file count comes from the audit log rows of the current `runSeq`, which is also what S4's
 change-review card reads. Precisely, and this is the version the gate implements: it takes the

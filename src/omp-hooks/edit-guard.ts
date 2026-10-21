@@ -592,7 +592,7 @@ export default function editGuardHook(pi: GuardPi): void {
       // is nothing to enforce there and a stuck write tool would be an outage.
       const mode = scopeEvidence(ctx);
       if (!isScopedMode(mode)) return undefined;
-      const reason = `${REFUSAL_CODES.GUARD_ERROR}: the guard could not classify this call (${describeError(err)}), and ${MODE_LABELS[mode]} refuses what it cannot verify. Send [Core-Context] to run it unguarded.`;
+      const reason = `${REFUSAL_CODES.GUARD_ERROR}: the guard could not classify this call (${describeError(err)}), and ${MODE_LABELS[mode]} refuses what it cannot verify. Retry with explicit file paths, or ask the user to re-send the request in Core mode (the [🧠Core-Context] tag) to run it unguarded.`;
       try {
         const session = sessions.get(sessionIdOf(ctx));
         if (session) {

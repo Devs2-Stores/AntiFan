@@ -312,6 +312,29 @@ describe('Cross-project tab search', () => {
     assert.deepEqual(stub.activations, []);
   });
 
+  test('a query matching only a project name, with no tab rows for it, lands on no-results', async () => {
+    const stub = makeStub();
+    const ctx = await loadToolbar(ACME_IDENTITY, stub);
+    dom = ctx.dom;
+    const { doc } = ctx;
+    await openSearch(ctx);
+    assert.equal(listedRows(doc).length, 3);
+
+    // "Gamma" names a project that owns no open tab, so Main's inventory carries no row for it.
+    await typeQuery(ctx, 'Gamma');
+    assert.equal(doc.getElementById('tabSearchResults')?.getAttribute('data-state'), 'no-results');
+    assert.equal(listedRows(doc).length, 0);
+    assert.match(doc.querySelector('#tabSearchResults .tab-search-message')?.textContent ?? '', /Không có tab nào khớp "Gamma"/);
+
+    // "Unassigned" appears only as a row's owner label, never in a title or URL: the filter
+    // matches title and URL, so an owner label alone is not a hit either.
+    await typeQuery(ctx, 'Unassigned');
+    assert.equal(doc.getElementById('tabSearchResults')?.getAttribute('data-state'), 'no-results');
+    assert.equal(listedRows(doc).length, 0);
+    assert.match(searchStatus(doc), /Không có tab nào khớp/);
+    assert.deepEqual(stub.activations, []);
+  });
+
   test('an empty inventory reads as an empty shell, not as a failed query', async () => {
     const stub = makeStub({ answerSearch: () => ({ status: 'OK', rows: [] }) });
     const ctx = await loadToolbar(ACME_IDENTITY, stub);

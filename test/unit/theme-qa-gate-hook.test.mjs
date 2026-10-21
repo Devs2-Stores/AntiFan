@@ -980,7 +980,7 @@ test("scoped mode: six unmarked results stay silent, turn_end states the changed
   assert.equal(sent.length, 1, "turn_end sends exactly one line");
   assert.equal(
     sent[0].content,
-    "[edit-guard] Direct-Edit: 2 file(s) changed — storefront QA skipped (send [🧠Core-Context] to run it)"
+    "[edit-guard] Direct-Edit: 2 file(s) changed — storefront QA skipped (call theme.qa_validate with tabId + workspaceRoot to run it now, or ask the user to send a prompt in Core mode)"
   );
   assert.equal(sent[0].customType, "theme-qa-gate");
   assert.equal(sent[0].display, true);
@@ -1000,7 +1000,7 @@ test("scoped mode: six unmarked results stay silent, turn_end states the changed
   assert.equal(sent.length, 2, "the next run gets its own single line");
   assert.equal(
     sent[1].content,
-    "[edit-guard] Direct-Edit: 1 file(s) changed — storefront QA skipped (send [🧠Core-Context] to run it)"
+    "[edit-guard] Direct-Edit: 1 file(s) changed — storefront QA skipped (call theme.qa_validate with tabId + workspaceRoot to run it now, or ask the user to send a prompt in Core mode)"
   );
 });
 
@@ -1112,7 +1112,7 @@ test("scoped mode: consecutive 0-change runs emit once per runSeq, not suppresse
   assert.equal(sent.length, 1, "run 1 emits 0 file(s) changed");
   assert.equal(
     sent[0].content,
-    "[edit-guard] Direct-Edit: 0 file(s) changed — storefront QA skipped (send [🧠Core-Context] to run it)"
+    "[edit-guard] Direct-Edit: 0 file(s) changed — storefront QA skipped (call theme.qa_validate with tabId + workspaceRoot to run it now, or ask the user to send a prompt in Core mode)"
   );
 
   // Calling turn_end again within run 1 stays silent
@@ -1129,7 +1129,7 @@ test("scoped mode: consecutive 0-change runs emit once per runSeq, not suppresse
   assert.equal(sent.length, 2, "run 2 emits its own skip line despite changedFiles count being identical (0 === 0)");
   assert.equal(
     sent[1].content,
-    "[edit-guard] Direct-Edit: 0 file(s) changed — storefront QA skipped (send [🧠Core-Context] to run it)"
+    "[edit-guard] Direct-Edit: 0 file(s) changed — storefront QA skipped (call theme.qa_validate with tabId + workspaceRoot to run it now, or ask the user to send a prompt in Core mode)"
   );
 });
 
@@ -1180,7 +1180,7 @@ test("scoped mode: without a readable audit trail the skip line carries no count
   assert.equal(sent.length, 2);
   assert.equal(
     sent[0].content,
-    "[edit-guard] Super-Fast: edit finished — storefront QA skipped (send [🧠Core-Context] to run it)"
+    "[edit-guard] Super-Fast: edit finished — storefront QA skipped (theme.qa_validate is disabled in Super-Fast; ask the user to send a prompt in Core mode to run it)"
   );
   assert.equal(sent[1].content, sent[0].content, "a missing session id degrades the same way");
   assert.equal(sent[0].details.changedFiles, null);

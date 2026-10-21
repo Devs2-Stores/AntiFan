@@ -92,6 +92,30 @@ if ((script === '.' || resolvedTarget === ROOT) && !fs.existsSync(compiledMain))
   execSync('npm run compile', { cwd: ROOT, stdio: 'inherit' });
 }
 
+// A product launch (the repository itself as the app) must run on the user's own profile unless
+// the caller isolated it on purpose. Checked before anything is spawned.
+const productLaunch = script === '.' || resolvedTarget === ROOT;
+if (productLaunch) {
+  const { checkInheritedProfile } = require('./lib/inherited-profile-guard.cjs');
+  let verdict = { ok: true };
+  try {
+    verdict = checkInheritedProfile({
+      env: process.env,
+      platform: process.platform,
+      productLaunch,
+      defaultDataRoot: () => require(
+        path.join(ROOT, '.compiled', 'src', 'main', 'config', 'storage-locations.js'),
+      ).StorageLocations.resolveDefaultDataRoot(),
+    });
+  } catch (err) {
+    console.warn(`[run-electron] inherited-profile guard could not evaluate and was skipped: ${err && err.message ? err.message : err}`);
+  }
+  if (!verdict.ok) {
+    console.error(verdict.message);
+    process.exit(1);
+  }
+}
+
 const bridgePort = Number(process.env.ANTIFAN_BRIDGE_PORT || 0) || null;
 
 /** A second launcher must not adopt (or overwrite) an instance already serving the port. */

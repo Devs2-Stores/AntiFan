@@ -24,6 +24,79 @@ import {
 } from './terminal-capabilities';
 
 export { ShopIdentity, probeTabShopIdentity } from '../qa/shop-identity';
+
+/** Which findings `theme.settings_check` keeps: the named files and/or the files modified since a moment. */
+interface SettingsCheckScope {
+  files: string[] | null;
+  changedSinceMs: number | null;
+  keeps(file: string | undefined): boolean;
+}
+
+const normalizeThemeFilePath = (file: string): string => file.replace(/\\/g, '/').replace(/^\.\//, '');
+
+/**
+ * Reads the `files` / `changedSince` arguments of `theme.settings_check`. `files` entries are confined
+ * to `root` (a path that escapes it is refused, never read); the scope only filters the findings of a
+ * full run, it does not shorten the run.
+ */
+function parseSettingsCheckScope(root: string, params: { files?: unknown; changedSince?: unknown } | undefined): SettingsCheckScope | null {
+  const rawFiles = params?.files;
+  const rawSince = params?.changedSince;
+  if (rawFiles === undefined && rawSince === undefined) return null;
+
+  let files: string[] | null = null;
+  if (rawFiles !== undefined) {
+    if (!Array.isArray(rawFiles) || rawFiles.length === 0 || rawFiles.some((f) => typeof f !== 'string' || f.trim().length === 0)) {
+      throw new CapabilityError('INVALID_ARGUMENT', 'theme.settings_check: files must be a non-empty array of theme file paths relative to the workspace root');
+    }
+    files = (rawFiles as string[]).map((entry) => {
+      const relative = path.relative(root, path.resolve(root, entry.trim()));
+      if (relative === '' || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+        throw new CapabilityError('INVALID_ARGUMENT', `theme.settings_check: files entry '${entry}' is outside the workspace root`, {
+          recovery: 'name theme files relative to workspaceRoot, for example "config/settings_schema.json"',
+        });
+      }
+      return normalizeThemeFilePath(relative);
+    });
+  }
+
+  let changedSinceMs: number | null = null;
+  if (rawSince !== undefined) {
+    const numeric = typeof rawSince === 'number' ? rawSince : typeof rawSince === 'string' && /^\d+$/.test(rawSince.trim()) ? Number(rawSince.trim()) : NaN;
+    const parsed = Number.isFinite(numeric) ? numeric : typeof rawSince === 'string' ? Date.parse(rawSince) : NaN;
+    if (!Number.isFinite(parsed)) {
+      throw new CapabilityError('INVALID_ARGUMENT', 'theme.settings_check: changedSince must be an ISO timestamp or epoch milliseconds');
+    }
+    changedSinceMs = parsed;
+  }
+
+  const mtimes = new Map<string, number | null>();
+  const mtimeOf = (file: string): number | null => {
+    if (!mtimes.has(file)) {
+      try {
+        mtimes.set(file, fs.statSync(path.join(root, file)).mtimeMs);
+      } catch {
+        mtimes.set(file, null);
+      }
+    }
+    return mtimes.get(file) ?? null;
+  };
+  return {
+    files,
+    changedSinceMs,
+    keeps: (file) => {
+      if (typeof file !== 'string' || file.length === 0) return false;
+      const normalized = normalizeThemeFilePath(file);
+      if (files && !files.includes(normalized)) return false;
+      if (changedSinceMs !== null) {
+        const modified = mtimeOf(normalized);
+        if (modified === null || modified < changedSinceMs) return false;
+      }
+      return true;
+    },
+  };
+}
+
 function resolveRepoRoot(): string {
   let dir = __dirname;
   for (let i = 0; i < 8; i++) {
@@ -544,11 +617,13 @@ export function registerThemeTransactionCapabilities(
     inputSchema: {
       type: 'object',
       properties: {
-        workspaceRoot: { type: 'string', description: 'Workspace root path' },
+        workspaceRoot: { type: 'string', description: 'Theme workspace root; defaults to the authoritative workspace' },
+        files: { type: 'array', items: { type: 'string' }, description: 'Theme files (relative to workspaceRoot) whose findings to keep. Filters the result; it does not shorten the run. A path that escapes workspaceRoot is refused' },
+        changedSince: { type: ['string', 'number'], description: 'ISO timestamp or epoch milliseconds; keeps only findings for files modified at or after it. Filters the result; it does not shorten the run' },
       },
     },
     execute: async (
-      params?: { workspaceRoot?: string },
+      params?: { workspaceRoot?: string; files?: string[]; changedSince?: string | number },
       context?: CapabilityRequestContext | AuthenticatedCapabilityContext
     ) => {
       // Read-only offline check: any named theme directory may be inspected;
@@ -559,6 +634,7 @@ export function registerThemeTransactionCapabilities(
       const root = providedRoot
         ? canonicalizeWorkspaceRoot(path.resolve(callerRoot, providedRoot))
         : callerRoot;
+      const scope = parseSettingsCheckScope(root, params);
       const repoRoot = resolveRepoRoot();
       const themeChecksPath = path.join(repoRoot, 'scripts', 'lib', 'theme-checks.mjs');
       // Dynamic import: scripts/lib/theme-checks.mjs is an uncompiled pure-ESM CLI module outside TypeScript rootDir.
@@ -600,19 +676,21 @@ export function registerThemeTransactionCapabilities(
               (cf) => cf.rule === f.rule && cf.file === (f.path || 'config/settings_schema.json')
             )
         )
-        .map((f: { rule: string; path?: string; detail: string }) => ({
+        .map((f: { rule: string; path?: string; detail: string; line?: number; pointer?: string }) => ({
           rule: f.rule,
           file: f.path || 'config/settings_schema.json',
-          line: 1,
+          ...(f.line !== undefined ? { line: f.line } : {}),
+          ...(f.pointer ? { pointer: f.pointer } : {}),
           message: f.detail,
           detail: f.detail,
         }));
       const f1genzFailures = (f1genzSchema?.failures || []).map(
-        (f: { rule: string; id?: string; file?: string; line?: number; message: string }) => ({
+        (f: { rule: string; id?: string; file?: string; line?: number; pointer?: string; message: string }) => ({
           rule: f.rule,
           ...(f.id ? { id: f.id } : {}),
           file: f.file || 'config/settings_schema.json',
-          line: f.line || 1,
+          ...(f.line ? { line: f.line } : {}),
+          ...(f.pointer ? { pointer: f.pointer } : {}),
           message: f.message,
           detail: f.message,
         })
@@ -622,11 +700,12 @@ export function registerThemeTransactionCapabilities(
           (d: { id: string }) =>
             !f1genzFailures.some((f: { rule: string; id?: string }) => f.rule === 'dead-setting' && f.id === d.id)
         )
-        .map((d: { id: string }) => ({
+        .map((d: { id: string; line?: number; pointer?: string }) => ({
           rule: 'dead-setting',
           id: d.id,
           file: hasSettingsSchema ? 'config/settings_schema.json' : 'config/settings.html',
-          line: 1,
+          ...(d.line ? { line: d.line } : {}),
+          ...(d.pointer ? { pointer: d.pointer } : {}),
           message: `schema setting has no resolved reference: ${d.id}`,
           detail: `Declared setting '${d.id}' is never referenced in theme Liquid files`,
         }));
@@ -649,17 +728,52 @@ export function registerThemeTransactionCapabilities(
         })) || []),
       ];
 
+      const kept = <T extends { file?: string }>(items: T[]): T[] => (scope ? items.filter((item) => scope.keeps(item.file)) : items);
+      const scopedFailures = kept(failures);
+      const scopedDeadFailures = kept(deadSettingFailures);
+      const scopedF1genz = kept(f1genzFailures);
+      const scopedSchema = kept(schemaFailures);
+      const scopedBinding = kept<{ file?: string }>(settingsBinding?.failures || []);
+      const scopedContracts = kept<{ file?: string }>(haravanContracts?.failures || []);
+      const scopedMissing = scope
+        ? (assets?.localMissing || []).filter((m: { files?: string[] }) => scope.keeps(m.files?.[0] || 'assets/'))
+        : assets?.localMissing || [];
+
       const refusals = [];
-      if (settingsBinding && !settingsBinding.ok) refusals.push({ check: 'settings-binding', failures: settingsBinding.failures.length });
-      if (f1genzFailures.length + deadSettingFailures.length > 0) {
-        refusals.push({ check: 'f1genz-settings-schema', failures: f1genzFailures.length + deadSettingFailures.length });
+      if (settingsBinding && (scope ? scopedBinding.length > 0 : !settingsBinding.ok)) {
+        refusals.push({ check: 'settings-binding', failures: scopedBinding.length });
       }
-      if (assets && !assets.ok) refusals.push({ check: 'assets', failures: assets.localMissing.length });
-      if (haravanContracts && !haravanContracts.ok) refusals.push({ check: 'haravan-contracts', failures: haravanContracts.failures.length });
-      if (schemaFailures.length > 0) refusals.push({ check: 'theme-schemas', failures: schemaFailures.length });
+      if (scopedF1genz.length + scopedDeadFailures.length > 0) {
+        refusals.push({ check: 'f1genz-settings-schema', failures: scopedF1genz.length + scopedDeadFailures.length });
+      }
+      if (assets && (scope ? scopedMissing.length > 0 : !assets.ok)) refusals.push({ check: 'assets', failures: scopedMissing.length });
+      if (haravanContracts && (scope ? scopedContracts.length > 0 : !haravanContracts.ok)) {
+        refusals.push({ check: 'haravan-contracts', failures: scopedContracts.length });
+      }
+      if (scopedSchema.length > 0) refusals.push({ check: 'theme-schemas', failures: scopedSchema.length });
 
       const deadInSchema = Array.isArray(settingsBinding?.dead) ? settingsBinding.dead.length : 0;
-      const ok = failures.length === 0;
+      const ok = scopedFailures.length === 0;
+      const scopedWarnings = kept(warnings);
+
+      if (scope) {
+        // The scope filters the findings of a full run, so the unscoped detail payloads are not returned:
+        // they would still carry the findings the scope removed.
+        return {
+          ok,
+          failures: scopedFailures,
+          totalFailures: scopedFailures.length,
+          unscopedTotalFailures: failures.length,
+          deadInSchema,
+          ...(scopedWarnings.length > 0 ? { warnings: scopedWarnings } : {}),
+          refusals,
+          scope: {
+            ...(scope.files ? { files: scope.files } : {}),
+            ...(scope.changedSinceMs !== null ? { changedSince: new Date(scope.changedSinceMs).toISOString() } : {}),
+            note: 'findings are filtered to the scope; the run itself still covered the whole theme',
+          },
+        };
+      }
 
       return {
         ok,

@@ -4,7 +4,7 @@ import * as assert from 'node:assert';
 import { CapabilityCatalogue } from '../../src/main/tools/capability-catalogue';
 import { registerBrowserCapabilities } from '../../src/main/tools/browser-capabilities';
 import { BrowserControlPort, BrowserHostPort } from '../../src/main/tools/browser-control-port';
-import { BrowserTarget } from '../../src/shared/control-plane-contracts';
+import { BrowserTarget, CapabilityError } from '../../src/shared/control-plane-contracts';
 
 describe('AntiFan Sensory Engine & Quality Gate Suite', () => {
   const dummyTarget: BrowserTarget = {
@@ -660,7 +660,13 @@ describe('AntiFan Sensory Engine & Quality Gate Suite', () => {
     test('rejects obsolete semantic names instead of selecting another page', async () => {
       const host = createMockHost();
       const port = new BrowserControlPort(host);
-      await assert.rejects(port.freezeMedia(dummyTarget, { tabId: '@target' }), /Unknown tab ID/);
+      await assert.rejects(
+        port.freezeMedia(dummyTarget, { tabId: '@target' }),
+        (err: unknown) => err instanceof CapabilityError
+          && err.code === 'TARGET_STALE'
+          && err.details?.tabId === '@target'
+          && err.details?.recovery === 'anti.browser.tabs.list'
+      );
     });
   });
 });

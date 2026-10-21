@@ -224,6 +224,9 @@ function plan(ctx) {
     { name: 'anti.inspect.page_inventory', args: t },
     { name: 'anti.inspect.style_diff', args: () => ({ ...t(), selector: sel.title, comparisonSelector: sel.card }) },
     { name: 'anti.inspect.responsive_matrix', args: () => ({ ...t(), selector: sel.grid }), samples: 2 },
+    { name: 'anti.inspect.layout', args: () => ({ ...t(), selectors: [sel.card, sel.grid] }) },
+    { name: 'anti.inspect.font', args: () => ({ ...t(), selector: sel.title }) },
+    { name: 'anti.inspect.console', args: t },
     { name: 'anti.theme.resolve_element', args: () => ({ ...t(), selector: sel.title }) },
     { name: 'anti.browser.evaluate', args: () => ({ ...t(), expression: 'document.title' }) },
     { name: 'anti.browser.evaluate', label: 'anti.browser.evaluate#bulk', args: () => ({ ...t(), expression: `[...document.querySelectorAll(${JSON.stringify(sel.card)})].map(c => c.textContent.trim())` }) },
@@ -275,8 +278,21 @@ function plan(ctx) {
     { name: 'theme.assert_cart', args: t },
     { name: 'theme.resolve_product', args: () => ({ ...t(), handle: sel.product }), samples: 3 },
     { name: 'storefront.resolve_product', args: () => ({ ...t(), handle: sel.product }), samples: 3 },
-    { name: 'theme.qa_validate', args: t, samples: 2, timeoutMs: 180_000 },
-    { name: 'anti.theme.qa_validate', args: t, samples: 2, timeoutMs: 180_000 },
+    // The fixture theme gives the root-marker guard a real theme root; a user tab (--tab) keeps its own workspace.
+    { name: 'theme.qa_validate', args: () => ({ ...t(), ...(ctx.userTab ? {} : { workspaceRoot: ctx.themeRoot }) }), samples: 2, timeoutMs: 180_000 },
+    { name: 'anti.theme.qa_validate', args: () => ({ ...t(), ...(ctx.userTab ? {} : { workspaceRoot: ctx.themeRoot }) }), samples: 2, timeoutMs: 180_000 },
+    { name: 'theme.package_check', args: () => (ctx.userTab ? {} : { workspaceRoot: ctx.themeRoot }), samples: 3 },
+    // QA probes: read-only measurements of the bound page.
+    { name: 'anti.qa.page_structure', args: t, samples: 3 },
+    { name: 'anti.qa.pdp_contract', args: t, samples: 3 },
+    { name: 'anti.qa.menu_depth', args: t, samples: 3 },
+    { name: 'anti.qa.visual_quality', args: t, samples: 3 },
+    { name: 'anti.qa.pick_product', args: () => ({ ...t(), strategy: 'max-variants', sampleLimit: 10 }), samples: 2 },
+    // These click real controls, open overlays or navigate the tab: never against a user tab.
+    { name: 'anti.qa.variant_image_probe', args: () => ({ ...t(), maxValues: 4 }), samples: 2, mutatesPage: true },
+    { name: 'anti.qa.state_matrix', args: () => ({ ...t(), maxTriggers: 4 }), samples: 2, mutatesPage: true },
+    { name: 'anti.qa.batch_matrix', args: () => ({ ...t(), routes: ['/'] }), samples: 2, timeoutMs: 180_000, mutatesPage: true },
+    { name: 'anti.layout.compare_candidates', args: () => ({ ...t(), scopeSelector: sel.grid, candidates: [{ id: 'bench', label: 'bench', css: `${sel.grid}{gap:8px}` }] }), samples: 2, timeoutMs: 180_000 },
     { name: 'theme.cockpit_list', args: t },
     { name: 'theme.cockpit_findings', args: t },
     { name: 'theme.cockpit_report', args: t },
@@ -286,6 +302,10 @@ function plan(ctx) {
     // A claim verifies once per run attempt: a repeat answers POLICY_DENIED (STALEMATE), so only the cold call is timed.
     { name: 'anti.verification.verify_claim', args: () => ({ claimId: ctx.claimId }), samples: 0, needs: () => ctx.claimId, needsWhy: 'record_claim surfaced no claimId', isolatedOnly: true },
     { name: 'anti.verification.list', args: () => ({ limit: 5 }) },
+    // Device presets: the preset is applied last among the tab rows and the viewport put back right after.
+    { name: 'browser.list-device-presets', args: () => ({}) },
+    { name: 'browser.set-device-preset', args: () => ({ ...t(), presetId: 'phone-iphone14pro', reload: false }), samples: 2 },
+    { name: 'browser.set-viewport', label: 'browser.set-viewport#after-preset', args: () => ({ ...t(), width: 1280, height: 800 }), samples: 1 },
     // workspace / host
     { name: 'file.read', args: () => ({ path: 'package.json', maxBytes: 4096 }) },
     // The isolated runtime is wired without host tab authority and without a device
@@ -346,12 +366,41 @@ const SKIPPED = {
   'device.swipe': 'drives a physical iOS device',
   'device.type': 'drives a physical iOS device',
   'device.wait': 'drives a physical iOS device',
+  'anti.theme.await_cdn_sync': 'polls a deployed storefront asset against a workspace file; the synthetic storefront serves no theme assets',
+  'anti.sheet.extract': 'needs a tab on an authenticated Google Sheet',
+  'theme.transaction.begin': 'acquires the exclusive workspace transaction lock',
+  'theme.transaction.write_cas': 'writes theme files inside a mutation session',
+  'theme.transaction.await_sync_and_reload': 'waits on a live hrv theme dev terminal acknowledgment',
+  'theme.transaction.settle': 'settles a mutation session',
+  'theme.transaction.rollback': 'rolls back a mutation session and releases the workspace lock',
+  'theme.transaction.resolve_hold': 'resolves a quarantined mutation session',
 };
 const CORE_WRITE = /^core\.(record_|ingest_outcome|adjudicate|receipt|invalidate|revoke|snapshot|rollback|resolve_conflict|replay_regression)/;
 // Tools that never address a browser tab: they run even when no benchmark tab exists.
-const TAB_FREE = /^(core\.|file\.|terminal\.|device\.|anti\.verification\.list$|anti\.browser\.tabs\.list$)/;
+const TAB_FREE = /^(core\.|file\.|terminal\.|device\.|anti\.verification\.list$|anti\.browser\.tabs\.list$|theme\.package_check$|browser\.list-device-presets$)/;
 // Measured separately by the tab-lifecycle probe.
 const LIFECYCLE = new Set(['anti.browser.tabs.create', 'anti.browser.tabs.close']);
+
+/**
+ * A minimal theme workspace under the scratch dir. QA entry points refuse a root without the
+ * theme markers (src/main/qa/workspace-markers.ts: layout/theme.liquid, config/settings_schema.json,
+ * config/settings.html), so theme.qa_validate measures the QA run itself instead of WORKSPACE_NOT_THEME.
+ * The scratch dir is removed in runBenchmark's finally, which removes this tree with it.
+ */
+function writeThemeFixture(root) {
+  const files = {
+    'layout/theme.liquid': '<!DOCTYPE html>\n<html lang="en">\n<head>\n  <title>{{ page_title }}</title>\n  {{ content_for_header }}\n</head>\n<body>\n  {{ content_for_layout }}\n</body>\n</html>\n',
+    'config/settings_schema.json': '[{"name":"theme_info","theme_name":"Bench","theme_version":"1.0.0"}]\n',
+    'config/settings_data.json': '{"current":{}}\n',
+    'templates/index.liquid': '<main id="MainContent"><h1>{{ shop.name }}</h1></main>\n',
+    'assets/theme.css': 'body{margin:0}\n',
+  };
+  for (const [rel, content] of Object.entries(files)) {
+    const file = path.join(root, ...rel.split('/'));
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, content, 'utf8');
+  }
+}
 
 /**
  * @param {object} opts
@@ -366,7 +415,7 @@ export async function runBenchmark({ mode, spawnProxy, url, tab = '', tabCreateA
   const isolated = mode === 'electron';
   // dump_dom / export_clean refuse an outputPath outside the session's workspace root.
   fs.mkdirSync(scratchDir, { recursive: true });
-  const ctx = { url, scratchDir, tabId: null, userTab: Boolean(tab), baselineRef: null, artifactId: null, claimId: null };
+  const ctx = { url, scratchDir, themeRoot: path.join(scratchDir, 'theme-fixture'), tabId: null, userTab: Boolean(tab), baselineRef: null, artifactId: null, claimId: null };
   // set_viewport is measured on the user tab too; its size is put back afterwards.
   let userViewport = null;
   const startedAt = performance.now();
@@ -386,6 +435,7 @@ export async function runBenchmark({ mode, spawnProxy, url, tab = '', tabCreateA
   };
 
   try {
+    writeThemeFixture(ctx.themeRoot);
     let t0 = performance.now();
     const init = await proxy.request('initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'antifan-mcp-bench', version: '1' } }, 30_000);
     report.proxy.initializeMs = round(performance.now() - t0);

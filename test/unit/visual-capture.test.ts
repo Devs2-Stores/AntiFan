@@ -9,6 +9,7 @@ import {
   NormalizationTransaction,
   TwoSourceCoherenceGuard,
   checkCaptureStateCompatibility,
+  checkRouteIdentity,
   classifyCoherence,
   classifyIdentity,
   classifyMutation,
@@ -982,5 +983,29 @@ describe('provenViewportCssSize (viewport raster geometry)', () => {
   it('returns null when the raster matches neither reading or the visual viewport is unmeasured', () => {
     assert.strictEqual(provenViewportCssSize({ width: 1000, height: 2000 }, overflowing, 3, 1), null);
     assert.strictEqual(provenViewportCssSize({ width: 1170, height: 2532 }, { vw: 546, vh: 1182 }, 3, 1), null);
+  });
+});
+
+describe('checkRouteIdentity (tab with no committed URL)', () => {
+  it('names the missing navigation instead of a host mismatch when the tab is blank', () => {
+    for (const observed of ['', 'about:blank']) {
+      const result = checkRouteIdentity('https://shop.example.com/collections/all', observed);
+      assert.strictEqual(result.ok, false, observed);
+      if (result.ok) continue;
+      assert.strictEqual(result.code, 'TAB_HAS_NO_COMMITTED_URL');
+      assert.strictEqual(result.status, 'TAB_HAS_NO_COMMITTED_URL');
+      assert.match(result.reason, /navigate first \(anti\.browser\.navigate\)/);
+    }
+  });
+
+  it('still reports URL_HOST_MISMATCH when a committed page is on another host', () => {
+    const result = checkRouteIdentity('https://shop.example.com/collections/all', 'https://other.example.org/collections/all');
+    assert.strictEqual(result.ok, false);
+    if (!result.ok) assert.strictEqual(result.code, 'URL_HOST_MISMATCH');
+  });
+
+  it('does not demand a committed URL when no expectation was supplied', () => {
+    const result = checkRouteIdentity(undefined, 'about:blank');
+    assert.strictEqual(result.ok, true);
   });
 });

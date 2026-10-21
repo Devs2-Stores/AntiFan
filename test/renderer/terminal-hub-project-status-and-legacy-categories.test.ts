@@ -213,6 +213,21 @@ describe('hub search by section name', () => {
     assert.ok(emptyNotice(harness), 'a real miss still says so');
   });
 
+  it('keeps the header of a name-matched project with zero terminals while sibling sections with terminals drop out', async () => {
+    const harness = await loadManager([MNB]);
+    harness.renderTabs();
+    assert.deepStrictEqual(rowIds(harness), ['t-1'], 'the other project has a terminal');
+
+    search(harness, 'Mnbakery');
+    assert.deepStrictEqual(projectIds(harness), ['mnb'], 'the zero-terminal project keeps its section header');
+    assert.deepStrictEqual(rowIds(harness), [], 'no row survives: the matched section is empty');
+    assert.strictEqual(emptyNotice(harness), null, 'the empty notice stays hidden while a header is shown');
+
+    search(harness, '');
+    assert.deepStrictEqual(projectIds(harness).sort(), ['mnb', 'p1'], 'clearing the query restores both sections');
+    assert.strictEqual(emptyNotice(harness), null);
+  });
+
   it('keeps a matched section whole and narrows by section and row text together', async () => {
     const harness = await loadManager([MNB]);
     const folder = { folderKey: 'e:\\work\\customizes\\mnbakery', folderLabel: 'Mnbakery', folderPath: 'E:\\Work\\customizes\\Mnbakery' };

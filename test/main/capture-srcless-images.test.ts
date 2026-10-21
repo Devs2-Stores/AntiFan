@@ -244,6 +244,36 @@ describe('evaluatePreCaptureQuiescence: srcless gate', () => {
     assert.strictEqual(result.warnings.srclessImages, 2);
   });
 
+  it('tells a viewport capture to scroll or use full_page instead of naming a parameter viewport lacks', async () => {
+    const result = await evaluatePreCaptureQuiescence(
+      hostOf(sampleOf({ srclessImages: 2 })),
+      'tab-1',
+      'desktop',
+      { dwellMs: 0, surface: 'viewport' },
+    );
+
+    assert.strictEqual(result.failingPredicate, 'imagesSettled');
+    assert.match(result.reason ?? '', /unmaterialized image\(s\)/);
+    assert.match(result.reason ?? '', /anti\.agent\.cursor\.scroll/);
+    assert.match(result.reason ?? '', /anti\.screenshot\.full_page/);
+    assert.match(result.reason ?? '', /materializeDataSrc:true/);
+    assert.doesNotMatch(result.reason ?? '', /promote with materializeDataSrc/);
+  });
+
+  it('keeps the materializeDataSrc remedy for full-page and reference captures', async () => {
+    for (const surface of ['fullPage', 'reference'] as const) {
+      const result = await evaluatePreCaptureQuiescence(
+        hostOf(sampleOf({ srclessImages: 2 })),
+        'tab-1',
+        'desktop',
+        { dwellMs: 0, surface },
+      );
+
+      assert.match(result.reason ?? '', /promote with materializeDataSrc:true/, surface);
+      assert.doesNotMatch(result.reason ?? '', /anti\.agent\.cursor\.scroll/, surface);
+    }
+  });
+
   it('disables the leftover-pending tolerance while srcless images remain', async () => {
     const result = await evaluatePreCaptureQuiescence(
       hostOf(sampleOf({ srclessImages: 1, pendingImages: 1, imageCount: 5 })),

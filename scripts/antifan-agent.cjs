@@ -470,6 +470,9 @@ async function acquireBridgeSession(candidates, boundPid, explicitTabId) {
   // Refusals a bridge answered with. A bridge that answered is up: reporting its refusal as
   // "offline" sends the caller to restart a desktop app that is running fine.
   const refusals = [];
+  // Candidates that accepted the socket but never answered startSession. Distinct from a refusal
+  // (the bridge spoke) and from an unreachable endpoint (nothing listened).
+  const timeouts = [];
   const rawPinnedPid = parseInt(process.env.ANTIFAN_BRIDGE_PID || '', 10);
   const pinnedPid = Number.isInteger(rawPinnedPid) && rawPinnedPid > 0 ? rawPinnedPid : null;
   let foreignFallback = null;
@@ -525,7 +528,20 @@ async function acquireBridgeSession(candidates, boundPid, explicitTabId) {
       if (forbiddenCaps && forbiddenCaps.length > 0) {
         startParams.forbiddenCapabilityNames = forbiddenCaps;
       }
-      const session = await rpcCall(ws, 'antifan.cli.startSession', startParams, 5000);
+      let session;
+      try {
+        session = await rpcCall(ws, 'antifan.cli.startSession', startParams, 5000);
+      } catch (startErr) {
+        if (startErr && startErr.code === 'RPC_TIMEOUT') {
+          const journalPath = process.env.ANTIFAN_DATA_ROOT
+            ? path.join(process.env.ANTIFAN_DATA_ROOT, 'runtime', 'bridge-client-failures.jsonl')
+            : '<DATA_ROOT>/runtime/bridge-client-failures.jsonl';
+          const timeoutErr = new Error(`bridge không trả lời startSession trong 5 s; xem ${journalPath}`);
+          timeoutErr.code = 'BRIDGE_SESSION_TIMEOUT';
+          throw timeoutErr;
+        }
+        throw startErr;
+      }
       const targetTabId = session?.tabId || explicitTabId;
       if (!session || !session.attachmentId || !session.secret || !session.authorityRevision || !targetTabId) {
         const missing = [
@@ -565,6 +581,7 @@ async function acquireBridgeSession(candidates, boundPid, explicitTabId) {
     } catch (err) {
       errors.push(`${wsUrl} (${candidate.file || candidate.source || 'endpoint'}): ${err.message}`);
       if (err.bridgeAnswered === true) refusals.push(err);
+      if (err.code === 'BRIDGE_SESSION_TIMEOUT') timeouts.push(err);
       try { ws?.close(); } catch {}
     }
   }
@@ -576,6 +593,11 @@ async function acquireBridgeSession(candidates, boundPid, explicitTabId) {
     const err = new Error(`AntiFan Bridge answered and refused this session:\n  - ${errors.join('\n  - ')}`);
     err.code = 'BRIDGE_SESSION_REFUSED';
     err.refusalCodes = refusals.map((refusal) => refusal.code);
+    throw err;
+  }
+  if (timeouts.length > 0) {
+    const err = new Error(`${timeouts[0].message}\n  - ${errors.join('\n  - ')}`);
+    err.code = 'BRIDGE_SESSION_TIMEOUT';
     throw err;
   }
   throw new Error(`All candidate endpoints failed to authenticate or connect:\n  - ${errors.join('\n  - ')}`);
@@ -625,7 +647,9 @@ function rpcCall(ws, method, params = {}, timeoutMs = 10000) {
     const id = `req_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     const timer = setTimeout(() => {
       ws.off('message', onMessage);
-      reject(new Error(`RPC timeout waiting for ${method}`));
+      const timeoutErr = new Error(`RPC timeout waiting for ${method}`);
+      timeoutErr.code = 'RPC_TIMEOUT';
+      reject(timeoutErr);
     }, timeoutMs);
 
     function onMessage(raw) {
@@ -729,8 +753,13 @@ async function main() {
     bridgeAcquisition = await acquireBridgeSession(candidates, boundPid, explicitTabId);
   } catch (err) {
     if (err.code === 'BRIDGE_SESSION_REFUSED') {
-      console.error(`BRIDGE_SESSION_REFUSED: ${err.message}`);
+      console.error(`BRIDGE_SESSION_REFUSED${Array.isArray(err.refusalCodes) && err.refusalCodes.length > 0 ? ` (${err.refusalCodes.join(', ')})` : ''}: ${err.message}`);
       console.error('[antifan-agent] AntiFan Browser Desktop is running; the refusal above names why this session was not admitted.');
+      process.exit(1);
+    }
+    if (err.code === 'BRIDGE_SESSION_TIMEOUT') {
+      console.error(`BRIDGE_SESSION_TIMEOUT: ${err.message}`);
+      console.error('[antifan-agent] AntiFan Browser Desktop accepted the connection but did not answer the session request; it is not necessarily down.');
       process.exit(1);
     }
     console.error(`MCP_BRIDGE_OFFLINE: Failed to connect to AntiFan Bridge after bounded attempts:\n${err.message}`);

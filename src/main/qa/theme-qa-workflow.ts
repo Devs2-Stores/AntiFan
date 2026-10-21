@@ -107,6 +107,40 @@ export interface ThemeQaDetailedFindings {
   /** Contrast, tap-target and floating-widget measurements (see visual-quality-scanner.ts). */
   visualQuality?: VisualQualityScanResult;
 }
+export type ThemeQaSeverity = 'critical' | 'warning';
+
+export interface ThemeQaCertificationRemedy {
+  reason: string;
+  tool: string;
+  args?: Record<string, unknown>;
+}
+
+/**
+ * Findings of this run grouped by where they stand against the baseline. `introduced`: absent
+ * from the baseline (or from the pre-reload diagnostics when no baseline was supplied).
+ * `preexisting`: matched in the baseline. `legacy`: findings that had no baseline to be compared
+ * with, so they cannot be called introduced.
+ */
+export interface ThemeQaAttribution {
+  introduced: Record<ThemeQaSeverity, number>;
+  preexisting: Record<ThemeQaSeverity, number>;
+  legacy: Record<ThemeQaSeverity, number>;
+  introducedSelectors: string[];
+}
+
+/** `width` is the sweep width for `sweep` and `absolute`; for `caller` it is the nominal width of the named viewport. */
+export interface ThemeQaViewportTested {
+  name: string;
+  width: number;
+  source: 'caller' | 'sweep' | 'absolute';
+}
+
+export interface ThemeQaStorefrontTheme {
+  id?: string | number;
+  role?: string;
+  changedSincePreviousRun?: boolean;
+}
+
 export interface ThemeQaSummary {
   passed: boolean;
   totalIssues: number;
@@ -130,6 +164,12 @@ export interface ThemeQaSummary {
   certificationReasons?: string[];
   /** Where the registry thresholds came from: explicit caller value, the workspace contract, or the built-in defaults. */
   thresholdsSource?: QaThresholdsSource;
+  /** What backed a CERTIFIED verdict: a baseline comparison per viewport, or a declared greenfield run. Absent when STRUCTURAL. */
+  certificationBasis?: 'baseline' | 'greenfield';
+  /** Concrete calls that would turn a STRUCTURAL result into CERTIFIED; the reasons stay in `certificationReasons`. */
+  certificationRemedies?: ThemeQaCertificationRemedy[];
+  /** Where this run's critical findings stand relative to the baseline; never changes `criticalCount`. */
+  attribution?: ThemeQaAttribution;
 }
 export interface QaMatrixDimension {
   score: number | null;
@@ -141,6 +181,8 @@ export interface QaMatrixViewportItem {
   passed: boolean;
   measured: boolean;
   verdict?: 'PASS' | 'FAIL' | 'INCONCLUSIVE';
+  /** `absolute` on a greenfield run (graded by the absolute gates, no pixel diff); absent for baseline-compared viewports. */
+  basis?: 'baseline' | 'absolute';
 }
 
 export interface QaMatrixCoverage {
@@ -243,6 +285,10 @@ export interface ThemeQaReport {
   profile: QaProfile;
   /** Where the registry thresholds came from. */
   thresholdsSource: QaThresholdsSource;
+  /** Widths this run measured and what measured them. */
+  viewportsTested?: ThemeQaViewportTested[];
+  /** The theme the storefront reported serving; absent when the page exposes none. */
+  storefrontTheme?: ThemeQaStorefrontTheme;
   /** Scanner dimensions measured of the dimensions expected; the receipt mirrors it for coverage audits. */
   coverage: { measured: number; expected: number };
   /** Minimum measured/expected share below which a green run is INCONCLUSIVE. */
@@ -1185,6 +1231,124 @@ function mergeMobileVisualQuality(base: VisualQualityScanResult | undefined, swe
   };
 }
 
+export type GreenfieldViewportName = 'desktop' | 'tablet' | 'mobile';
+
+const GREENFIELD_VIEWPORT_NAMES: readonly GreenfieldViewportName[] = ['desktop', 'tablet', 'mobile'];
+
+/** The sweep width that stands for each viewport name on a greenfield run. */
+const GREENFIELD_VIEWPORT_WIDTHS: Record<GreenfieldViewportName, number> = { desktop: 1440, tablet: 768, mobile: 320 };
+
+type ResponsiveWidthEntry = NonNullable<ThemeQaDetailedFindings['responsive']>[string];
+
+/** A width counts as measured only when the sweep returned both the overflow and the integrity reading. */
+function greenfieldWidthMeasured(entry: ResponsiveWidthEntry | undefined): entry is ResponsiveWidthEntry {
+  return (
+    entry !== undefined &&
+    entry.documentOverflow !== null &&
+    entry.criticalOverlap !== null &&
+    entry.criticalClipping !== null &&
+    entry.criticalOcclusion !== null &&
+    entry.criticalOffscreen !== null
+  );
+}
+
+function greenfieldWidthClean(entry: ResponsiveWidthEntry): boolean {
+  return (
+    entry.documentOverflow === false &&
+    entry.criticalOverflow === 0 &&
+    entry.criticalOverlap === 0 &&
+    entry.criticalClipping === 0 &&
+    entry.criticalOcclusion === 0 &&
+    entry.criticalOffscreen === 0
+  );
+}
+
+/** Which widths a run measured, and by what evidence (see ThemeQaReport.viewportsTested). */
+function buildViewportsTested(
+  responsiveMap: NonNullable<ThemeQaDetailedFindings['responsive']>,
+  qaMatrix: QaMatrixReport,
+  greenfield: boolean
+): ThemeQaViewportTested[] {
+  const tested: ThemeQaViewportTested[] = [];
+  for (const name of GREENFIELD_VIEWPORT_NAMES) {
+    const viewport = qaMatrix.viewports[name];
+    if (!viewport.measured) continue;
+    tested.push({ name, width: GREENFIELD_VIEWPORT_WIDTHS[name], source: greenfield ? 'absolute' : 'caller' });
+  }
+  for (const width of QA_RESPONSIVE_WIDTHS) {
+    const entry = responsiveMap[String(width)];
+    if (!entry || entry.documentOverflow === null) continue;
+    if (tested.some((item) => item.width === width)) continue;
+    tested.push({ name: width < 768 ? 'mobile' : width <= 1024 ? 'tablet' : 'desktop', width, source: 'sweep' });
+  }
+  return tested;
+}
+
+function buildAttribution(differential: ThemeQaDifferentialAttribution, hasBaseline: boolean): ThemeQaAttribution {
+  const zero = (): Record<ThemeQaSeverity, number> => ({ critical: 0, warning: 0 });
+  const attribution: ThemeQaAttribution = { introduced: zero(), preexisting: zero(), legacy: zero(), introducedSelectors: [] };
+  const introducedSelectors = new Set<string>();
+  for (const item of differential.preExistingIssues) attribution.preexisting[item.severity]++;
+  for (const item of differential.introducedRegressions) {
+    // Without a supplied baseline only the diagnostics have a before-reload reading to compare
+    // against; every other finding has nothing to be "introduced" relative to.
+    if (!hasBaseline && item.category !== 'diagnostics') {
+      attribution.legacy[item.severity]++;
+      continue;
+    }
+    attribution.introduced[item.severity]++;
+    const selector = item.details?.selector;
+    if (typeof selector === 'string' && selector.length > 0) introducedSelectors.add(selector);
+  }
+  attribution.introducedSelectors = [...introducedSelectors].slice(0, 25);
+  return attribution;
+}
+
+/** Reads the theme the storefront reports about itself; any shape it does not recognise reads as null. */
+const STOREFRONT_THEME_SCRIPT = `(() => {
+  try {
+    var holder = (window.Shopify && window.Shopify.theme) || (window.Haravan && window.Haravan.theme) || (window.haravan && window.haravan.theme) || null;
+    if (!holder || typeof holder !== 'object') return null;
+    var id = holder.id !== undefined && holder.id !== null ? holder.id : holder.theme_id;
+    var role = holder.role;
+    return {
+      id: typeof id === 'string' || typeof id === 'number' ? id : null,
+      role: typeof role === 'string' ? role : null,
+    };
+  } catch (e) {
+    return null;
+  }
+})()`;
+
+function normalizeStorefrontTheme(reading: unknown): ThemeQaStorefrontTheme | undefined {
+  if (!reading || typeof reading !== 'object') return undefined;
+  const raw = reading as { id?: unknown; role?: unknown };
+  const id = typeof raw.id === 'string' && raw.id.trim().length > 0 ? raw.id.trim() : typeof raw.id === 'number' && Number.isFinite(raw.id) ? raw.id : undefined;
+  const role = typeof raw.role === 'string' && raw.role.trim().length > 0 ? raw.role.trim() : undefined;
+  if (id === undefined && role === undefined) return undefined;
+  return { ...(id !== undefined ? { id } : {}), ...(role !== undefined ? { role } : {}) };
+}
+
+/** Theme id recorded by the newest QA receipt in the workspace, or undefined when none carries one. */
+function readPreviousStorefrontThemeId(workspaceRoot: string): string | undefined {
+  if (!workspaceRoot) return undefined;
+  try {
+    const dir = path.join(workspaceRoot, '.antifan', 'qa-receipts');
+    let newest: { file: string; at: number } | undefined;
+    for (const name of fs.readdirSync(dir)) {
+      if (!name.endsWith('.json')) continue;
+      const at = fs.statSync(path.join(dir, name)).mtimeMs;
+      if (!newest || at > newest.at) newest = { file: name, at };
+    }
+    if (!newest) return undefined;
+    const parsed: unknown = JSON.parse(fs.readFileSync(path.join(dir, newest.file), 'utf8'));
+    const id = (parsed as { storefrontTheme?: { id?: unknown } } | null)?.storefrontTheme?.id;
+    return typeof id === 'string' || typeof id === 'number' ? String(id) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Everything a caller may hand to `ThemeQaWorkflow.validate`. */
 export interface ThemeQaValidateInput {
   runId: string;
@@ -1229,6 +1393,13 @@ export interface ThemeQaValidateInput {
   settle?: QaSettleOverrides;
   /** HTTP status the contract declares for this route; a document returning exactly it is not a ROUTE_404 defect. */
   expectedDocumentStatus?: number;
+  /**
+   * Declares a run with no visual baseline to compare because none exists yet (a new theme).
+   * Each of the three representative widths is then graded by the absolute gates measured at
+   * that width, and certification is labelled `greenfield`. `baselineExists` is filled by the
+   * capability layer after it looks for a promoted baseline: `true` refuses the run.
+   */
+  greenfield?: { reason: string; baselineExists?: boolean };
 }
 
 export class ThemeQaWorkflow {
@@ -1336,6 +1507,26 @@ export class ThemeQaWorkflow {
       throw new CapabilityError('TARGET_STALE', 'Theme QA validation was aborted by document navigation');
     }
     this.assertOwnership(input.target);
+    // Greenfield is a declared exception to the baseline requirement, so it is refused unless it
+    // names why no baseline exists and the catalogue found none; it also forces the responsive
+    // sweep on, because the absolute gates it grades by are measured there.
+    let greenfieldReason: string | undefined;
+    if (input.greenfield !== undefined) {
+      const declared = input.greenfield as { reason?: unknown; baselineExists?: unknown } | null;
+      const reason = declared && typeof declared === 'object' && typeof declared.reason === 'string' ? declared.reason.trim() : '';
+      if (reason.length === 0) {
+        throw new CapabilityError('INVALID_ARGUMENT', 'greenfield.reason must be a non-empty string naming why no visual baseline exists', {
+          recovery: 'pass greenfield: {reason: "<why no baseline exists>"}, or omit greenfield and supply viewports from a baseline comparison',
+        });
+      }
+      if (declared!.baselineExists === true) {
+        throw new CapabilityError('GREENFIELD_BASELINE_EXISTS', 'A visual baseline already exists for this workspace; a greenfield run cannot replace it', {
+          recovery: 'compare against the promoted baseline with anti.visual.compare and pass the results as viewports, or delete the old baseline deliberately',
+        });
+      }
+      greenfieldReason = reason;
+      input = { ...input, multiBreakpoint: true };
+    }
     const effectiveBaselineFindings = input.baselineFindings;
     // Profile and thresholds are resolved here, not by the caller, so a tool call, a cockpit scan and
     // a toolbar scan that name neither grade a theme identically.
@@ -2031,6 +2222,16 @@ export class ThemeQaWorkflow {
     if (truncatedOrFailedIntegrityWidths.length > 0 && sweepGaps) {
       evidenceGaps.push(`Responsive layout integrity truncated or detector failed at width(s) ${truncatedOrFailedIntegrityWidths.join(', ')}`);
     }
+    // A declared greenfield run certifies only widths this run measured: each representative
+    // width needs both the document-overflow reading and the layout-integrity reading.
+    if (greenfieldReason !== undefined) {
+      for (const name of GREENFIELD_VIEWPORT_NAMES) {
+        const width = GREENFIELD_VIEWPORT_WIDTHS[name];
+        if (!greenfieldWidthMeasured(responsiveMap[String(width)])) {
+          evidenceGaps.push(`Greenfield ${name} viewport (${width}px) was not measured by the responsive sweep (overflow and layout integrity are both required); it cannot be certified`);
+        }
+      }
+    }
 
     // 7. Broken Asset Telemetry (DOM + CDP Network Correlation)
     let assetResult: BrokenAssetScanResult = {
@@ -2320,6 +2521,24 @@ export class ThemeQaWorkflow {
       } catch {}
     }
 
+    // Which theme the storefront served for this run: the receipt needs it to tell a re-run of the
+    // same theme from a run against a different one. Unreadable stays undefined, never a guess.
+    let storefrontTheme: ThemeQaStorefrontTheme | undefined;
+    if (typeof this.ports.browser.eval === 'function') {
+      try {
+        const themeReading = await this.ports.browser.eval(activeTarget, STOREFRONT_THEME_SCRIPT);
+        storefrontTheme = normalizeStorefrontTheme(themeReading);
+      } catch (error) {
+        rethrowTargetLifecycleError(error);
+      }
+    }
+    if (storefrontTheme && storefrontTheme.id !== undefined) {
+      const previousThemeId = readPreviousStorefrontThemeId(input.workspaceRoot);
+      if (previousThemeId !== undefined) {
+        storefrontTheme = { ...storefrontTheme, changedSincePreviousRun: previousThemeId !== String(storefrontTheme.id) };
+      }
+    }
+
     // 9.5. Compute Canonical Differential Attribution across all diagnostics & scanner findings
     const preExistingIssues: ThemeQaIssueItem[] = [];
     const resolvedIssues: ThemeQaIssueItem[] = [];
@@ -2565,6 +2784,7 @@ export class ThemeQaWorkflow {
       introducedRegressions,
       hasRegressions: introducedRegressions.length > 0,
     };
+    const attribution = buildAttribution(differential, effectiveBaselineFindings !== undefined);
     const preReloadDiagnosticsObj =
       preReloadCritical.length > 0 || preReloadWarningsList.length > 0
         ? {
@@ -2844,23 +3064,69 @@ export class ThemeQaWorkflow {
     if (input.signal?.aborted) {
       throw new CapabilityError('TARGET_STALE', 'Theme QA validation was aborted by document navigation');
     }
-    const qaMatrix = ThemeQaWorkflow.computeQaMatrix(summary, checklist, findings, input.viewports, settleReceipt);
+    // A declared greenfield run grades each representative width by the absolute gates measured at
+    // that width; a width nothing measured stays null and can never certify.
+    let greenfieldMatrixInput: { absoluteViewports: Record<GreenfieldViewportName, boolean | null> } | undefined;
+    if (greenfieldReason !== undefined) {
+      const pageGatesClean = !assetResult.hasBrokenAssets && !serverCrashResult.hasCrash && diagnosticIssues.length === 0;
+      const absoluteViewports: Record<GreenfieldViewportName, boolean | null> = { desktop: null, tablet: null, mobile: null };
+      for (const name of GREENFIELD_VIEWPORT_NAMES) {
+        const entry = responsiveMap[String(GREENFIELD_VIEWPORT_WIDTHS[name])];
+        absoluteViewports[name] = greenfieldWidthMeasured(entry) ? pageGatesClean && greenfieldWidthClean(entry) : null;
+      }
+      greenfieldMatrixInput = { absoluteViewports };
+    }
+    const qaMatrix = ThemeQaWorkflow.computeQaMatrix(summary, checklist, findings, input.viewports, settleReceipt, greenfieldMatrixInput);
     // Additive labels only: the structural verdict keeps its contract, but a PASS that the matrix
     // could not certify (unmeasured visual/interaction/CWV dimensions) now says so in place. Set
     // before the report is serialized so the staged report carries the same labels.
     summary.matrixVerdict = qaMatrix.verdict;
     summary.certification = qaMatrix.verdict === 'PASS' ? 'CERTIFIED' : 'STRUCTURAL';
     summary.certificationReasons = [];
-    if (summary.certification === 'STRUCTURAL') {
+    const certificationRemedies: ThemeQaCertificationRemedy[] = [];
+    if (greenfieldReason !== undefined) {
+      summary.certificationReasons.push(`greenfield declared: ${greenfieldReason}; no visual baseline compared`);
+    }
+    if (summary.certification === 'CERTIFIED') {
+      summary.certificationBasis = greenfieldReason !== undefined ? 'greenfield' : 'baseline';
+    } else {
+      const missingBaselineViewports: string[] = [];
       for (const [name, vp] of Object.entries(qaMatrix.viewports)) {
-        if (!vp.measured) summary.certificationReasons.push(`visual baseline missing at ${name}: pass viewports.${name} {mismatchPercent, passed} from a baseline comparison`);
-        else if (vp.verdict === 'FAIL') summary.certificationReasons.push(`visual baseline at ${name} differs by ${vp.mismatchPercent}%`);
+        if (greenfieldReason !== undefined) {
+          const width = GREENFIELD_VIEWPORT_WIDTHS[name as GreenfieldViewportName];
+          if (!vp.measured) {
+            const reason = `absolute gates not measured at ${name} (${width}px): the responsive sweep did not measure it`;
+            summary.certificationReasons.push(reason);
+            certificationRemedies.push({ reason, tool: 'theme.qa_validate', args: { greenfield: { reason: greenfieldReason }, multiBreakpoint: true } });
+          } else if (vp.verdict === 'FAIL') {
+            summary.certificationReasons.push(`absolute gate failed at ${name} (${width}px)`);
+          }
+        } else if (!vp.measured) {
+          summary.certificationReasons.push(`visual baseline missing at ${name}: pass viewports.${name} {mismatchPercent, passed} from a baseline comparison`);
+          certificationRemedies.push({ reason: `visual baseline missing at ${name}`, tool: 'anti.visual.compare' });
+          missingBaselineViewports.push(name);
+        } else if (vp.verdict === 'FAIL') {
+          summary.certificationReasons.push(`visual baseline at ${name} differs by ${vp.mismatchPercent}%`);
+        }
+      }
+      if (missingBaselineViewports.length > 0) {
+        certificationRemedies.push({
+          reason: `no baseline exists to compare at ${missingBaselineViewports.join(', ')}: declare a greenfield run with the reason none exists`,
+          tool: 'theme.qa_validate',
+          args: { greenfield: { reason: '<why no baseline exists>' } },
+        });
       }
       for (const [name, dim] of Object.entries(qaMatrix.dimensions)) {
         if (dim.score === null) summary.certificationReasons.push(`${name} unmeasured: ${dim.details}`);
       }
       for (const gap of evidenceGaps) summary.certificationReasons.push(`gap: ${gap}`);
+      if (settleReceipt?.domUnstable === true || summary.domUnstable === true) {
+        certificationRemedies.push({ reason: 'DOM mutations remained active during the settle window', tool: 'anti.media.freeze' });
+      }
     }
+    summary.certificationRemedies = certificationRemedies;
+    summary.attribution = attribution;
+    const viewportsTested = buildViewportsTested(responsiveMap, qaMatrix, greenfieldReason !== undefined);
     // 11. Generate PII-sanitized report JSON (RT-02 mitigation)
     const reportDataRaw = JSON.stringify(
       {
@@ -2879,6 +3145,8 @@ export class ThemeQaWorkflow {
         evidenceCoverage,
         profile: effectiveProfile,
         thresholdsSource: resolvedThresholds.source,
+        viewportsTested,
+        ...(storefrontTheme ? { storefrontTheme } : {}),
         coverage,
         ...(isolationOutcome ? { trackerIsolation: isolationOutcome } : {}),
         createdAt: Date.now(),
@@ -2938,6 +3206,8 @@ export class ThemeQaWorkflow {
       evidenceCoverage,
       profile: effectiveProfile,
       thresholdsSource: resolvedThresholds.source,
+      viewportsTested,
+      ...(storefrontTheme ? { storefrontTheme } : {}),
       coverage,
       coverageFloor,
       measuredRules: [
@@ -2959,7 +3229,8 @@ export class ThemeQaWorkflow {
       tablet?: { mismatchPercent: number; passed: boolean };
       mobile?: { mismatchPercent: number; passed: boolean };
     },
-    settleReceipt?: VisualSettleReceiptExtended
+    settleReceipt?: VisualSettleReceiptExtended,
+    greenfield?: { absoluteViewports: Record<GreenfieldViewportName, boolean | null> }
   ): QaMatrixReport {
     const parseViewport = (rawVp?: { mismatchPercent?: unknown; passed?: unknown }): QaMatrixViewportItem => {
       const isValidNumber = typeof rawVp?.mismatchPercent === 'number' &&
@@ -2990,16 +3261,24 @@ export class ThemeQaWorkflow {
       };
     };
 
-    const vpDesktop = parseViewport(viewports?.desktop);
-    const vpTablet = parseViewport(viewports?.tablet);
-    const vpMobile = parseViewport(viewports?.mobile);
+    // A declared greenfield run has no baseline to compare, so each viewport is graded by the
+    // absolute gates measured at its own width. `null` is a width nothing measured: it stays
+    // unmeasured (INCONCLUSIVE), never a pass.
+    const parseAbsolute = (passed: boolean | null): QaMatrixViewportItem =>
+      passed === null
+        ? { mismatchPercent: null, passed: false, measured: false, verdict: 'INCONCLUSIVE', basis: 'absolute' }
+        : { mismatchPercent: null, passed, measured: true, verdict: passed ? 'PASS' : 'FAIL', basis: 'absolute' };
+    const vpDesktop = greenfield ? parseAbsolute(greenfield.absoluteViewports.desktop) : parseViewport(viewports?.desktop);
+    const vpTablet = greenfield ? parseAbsolute(greenfield.absoluteViewports.tablet) : parseViewport(viewports?.tablet);
+    const vpMobile = greenfield ? parseAbsolute(greenfield.absoluteViewports.mobile) : parseViewport(viewports?.mobile);
 
     const visualScore = vpDesktop.measured && typeof vpDesktop.mismatchPercent === 'number'
       ? Math.max(0, 100 - Math.round(vpDesktop.mismatchPercent * 10))
       : null;
 
     const responsiveMeasuredCount = (vpTablet.measured ? 1 : 0) + (vpMobile.measured ? 1 : 0);
-    const responsiveScore = responsiveMeasuredCount > 0
+    // No pixel diff exists on a greenfield run, so no diff-derived score is invented for it.
+    const responsiveScore = responsiveMeasuredCount > 0 && !greenfield
       ? Math.max(0, 100 - Math.round((((vpTablet.mismatchPercent || 0) + (vpMobile.mismatchPercent || 0)) / responsiveMeasuredCount) * 10))
       : null;
 
@@ -3057,7 +3336,9 @@ export class ThemeQaWorkflow {
       visualFidelity: {
         score: visualScore,
         details: vpDesktop.measured
-          ? `Desktop diff: ${vpDesktop.mismatchPercent}%, threshold < ${VISUAL_MISMATCH_PASS_THRESHOLD_PERCENT}%`
+          ? (greenfield
+            ? 'Greenfield: desktop graded by absolute gates only; no visual baseline compared'
+            : `Desktop diff: ${vpDesktop.mismatchPercent}%, threshold < ${VISUAL_MISMATCH_PASS_THRESHOLD_PERCENT}%`)
           : 'Visual diff unmeasured (no baseline comparison supplied)',
       },
       domSemantics: { score: domSemanticsScore, details: domSemanticsDetails },
@@ -3068,7 +3349,9 @@ export class ThemeQaWorkflow {
       responsiveParity: {
         score: responsiveScore,
         details: responsiveMeasuredCount > 0
-          ? `Tablet diff: ${vpTablet.mismatchPercent ?? 'N/A'}%, Mobile diff: ${vpMobile.mismatchPercent ?? 'N/A'}%`
+          ? (greenfield
+            ? 'Greenfield: tablet and mobile graded by absolute gates only; no visual baseline compared'
+            : `Tablet diff: ${vpTablet.mismatchPercent ?? 'N/A'}%, Mobile diff: ${vpMobile.mismatchPercent ?? 'N/A'}%`)
           : 'Responsive viewports unmeasured (no baseline comparison supplied)',
       },
       performanceCWV: { score: perfScore, details: perfDetails },

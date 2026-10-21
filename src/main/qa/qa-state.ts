@@ -32,6 +32,7 @@ const HARD_BLOCK_CODES: Record<string, true> = {
   URL_HOST_MISMATCH: true,
   URL_THEME_MISMATCH: true,
   URL_PATH_MISMATCH: true,
+  TAB_HAS_NO_COMMITTED_URL: true,
   POLICY_DENIED: true,
   REFUSED_TOOL_SURFACE: true,
   TERMINAL_FORBIDDEN: true,

@@ -33,6 +33,7 @@ import {
   resolveCaptureMode,
   validateJpegBuffer,
   validatePngBuffer,
+  type CapturePhaseTimings,
   type CaptureViewportTransaction,
   type CaptureMode,
   type RenderSurfaceSnapshot,
@@ -413,6 +414,40 @@ const NORMALIZE_THROWN_SOURCE = `function normalizeThrown(err) {
     return new Error(Object.prototype.toString.call(err));
   }
 }`;
+
+/**
+ * Key under which the evaluation wrapper reports an exception thrown by the caller's
+ * expression. The wrapper resolves `{ [EVAL_THROWN_KEY]: { name, message, stack } }` instead of
+ * rejecting, so the structured failure survives the Electron boundary intact.
+ */
+const EVAL_THROWN_KEY = '__antifanEvalThrown__';
+
+interface EvalThrown { name: string; message: string; stack: string }
+
+function readEvalThrown(value: unknown): EvalThrown | undefined {
+  if (typeof value !== 'object' || value === null || !(EVAL_THROWN_KEY in value)) return undefined;
+  const payload = (value as Record<string, unknown>)[EVAL_THROWN_KEY];
+  if (typeof payload !== 'object' || payload === null) return undefined;
+  const fields = payload as Record<string, unknown>;
+  return {
+    name: typeof fields.name === 'string' && fields.name ? fields.name : 'Error',
+    message: typeof fields.message === 'string' ? fields.message : '',
+    stack: typeof fields.stack === 'string' ? fields.stack : '',
+  };
+}
+
+/** A page-side exception as a typed refusal: the thrown name and message, plus the first call frame. */
+function evalExceptionError(thrown: EvalThrown, tabId: string): CapabilityError {
+  const prefix = `${thrown.name}: `;
+  const message = thrown.message.startsWith(prefix) ? thrown.message.slice(prefix.length) : thrown.message;
+  const stackFirstLine = thrown.stack.split('\n').map((line) => line.trim()).find((line) => line.startsWith('at '));
+  return new CapabilityError('EVAL_EXCEPTION', thrown.message, {
+    name: thrown.name,
+    message,
+    ...(stackFirstLine ? { stackFirstLine } : {}),
+    tabId,
+  });
+}
 
 /**
  * Resolve the child frame of `wc` whose URL contains `frameUrl`.
@@ -1624,9 +1659,16 @@ export class TabDevToolsHost {
     const effectivePane = paneId || target.focusedPane;
     const wc = this.ctx.getTabWebContents(targetId, effectivePane);
     if (!wc || wc.isDestroyed()) {
-      throw new Error(`WebContents not available for tab '${targetId}'`);
+      throw new CapabilityError('TAB_NOT_ATTACHED', `Tab '${targetId}' has no attached WebContents to measure`, { tabId: targetId, paneId: effectivePane });
     }
-    const measure = (): Promise<RenderSurfaceSnapshot> => this.probeRenderSurface(wc, timeoutMs);
+    const measure = async (): Promise<RenderSurfaceSnapshot> => {
+      try {
+        return await this.probeRenderSurface(wc, timeoutMs);
+      } catch (err) {
+        // A probe that outlived its bound is a timeout, not a surface that is absent.
+        throw this.toCaptureError(err, `Render-surface probe on tab '${targetId}'`);
+      }
+    };
     const paneView = effectivePane === 'mobile' ? (target.mobileView || target.view) : target.view;
     const isActiveTarget = targetId === this.ctx.getActiveTabId();
     if (!isActiveTarget && paneView && this.ctx.runWithAttachedTabView) {
@@ -2546,6 +2588,20 @@ export class TabDevToolsHost {
     let lastPrewarmReceipt: ScrollPrewarmReceipt | undefined;
     let prewarmFailure: string | undefined;
     let lastQuiescence: PreCaptureQuiescenceResult | undefined;
+    // Phase clocks: plain Date.now() reads around work that already runs. They ride the
+    // envelope and a `capture.timings` lifecycle event so a slow capture names its phase.
+    const captureStartedAt = Date.now();
+    const phase: CapturePhaseTimings = {
+      probeMs: 0, prewarmMs: 0, settleMs: 0, fontsRetryMs: 0, activationMs: 0, rasterMs: 0, encodeMs: 0, restoreMs: 0, totalMs: 0,
+    };
+    const restoreTimed = async (): Promise<CaptureViewportTransaction | undefined> => {
+      const restoreStartedAt = Date.now();
+      try {
+        return await this.restoreCapturedGeometry(wc, targetId, effectivePane, surfaceBefore);
+      } finally {
+        phase.restoreMs += Date.now() - restoreStartedAt;
+      }
+    };
     try {
       captureEnvelope = await this.ctx.withTabAgentWorking(targetId, async () => {
         // Post-freeze frame-liveness reading (instrumentation only): this is the
@@ -2588,14 +2644,22 @@ export class TabDevToolsHost {
           // fabricated viewport would rasterize a surface that does not exist and
           // then consume the whole bound instead of reporting why it cannot run.
           let surface: RenderSurfaceSnapshot;
+          const probeStartedAt = Date.now();
           try {
             surface = await this.probeRenderSurface(wc, RENDER_SURFACE_PROBE_BOUND_MS);
           } catch (err) {
             if (err instanceof CaptureError && err.code === 'NO_RENDER_SURFACE') throw err;
+            // A probe that outlived its bound (or hit a draining target) is a hung compositor,
+            // not a missing surface: it keeps its own code so the caller retries instead of
+            // concluding the tab cannot render.
+            const classified = this.toCaptureError(err, `Render-surface probe on tab '${targetId}' pane '${effectivePane}'`);
+            if (classified instanceof CaptureError) throw classified;
             throw new CaptureError(
               'NO_RENDER_SURFACE',
               `Render-surface probe on tab '${targetId}' pane '${effectivePane}' failed: ${err instanceof Error ? err.message : String(err)}`
             );
+          } finally {
+            phase.probeMs += Date.now() - probeStartedAt;
           }
           // Kept as an explicit comparison rather than the shared predicate: a type
           // predicate narrows the degenerate branch to `never`, and the refusal needs
@@ -2647,7 +2711,9 @@ export class TabDevToolsHost {
           // staircase scrolling before the same refusal.
           let prewarmOptions: PrewarmWalkOptions | undefined;
           if (mode === 'full-page') {
+            const preflightStartedAt = Date.now();
             const preflightHeight = await this.readDocumentScrollHeight(wc);
+            phase.probeMs += Date.now() - preflightStartedAt;
             const maxFullPageHeight = fullPageMaxCssHeight(cssViewport.width, dpr * zoom);
             if (
               !Number.isFinite(preflightHeight) ||
@@ -2668,6 +2734,7 @@ export class TabDevToolsHost {
           // document that then grows during the raster and the capture either
           // misses the tail or allocates a buffer the GPU cannot honour.
           if (mode === 'full-page' && !options?.skipQuiescence) {
+            const prewarmStartedAt = Date.now();
             try {
               const prewarmRaw = await this.evalJs(
                 buildStaircasePrewarmScript(prewarmOptions),
@@ -2681,9 +2748,11 @@ export class TabDevToolsHost {
               lastPrewarmReceipt = undefined;
               prewarmFailure = err instanceof Error ? err.message : String(err);
             }
+            phase.prewarmMs = Date.now() - prewarmStartedAt;
           }
 
           if (!options?.skipQuiescence) {
+            const settleStartedAt = Date.now();
             let quiescence = await evaluatePreCaptureQuiescence(
               {
                 evalJs: (script: string, tId?: string, pId?: 'desktop' | 'mobile') =>
@@ -2691,8 +2760,9 @@ export class TabDevToolsHost {
               },
               targetId,
               effectivePane,
-              { fullPage: mode === 'full-page' }
+              { fullPage: mode === 'full-page', surface: mode === 'full-page' ? 'fullPage' : 'viewport' }
             );
+            let fontsRetryMs = quiescence.measurements.fontsRetryMs ?? 0;
             if (!quiescence.ready && quiescence.failingPredicate === 'imageIdentityStable') {
               try {
                 await this.evalJs(
@@ -2707,11 +2777,14 @@ export class TabDevToolsHost {
                   },
                   targetId,
                   effectivePane,
-                  { fullPage: mode === 'full-page' }
+                  { fullPage: mode === 'full-page', surface: mode === 'full-page' ? 'fullPage' : 'viewport' }
                 );
+                fontsRetryMs += quiescence.measurements.fontsRetryMs ?? 0;
               } catch {}
             }
             lastQuiescence = quiescence;
+            phase.settleMs = Date.now() - settleStartedAt;
+            phase.fontsRetryMs = fontsRetryMs;
             if (!quiescence.ready) {
               // `evaluatePreCaptureQuiescence` reports the failing predicate as one of
               // 'documentGenerationSettled' | 'viewportStable' | 'fontsSettled' | 'imagesSettled' |
@@ -2824,6 +2897,7 @@ export class TabDevToolsHost {
             );
           }
 
+          const activationStartedAt = Date.now();
           const shouldRaiseForRaster = !isForeground;
           let liftLease: CaptureLiftLease | null = null;
           if (shouldRaiseForRaster && targetPaneView && this.ctx.acquireCaptureLift) {
@@ -2849,8 +2923,14 @@ export class TabDevToolsHost {
           // timed-out inside the command it is quarantined as draining and
           // every later command waits out the drain window (both measured).
           const rasterStartedAt = Date.now();
+          let rasterDispatchedAt: number | undefined;
           try {
-            liftLease = await this.ensureFramesForRaster(wc, targetId, effectivePane, mode, liftLease, cdpBoundMs);
+            try {
+              liftLease = await this.ensureFramesForRaster(wc, targetId, effectivePane, mode, liftLease, cdpBoundMs);
+            } finally {
+              phase.activationMs = Date.now() - activationStartedAt;
+            }
+            rasterDispatchedAt = Date.now();
             const rasterScale = dpr * zoom;
             if (mode === 'full-page' && clip && cssCaptureSize.height * rasterScale > FULL_PAGE_SINGLE_RASTER_MAX_DEVICE_PX) {
               // Every tile shares the one raster bound the lift lease was granted for.
@@ -2981,6 +3061,7 @@ export class TabDevToolsHost {
             } catch {}
             throw this.toCaptureError(err, `Page.captureScreenshot (${mode}) on tab '${targetId}'`);
           } finally {
+            if (rasterDispatchedAt !== undefined) phase.rasterMs = Date.now() - rasterDispatchedAt;
             liftLease?.release('raster-finished');
             if (liftLease) {
               try { this.ctx.reassertPresentedView?.(); } catch {}
@@ -2995,6 +3076,7 @@ export class TabDevToolsHost {
             ms: Date.now() - rasterStartedAt,
           });
 
+          const encodeStartedAt = Date.now();
           if (fullPageSlices && fullPageSlices.length > 0) {
             const finalized = await finalizeFullPageTiles(fullPageSlices, { format: imageFormat, quality: options?.quality, maxBytes: options?.maxBytes });
             if (!finalized) {
@@ -3041,6 +3123,7 @@ export class TabDevToolsHost {
             );
           }
 
+          phase.encodeMs = Date.now() - encodeStartedAt;
           return {
             data: captureRes.data,
             backend: 'cdp',
@@ -3088,7 +3171,7 @@ export class TabDevToolsHost {
                 // proves itself by re-measuring — on the same presented surface the
                 // baseline was read from. After the release the reading would be a
                 // detached view's 0x0, which proves nothing about the restore.
-                if (geometryTouched) viewportTransaction = await this.restoreCapturedGeometry(wc, targetId, effectivePane, surfaceBefore);
+                if (geometryTouched) viewportTransaction = await restoreTimed();
               }
             },
             isMobile
@@ -3144,8 +3227,20 @@ export class TabDevToolsHost {
     // clamping an invented 1x1 viewport or certifying two unmeasured readings as
     // restored.
     if (geometryTouched && !viewportTransaction) {
-      viewportTransaction = await this.restoreCapturedGeometry(wc, targetId, effectivePane, surfaceBefore);
+      viewportTransaction = await restoreTimed();
     }
+    phase.totalMs = Date.now() - captureStartedAt;
+    recordLifecycleEvent('capture.timings', {
+      tabId: targetId,
+      paneId: effectivePane,
+      mode,
+      outcome: captureError ? (captureError instanceof CaptureError ? captureError.code : 'error') : 'ok',
+      ...phase,
+      prewarmSteps: lastPrewarmReceipt?.steps,
+      prewarmInPageMs: lastPrewarmReceipt?.elapsedMs,
+      prewarmStopped: lastPrewarmReceipt?.stoppedReason,
+      prewarmEndHeight: lastPrewarmReceipt?.endHeight,
+    });
     if (viewportTransaction && !viewportTransaction.restored && !viewportTransaction.deferred) {
       // Restore failure is the measured white-pane path: the layout viewport
       // stayed at the capture size and the compositor stopped committing
@@ -3174,6 +3269,7 @@ export class TabDevToolsHost {
       throw new Error(`Verification capture on tab '${targetId}' produced no envelope and no error`);
     }
     if (viewportTransaction) captureEnvelope.viewportTransaction = viewportTransaction;
+    captureEnvelope.timings = { ...phase };
     return captureEnvelope;
   }
 
@@ -3466,39 +3562,65 @@ export class TabDevToolsHost {
           const result = await Promise.race([execPromise, timeoutPromise]).finally(() => clearTimeout(timer));
           return serializeCircularSafe(result);
         } catch (err) {
-          throw normalizeThrown(err);
+          const thrown = normalizeThrown(err);
+          // Timeouts keep their own identity: a hung page is not a page exception.
+          if (/^Evaluation timed out after \\d+ms/.test(thrown.message)) throw thrown;
+          return {
+            ${JSON.stringify(EVAL_THROWN_KEY)}: {
+              name: err !== null && (typeof err === 'object' || typeof err === 'function') && typeof err.name === 'string' && err.name ? err.name : 'Error',
+              message: thrown.message,
+              stack: typeof thrown.stack === 'string' ? thrown.stack : ''
+            }
+          };
         }
       })()`;
+        // The wrapper answers a page exception as data, not as a rejection: Electron's
+        // rejection keeps only a bare message, so the name and the first stack frame the
+        // caller needs would be lost on the way out.
+        const failFromThrown = (value: unknown): void => {
+          const thrown = readEvalThrown(value);
+          if (thrown) throw evalExceptionError(thrown, targetId);
+        };
+        const runViaCdp = async (): Promise<unknown> => {
+          const cdpRes = await this.sendCdpCommand<{
+            result?: { value?: unknown };
+            exceptionDetails?: { text?: string; exception?: { description?: string } };
+          }>(wc, 'Runtime.evaluate', {
+            expression: `(${wrapped})`,
+            returnByValue: true,
+            awaitPromise: true,
+            userGesture,
+          });
+          if (cdpRes?.exceptionDetails) {
+            const detail = cdpRes.exceptionDetails.exception?.description || cdpRes.exceptionDetails.text || 'CDP evaluation exception';
+            throw new Error(detail);
+          }
+          failFromThrown(cdpRes?.result?.value);
+          return cdpRes?.result?.value;
+        };
+        const isPolicyRefusal = (msg: string): boolean =>
+          msg.includes('Trusted Type') ||
+          msg.includes('CSP') ||
+          msg.includes('Content Security Policy') ||
+          msg.includes('violates this document');
+        let raw: unknown;
         try {
-          return await wc.executeJavaScript(wrapped, userGesture);
+          raw = await wc.executeJavaScript(wrapped, userGesture);
         } catch (err: unknown) {
           if (sawMainFrameNavUrl !== undefined) {
             throw navigatedError(sawMainFrameNavUrl);
           }
           const msg = err instanceof Error ? err.message : String(err);
-          if (
-            msg.includes('Trusted Type') ||
-            msg.includes('CSP') ||
-            msg.includes('Content Security Policy') ||
-            msg.includes('violates this document')
-          ) {
-            const cdpRes = await this.sendCdpCommand<{
-              result?: { value?: unknown };
-              exceptionDetails?: { text?: string; exception?: { description?: string } };
-            }>(wc, 'Runtime.evaluate', {
-              expression: `(${wrapped})`,
-              returnByValue: true,
-              awaitPromise: true,
-              userGesture,
-            });
-            if (cdpRes?.exceptionDetails) {
-              const detail = cdpRes.exceptionDetails.exception?.description || cdpRes.exceptionDetails.text || 'CDP evaluation exception';
-              throw new Error(detail);
-            }
-            return cdpRes?.result?.value;
-          }
+          if (isPolicyRefusal(msg)) return await runViaCdp();
           throw err;
         }
+        const thrown = readEvalThrown(raw);
+        if (!thrown) return raw;
+        if (sawMainFrameNavUrl !== undefined) {
+          throw navigatedError(sawMainFrameNavUrl);
+        }
+        if (isPolicyRefusal(thrown.message)) return await runViaCdp();
+        throw evalExceptionError(thrown, targetId);
       };
 
       let sawMainFrameNavUrl: string | undefined;

@@ -85,7 +85,8 @@ export type RouteRefusalCode =
   | 'URL_HOST_MISMATCH'
   | 'URL_THEME_MISMATCH'
   | 'URL_PATH_MISMATCH'
-  | 'URL_EXPECTATION_MISSING';
+  | 'URL_EXPECTATION_MISSING'
+  | 'TAB_HAS_NO_COMMITTED_URL';
 
 /** Lifecycle states for B-Lite v2 fix loop rounds */
 export type FixLifecycleState =
@@ -802,7 +803,30 @@ export type CapabilityErrorCode =
   | 'WORKSPACE_SHOP_UNBOUND'
   | 'TARGET_TAB_REQUIRED'
   | 'TAB_SHOP_UNVERIFIED'
-  | 'SHOP_IDENTITY_MISMATCH';
+  | 'SHOP_IDENTITY_MISMATCH'
+  | 'EVAL_EXCEPTION'
+  | 'TAB_NOT_ATTACHED'
+  | 'SHEET_NOT_EDITABLE'
+  | 'SHEET_SELECTION_UNCONFIRMED'
+  | 'SHEET_PRECONDITION_FAILED'
+  | 'SHEET_HEADER_PROTECTED'
+  | 'SHEET_WRITE_UNVERIFIED'
+  | 'GREENFIELD_BASELINE_EXISTS'
+  | 'TAB_HAS_NO_COMMITTED_URL';
+
+/**
+ * Shape convention for `CapabilityError.details` on fail-closed refusals
+ * (TARGET_REQUIRED, TARGET_MISMATCH, TARGET_STALE, POLICY_DENIED,
+ * TERMINAL_SCOPE_UNRESOLVED, CAPTURE_NOT_READY, OUTSIDE_WORKSPACE,
+ * REVISION_STALE): every refusal names the next legitimate call in
+ * `recovery`, and states `cause` when the real reason differs from the
+ * message. The refusal condition itself never changes because of this.
+ */
+export interface RefusalDetails {
+  cause?: string;
+  recovery?: string;
+  liveState?: Record<string, unknown>;
+}
 
 export class CapabilityError extends Error {
   readonly code: CapabilityErrorCode;
@@ -878,7 +902,12 @@ export function assertWorkspaceContained(root: string, candidate: string, allowR
   const relative = normApi.relative(canonicalRoot, canonicalCandidate);
   if (relative === '' && allowRoot) return canonicalCandidate;
   if (relative === '' || relative === '..' || relative.startsWith('..' + normApi.sep) || normApi.isAbsolute(relative)) {
-    throw new CapabilityError('OUTSIDE_WORKSPACE', 'Path is outside the attached workspace', { root: canonicalRoot, candidate: canonicalCandidate });
+    throw new CapabilityError('OUTSIDE_WORKSPACE', `Path is outside the attached workspace: "${canonicalCandidate}" is not under "${canonicalRoot}"`, {
+      root: canonicalRoot,
+      candidate: canonicalCandidate,
+      failedCheck: 'filePath',
+      recovery: `pass a path inside ${canonicalRoot} (or relative to it)`,
+    });
   }
   return canonicalCandidate;
 }
@@ -894,7 +923,12 @@ export function assertNoReparseTraversal(root: string, candidate: string): void 
   const candNorm = isWin ? resolvedCandidate.toLowerCase() : resolvedCandidate;
   const relative = normApi.relative(rootNorm, candNorm);
   if (relative === '..' || relative.startsWith('..' + normApi.sep) || normApi.isAbsolute(relative)) {
-    throw new CapabilityError('OUTSIDE_WORKSPACE', 'Path is outside the attached workspace');
+    throw new CapabilityError('OUTSIDE_WORKSPACE', `Path is outside the attached workspace: "${resolvedCandidate}" is not under "${resolvedRoot}"`, {
+      root: resolvedRoot,
+      candidate: resolvedCandidate,
+      failedCheck: 'filePath',
+      recovery: `pass a path inside ${resolvedRoot} (or relative to it)`,
+    });
   }
 
   // Check root segments first to ensure root is not behind a symlink/junction

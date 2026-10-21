@@ -15,6 +15,7 @@
 //
 // What this file deliberately does NOT do:
 //   * it never touches a real bridge, disk discovery, or ANTIFAN_* env;
+//     the data root is pinned to an empty tempdir so discovery finds nothing;
 //   * the mock bridge is the only endpoint the child can reach: the bootstrap
 //     names the mock's port and every ANTIFAN_(TERMINAL|BRIDGE|ATTACHMENT|…)
 //     env key is stripped so no live instance can be reused.
@@ -25,6 +26,8 @@ import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import http from 'node:http';
 import path from 'node:path';
+import fs from 'node:fs';
+import os from 'node:os';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
@@ -37,7 +40,14 @@ const UNBOUND_ATTACHMENT = 'att-pairing-unbound';
 const BOUND_ATTACHMENT = 'att-session-bound';
 const BOUND_TAB = 'tab-agent-provisioned-1';
 
-/** Env for the proxy child: bootstrap names ONLY the mock bridge. */
+/**
+ * Env for the proxy child: bootstrap names ONLY the mock bridge, and the data
+ * root / config dir are pinned to an empty tempdir. A pinned root confines
+ * bridge discovery (antifan-agent.cjs resolveBridgeCandidates), so a refused
+ * pairing on the mock can never fall through to a live instance's
+ * bridge-dev.json under the default data root.
+ */
+const ISOLATED_DATA_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-proxy-test-'));
 function childEnv(port) {
   const env = {
     ...process.env,
@@ -48,8 +58,14 @@ function childEnv(port) {
       delete env[key];
     }
   }
+  env.ANTIFAN_DATA_ROOT = ISOLATED_DATA_ROOT;
+  env.ANTIFAN_CONFIG_DIR = path.join(ISOLATED_DATA_ROOT, 'config');
   return env;
 }
+
+test.after(() => {
+  fs.rmSync(ISOLATED_DATA_ROOT, { recursive: true, force: true });
+});
 
 /**
  * Mock bridge: HTTP pairing endpoints + a WS endpoint that only accepts the
@@ -70,6 +86,16 @@ function startMockBridge(record, options = {}) {
       if (req.url === '/api/pairing/exchange') {
         record.push({ method: 'pairing.exchange' });
         const payload = JSON.parse(body || '{}');
+        if (options.refusePairing) {
+          res.statusCode = options.refusePairing.status || 409;
+          res.end(JSON.stringify({
+            success: false,
+            error: options.refusePairing.code,
+            message: `${options.refusePairing.code}: fixture pairing refusal`,
+            details: options.refusePairing.details,
+          }));
+          return;
+        }
         if (options.recoveredStaleAnchor) {
           assert.equal(payload.projectId, 'project-x', 'exchange must claim the measured dead-authority project');
           assert.equal(payload.workspaceId, 'workspace-x', 'exchange must claim the measured dead-authority workspace');
@@ -99,6 +125,7 @@ function startMockBridge(record, options = {}) {
   let staleBootstrapAccepted = false;
   let staleDispatchCount = 0;
   let attachmentRotated = false;
+  let revisionRefusals = 0;
   const executed = new Map();
   server.on('upgrade', (req, socket, head) => {
     const auth = req.headers['authorization'] || '';
@@ -121,13 +148,19 @@ function startMockBridge(record, options = {}) {
       const fail = (error) => ws.send(JSON.stringify({ id: msg.id, success: false, error }));
       if (oldAuthority && msg.method === 'antifan.capability.dispatch') {
         staleDispatchCount += 1;
+        if (options.alwaysCloseDispatch) {
+          staleBootstrapAccepted = true;
+          ws.close(4001, 'Unauthorized: missing or invalid token');
+          return;
+        }
         if (options.reuseAttachment) {
           const key = msg.params.idempotencyKey;
           const digest = JSON.stringify(msg.params.params);
           // The host checks the revision a frame carries against the attachment's live one
           // before any ledger claim, so a stale frame is refused unexecuted - every time it is
           // resent with the same revision, not once per key.
-          if (options.liveRevision && msg.params.authorityRevision !== options.liveRevision) {
+          if (options.liveRevision && (msg.params.authorityRevision !== options.liveRevision || revisionRefusals < (options.revisionStaleTimes || 0))) {
+            revisionRefusals += 1;
             record.push({ method: 'fixture.revisionRefused', authorityRevision: msg.params.authorityRevision });
             return ws.send(JSON.stringify({
               id: msg.id, success: false,
@@ -182,6 +215,10 @@ function startMockBridge(record, options = {}) {
       }
       if (msg.method === 'antifan.capability.dispatch' && options.staleTabId && msg.params?.params?.tabId === options.staleTabId) {
         return ws.send(JSON.stringify({ id: msg.id, success: false, error: 'TARGET_MISMATCH: Requested tab is stale', data: { code: 'TARGET_MISMATCH', message: 'Requested tab is stale', details: { requestedTabId: options.staleTabId, liveTabId: BOUND_TAB } } }));
+      }
+      if (msg.method === 'antifan.capability.dispatch' && options.alwaysCloseDispatch) {
+        ws.close(4001, 'Unauthorized: missing or invalid token');
+        return;
       }
       if (msg.method === 'antifan.capability.dispatch') return send({ ok: true });
       return send({ ok: true });
@@ -294,6 +331,16 @@ async function withRecoveryProxy(options, exercise) {
   const record = [];
   const { server, port } = await startMockBridge(record, options);
   const env = childEnv(port);
+  // A second bridge the proxy can only find through discovery: the pinned config dir names it
+  // the way a live instance's bridge-dev.json would.
+  const discoverableRecord = [];
+  let discoverable = null;
+  if (options.discoverableBridge) {
+    discoverable = await startMockBridge(discoverableRecord, {});
+    const configDir = fs.mkdtempSync(path.join(ISOLATED_DATA_ROOT, 'config-'));
+    fs.writeFileSync(path.join(configDir, 'bridge-dev.json'), JSON.stringify({ port: discoverable.port, host: '127.0.0.1', token: 'other-instance-token', pid: process.pid }));
+    env.ANTIFAN_CONFIG_DIR = configDir;
+  }
   env.ANTIFAN_MCP_BOOTSTRAP = JSON.stringify({ port, secret: 'stale-tok', attachmentId: 'att-before-restart', authorityRevision: 1, projectId: 'project-x', workspaceId: 'workspace-x' });
   env.ANTIFAN_BOUND_TAB_ID = 'tab-before-restart';
   env.ANTIFAN_TERMINAL_SESSION_ID = 'terminal-restart-regression';
@@ -332,7 +379,28 @@ async function withRecoveryProxy(options, exercise) {
     process.argv[1] = ${JSON.stringify(PROXY)};
     require('node:module').runMain();
   `;
-  const child = spawn(process.execPath, options.rotateInsideRetry ? ['--eval', retryRotationBootstrap] : [PROXY], { env, stdio: ['pipe', 'pipe', 'pipe'] });
+  const sendRefusalBootstrap = `
+    const { WebSocket } = require('ws');
+    const state = Object.getOwnPropertyDescriptor(WebSocket.prototype, 'readyState');
+    let armed = true;
+    Object.defineProperty(WebSocket.prototype, 'readyState', { configurable: true, get() {
+      const value = state.get.call(this);
+      if (armed && value === WebSocket.OPEN) {
+        const stack = new Error().stack;
+        if (stack.includes('sendDispatch') && !stack.includes('ensureDispatchSocket')) {
+          armed = false;
+          return WebSocket.CLOSED;
+        }
+      }
+      return value;
+    } });
+    process.argv[1] = ${JSON.stringify(PROXY)};
+    require('node:module').runMain();
+  `;
+  const spawnArgs = options.rotateInsideRetry ? ['--eval', retryRotationBootstrap]
+    : options.socketClosedAtSend ? ['--eval', sendRefusalBootstrap]
+    : [PROXY];
+  const child = spawn(process.execPath, spawnArgs, { env, stdio: ['pipe', 'pipe', 'pipe'] });
   let stdout = '';
   let stderr = '';
   child.stdout.on('data', chunk => { stdout += chunk; });
@@ -355,11 +423,15 @@ async function withRecoveryProxy(options, exercise) {
     send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'recovery-regression', version: '1' } } });
     await response(1);
     send({ jsonrpc: '2.0', method: 'notifications/initialized' });
-    await exercise({ record, call });
+    await exercise({ record, discoverableRecord, call, stderrText: () => stderr });
   } finally {
     child.kill();
     server.closeAllConnections();
     await new Promise(resolve => server.close(resolve));
+    if (discoverable) {
+      discoverable.server.closeAllConnections();
+      await new Promise(resolve => discoverable.server.close(resolve));
+    }
   }
 }
 
@@ -496,4 +568,122 @@ test('effectful capability recovers after TARGET_MISMATCH via auto-rebind withou
     assert.equal(rebindCalls.length, 1, 'rebind must be dispatched between attempts');
     assert.equal(rebindCalls[0].params.params.tabId, 'tab-stale-effectful');
   });
+});
+
+const proxyModule = require(PROXY);
+
+/** The structured diagnostic an error result carries as its text. */
+function diagnosticOf(response) {
+  assert.equal(response.result?.isError, true, JSON.stringify(response));
+  return JSON.parse(response.result.content[0].text);
+}
+
+test('a definitive pairing refusal surfaces its own code and recovery, not a connection symptom', async () => {
+  await withRecoveryProxy({ recoveredStaleAnchor: true, refusePairing: { code: 'TERMINAL_SCOPE_UNRESOLVED', details: { projectId: 'p1' } } }, async ({ call }) => {
+    const diagnostic = diagnosticOf(await call(2, 'anti.browser.tabs.list'));
+    assert.equal(diagnostic.code, 'TERMINAL_SCOPE_UNRESOLVED');
+    assert.equal(diagnostic.details.projectId, 'p1', 'the refusal details are carried through');
+    assert.match(diagnostic.details.recovery, /Project Picker/);
+    assert.match(diagnostic.details.cause, /pairing unavailable/);
+    assert.equal(diagnostic.details.previousFailure.code, 'CONNECTION_FAILED', 'the connection symptom that led to recovery stays attached, not as the error code');
+  });
+});
+
+test('a socket closed 4001 after the dispatch still reports the definitive pairing refusal', async () => {
+  await withRecoveryProxy({ closeAfterFirstDispatch: true, recoveredStaleAnchor: true, refusePairing: { code: 'TERMINAL_SCOPE_UNRESOLVED', details: { projectId: 'p1' } } }, async ({ record, call }) => {
+    const diagnostic = diagnosticOf(await call(2, 'anti.browser.tabs.list'));
+    assert.equal(diagnostic.code, 'TERMINAL_SCOPE_UNRESOLVED');
+    assert.match(diagnostic.details.recovery, /Project Picker/);
+    assert.equal(diagnostic.details.previousFailure.closeCode, 4001, 'the symptom that led to recovery stays attached');
+    assert.ok(record.some((value) => value.method === 'pairing.exchange'));
+  });
+});
+
+test('a refusal that is only an availability fact keeps its connection code and names the cause', async () => {
+  await withRecoveryProxy({ recoveredStaleAnchor: true, refusePairing: { code: 'BRIDGE_UNREACHABLE', status: 400 } }, async ({ call }) => {
+    const diagnostic = diagnosticOf(await call(2, 'anti.browser.tabs.list'));
+    assert.match(diagnostic.code, /^CONNECTION_/);
+    assert.match(diagnostic.details.autohealCause, /BRIDGE_UNREACHABLE/);
+    assert.ok(Array.isArray(diagnostic.details.autohealCandidates) && diagnostic.details.autohealCandidates.length > 0);
+  });
+});
+
+test('a definitive refusal never falls over to another discoverable bridge', async () => {
+  await withRecoveryProxy({ recoveredStaleAnchor: true, discoverableBridge: true, refusePairing: { code: 'TERMINAL_SCOPE_UNRESOLVED', details: { projectId: 'p1' } } }, async ({ discoverableRecord, call }) => {
+    const diagnostic = diagnosticOf(await call(2, 'anti.browser.tabs.list'));
+    assert.equal(diagnostic.code, 'TERMINAL_SCOPE_UNRESOLVED');
+    assert.deepEqual(discoverableRecord, [], 'the refused terminal must not pair with, or dispatch to, another instance');
+  });
+});
+
+test('an availability refusal still tries the next discoverable bridge', async () => {
+  await withRecoveryProxy({ recoveredStaleAnchor: true, discoverableBridge: true, refusePairing: { code: 'BRIDGE_UNREACHABLE', status: 400 } }, async ({ discoverableRecord, call }) => {
+    await call(2, 'anti.browser.tabs.list');
+    assert.ok(discoverableRecord.some((value) => value.method === 'pairing.exchange'), 'an unreachable bridge is not a verdict, so failover proceeds');
+  });
+});
+
+test('a 4001 close after recovery carries the recovery cause instead of a bare token label', async () => {
+  await withRecoveryProxy({ closeAfterFirstDispatch: true, alwaysCloseDispatch: true, recoveredStaleAnchor: true }, async ({ call }) => {
+    const diagnostic = diagnosticOf(await call(2, 'anti.browser.tabs.list'));
+    assert.equal(diagnostic.code, 'CONNECTION_CLOSED');
+    assert.equal(diagnostic.closeCode, 4001);
+    assert.match(diagnostic.details.autohealCause, /held authority not reusable/);
+    assert.equal(diagnostic.details.previousFailure.closeCode, 4001);
+  });
+});
+
+test('two consecutive REVISION_STALE refusals are refreshed in place and the third frame executes once', async () => {
+  await withRecoveryProxy({ closeAfterFirstDispatch: true, closeAfterDispatchCount: 99, reuseAttachment: true, liveRevision: 'rev_live', revisionStaleTimes: 2 }, async ({ record, call }) => {
+    const response = await call(2, 'anti.browser.navigate', { url: 'https://example.test/double-rotation' });
+    assert.notEqual(response.result?.isError, true, JSON.stringify(response));
+    const calls = record.filter((value) => value.method === 'antifan.capability.dispatch');
+    assert.equal(calls.length, 3, 'two refusals, then the accepted frame');
+    assert.equal(calls[1].params.idempotencyKey, calls[0].params.idempotencyKey);
+    assert.equal(calls[2].params.idempotencyKey, calls[0].params.idempotencyKey);
+    assert.deepEqual(calls[2].params.params, calls[0].params.params, 'frozen params keep the ledger join');
+    assert.equal(calls[2].params.authorityRevision, 'rev_live');
+    assert.equal(record.filter((value) => value.method === 'fixture.revisionRefused').length, 2);
+    assert.equal(record.filter((value) => value.method === 'fixture.mutationExecuted').length, 1);
+    assert.equal(record.filter((value) => value.method === 'pairing.exchange').length, 0, 'revision refresh never spends a pairing code');
+  });
+});
+
+test('three consecutive REVISION_STALE refusals fail with the earlier refusals attached and nothing executed', async () => {
+  await withRecoveryProxy({ closeAfterFirstDispatch: true, closeAfterDispatchCount: 99, reuseAttachment: true, liveRevision: 'rev_live', revisionStaleTimes: 3 }, async ({ record, call }) => {
+    const diagnostic = diagnosticOf(await call(2, 'anti.browser.navigate', { url: 'https://example.test/triple-rotation' }));
+    assert.equal(diagnostic.code, 'REVISION_STALE');
+    assert.equal(diagnostic.details.previousFailure.code, 'REVISION_STALE');
+    assert.equal(record.filter((value) => value.method === 'antifan.capability.dispatch').length, 3);
+    assert.equal(record.filter((value) => value.method === 'fixture.mutationExecuted').length, 0);
+    assert.equal(record.filter((value) => value.method === 'pairing.exchange').length, 0);
+  });
+});
+
+test('a frame refused because the socket was already closing is retried once on the same authority without recovery', async () => {
+  await withRecoveryProxy({ closeAfterFirstDispatch: true, closeAfterDispatchCount: 99, reuseAttachment: true, socketClosedAtSend: true }, async ({ record, call, stderrText }) => {
+    const response = await call(2, 'anti.browser.navigate', { url: 'https://example.test/quick-retry' });
+    assert.notEqual(response.result?.isError, true, JSON.stringify(response));
+    assert.equal(record.filter((value) => value.method === 'antifan.capability.dispatch').length, 1, 'the refused frame never reached the bridge');
+    assert.equal(record.filter((value) => value.method === 'fixture.mutationExecuted').length, 1);
+    assert.equal(record.filter((value) => value.method === 'pairing.exchange').length, 0);
+    assert.doesNotMatch(stderrText(), /Autohealing/);
+  });
+});
+
+test('only an unsent frame on a status-less close or a not-open socket qualifies for the quick retry', () => {
+  assert.equal(proxyModule.isQuickRetryClose({ details: { transmitted: false, closeCode: 1005 } }), true);
+  assert.equal(proxyModule.isQuickRetryClose({ details: { transmitted: false, socketNotOpen: true } }), true);
+  assert.equal(proxyModule.isQuickRetryClose({ details: { transmitted: true, closeCode: 1005 } }), false, 'a transmitted frame may have executed');
+  assert.equal(proxyModule.isQuickRetryClose({ details: { transmitted: false, closeCode: 1006 } }), false);
+  assert.equal(proxyModule.isQuickRetryClose(new Error('x')), false);
+});
+
+test('only a policy or scope refusal is definitive, never an availability fact', () => {
+  const refusal = (errorCode, message = 'refused') => Object.assign(new Error(message), { errorCode });
+  assert.equal(proxyModule.definitiveRefusalCode(refusal('TERMINAL_SCOPE_UNRESOLVED')), 'TERMINAL_SCOPE_UNRESOLVED');
+  assert.equal(proxyModule.definitiveRefusalCode(refusal(null, 'TARGET_STALE: tab is gone')), 'TARGET_STALE');
+  assert.equal(proxyModule.definitiveRefusalCode(refusal('BRIDGE_UNREACHABLE')), null);
+  assert.equal(proxyModule.definitiveRefusalCode(refusal(null, 'connect ECONNREFUSED 127.0.0.1:1')), null);
+  assert.equal(proxyModule.definitiveRefusalCode(refusal('PAIRING_TIMEOUT', 'timed out')), null);
 });

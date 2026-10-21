@@ -8,6 +8,7 @@ import { CapabilityCatalogue } from '../../src/main/tools/capability-catalogue';
 import { registerBrowserCapabilities } from '../../src/main/tools/browser-capabilities';
 import { BrowserControlPort } from '../../src/main/tools/browser-control-port';
 import { StorageLocations } from '../../src/main/config/storage-locations';
+import { CapabilityError } from '../../src/shared/control-plane-contracts';
 
 const originalDataRoot = process.env.ANTIFAN_DATA_ROOT;
 const originalIssueRegisterDir = process.env.ANTIFAN_ISSUE_REGISTER_DIR;
@@ -121,7 +122,13 @@ describe('Browser Tab Identity & Durable Issue Register Suite', () => {
       const switchResult = port.switchTab('tab-1', { target: mockTarget });
       assert.strictEqual(switchResult.switched, true);
       assert.strictEqual(switchResult.tabId, 'tab-1');
-      assert.throws(() => port.switchTab('@admin', { target: mockTarget }), /unknown tab/);
+      assert.throws(
+        () => port.switchTab('@admin', { target: mockTarget }),
+        (err: unknown) => err instanceof CapabilityError
+          && err.code === 'TARGET_STALE'
+          && err.details?.tabId === '@admin'
+          && err.details?.recovery === 'anti.browser.tabs.list'
+      );
     });
     test('resolves numeric #N tab references in switchTab and target resolution', () => {
       let lastSwitchedId = '';

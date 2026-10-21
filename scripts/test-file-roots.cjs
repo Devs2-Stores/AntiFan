@@ -10,9 +10,22 @@
  * loads; processes a test spawns inherit the rebound roots, so a test and its children still share
  * one root. The lane deletes its directory, and these with it, when it ends.
  */
-const { mkdtempSync } = require('node:fs');
+const { mkdtempSync, rmSync } = require('node:fs');
+const { tmpdir } = require('node:os');
 const { join } = require('node:path');
 const { buildLaneEnv } = require('./lane-env.cjs');
+
+// A bare `npm run test:*` has no pipeline around it, so no lane: its test processes would resolve
+// the developer's own data root and append to the live app's main.log and registers. The runner
+// process (no NODE_TEST_CONTEXT) opens a lane of its own and removes it when it exits; the
+// pipeline already sets ANTIFAN_TEST_LANE_DIR, so its lanes are left as they are.
+if (!process.env.ANTIFAN_TEST_LANE_DIR && !process.env.NODE_TEST_CONTEXT) {
+  const ownLane = mkdtempSync(join(tmpdir(), 'antifan-lane-bare-'));
+  Object.assign(process.env, buildLaneEnv(ownLane, {}));
+  process.on('exit', () => {
+    try { rmSync(ownLane, { recursive: true, force: true }); } catch {}
+  });
+}
 
 const laneDir = process.env.ANTIFAN_TEST_LANE_DIR;
 // NODE_TEST_CONTEXT marks a process the runner spawned for a test file (the runner itself has

@@ -59,6 +59,18 @@ const ISOLATED_ACTION_NAMES: Record<string, true> = {
 /** Pacing bounds for a bounded pointer drag: short enough to stay snappy, long enough for slider libraries to see distinct frames. */
 const DRAG_STEP_BOUNDS = { min: 4, max: 20, default: 10, intervalMs: 16 };
 
+/** True when a failure message is the page rejecting selector text as invalid CSS. */
+function isSelectorSyntaxFailure(text: string): boolean {
+  return /SyntaxError|is not a valid selector/i.test(text);
+}
+
+function invalidSelectorError(selector: string, detail: string): CapabilityError {
+  return new CapabilityError('INVALID_SELECTOR', `Selector '${selector}' is not valid CSS: ${detail}`, {
+    selector,
+    recovery: 'Pass a CSS selector or an @eN ref only; remove engine syntax such as ">> nth=0"',
+  });
+}
+
 /**
  * Ceiling for one agent-side renderer round trip. The soft budget only warns — a heavy page or a
  * busy CPU is slow, not dead — while the derived hard ceiling (~25s here) terminates the
@@ -1459,7 +1471,9 @@ export class TabAutomationHost {
               stepSuccess = false;
               stepError = 'Missing or invalid url for navigate action';
             } else if (this.ctx.navigateAndWait) {
-              const navOk = await this.ctx.navigateAndWait(targetId, action.url.trim(), 10000);
+              const requestedNavTimeout = typeof action.timeoutMs === 'number' && Number.isFinite(action.timeoutMs) ? action.timeoutMs : 10_000;
+              const navTimeoutMs = Math.max(1_000, Math.min(60_000, Math.floor(requestedNavTimeout)));
+              const navOk = await this.ctx.navigateAndWait(targetId, action.url.trim(), navTimeoutMs);
               stepSuccess = navOk;
               if (!navOk) stepError = `Navigation to "${action.url}" failed or timed out`;
               initialUrl = wc.isDestroyed() ? action.url.trim() : wc.getURL();
@@ -2035,11 +2049,23 @@ export class TabAutomationHost {
         if (isolatedCtxId) {
           evalParams.contextId = isolatedCtxId;
         }
-        const evalRes = await this.ctx.tabDevToolsHost.sendCdpCommand<{ result?: { objectId?: string } }>(
+        const evalRes = await this.ctx.tabDevToolsHost.sendCdpCommand<{
+          result?: { objectId?: string };
+          exceptionDetails?: { text?: string; exception?: { className?: string; description?: string } };
+        }>(
           wc,
           'Runtime.evaluate',
           evalParams
         );
+        // querySelector throws a SyntaxError for text that is not CSS: that is an unusable selector,
+        // not an element that was merely not found.
+        if (evalRes?.exceptionDetails) {
+          const detail = evalRes.exceptionDetails.exception?.description || evalRes.exceptionDetails.text || 'selector evaluation failed';
+          if (evalRes.exceptionDetails.exception?.className === 'SyntaxError' || isSelectorSyntaxFailure(detail)) {
+            throw invalidSelectorError(targetRef, detail);
+          }
+          throw new CapabilityError('EXECUTION_ERROR', `Selector evaluation failed for ${refOrSelector}: ${detail}`);
+        }
         if (evalRes?.result?.objectId) {
           resolvedObjectId = evalRes.result.objectId;
           resolvedNodeId = await this.ctx.tabDevToolsHost.describeNodeByObjectId(wc, evalRes.result.objectId);
@@ -2143,13 +2169,20 @@ export class TabAutomationHost {
         }
         dropCoords = { x: desc.rect.centerX, y: desc.rect.centerY };
       } else {
-        const rawCoords = await this.executeInIsolatedWorld(wc, `(() => {
+        let rawCoords: unknown;
+        try {
+          rawCoords = await this.executeInIsolatedWorld(wc, `(() => {
           const el = document.querySelector(${targetSel});
           if (!el) return null;
           const r = el.getBoundingClientRect();
           if (r.width <= 0 || r.height <= 0) return null;
           return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
         })()`);
+        } catch (err: unknown) {
+          const detail = err instanceof Error ? err.message : String(err);
+          if (isSelectorSyntaxFailure(detail)) throw invalidSelectorError(targetRef, detail);
+          throw err;
+        }
         const coordsRes = rawCoords && typeof rawCoords === 'object' && 'x' in rawCoords && 'y' in rawCoords
           ? { x: Number((rawCoords as { x: unknown }).x), y: Number((rawCoords as { y: unknown }).y) }
           : null;

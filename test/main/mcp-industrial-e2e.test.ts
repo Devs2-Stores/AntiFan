@@ -219,6 +219,10 @@ describe('Phase 04: E2E Industrial Overhaul & Storefront Latency Benchmarks', ()
     for (const key of Object.keys(env)) {
       if (pinnedContextKeys[key.toLowerCase()] === true) delete env[key];
     }
+    // An unset data root falls back to the installation default, where bridge discovery
+    // finds the live app. Pin it to this suite's tempdir so a failover finds nothing.
+    env.ANTIFAN_DATA_ROOT = path.join(tempDir, 'data');
+    env.ANTIFAN_CONFIG_DIR = path.join(tempDir, 'data', 'config');
 
     mcpChild = spawn(process.execPath, [scriptPath], {
       env,

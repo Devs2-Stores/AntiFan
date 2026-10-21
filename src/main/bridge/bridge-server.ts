@@ -34,7 +34,7 @@ import {
   BRIDGE_HEALTH_HEARTBEAT_MS,
   emitBridgeHealthChanged,
 } from './bridge-health';
-import { CapabilityTransportAdapter } from '../tools/capability-transport';
+import { CapabilityTransportAdapter, describeRelayedFailure } from '../tools/capability-transport';
 import { CapabilityRequestContext, CapabilityError, BrowserTarget, RuntimeLease, ArtifactRef, ClientInvocationIntent, makeControlPlaneId, hashSecret, verifySecret } from '../../shared/control-plane-contracts';
 import { AttachmentRegistry, type PageCloseAdmission } from '../run/attachment-registry';
 import { SessionCapabilityFilter, isCapabilityNamePermitted } from '../tools/capability-catalogue';
@@ -2653,6 +2653,7 @@ export class BridgeServer {
                 invocationId: dispatchResult.invocationId,
                 replacementAuthorityRevision: dispatchResult.replacementAuthorityRevision,
                 authorityRevision: dispatchResult.replacementAuthorityRevision,
+                ...(dispatchResult.bindingChanged ? { bindingChanged: dispatchResult.bindingChanged } : {}),
               });
             } else {
               const code = dispatchResult.error?.code || 'CAPABILITY_ERROR';
@@ -2666,10 +2667,8 @@ export class BridgeServer {
               }, `${code}: ${message}`);
             }
           } catch (err: unknown) {
-            const code = err instanceof CapabilityError ? err.code : 'CAPABILITY_ERROR';
-            const message = err instanceof Error ? err.message : String(err);
-            const details = err instanceof CapabilityError ? err.details : undefined;
-            respond(false, { code, message, details }, `${code}: ${message}`);
+            const relayed = describeRelayedFailure(err);
+            respond(false, { code: relayed.code, message: relayed.message, details: relayed.details }, `${relayed.code}: ${relayed.message}`);
           }
           break;
         }

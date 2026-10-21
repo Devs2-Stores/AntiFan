@@ -31,6 +31,7 @@ import { confineWorkspaceRoot, confineWorkspaceRootStrict } from '../qa/diagnost
 import { DEFAULT_QA_PROFILE } from '../qa/qa-thresholds';
 import { assertThemeWorkspaceRoot } from '../qa/workspace-markers';
 import { registerQaProbeCapabilities } from './qa-probe-capabilities';
+import { registerSheetCapabilities } from './sheet-capabilities';
 import { recordFallbackTelemetry, FallbackTelemetryPayload } from '../telemetry/fallback-recorder';
 import { IssueRegister, VerificationVerdict } from '../session/issue-register';
 import { VerificationEvaluator, deriveFailureSignature, resolvePreviousLifecycle } from '../verification/verification-evaluator';
@@ -316,6 +317,8 @@ export interface QaValidateOptions {
   coverageFloor?: number;
   profile?: QaProfile;
   expectedStatus?: number;
+  /** Declared greenfield run: the caller states why no visual baseline exists. */
+  greenfield?: { reason: string };
 }
 
 function invalidQaArgument(message: string): CapabilityError {
@@ -452,8 +455,143 @@ export function parseQaValidateOptions(params: Record<string, unknown>): QaValid
     settle.ignoreSelectors = [...(settle.ignoreSelectors ?? []), ...top.filter((s) => !(settle.ignoreSelectors ?? []).includes(s))];
   }
   if (Object.keys(settle).length > 0) out.settle = settle;
+
+  if (params.greenfield !== undefined) {
+    const raw = params.greenfield as Record<string, unknown> | null;
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw invalidQaArgument('greenfield must be an object {reason}');
+    if (typeof raw.reason !== 'string' || !raw.reason.trim()) throw invalidQaArgument('greenfield.reason must be a non-empty string naming why no visual baseline exists');
+    out.greenfield = { reason: raw.reason.trim().slice(0, 500) };
+  }
   return out;
 }
+
+/**
+ * Ids of the promoted visual baselines on record for the caller's workspace. A greenfield run is only
+ * legitimate when this list is empty, so a store that cannot be read refuses the run instead of
+ * reading as "no baselines".
+ */
+export function listPromotedBaselineIds(
+  browser: BrowserControlPort,
+  context: { workspaceId?: string; projectId?: string }
+): string[] {
+  const authority = browser.baselineAuthority;
+  if (!authority || typeof authority.getBaselineDir !== 'function') {
+    throw new CapabilityError('EXECUTION_ERROR', 'The promoted baseline store is not available, so a greenfield run cannot prove that no baseline exists', {
+      recovery: 'run theme.qa_validate without greenfield and supply viewports from an anti.visual.compare against a promoted baseline',
+    });
+  }
+  if (!context.workspaceId) {
+    throw new CapabilityError('WORKSPACE_UNBOUND', 'A greenfield run needs the bound workspace to look up its promoted baselines');
+  }
+  const dir = authority.getBaselineDir(context.workspaceId);
+  let names: string[];
+  try {
+    names = fs.readdirSync(dir).filter((name) => /^vbase_[a-zA-Z0-9_-]+\.json$/.test(name));
+  } catch (err) {
+    throw new CapabilityError('EXECUTION_ERROR', `The promoted baseline directory could not be read: ${(err as Error).message}`, {
+      recovery: 'repair the baseline store, or run theme.qa_validate without greenfield',
+    });
+  }
+  const found: string[] = [];
+  for (const name of names) {
+    const id = name.slice(0, -'.json'.length);
+    try {
+      const manifest = JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8')) as { workspaceId?: unknown; projectId?: unknown };
+      const sameWorkspace = manifest.workspaceId === undefined || manifest.workspaceId === context.workspaceId;
+      const sameProject = typeof manifest.projectId !== 'string' || !context.projectId || manifest.projectId === context.projectId;
+      if (sameWorkspace && sameProject) found.push(id);
+    } catch {
+      // An unreadable manifest still names a baseline that was promoted here: never read it as absence.
+      found.push(id);
+    }
+  }
+  return found.sort();
+}
+
+const SEQUENCE_ACTION_TYPES = ['navigate', 'click', 'type', 'scroll', 'hover', 'pressKey', 'wait', 'screenshot', 'snapshot'];
+
+/** One sequence step; shared by the `actions` argument and its `steps` alias. */
+function sequenceStepsSchema(description?: string): Record<string, unknown> {
+  return {
+    type: 'array',
+    items: {
+      type: 'object',
+      properties: {
+        type: { type: 'string', enum: SEQUENCE_ACTION_TYPES },
+        url: { type: 'string' },
+        ref: { type: 'string' },
+        selector: { type: 'string' },
+        x: { type: 'number' },
+        y: { type: 'number' },
+        text: { type: 'string' },
+        clear: { type: 'boolean' },
+        deltaY: { type: 'number' },
+        key: { type: 'string' },
+        modifiers: { type: 'array', items: { type: 'string' } },
+        waitMs: { type: 'number', description: 'Pause length for wait steps (1-10000 ms, default 100)' },
+        timeoutMs: { type: 'number', description: 'Navigation budget for navigate steps in milliseconds (1000-60000, default 10000)' },
+        settleMs: { type: 'number' },
+        format: { type: 'string', enum: ['jpeg', 'png'] },
+        quality: { type: 'number' },
+      },
+      required: ['type'],
+    },
+    ...(description ? { description } : {}),
+  };
+}
+
+/** Input schema of every sequence registration: the steps arrive as `actions` or as its alias `steps`, never both. */
+function sequenceInputSchema(): Record<string, unknown> {
+  return {
+    type: 'object',
+    properties: {
+      actions: sequenceStepsSchema('Ordered array of action steps to execute sequentially'),
+      steps: sequenceStepsSchema('Alias of actions; mutually exclusive with it'),
+      tabId: { type: 'string' },
+      paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+      stopOnError: { type: 'boolean' },
+    },
+    oneOf: [{ required: ['actions'] }, { required: ['steps'] }],
+  };
+}
+
+type SequenceParams = {
+  actions?: Array<Record<string, unknown>>;
+  steps?: Array<Record<string, unknown>>;
+  tabId?: string;
+  paneId?: 'desktop' | 'mobile';
+  stopOnError?: boolean;
+};
+
+/** Folds the `steps` alias into `actions`; supplying both forms is ambiguous and refused. */
+function normalizeSequenceParams(capability: string, params: SequenceParams): {
+  actions: Array<Record<string, unknown>>;
+  tabId?: string;
+  paneId?: 'desktop' | 'mobile';
+  stopOnError?: boolean;
+} {
+  if (params.actions !== undefined && params.steps !== undefined) {
+    throw new CapabilityError('INVALID_ARGUMENT', `${capability}: pass the steps as 'actions' or as its alias 'steps', not both`);
+  }
+  const { steps, actions, ...rest } = params;
+  return { ...rest, actions: (actions ?? steps) as Array<Record<string, unknown>> };
+}
+
+/** Input schema of every navigate registration. */
+function navigateInputSchema(): Record<string, unknown> {
+  return {
+    type: 'object',
+    properties: {
+      url: { type: 'string', description: 'http(s) URL, or about:blank to reset the tab to an empty document; every other about: page, file:, data: and javascript: is refused' },
+      tabId: { type: 'string' },
+      timeoutMs: { type: 'number', description: 'Navigation budget in milliseconds (default 20000, capped at 60000)' },
+    },
+    required: ['url'],
+  };
+}
+
+/** Description suffix shared by every tab-close registration. */
+const CLOSE_TAB_DESCRIPTION = 'Close a Chromium browser tab by ID. A tab that is already gone is not an error: the result is {closed:false, alreadyGone:true}';
 
 /** The settle gate that held a degraded or refused run, read from the report or the thrown refusal. */
 function settleFailureOf(report: ThemeQaReport | undefined, err: unknown): { code: 'SETTLE_INCOMPLETE'; reason: string } | null {
@@ -578,7 +716,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
   });
   catalogue.register({
     name: 'browser.close-tab',
-    description: 'Close a Chromium browser tab by ID',
+    description: CLOSE_TAB_DESCRIPTION,
     risk: 'write',
     policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
     inputSchema: { type: 'object', properties: { tabId: { type: 'string' } }, required: ['tabId'] },
@@ -610,8 +748,9 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'write',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
-    inputSchema: { type: 'object', properties: { url: { type: 'string' }, tabId: { type: 'string' } }, required: ['url'] },
-    execute: (params: { url: string; tabId?: string }, context) => browser.navigate(context.browserTarget as BrowserTarget, params.url, params.tabId),
+    inputSchema: navigateInputSchema(),
+    execute: (params: { url: string; tabId?: string; timeoutMs?: number }, context) =>
+      browser.navigate(context.browserTarget as BrowserTarget, params.url, params.tabId, params.timeoutMs !== undefined ? { timeoutMs: params.timeoutMs } : undefined),
   });
 
   catalogue.register({
@@ -1023,42 +1162,9 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'write',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
-    inputSchema: {
-      type: 'object',
-      properties: {
-        actions: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              type: { type: 'string', enum: ['navigate', 'click', 'type', 'scroll', 'hover', 'pressKey', 'wait', 'screenshot', 'snapshot'] },
-              url: { type: 'string' },
-              ref: { type: 'string' },
-              selector: { type: 'string' },
-              x: { type: 'number' },
-              y: { type: 'number' },
-              text: { type: 'string' },
-              clear: { type: 'boolean' },
-              deltaY: { type: 'number' },
-              key: { type: 'string' },
-              modifiers: { type: 'array', items: { type: 'string' } },
-              waitMs: { type: 'number' },
-              settleMs: { type: 'number' },
-              format: { type: 'string', enum: ['jpeg', 'png'] },
-              quality: { type: 'number' },
-            },
-            required: ['type'],
-          },
-          description: 'Ordered array of action steps to execute sequentially',
-        },
-        tabId: { type: 'string' },
-        paneId: { type: 'string', enum: ['desktop', 'mobile'] },
-        stopOnError: { type: 'boolean' },
-      },
-      required: ['actions'],
-    },
-    execute: (params: { actions: Array<Record<string, unknown>>; tabId?: string; paneId?: 'desktop' | 'mobile'; stopOnError?: boolean }, context) =>
-      browser.sequence(params, context.browserTarget, context.signal),
+    inputSchema: sequenceInputSchema(),
+    execute: (params: SequenceParams, context) =>
+      browser.sequence(normalizeSequenceParams('browser.agent-sequence', params), context.browserTarget, context.signal),
   });
 
   catalogue.register({
@@ -1288,11 +1394,21 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         expressionFile: { type: 'string', description: 'Workspace-relative path to a file containing the JavaScript expression; mutually exclusive with expression' },
         tabId: { type: 'string' },
         paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+        requireRenderSurface: { type: 'boolean', description: 'Refuse a tab that reports no laid-out surface (0x0 CSS px) instead of evaluating against an unrendered page' },
+        allowDegradedSurface: { type: 'boolean', description: 'Run even when the tab reports a 0x0 surface (diagnostic escape hatch)' },
+        timeoutMs: { type: 'number', description: 'In-page execution budget in milliseconds (default 15000; capped by the capability invocation budget)' },
       },
       oneOf: [{ required: ['expression'] }, { required: ['expressionFile'] }],
     },
-    execute: (params: { expression?: string; expressionFile?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
-      browser.eval(context.browserTarget as BrowserTarget, resolveExpressionInput('anti.inspect.eval', params, context), params.tabId, params.paneId),
+    execute: (
+      params: { expression?: string; expressionFile?: string; tabId?: string; paneId?: 'desktop' | 'mobile'; requireRenderSurface?: boolean; allowDegradedSurface?: boolean; timeoutMs?: number },
+      context
+    ) =>
+      browser.eval(context.browserTarget as BrowserTarget, resolveExpressionInput('anti.inspect.eval', params, context), params.tabId, params.paneId, {
+        requireRenderSurface: params.requireRenderSurface === true,
+        allowDegradedSurface: params.allowDegradedSurface === true,
+        timeoutMs: params.timeoutMs,
+      }),
   });
 
   catalogue.register({
@@ -1530,7 +1646,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
 
   catalogue.register({
     name: 'antifan_close_tab',
-    description: 'Alias for browser.close-tab',
+    description: CLOSE_TAB_DESCRIPTION,
     risk: 'write',
     policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
     inputSchema: { type: 'object', properties: { tabId: { type: 'string' } }, required: ['tabId'] },
@@ -1562,8 +1678,9 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'write',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
-    inputSchema: { type: 'object', properties: { url: { type: 'string' }, tabId: { type: 'string' } }, required: ['url'] },
-    execute: (params: { url: string; tabId?: string }, context) => browser.navigate(context.browserTarget as BrowserTarget, params.url, params.tabId),
+    inputSchema: navigateInputSchema(),
+    execute: (params: { url: string; tabId?: string; timeoutMs?: number }, context) =>
+      browser.navigate(context.browserTarget as BrowserTarget, params.url, params.tabId, params.timeoutMs !== undefined ? { timeoutMs: params.timeoutMs } : undefined),
   });
 
   catalogue.register({
@@ -1685,41 +1802,9 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'write',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
-    inputSchema: {
-      type: 'object',
-      properties: {
-        actions: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              type: { type: 'string', enum: ['navigate', 'click', 'type', 'scroll', 'hover', 'pressKey', 'wait', 'screenshot', 'snapshot'] },
-              url: { type: 'string' },
-              ref: { type: 'string' },
-              selector: { type: 'string' },
-              x: { type: 'number' },
-              y: { type: 'number' },
-              text: { type: 'string' },
-              clear: { type: 'boolean' },
-              deltaY: { type: 'number' },
-              key: { type: 'string' },
-              modifiers: { type: 'array', items: { type: 'string' } },
-              waitMs: { type: 'number' },
-              settleMs: { type: 'number' },
-              format: { type: 'string', enum: ['jpeg', 'png'] },
-              quality: { type: 'number' },
-            },
-            required: ['type'],
-          },
-        },
-        tabId: { type: 'string' },
-        paneId: { type: 'string', enum: ['desktop', 'mobile'] },
-        stopOnError: { type: 'boolean' },
-      },
-      required: ['actions'],
-    },
-    execute: (params: { actions: Array<Record<string, unknown>>; tabId?: string; paneId?: 'desktop' | 'mobile'; stopOnError?: boolean }, context) =>
-      browser.sequence(params, context.browserTarget, context.signal),
+    inputSchema: sequenceInputSchema(),
+    execute: (params: SequenceParams, context) =>
+      browser.sequence(normalizeSequenceParams('antifan_agent_sequence', params), context.browserTarget, context.signal),
   });
 
   catalogue.register({
@@ -1902,6 +1987,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         settle: { type: 'object', description: 'Per-call settle barrier overrides', properties: { scopeSelector: { type: 'string' }, ignoreSelectors: { type: 'array', items: { type: 'string' } }, networkTimeoutMs: { type: 'number' }, fontsTimeoutMs: { type: 'number' }, imagesTimeoutMs: { type: 'number' }, domTimeoutMs: { type: 'number' }, totalTimeoutMs: { type: 'number' } } },
         expectedStatus: { type: 'number', description: 'HTTP status the contract screen declares for this route (for example 404 on a not-found screen). A document returning exactly that status is not reported as ROUTE_404; echoed on the receipt' },
         allowNonTheme: { type: 'boolean', description: 'Accept a workspace root without theme markers (layout/theme.liquid, config/settings_schema.json, config/settings.html) for a plain-folder run. Otherwise such a root is refused with WORKSPACE_NOT_THEME and no receipt is written' },
+        greenfield: { type: 'object', description: 'Declare that no visual baseline exists yet for this storefront (a new build). The run records the reason and the observed baseline state on the receipt; it is refused when baselines already exist for the route', properties: { reason: { type: 'string', description: 'Why the run has no baseline to compare against' } }, required: ['reason'] },
         viewports: {
           type: 'object',
           properties: {
@@ -1927,6 +2013,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         expectedStatus?: number;
         settle?: QaSettleOverrides;
         allowNonTheme?: boolean;
+        greenfield?: { reason: string };
         viewports?: {
           // `passed` is the caller structural verdict; the QA matrix ANDs it with the pixel threshold, so only downgrades are possible.
           desktop?: { mismatchPercent: number; passed: boolean };
@@ -1978,6 +2065,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       let receiptDisposition: RefusalDisposition | null = null;
       let errorReason: string | null = null;
       let finalReport: ThemeQaReport | undefined;
+      // Set once the promoted baseline store has been consulted for a declared greenfield run.
+      let greenfieldInput: { reason: string; baselineExists: boolean } | undefined;
       const runValidate = async (t: BrowserTarget) => themeQaWorkflow!.validate({
         runId,
         attemptId,
@@ -1995,6 +2084,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         // Mirror real wrapper recovery into the report — never hard-code zero
         // after a failover rebind succeeded.
         recovery: receiptRecovery,
+        ...(greenfieldInput ? { greenfield: greenfieldInput } : {}),
       });
       try {
         if (!target?.tabId) {
@@ -2002,6 +2092,16 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         }
         if (!themeQaWorkflow) {
           throw new CapabilityError('CAPABILITY_NOT_FOUND', 'Theme QA workflow is not available');
+        }
+        if (qaOptions.greenfield) {
+          const existingBaselines = listPromotedBaselineIds(browser, context);
+          if (existingBaselines.length > 0) {
+            throw new CapabilityError('GREENFIELD_BASELINE_EXISTS', `A promoted visual baseline already exists for this workspace (${existingBaselines.join(', ')}); a greenfield run cannot replace it`, {
+              baselineIds: existingBaselines,
+              recovery: 'compare against the promoted baseline with anti.visual.compare and pass the results as viewports, or delete the old baseline deliberately',
+            });
+          }
+          greenfieldInput = { reason: qaOptions.greenfield.reason, baselineExists: false };
         }
         if (typeof params.expectedUrl === 'string' && params.expectedUrl.trim()) {
           const observedUrl = await browser.getLiveTabUrl(target.tabId);
@@ -2132,6 +2232,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
                     id: f.id,
                     file: f.file || 'config/settings.html',
                     line: f.line,
+                    ...(f.pointer ? { pointer: f.pointer } : {}),
                     message: f.message,
                     detail: f.detail,
                   });
@@ -2146,6 +2247,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
                         id: f.id,
                         file,
                         line: f.line,
+                        ...(f.pointer ? { pointer: f.pointer } : {}),
                         message: f.message,
                         detail: f.detail,
                       });
@@ -2156,6 +2258,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
                       id: f.id,
                       file: f.file || 'config/settings.html',
                       line: f.line,
+                      ...(f.pointer ? { pointer: f.pointer } : {}),
                       message: f.message,
                       detail: f.detail,
                     });
@@ -2174,7 +2277,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
                     rule: f.rule,
                     id: f.id,
                     file,
-                    line: f.line || 1,
+                    ...(f.line ? { line: f.line } : {}),
+                    ...(f.pointer ? { pointer: f.pointer } : {}),
                     message: f.message,
                     detail: f.message,
                   });
@@ -2190,7 +2294,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
                   rule: 'dead-setting',
                   id: d.id,
                   file,
-                  line: 1,
+                  ...(d.line ? { line: d.line } : {}),
+                  ...(d.pointer ? { pointer: d.pointer } : {}),
                   message: `schema setting has no resolved reference: ${d.id}`,
                   detail: `Declared setting '${d.id}' is never referenced in theme Liquid files`,
                 });
@@ -2522,6 +2627,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
   // must not exist in a catalogue that cannot execute them).
   if (cockpit) registerCockpitCapabilities(catalogue, cockpit, browser);
   registerQaProbeCapabilities(catalogue, browser, getWorkspaceRoot);
+  registerSheetCapabilities(catalogue, browser);
 
   catalogue.register({
     name: 'theme.assert_cart',
@@ -2613,6 +2719,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       properties: {
         tabId: { type: 'string' },
         workspaceRoot: { type: 'string' },
+        greenfield: { type: 'object', description: 'Declare that no visual baseline exists yet for this storefront (a new build)', properties: { reason: { type: 'string' } }, required: ['reason'] },
         multiBreakpoint: { type: 'boolean' },
         viewports: {
           type: 'object',
@@ -2836,7 +2943,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
   });
   catalogue.register({
     name: 'anti.browser.tabs.close',
-    description: 'Alias for browser.close-tab',
+    description: CLOSE_TAB_DESCRIPTION,
     risk: 'write',
     policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
     inputSchema: { type: 'object', properties: { tabId: { type: 'string' } }, required: ['tabId'] },
@@ -2849,8 +2956,9 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'write',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
-    inputSchema: { type: 'object', properties: { url: { type: 'string' }, tabId: { type: 'string' } }, required: ['url'] },
-    execute: (params: { url: string; tabId?: string }, context) => browser.navigate(context.browserTarget as BrowserTarget, params.url, params.tabId),
+    inputSchema: navigateInputSchema(),
+    execute: (params: { url: string; tabId?: string; timeoutMs?: number }, context) =>
+      browser.navigate(context.browserTarget as BrowserTarget, params.url, params.tabId, params.timeoutMs !== undefined ? { timeoutMs: params.timeoutMs } : undefined),
   });
 
   catalogue.register({
@@ -3049,41 +3157,9 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'write',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
-    inputSchema: {
-      type: 'object',
-      properties: {
-        actions: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              type: { type: 'string', enum: ['navigate', 'click', 'type', 'scroll', 'hover', 'pressKey', 'wait', 'screenshot', 'snapshot'] },
-              url: { type: 'string' },
-              ref: { type: 'string' },
-              selector: { type: 'string' },
-              x: { type: 'number' },
-              y: { type: 'number' },
-              text: { type: 'string' },
-              clear: { type: 'boolean' },
-              deltaY: { type: 'number' },
-              key: { type: 'string' },
-              modifiers: { type: 'array', items: { type: 'string' } },
-              waitMs: { type: 'number' },
-              settleMs: { type: 'number' },
-              format: { type: 'string', enum: ['jpeg', 'png'] },
-              quality: { type: 'number' },
-            },
-            required: ['type'],
-          },
-        },
-        tabId: { type: 'string' },
-        paneId: { type: 'string', enum: ['desktop', 'mobile'] },
-        stopOnError: { type: 'boolean' },
-      },
-      required: ['actions'],
-    },
-    execute: (params: { actions: Array<Record<string, unknown>>; tabId?: string; paneId?: 'desktop' | 'mobile'; stopOnError?: boolean }, context) =>
-      browser.sequence(params, context.browserTarget, context.signal),
+    inputSchema: sequenceInputSchema(),
+    execute: (params: SequenceParams, context) =>
+      browser.sequence(normalizeSequenceParams('anti.agent.sequence', params), context.browserTarget, context.signal),
   });
   catalogue.register({
     name: 'browser.inspect_styles',

@@ -37,8 +37,14 @@ import {
   setDetachedShellHostFactoryForTesting,
   setProjectWindowManagerForTesting,
   setWindowStateManagerForTesting,
+  restoreTerminalManagerIfOpenAtLastExit,
+  resetOsSessionEndingForTesting,
 } from '../../src/main/index';
 import { DEFAULT_BOOT_PROJECT_ID } from '../../src/shared/control-plane-contracts';
+import type * as LifecycleLog from '../../src/main/diagnostics/main-lifecycle-log';
+// Required rather than imported: the journal capture patches the export in place.
+const lifecycleLogModule = require('../../src/main/diagnostics/main-lifecycle-log') as typeof LifecycleLog;
+import { ownerKey } from '../../src/main/browser/project-window-shell';
 
 // Reason: the harness needs the mutable module object (spies patch exports in
 // place), and an import-type namespace cannot name that object — `typeof import`
@@ -63,6 +69,8 @@ const PROJECT_J = `project-00000000-${SUFFIX}-0000000000a9`;
 const PROJECT_K = `project-00000000-${SUFFIX}-0000000000aa`;
 const PROJECT_L = `project-00000000-${SUFFIX}-0000000000ab`;
 const PROJECT_M = `project-00000000-${SUFFIX}-0000000000ac`;
+const PROJECT_P = `project-00000000-${SUFFIX}-0000000000b1`;
+const PROJECT_Q = `project-00000000-${SUFFIX}-0000000000b2`;
 const DEAD_PROJECT = `project-00000000-${SUFFIX}-0000000000dd`;
 const WORKSPACE_WS = `workspace-00000000-${SUFFIX}-0000000000a1`;
 
@@ -644,6 +652,7 @@ describe('detached boot restore', () => {
       leg.createdShells.get(PROJECT_L)!.window.emit('session-end');
       leg.createdShells.get(PROJECT_N)!.window.destroy();
       assert.deepEqual(ledgerKeys(), [`project:${PROJECT_N}`, `project:${PROJECT_L}`].sort(), 'an OS session end keeps the key');
+      resetOsSessionEndingForTesting();
     });
 
     it('a live detached shell is joined and surfaced unfocused, not recreated', async () => {
@@ -792,6 +801,131 @@ describe('detached boot restore', () => {
       const doc = readDoc();
       assert.equal(doc.owners.web.tabs.length, 1);
       assert.equal(doc.owners['project:proj-own'].detached, true, 'restore never consumes the marker');
+    });
+  });
+
+  describe('user close of a project shell with live terminals', () => {
+    function installTerminalManagerWith(
+      sessions: ReadonlyArray<{ id: string; state: string; owner: string }>,
+    ): () => void {
+      const holder = TerminalManager as unknown as { instance?: unknown };
+      const previous = holder.instance;
+      holder.instance = {
+        listSessions: () => sessions.map((s) => ({ id: s.id, state: s.state })),
+        sessionOwnerKey: (id: string) => sessions.find((s) => s.id === id)?.owner,
+        sessionCapsuleId: () => undefined,
+        closeSession: async () => true,
+      };
+      return () => { holder.instance = previous; };
+    }
+
+    /**
+     * Capture `detached-shell.closed-with-live-terminals` lines at the journal export instead of
+     * reading `main.log`: the journal path resolves to the shared data root, which a running
+     * instance appends to and rotates, so a line count read from disk is not this test's alone.
+     */
+    function captureClosedWithLiveTerminals(): { events: AnyRecord[]; release: () => void } {
+      const events: AnyRecord[] = [];
+      const original = lifecycleLogModule.recordLifecycleEvent;
+      lifecycleLogModule.recordLifecycleEvent = (event, fields, options) => {
+        if (event === 'detached-shell.closed-with-live-terminals') events.push({ ...(fields ?? {}) });
+        else original(event, fields, options);
+      };
+      return { events, release: () => { lifecycleLogModule.recordLifecycleEvent = original; } };
+    }
+
+    it('journals the live terminals the closed project leaves behind and does not reopen the window', async () => {
+      seedProject(PROJECT_P, 'Papa');
+      seedProject(PROJECT_M, 'Mike');
+      const leg = installLeg();
+      writeDoc({
+        web: { tabs: [], updatedAt: 1 },
+        [`project:${PROJECT_P}`]: { detached: true, tabs: [], updatedAt: 1 },
+        [`project:${PROJECT_M}`]: { detached: true, tabs: [], updatedAt: 1 },
+      });
+      await restoreDetachedProjectShells(new Set([`project:${PROJECT_P}`, `project:${PROJECT_M}`]));
+      const made = leg.createdShells.get(PROJECT_P)!;
+      made.window.paint();
+      leg.createdShells.get(PROJECT_M)!.window.paint();
+      const journal = captureClosedWithLiveTerminals();
+
+      const release = installTerminalManagerWith([
+        { id: 'term-live-1', state: 'running', owner: `project:${PROJECT_P}` },
+        { id: 'term-live-2', state: 'sleeping', owner: `project:${PROJECT_P}` },
+        { id: 'term-dead', state: 'closed', owner: `project:${PROJECT_P}` },
+        { id: 'term-other', state: 'running', owner: `project:${PROJECT_A}` },
+      ]);
+      try {
+        made.window.destroy();
+        const events = journal.events.filter((row) => row.projectId === PROJECT_P);
+        assert.equal(events.length, 1, 'one journal line for the closed shell');
+        assert.equal(events[0]!.liveTerminals, 2, 'closed sessions and other projects\' sessions are not counted');
+        assert.equal(
+          leg.manager.listShells().some((s) => ownerKey(s.owner) === `project:${PROJECT_P}`),
+          false,
+          'the closed window stays closed',
+        );
+        assert.equal(readDoc().owners[`project:${PROJECT_P}`]?.detached, true, 'the marker is untouched so a later agent mint can reopen it');
+      } finally {
+        release();
+        journal.release();
+      }
+    });
+
+    it('writes no journal line when the closed project owns no live terminal', async () => {
+      seedProject(PROJECT_Q, 'Quebec');
+      seedProject(PROJECT_M, 'Mike');
+      const leg = installLeg();
+      writeDoc({
+        web: { tabs: [], updatedAt: 1 },
+        [`project:${PROJECT_Q}`]: { detached: true, tabs: [], updatedAt: 1 },
+        [`project:${PROJECT_M}`]: { detached: true, tabs: [], updatedAt: 1 },
+      });
+      await restoreDetachedProjectShells(new Set([`project:${PROJECT_Q}`, `project:${PROJECT_M}`]));
+      const made = leg.createdShells.get(PROJECT_Q)!;
+      made.window.paint();
+      leg.createdShells.get(PROJECT_M)!.window.paint();
+      const journal = captureClosedWithLiveTerminals();
+
+      const release = installTerminalManagerWith([
+        { id: 'term-elsewhere', state: 'running', owner: `project:${PROJECT_A}` },
+      ]);
+      try {
+        made.window.destroy();
+        assert.equal(journal.events.filter((row) => row.projectId === PROJECT_Q).length, 0);
+      } finally {
+        release();
+        journal.release();
+      }
+    });
+  });
+
+  describe('Terminal Manager reopen at boot', () => {
+    it('opens once with the restore intent when the ledger lists the unassigned owner', async () => {
+      const intents: string[] = [];
+      const reopened = await restoreTerminalManagerIfOpenAtLastExit(
+        new Set([ownerKey({ kind: 'unassigned' })]),
+        async (intent) => { intents.push(intent); },
+      );
+      assert.equal(reopened, true);
+      assert.deepEqual(intents, ['restore']);
+    });
+
+    it('does not open when the ledger omits the unassigned owner', async () => {
+      const intents: string[] = [];
+      const reopened = await restoreTerminalManagerIfOpenAtLastExit(
+        new Set([`project:${PROJECT_A}`, 'web']),
+        async (intent) => { intents.push(intent); },
+      );
+      assert.equal(reopened, false);
+      assert.deepEqual(intents, []);
+    });
+
+    it('does not open when no ledger was ever written', async () => {
+      const intents: string[] = [];
+      const reopened = await restoreTerminalManagerIfOpenAtLastExit(null, async (intent) => { intents.push(intent); });
+      assert.equal(reopened, false);
+      assert.deepEqual(intents, []);
     });
   });
 });

@@ -100,3 +100,55 @@ test('an auto-bind candidate is read from the typed details or the serialized di
   assert.equal(proxy.autoBindCandidateOf(Object.assign(new Error('x'), { code: 'TARGET_STALE', details: { autoBindCandidate: 'tab-1' } })), '');
   assert.equal(proxy.autoBindCandidateOf(Object.assign(new Error('x'), { code: 'TARGET_REQUIRED' })), '');
 });
+
+test('navigate advertises a bounded timeoutMs on top of its url and ambient tab', () => {
+  const props = properties('anti.browser.navigate');
+  assert.equal(props.timeoutMs?.type, 'number');
+  assert.match(props.timeoutMs.description, /60000/);
+  assert.deepEqual(row('anti.browser.navigate')[3], ['url']);
+  assert.equal(proxy.ambientTargetFieldFor('anti.browser.navigate'), 'tabId');
+});
+
+test('evaluate keeps its in-page budget and degraded-surface knobs', () => {
+  const props = properties('anti.browser.evaluate');
+  assert.equal(props.timeoutMs?.type, 'number');
+  assert.equal(props.allowDegradedSurface?.type, 'boolean');
+});
+
+test('the sequence row accepts actions or its steps alias and requires one of them', () => {
+  const found = row('anti.agent.sequence');
+  const props = found[2];
+  assert.equal(props.actions.type, 'array');
+  assert.equal(props.steps.type, 'array');
+  assert.deepEqual(props.steps.items, props.actions.items, 'the alias shares the step schema');
+  assert.deepEqual(found[3], [], 'neither form is individually required');
+  assert.deepEqual(found[4], [{ required: ['actions'] }, { required: ['steps'] }]);
+});
+
+test('settings_check advertises the result filters it accepts', () => {
+  const props = properties('theme.settings_check');
+  assert.equal(props.files?.type, 'array');
+  assert.equal(props.files.items.type, 'string');
+  assert.deepEqual(props.changedSince?.type, ['string', 'number']);
+  assert.ok('workspaceRoot' in props);
+});
+
+test('qa_validate rows declare the greenfield opt-in with a mandatory reason', () => {
+  for (const name of ['theme.qa_validate', 'anti.theme.qa_validate']) {
+    const greenfield = properties(name).greenfield;
+    assert.equal(greenfield?.type, 'object', `${name} advertises greenfield`);
+    assert.equal(greenfield.properties.reason.type, 'string');
+    assert.deepEqual(greenfield.required, ['reason']);
+  }
+});
+
+test('write_cell is an advertised mutating tool, never read-safe, with an ambient tab', () => {
+  const found = row('anti.sheet.write_cell');
+  assert.ok(found, 'anti.sheet.write_cell is advertised by the proxy');
+  for (const key of ['tabId', 'cell', 'value', 'expectedPrevious', 'gid', 'allowHeader']) {
+    assert.ok(key in found[2], `write_cell advertises ${key}`);
+  }
+  assert.deepEqual([...found[3]].sort(), ['cell', 'value']);
+  assert.equal(proxy.ambientTargetFieldFor('anti.sheet.write_cell'), 'tabId');
+  assert.equal(proxy.READ_SAFE_CAPABILITIES['anti.sheet.write_cell'], undefined, 'a cell write is never replayed after a possible execution');
+});

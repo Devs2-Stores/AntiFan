@@ -154,6 +154,8 @@ export interface DiagnosticIssue {
   kind: 'console' | 'network';
   message: string;
   origin: string;
+  /** Set when the entry matched a known dev-server chatter pattern and was demoted to a warning. */
+  noise?: 'dev-server';
 }
 
 export interface ClassificationResult {
@@ -194,6 +196,16 @@ function isThirdPartyCspBlock(message: string): boolean {
 }
 
 /**
+ * Console chatter the local theme dev server (hot reload, account-menu lookups) emits on a
+ * healthy storefront. Matched against the sanitized message and only for these observed
+ * shapes, so any other first-party error (a TypeError, a missing asset) stays critical.
+ */
+const DEV_SERVER_NOISE: readonly RegExp[] = [
+  /^\[HotReload\]/i,
+  /\[shopify-account\]\s+Menu\s+.+\s+not\s+found/i,
+];
+
+/**
  * Decide critical vs warning for a diagnostics snapshot.
  * `contextUrl` is the storefront tab URL — used only when an entry lacks
  * explicit origin/isFirstParty flags (phase 1 recorders attach them).
@@ -221,7 +233,9 @@ export function classifyDiagnostics(
     // names it when it blocks the theme's own script.
     const isReportOnlyOrThirdPartyCsp = /\[Report Only\]|report-only Content Security Policy/i.test(message) || isThirdPartyCspBlock(message);
     const issue: DiagnosticIssue = { kind: 'console', origin, message };
-    if (!isReportOnlyOrThirdPartyCsp && (originInfo.isFirstParty || isThemeAssetHost(origin, assetHosts))) {
+    if (DEV_SERVER_NOISE.some((pattern) => pattern.test(message))) {
+      warnings.push({ ...issue, noise: 'dev-server' });
+    } else if (!isReportOnlyOrThirdPartyCsp && (originInfo.isFirstParty || isThemeAssetHost(origin, assetHosts))) {
       criticalIssues.push(issue);
     } else {
       warnings.push(issue);

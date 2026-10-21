@@ -790,7 +790,7 @@ export function checkHaravanLiquidContracts(themeDir, options = {}) {
         failures.push({
           rule: 'HARAVAN_DUPLICATE_PAGINATE',
           file: relativePath,
-          line: 1,
+          ...lineOfMatch(source, /\{%-?\s*paginate\b/g, 1),
           message: `Multiple {% paginate %} tags detected (${paginateCount}). Haravan DotLiquid permits at most one paginate block per template.`,
           detail: `Having more than one paginate tag causes DotLiquid fatal HTTP 500 error on Haravan (${relativePath})`,
         });
@@ -883,7 +883,7 @@ export function checkHaravanLiquidContracts(themeDir, options = {}) {
       failures.push({
         rule: 'HARAVAN_SINGLE_CHROME',
         file: 'snippets/header.liquid',
-        line: 1,
+        ...lineOfMatch(headerSource, /<header\b/gi, 1),
         message: `snippets/header.liquid must have at most 1 <header> tag, found ${headerMatches.length}`,
         detail: `Multiple <header> tags found in snippets/header.liquid (${headerMatches.length}). Themes must use a single canonical <header> container.`,
       });
@@ -899,7 +899,7 @@ export function checkHaravanLiquidContracts(themeDir, options = {}) {
       failures.push({
         rule: 'HARAVAN_SINGLE_CHROME',
         file: 'snippets/footer.liquid',
-        line: 1,
+        ...lineOfMatch(footerSource, /<footer\b/gi, 1),
         message: `snippets/footer.liquid must have at most 1 <footer> tag, found ${footerMatches.length}`,
         detail: `Multiple <footer> tags found in snippets/footer.liquid (${footerMatches.length}). Themes must use a single canonical <footer> container.`,
       });
@@ -916,7 +916,7 @@ export function checkHaravanLiquidContracts(themeDir, options = {}) {
       failures.push({
         rule: 'HARAVAN_SINGLE_CHROME',
         file: 'layout/theme.liquid',
-        line: 1,
+        ...lineOfMatch(themeLayoutSource, /\{%-?\s*include\s+['"](?:snippets\/)?header-mobile(?:\.liquid)?['"]/),
         message: 'layout/theme.liquid must not include both header and header-mobile',
         detail: 'Theme layout includes duplicate chrome (both header and header-mobile snippets). Themes must use a single responsive header.',
       });
@@ -1133,15 +1133,24 @@ export function checkF1genzSettingsSchema(themeDir, options = {}) {
   if (branch !== 'f1genz') {
     return { ok: true, errors, warnings, info, failures: errors, skipped: 'workspace is not on the f1genz branch' };
   }
+  // A minified settings file has one line, so a line number locates nothing. Its findings carry a
+  // JSON pointer to the setting/group (schema) or key (data) instead, filled once the files parse.
+  const pointerIndex = { schema: null, data: null };
   const normalizeFinding = (rule, message, meta = {}) => {
     const out = { rule, message };
     if (meta.file !== undefined && meta.file !== null) {
       out.file = String(meta.file).replace(/\\/g, '/');
     }
-    if (typeof meta.line === 'number' && meta.line > 0) {
+    const k = meta.id !== undefined ? meta.id : meta.key;
+    const located = out.file === 'config/settings_schema.json' ? pointerIndex.schema
+      : out.file === 'config/settings_data.json' ? pointerIndex.data
+        : null;
+    if (located) {
+      const pointer = k !== undefined && k !== null ? located.get(String(k)) : undefined;
+      if (pointer) out.pointer = pointer;
+    } else if (typeof meta.line === 'number' && meta.line > 0) {
       out.line = meta.line;
     }
-    const k = meta.id !== undefined ? meta.id : meta.key;
     if (k !== undefined && k !== null) {
       out.id = String(k);
       out.key = String(k);
@@ -1161,6 +1170,22 @@ export function checkF1genzSettingsSchema(themeDir, options = {}) {
     return { ok: true, errors, warnings, info, failures: errors };
   }
   const schema = parsedSchema.value;
+  if (!/\n/.test(rawSchemaText.trimEnd())) {
+    const schemaPointers = new Map();
+    for (const [sectionIndex, section] of schema.entries()) {
+      if (!isPlainObject(section)) continue;
+      if (typeof section.name === 'string' && section.name && !schemaPointers.has(section.name)) {
+        schemaPointers.set(section.name, `/${sectionIndex}`);
+      }
+      if (!Array.isArray(section.settings)) continue;
+      for (const [settingIndex, setting] of section.settings.entries()) {
+        if (isPlainObject(setting) && typeof setting.id === 'string' && !schemaPointers.has(setting.id)) {
+          schemaPointers.set(setting.id, `/${sectionIndex}/settings/${settingIndex}`);
+        }
+      }
+    }
+    pointerIndex.schema = schemaPointers;
+  }
 
   const residueWordsRaw = Array.isArray(options.residueWords)
     ? options.residueWords
@@ -1298,6 +1323,23 @@ export function checkF1genzSettingsSchema(themeDir, options = {}) {
   const rawDataText = readFileIfPresent(settingsDataPath) ?? '';
   const parsedData = rawDataText ? parseJsonDocument(rawDataText) : { ok: false, value: null };
   const settingsData = parsedData.ok && isPlainObject(parsedData.value) ? parsedData.value : null;
+  if (settingsData && !/\n/.test(rawDataText.trimEnd())) {
+    const dataPointers = new Map();
+    const escapePointer = (segment) => String(segment).replace(/~/g, '~0').replace(/\//g, '~1');
+    const scopes = [];
+    if (isPlainObject(settingsData.current)) scopes.push(['/current', settingsData.current]);
+    if (isPlainObject(settingsData.presets)) {
+      for (const [presetName, presetObj] of Object.entries(settingsData.presets)) {
+        if (isPlainObject(presetObj)) scopes.push([`/presets/${escapePointer(presetName)}`, presetObj]);
+      }
+    }
+    for (const [prefix, values] of scopes) {
+      for (const key of Object.keys(values)) {
+        if (!dataPointers.has(key)) dataPointers.set(key, `${prefix}/${escapePointer(key)}`);
+      }
+    }
+    pointerIndex.data = dataPointers;
+  }
   const dataKeyLines = new Map();
   for (const m of rawDataText.matchAll(/"([^"]+)"\s*:/g)) {
     if (!dataKeyLines.has(m[1])) dataKeyLines.set(m[1], lineOfIndex(rawDataText, m.index));
@@ -1870,6 +1912,21 @@ function lineOfIndex(text, index) {
     if (text[cursor] === '\n') line += 1;
   }
   return line;
+}
+
+/**
+ * `{ line }` of the `occurrence`-th (0-based) match of `pattern` in `text`, or `{}` when there is
+ * no match or the text is a single line (a minified file, where a line number names nothing).
+ */
+function lineOfMatch(text, pattern, occurrence = 0) {
+  if (!/\n/.test(text.trimEnd())) return {};
+  const global = pattern.global ? pattern : new RegExp(pattern.source, `${pattern.flags}g`);
+  let seen = 0;
+  for (const match of text.matchAll(global)) {
+    if (seen === occurrence) return { line: lineOfIndex(text, match.index) };
+    seen += 1;
+  }
+  return {};
 }
 
 function excerptAround(text, index, length) {

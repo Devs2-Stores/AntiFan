@@ -365,7 +365,8 @@ export function registerTerminalCapabilities(
     { sessions: unknown[]; activeSessionId: string; omittedForeignAgentTerminals?: number }
   >({
     name: 'terminal.list',
-    description: 'List active terminal sessions with bounded wire summary and incarnation metadata',
+    description:
+      'List active terminal sessions with bounded wire summary and incarnation metadata. Each row carries `owned`: true when the caller may drive the session (terminal.write/resize/close); false for a user-plane terminal the caller can only observe with terminal.wait',
     risk: 'read',
     policy: {
       effect: 'read',
@@ -394,17 +395,26 @@ export function registerTerminalCapabilities(
     ) => {
       const sessions = terminal.listSessions(params.paged ?? true);
       const scope = resolveTerminalCallerScope(ownership, context);
+      const withOwned = (session: unknown, owned: boolean): unknown =>
+        session !== null && typeof session === 'object' ? { ...(session as Record<string, unknown>), owned } : session;
       if (!scope.bound) {
-        return { sessions, activeSessionId: terminal.getActiveSessionId() };
+        // A caller with no attachment carries no ownership question: every row is its to drive.
+        return { sessions: sessions.map((session) => withOwned(session, true)), activeSessionId: terminal.getActiveSessionId() };
       }
       // An attachment sees its own sessions and the user plane. Another attachment's agent terminal
       // is not part of its world: listing is how a caller discovers what to address, so a session it
-      // may not operate must not be advertised to it in the first place.
-      const visible = sessions.filter((session) => {
+      // may not operate must not be advertised to it in the first place. A user-plane row that
+      // stays visible is observe-only, so it is marked `owned: false`: terminal.write refuses it.
+      const visible: unknown[] = [];
+      for (const session of sessions) {
         const id = (session as { id?: string } | undefined)?.id;
-        if (!id) return true;
-        return scope.ownership.allowsTab(scope.tabId, id) || !scope.ownership.isAgentTerminal(id);
-      });
+        if (!id) {
+          visible.push(withOwned(session, false));
+          continue;
+        }
+        const owned = scope.ownership.allowsTab(scope.tabId, id);
+        if (owned || !scope.ownership.isAgentTerminal(id)) visible.push(withOwned(session, owned));
+      }
       const omitted = sessions.length - visible.length;
       return {
         sessions: visible,

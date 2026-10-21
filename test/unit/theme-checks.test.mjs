@@ -868,3 +868,47 @@ test('checkF1genzSettingsSchema counts a setting read inside a multi-line tag as
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('checkF1genzSettingsSchema names a minified schema finding by JSON pointer and a formatted one by line', () => {
+  const schema = [{ name: 'Footer', settings: [
+    { type: 'text', id: 'footer_text', label: 'Footer text', default: 'Hello' },
+    { type: 'text', id: 'footer_note', label: 'Footer note', default: 'Note' },
+    { type: 'text', id: 'unused_banner', label: 'Unused banner', default: 'x' },
+  ] }];
+  const deadFinding = (serialized) => {
+    const dir = writeBranchTheme('f1genz');
+    try {
+      fs.writeFileSync(path.join(dir, 'config', 'settings_schema.json'), serialized, 'utf8');
+      return checkF1genzSettingsSchema(dir).errors.find((e) => e.rule === 'dead-setting' && e.id === 'unused_banner');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  };
+  const minified = deadFinding(JSON.stringify(schema));
+  assert.ok(minified, 'the unread setting is reported');
+  assert.equal(minified.line, undefined, 'a one-line file has no line to name');
+  assert.equal(minified.pointer, '/0/settings/2');
+  const formatted = deadFinding(JSON.stringify(schema, null, 2));
+  assert.ok(formatted, 'the unread setting is reported');
+  assert.equal(formatted.pointer, undefined);
+  assert.ok(formatted.line > 1, `a formatted file reports the real line, got ${formatted.line}`);
+});
+
+test('checkHaravanLiquidContracts places a duplicate header at its own line, not line 1', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'theme-chrome-line-'));
+  try {
+    fs.mkdirSync(path.join(dir, 'snippets'), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, 'snippets', 'header.liquid'),
+      ['<header>one</header>', '', '', '<header>two</header>'].join('\n'),
+      'utf8'
+    );
+    const failure = checkHaravanLiquidContracts(dir, { platform: 'haravan' }).failures.find(
+      (f) => f.rule === 'HARAVAN_SINGLE_CHROME' && f.file === 'snippets/header.liquid'
+    );
+    assert.ok(failure, 'the duplicate header is reported');
+    assert.equal(failure.line, 4);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

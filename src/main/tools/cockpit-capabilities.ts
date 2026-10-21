@@ -164,6 +164,7 @@ async function collectHaravanSettingsFindings(workspaceRoot: string): Promise<{ 
           id: f.id,
           file: f.file || 'config/settings.html',
           line: f.line,
+          ...(f.pointer ? { pointer: f.pointer } : {}),
           message: f.message,
           detail: f.detail,
         });
@@ -179,6 +180,7 @@ async function collectHaravanSettingsFindings(workspaceRoot: string): Promise<{ 
               id: f.id,
               file,
               line: f.line,
+              ...(f.pointer ? { pointer: f.pointer } : {}),
               message: f.message,
               detail: f.detail,
             });
@@ -189,6 +191,7 @@ async function collectHaravanSettingsFindings(workspaceRoot: string): Promise<{ 
             id: f.id,
             file: f.file || 'config/settings.html',
             line: f.line,
+            ...(f.pointer ? { pointer: f.pointer } : {}),
             message: f.message,
             detail: f.detail,
           });
@@ -220,7 +223,8 @@ async function collectHaravanSettingsFindings(workspaceRoot: string): Promise<{ 
           rule: f.rule || 'F1GENZ_SCHEMA_FAILURE',
           id: f.id,
           file,
-          line: f.line || 1,
+          ...(f.line !== undefined ? { line: f.line } : {}),
+          ...(f.pointer ? { pointer: f.pointer } : {}),
           message: f.message,
           detail: f.message,
         });
@@ -236,7 +240,8 @@ async function collectHaravanSettingsFindings(workspaceRoot: string): Promise<{ 
         rule: 'dead-setting',
         id: d.id,
         file,
-        line: 1,
+        ...(d.line !== undefined ? { line: d.line } : {}),
+        ...(d.pointer ? { pointer: d.pointer } : {}),
         message: `schema setting has no resolved reference: ${d.id}`,
         detail: `Declared setting '${d.id}' is never referenced in theme Liquid files`,
       });

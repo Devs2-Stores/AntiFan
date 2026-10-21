@@ -44,11 +44,28 @@ export interface TabContextMenuHostDelegate {
   viewPageSource?(tabId?: string): Promise<string> | void;
   captureScreenshot(): Promise<string>;
   openExternal(): void;
+  /**
+   * Share-with-agent seam. `getTabShareMenuState` answers whether the menu may offer the entry
+   * for a tab and whether it is already shared; the other two act on the user's click only.
+   * A host that does not implement them shows no entry.
+   */
+  getTabShareMenuState?(tabId: string | undefined): { available: boolean; shared: boolean };
+  shareTabWithAgent?(tabId: string): unknown;
+  revokeTabShare?(tabId: string): unknown;
   onProfileSynced?(): void;
 }
 
 export class TabContextMenuBuilder {
   constructor(private readonly host: TabContextMenuHostDelegate) {}
+
+  /**
+   * The user's own menu click is the only caller: it hands the tab to, or takes it back
+   * from, the agents of the tab's project. The host decides whether the tab may be shared.
+   */
+  private toggleTabShare(tabId: string, currentlyShared: boolean): void {
+    if (currentlyShared) this.host.revokeTabShare?.(tabId);
+    else this.host.shareTabWithAgent?.(tabId);
+  }
 
   /**
    * The tab this menu was opened on. The page the user right-clicked is the explicit
@@ -301,6 +318,17 @@ export class TabContextMenuBuilder {
         })
       );
 
+      const shareState = targetTabId ? this.host.getTabShareMenuState?.(targetTabId) : undefined;
+      if (targetTabId && shareState?.available) {
+        menu.append(new MenuItem({ type: 'separator' }));
+        menu.append(
+          new MenuItem({
+            label: shareState.shared ? '🚫 Thu hồi quyền dùng tab của agent' : '🤝 Cho agent của project này dùng tab',
+            click: () => this.toggleTabShare(targetTabId, shareState.shared),
+          })
+        );
+      }
+
       menu.popup({ window: win });
     });
   }
@@ -323,6 +351,18 @@ export class TabContextMenuBuilder {
             },
           }))
         : [{ label: 'Không tìm thấy Chrome Profile', enabled: false }];
+
+    const shareTabId = this.host.getActiveTabId();
+    const shareState = this.host.getTabShareMenuState?.(shareTabId);
+    const shareEntries: Electron.MenuItemConstructorOptions[] = shareState?.available && shareTabId
+      ? [
+          { type: 'separator' },
+          {
+            label: shareState.shared ? 'Thu hồi quyền dùng tab của agent' : 'Cho agent của project này dùng tab',
+            click: () => this.toggleTabShare(shareTabId, shareState.shared),
+          },
+        ]
+      : [];
 
     const menu = Menu.buildFromTemplate([
       {
@@ -378,6 +418,7 @@ export class TabContextMenuBuilder {
         label: 'Open in System Browser',
         click: () => this.host.openExternal(),
       },
+      ...shareEntries,
       { type: 'separator' },
       {
         label: 'Keyboard Shortcuts...',

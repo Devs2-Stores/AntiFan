@@ -757,6 +757,50 @@ describe('Zero-argument active-tab authority', () => {
 
       assert.deepStrictEqual(delegate.reloads, ['tab-presented'], 'an un-migrated host keeps its previous behaviour');
     });
+
+    it('offers sharing for the right-clicked tab and hands the tab to the agent on click', async () => {
+      const wc = new FakeContents();
+      const shared: string[] = [];
+      const delegate = Object.assign(makeDelegate(() => 'tab-page', 'tab-presented'), {
+        getTabShareMenuState: (tabId: string | undefined) => ({ available: tabId === 'tab-page', shared: false }),
+        shareTabWithAgent: (tabId: string) => { shared.push(tabId); },
+      });
+
+      const items = await openMenu(delegate, wc);
+      findItem(items, '🤝 Cho agent của project này dùng tab').click?.();
+
+      assert.deepStrictEqual(shared, ['tab-page'], 'the right-clicked tab, not the presented one, is shared');
+    });
+
+    it('offers revocation instead of sharing when the tab is already shared', async () => {
+      const wc = new FakeContents();
+      const shared: string[] = [];
+      const revoked: string[] = [];
+      const delegate = Object.assign(makeDelegate(() => 'tab-page', 'tab-presented'), {
+        getTabShareMenuState: () => ({ available: true, shared: true }),
+        shareTabWithAgent: (tabId: string) => { shared.push(tabId); },
+        revokeTabShare: (tabId: string) => { revoked.push(tabId); },
+      });
+
+      const items = await openMenu(delegate, wc);
+      assert.ok(!items.some((entry) => entry.label === '🤝 Cho agent của project này dùng tab'), 'an already shared tab is not offered again');
+      findItem(items, '🚫 Thu hồi quyền dùng tab của agent').click?.();
+
+      assert.deepStrictEqual(revoked, ['tab-page']);
+      assert.deepStrictEqual(shared, []);
+    });
+
+    it('shows no sharing entry when the host cannot share the tab or does not implement sharing', async () => {
+      const unavailable = Object.assign(makeDelegate(() => 'tab-page', 'tab-presented'), {
+        getTabShareMenuState: () => ({ available: false, shared: false }),
+      });
+      const unavailableItems = await openMenu(unavailable, new FakeContents());
+      assert.ok(!unavailableItems.some((entry) => /(Cho agent|Thu hồi quyền)/.test(String(entry.label))));
+
+      const unmigrated = makeDelegate(() => 'tab-page', 'tab-presented');
+      const unmigratedItems = await openMenu(unmigrated, new FakeContents());
+      assert.ok(!unmigratedItems.some((entry) => /(Cho agent|Thu hồi quyền)/.test(String(entry.label))));
+    });
   });
 
   describe('TabAmbientAuthority: project-scoped ambient resolution', () => {
@@ -834,6 +878,95 @@ describe('Zero-argument active-tab authority', () => {
         () => authority.hostForTabOrBootstrap('tab-dead', 'project-a'),
         (err: unknown) => err instanceof CapabilityError && err.code === 'TARGET_STALE'
       );
+    });
+
+    function projectWindow(projectId: string): ProjectWindowShell {
+      return {
+        owner: { kind: 'project', projectId },
+        window: { isDestroyed: () => false },
+      } as unknown as ProjectWindowShell;
+    }
+
+    function hostOwnedBy(ownerKeyValue: string): NativeTabHost {
+      return asHost(Object.assign(new RecordingTabHost(), { windowOwnerKey: () => ownerKeyValue }));
+    }
+
+    function refusalOf(act: () => unknown): CapabilityError {
+      try {
+        act();
+      } catch (err) {
+        assert.ok(err instanceof CapabilityError, 'the refusal must be typed');
+        return err;
+      }
+      assert.fail('expected a refusal');
+    }
+
+    it('TARGET_REQUIRED across several project windows names the live projects and a recovery', () => {
+      const directory = new TabAuthorityDirectory();
+      directory.register(projectWindow('project-a'), hostOwnedBy('project:project-a'));
+      directory.register(projectWindow('project-b'), hostOwnedBy('project:project-b'));
+      const authority = new TabAmbientAuthority({ directory });
+
+      const refusal = refusalOf(() => authority.ambientHostOrThrow());
+
+      assert.strictEqual(refusal.code, 'TARGET_REQUIRED');
+      assert.strictEqual(refusal.details?.liveHosts, 2, 'the pinned live-host count is unchanged');
+      assert.deepStrictEqual(refusal.details?.liveProjectIds, ['project-a', 'project-b']);
+      assert.strictEqual(typeof refusal.details?.recovery, 'string');
+      assert.match(String(refusal.details?.recovery), /rebind_target/);
+      assert.strictEqual('projectId' in (refusal.details ?? {}), false, 'no project was named, so none is echoed');
+    });
+
+    it('TARGET_REQUIRED lists only project windows, never the hub or the terminal manager', () => {
+      const directory = new TabAuthorityDirectory();
+      directory.register(projectWindow('project-a'), hostOwnedBy('project:project-a'));
+      directory.register(projectWindow('project-hub'), hostOwnedBy('web'));
+      directory.register(projectWindow('project-manager'), hostOwnedBy('unassigned'));
+      const authority = new TabAmbientAuthority({ directory });
+
+      const refusal = refusalOf(() => authority.ambientHostOrThrow('project-unknown'));
+
+      assert.strictEqual(refusal.code, 'TARGET_REQUIRED');
+      assert.strictEqual(refusal.details?.liveHosts, 3);
+      assert.deepStrictEqual(refusal.details?.liveProjectIds, ['project-a']);
+      assert.strictEqual(refusal.details?.projectId, 'project-unknown', 'the requested project is echoed');
+    });
+
+    it('TARGET_REQUIRED stays typed when a host cannot name its owner', () => {
+      const directory = new TabAuthorityDirectory();
+      directory.register(projectWindow('project-a'), asHost(new RecordingTabHost()));
+      directory.register(projectWindow('project-b'), hostOwnedBy('project:project-b'));
+      const authority = new TabAmbientAuthority({ directory });
+
+      const refusal = refusalOf(() => authority.ambientHostOrThrow());
+
+      assert.strictEqual(refusal.code, 'TARGET_REQUIRED');
+      assert.deepStrictEqual(refusal.details?.liveProjectIds, ['project-b']);
+      assert.strictEqual(typeof refusal.details?.recovery, 'string');
+    });
+
+    it('TARGET_REQUIRED with no live window still carries a recovery', () => {
+      const authority = new TabAmbientAuthority({ directory: new TabAuthorityDirectory() });
+
+      const refusal = refusalOf(() => authority.ambientHostOrThrow());
+
+      assert.strictEqual(refusal.code, 'TARGET_REQUIRED');
+      assert.strictEqual(refusal.details?.liveHosts, 0);
+      assert.deepStrictEqual(refusal.details?.liveProjectIds, []);
+      assert.strictEqual(typeof refusal.details?.recovery, 'string');
+    });
+
+    it('TARGET_STALE for a dead explicit tab names the tab and the listing tool', () => {
+      const directory = new TabAuthorityDirectory();
+      directory.register(projectWindow('project-a'), hostOwnedBy('project:project-a'));
+      const authority = new TabAmbientAuthority({ directory });
+
+      const refusal = refusalOf(() => authority.hostForTabOrBootstrap('tab-dead', 'project-a'));
+
+      assert.strictEqual(refusal.code, 'TARGET_STALE');
+      assert.strictEqual(refusal.details?.tabId, 'tab-dead');
+      assert.strictEqual(refusal.details?.canRebind, true);
+      assert.strictEqual(refusal.details?.recovery, 'anti.browser.tabs.list');
     });
   });
 });

@@ -1382,6 +1382,7 @@ describe('OMP MCP stdio proxy security & bootstrap fail-closed contract', { conc
       assert.strictEqual(consoleTool.inputSchema?.properties?.level?.type, 'number');
       const expectedAdvertised = [
         'anti.sheet.extract',
+        'anti.sheet.write_cell',
         'anti.inspect.layout',
         'anti.inspect.font',
         'browser.set-device-preset',

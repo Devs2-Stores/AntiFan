@@ -206,7 +206,7 @@ export function classifyWritePath(shape: WorkspaceShape, rawTarget: unknown): Wr
       decision: "block",
       code: "REFUSED_THEME_ROOT_UNRESOLVED",
       absPath,
-      reason: `no theme root and no .antifan/ found walking up from ${shape.cwd}; send [Core-Context] to leave the mode`,
+      reason: `no theme root and no .antifan/ found walking up from ${shape.cwd}; ask the user to re-send the request in Core mode (the [🧠Core-Context] tag) to leave the mode`,
     };
   }
   return {

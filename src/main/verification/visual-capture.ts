@@ -815,6 +815,7 @@ export interface ReferenceMaterializationScriptOptions {
 export function buildReferenceMaterializationScript(options?: ReferenceMaterializationScriptOptions): string {
   const materializeDataSrc = options?.materializeDataSrc === true;
   return `(async () => {
+    const walkStartedAt = Date.now();
     const step = Math.max(${REFERENCE_MATERIALIZATION_STEP_PX}, Math.floor((window.innerHeight || 0) * ${REFERENCE_MATERIALIZATION_STEP_VIEWPORT_RATIO}));
     const dwell = ${REFERENCE_MATERIALIZATION_DWELL_MS};
     const bottomDwell = ${REFERENCE_MATERIALIZATION_BOTTOM_DWELL_MS};
@@ -902,11 +903,13 @@ export function buildReferenceMaterializationScript(options?: ReferenceMateriali
     const placeholdersBefore = countPlaceholders();
     let lastH = 0;
     let passes = 0;
+    let steps = 0;
     for (let pass = 0; pass < maxPasses; pass++) {
       passes = pass + 1;
       const H = height();
       for (let y = Math.max(0, lastH - step); y <= H; y += step) {
         window.scrollTo(0, y);
+        steps++;
         await sleep(dwell);
       }
       window.scrollTo(0, H);
@@ -938,6 +941,8 @@ export function buildReferenceMaterializationScript(options?: ReferenceMateriali
       materialized: unmaterialized === 0 && stillPending === 0,
       href: String(location.href || ''),
       passes,
+      steps,
+      elapsedMs: Date.now() - walkStartedAt,
       docHeightBefore,
       docHeight: height(),
       scrollYRestored: window.scrollY || 0,
@@ -1115,6 +1120,34 @@ export function compareCapturePolicyIdentity(
 }
 
 /**
+ * Wall time of each phase of one verification capture, in milliseconds. Measured with plain
+ * `Date.now()` reads around work that already runs, so the numbers cost nothing and a slow
+ * capture can name the phase that spent the time. Phases that did not run read 0; the phases
+ * do not have to sum to `totalMs` (time spent between them, such as the attach of a background
+ * tab, is the difference).
+ */
+export interface CapturePhaseTimings {
+  /** Render-surface probe and the document-height preflight read. */
+  probeMs: number;
+  /** Full-page materialization walk (scroll steps, append grace, font and image decode waits, return to top). */
+  prewarmMs: number;
+  /** The whole settle gate, including its fonts retry and the slider-hold re-run. */
+  settleMs: number;
+  /** Part of `settleMs` spent on the fonts retry; 0 when no retry ran. */
+  fontsRetryMs: number;
+  /** Lift lease, frame-liveness gate and the tab activation it may perform. */
+  activationMs: number;
+  /** Page.captureScreenshot, summed over tiles. */
+  rasterMs: number;
+  /** Tile stitching, re-encoding and validation of the delivered bytes. */
+  encodeMs: number;
+  /** Layout-viewport restore transaction after the raster. */
+  restoreMs: number;
+  /** Entry to return of the capture call. */
+  totalMs: number;
+}
+
+/**
  * Canonical verification capture envelope returned by CDP Page.captureScreenshot.
  */
 export interface VerificationCaptureEnvelope {
@@ -1163,6 +1196,8 @@ export interface VerificationCaptureEnvelope {
    * boolean asserted without them.
    */
   mediaFreeze?: CaptureFreezeMeasurement;
+  /** Where the time of this capture went; see {@link CapturePhaseTimings}. */
+  timings?: CapturePhaseTimings;
 }
 
 /**
@@ -1212,6 +1247,8 @@ export interface VerificationCaptureReceipt {
    * that was genuinely frozen from one whose motion classes were never covered.
    */
   mediaFreeze?: CaptureFreezeMeasurement;
+  /** Where the time of this capture went; see {@link CapturePhaseTimings}. */
+  timings?: CapturePhaseTimings;
 }
 
 export function verificationCaptureReceipt(env: VerificationCaptureEnvelope): VerificationCaptureReceipt {
@@ -1237,6 +1274,7 @@ export function verificationCaptureReceipt(env: VerificationCaptureEnvelope): Ve
     ...(env.prewarmError ? { prewarmError: env.prewarmError } : {}),
     ...(env.settle ? { settle: env.settle } : {}),
     ...(env.mediaFreeze ? { mediaFreeze: env.mediaFreeze } : {}),
+    ...(env.timings ? { timings: env.timings } : {}),
   };
 }
 
@@ -1281,7 +1319,8 @@ export type CaptureFailureCode =
   | 'URL_HOST_MISMATCH'
   | 'URL_THEME_MISMATCH'
   | 'URL_PATH_MISMATCH'
-  | 'URL_EXPECTATION_MISSING';
+  | 'URL_EXPECTATION_MISSING'
+  | 'TAB_HAS_NO_COMMITTED_URL';
 
 export type RouteRefusalCode = SharedRouteRefusalCode;
 
@@ -1336,6 +1375,21 @@ export function checkRouteIdentity(
       redirectChain: safeChain,
       code: 'URL_EXPECTATION_MISSING',
       reason: 'No expected URL was supplied for route identity assertion',
+    };
+  }
+
+  // A tab that never committed a navigation has no host to compare: report that fact
+  // (and the action that fixes it) instead of a host mismatch against an empty string.
+  if (safeObserved.length === 0 || /^about:blank(?:[#?].*)?$/i.test(safeObserved)) {
+    return {
+      ok: false,
+      status: 'TAB_HAS_NO_COMMITTED_URL',
+      code: 'TAB_HAS_NO_COMMITTED_URL',
+      requestedUrl: expectedUrl.trim(),
+      expectedUrl: expectedUrl.trim(),
+      observedUrl: safeObserved,
+      redirectChain: safeChain,
+      reason: 'Tab has no committed URL; navigate first (anti.browser.navigate)',
     };
   }
 

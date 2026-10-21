@@ -242,7 +242,8 @@ test("a workspace with no theme root refuses writes, fail closed", () => {
   const failClosed = paths.classifyWritePath(unbound, "E:/scratch/a.md");
   assert.equal(failClosed.decision, "block");
   assert.equal(failClosed.code, "REFUSED_THEME_ROOT_UNRESOLVED");
-  assert.ok(failClosed.reason.includes("Core-Context"));
+  assert.ok(failClosed.reason.includes("ask the user to re-send the request in Core mode"), "the refusal names the action an agent can take");
+  assert.ok(failClosed.reason.includes("Core-Context"), "the Core tag is still named for the user");
 });
 
 test("edit-guard.json widens the allow-list, a broken file never crashes resolution", () => {

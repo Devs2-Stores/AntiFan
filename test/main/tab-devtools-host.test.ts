@@ -1274,6 +1274,44 @@ describe('TabDevToolsHost (Sub-Controller Unit Tests)', () => {
     assert.strictEqual(devTools.isTargetDraining('tab-1', 'desktop'), false, 'Draining clears once the in-flight command settles');
   });
 
+  it('22b. a render-surface probe that outlives its bound is a timeout, never a missing surface', async () => {
+    const { ctx } = createMockContext();
+    const devTools = new TabDevToolsHost(ctx);
+    const internals = devTools as unknown as { sendCdpCommand: () => Promise<unknown> };
+    internals.sendCdpCommand = async () => {
+      throw new Error('CDP command Runtime.evaluate timed out after 50ms');
+    };
+
+    await assert.rejects(
+      () => devTools.readRenderSurface('tab-1', 'desktop', 50),
+      (err: unknown) => err instanceof CaptureError && err.code === 'CAPTURE_TIMEOUT'
+    );
+  });
+
+  it('22c. a render-surface probe that answers without geometry reports the absent surface', async () => {
+    const { ctx } = createMockContext();
+    const devTools = new TabDevToolsHost(ctx);
+    const internals = devTools as unknown as { sendCdpCommand: () => Promise<unknown> };
+    internals.sendCdpCommand = async () => ({ result: { value: undefined } });
+
+    await assert.rejects(
+      () => devTools.readRenderSurface('tab-1', 'desktop', 50),
+      (err: unknown) => err instanceof CaptureError && err.code === 'NO_RENDER_SURFACE'
+    );
+  });
+
+  it('22d. a render-surface probe on a tab with no attached web contents is TAB_NOT_ATTACHED', async () => {
+    const { ctx } = createMockContext();
+    ctx.getTabWebContents = () => undefined as never;
+    const devTools = new TabDevToolsHost(ctx);
+
+    await assert.rejects(
+      () => devTools.readRenderSurface('tab-1', 'desktop', 50),
+      (err: unknown) => (err as { code?: string }).code === 'TAB_NOT_ATTACHED'
+        && (err as { details?: { tabId?: string } }).details?.tabId === 'tab-1'
+    );
+  });
+
   it('23. drainTarget reports a healthy target drained and resets a poisoned one with a bounded debugger detach', async () => {
     const { ctx } = createMockContext();
     const devTools = new TabDevToolsHost(ctx);

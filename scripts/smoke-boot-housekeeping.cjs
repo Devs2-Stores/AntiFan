@@ -124,6 +124,8 @@ async function launchAndWaitForApplied(label) {
     env: {
       ...process.env,
       ANTIFAN_DATA_ROOT: dataRoot,
+      // This harness launches the app itself on a throwaway root on purpose.
+      ANTIFAN_ALLOW_ALT_DATA_ROOT: '1',
       ANTIFAN_RUNTIME_DIR: runtimeDir,
       ANTIFAN_ALLOW_EVAL: 'true',
       ANTIFAN_BRIDGE_PORT: BRIDGE_PORT,

@@ -67,6 +67,9 @@ function makeResolver(opts: {
   liveCapsules?: readonly string[];
   projectCapsules?: Record<string, string | undefined>;
   detached?: readonly string[];
+  /** Projects whose reattach is in flight; names the refusal when the restore answers null. */
+  reattaching?: readonly string[];
+  restoreDetachedShell?: BridgeMintResolverDeps['restoreDetachedShell'];
   bootProjectId?: string;
 }) {
   const hosts = opts.hosts ?? {};
@@ -91,6 +94,12 @@ function makeResolver(opts: {
       if (!hosts['web']) hosts['web'] = fakeHost('hub-reopened');
       return hosts['web'];
     },
+    ...(opts.restoreDetachedShell
+      ? {
+          restoreDetachedShell: opts.restoreDetachedShell,
+          reattachInProgress: (projectId: string) => (opts.reattaching ?? []).includes(projectId),
+        }
+      : {}),
   };
   return { resolve: createBridgeMintHostResolver(deps), deps, hosts, state };
 }
@@ -388,5 +397,139 @@ describe('bridge mint resolver — projectId arm', () => {
     const { resolve, state } = makeResolver({ hosts: {} });
     assert.equal(await resolve({ boundTabId: 'tab-gone' }), undefined);
     assert.equal(state.hubAsks, 0, 'a mint the bridge will refuse reopened the hub');
+  });
+});
+
+describe('bridge mint resolver — detached shell restore on demand', () => {
+  const hub = fakeHost('hub');
+  const restoredHost = fakeHost('restored');
+
+  it('reopens a windowless detached project once for its live terminal and mints on the restored host', async () => {
+    const restoreCalls: string[] = [];
+    const { resolve, state } = makeResolver({
+      hosts: { web: hub },
+      ownerKeys: { 'term-dead': 'project:p-dead' },
+      projectCapsules: { 'p-dead': 'capsule-pdead' },
+      capsuleProjects: { 'capsule-pdead': 'p-dead' },
+      detached: ['p-dead'],
+      restoreDetachedShell: async (projectId) => { restoreCalls.push(projectId); return restoredHost; },
+    });
+    const out = await resolve({ terminalSessionId: 'term-dead' });
+    assert.deepEqual(restoreCalls, ['p-dead'], 'the shell was not restored exactly once');
+    assert.equal(out?.host, restoredHost, 'the mint did not land on the restored shell');
+    assert.equal(out?.capsuleId, 'capsule-pdead');
+    assert.equal(out?.projectId, 'p-dead');
+    assert.equal(state.hubAsks, 0, 'a restored mint re-homed onto the hub');
+  });
+
+  it('refuses with a reattach reason and recovery while the project is mid-reattach, never touching the hub', async () => {
+    const { resolve, state } = makeResolver({
+      hosts: { web: hub },
+      ownerKeys: { 'term-dead': 'project:p-dead' },
+      detached: ['p-dead'],
+      reattaching: ['p-dead'],
+      restoreDetachedShell: async () => null,
+    });
+    const err = await assertUnresolved(() => resolve({ terminalSessionId: 'term-dead' }), /detached/i);
+    const details = err.details as Record<string, unknown>;
+    assert.equal(details.reason, 'reattach-in-progress');
+    assert.equal(typeof details.recovery, 'string');
+    assert.ok((details.recovery as string).length > 0);
+    assert.equal(details.projectId, 'p-dead');
+    assert.equal(state.hubAsks, 0);
+  });
+
+  it('refuses with a not-admitted reason and opens nothing when the restore declines', async () => {
+    let restoreCalls = 0;
+    const { resolve, state } = makeResolver({
+      hosts: { web: hub },
+      ownerKeys: { 'term-dead': 'project:p-dead' },
+      detached: ['p-dead'],
+      restoreDetachedShell: async () => { restoreCalls += 1; return null; },
+    });
+    const err = await assertUnresolved(() => resolve({ terminalSessionId: 'term-dead' }), /detached/i);
+    const details = err.details as Record<string, unknown>;
+    assert.equal(restoreCalls, 1);
+    assert.equal(details.reason, 'not-admitted');
+    assert.equal(typeof details.recovery, 'string');
+    assert.equal(state.hubAsks, 0);
+  });
+
+  it('turns a throwing restore into a typed refusal carrying the cause', async () => {
+    const { resolve } = makeResolver({
+      hosts: { web: hub },
+      ownerKeys: { 'term-dead': 'project:p-dead' },
+      detached: ['p-dead'],
+      restoreDetachedShell: async () => { throw new Error('window manager is not up yet'); },
+    });
+    const err = await assertUnresolved(() => resolve({ terminalSessionId: 'term-dead' }), /detached/i);
+    const details = err.details as Record<string, unknown>;
+    assert.equal(details.reason, 'restore-failed');
+    assert.equal(details.cause, 'window manager is not up yet');
+  });
+
+  it('keeps the hub behaviour and never calls the restore for a project that is not detached', async () => {
+    let restoreCalls = 0;
+    const { resolve } = makeResolver({
+      hosts: { web: hub },
+      ownerKeys: { 'term-hub': 'project:p-hub' },
+      projectCapsules: { 'p-hub': 'capsule-phub' },
+      restoreDetachedShell: async () => { restoreCalls += 1; return restoredHost; },
+    });
+    const out = await resolve({ terminalSessionId: 'term-hub' });
+    assert.equal(out?.host, hub);
+    assert.equal(restoreCalls, 0);
+  });
+
+  it('does not call the restore when a live detached shell already owns the project', async () => {
+    let restoreCalls = 0;
+    const live = fakeHost('live');
+    const { resolve } = makeResolver({
+      hosts: { web: hub, 'project:p-live': live },
+      ownerKeys: { 'term-live': 'project:p-live' },
+      detached: ['p-live'],
+      restoreDetachedShell: async () => { restoreCalls += 1; return restoredHost; },
+    });
+    const out = await resolve({ terminalSessionId: 'term-live' });
+    assert.equal(out?.host, live);
+    assert.equal(restoreCalls, 0);
+  });
+
+  it('a resolver built without the restore dependency still refuses a windowless detached project with no restore details', async () => {
+    const { resolve } = makeResolver({
+      hosts: { web: hub },
+      ownerKeys: { 'term-dead': 'project:p-dead' },
+      detached: ['p-dead'],
+    });
+    const err = await assertUnresolved(() => resolve({ terminalSessionId: 'term-dead' }), /detached/i);
+    const details = err.details as Record<string, unknown>;
+    assert.equal('reason' in details, false);
+    assert.equal('recovery' in details, false);
+  });
+
+  it('reopens a windowless detached project once for a projectId provision', async () => {
+    const restoreCalls: string[] = [];
+    const { resolve } = makeResolver({
+      hosts: { web: hub },
+      projectCapsules: { 'p-marked': 'capsule-marked' },
+      detached: ['p-marked'],
+      restoreDetachedShell: async (projectId) => { restoreCalls.push(projectId); return restoredHost; },
+    });
+    const out = await resolve({ projectId: 'p-marked' });
+    assert.deepEqual(restoreCalls, ['p-marked']);
+    assert.equal(out?.host, restoredHost);
+    assert.equal(out?.capsuleId, 'capsule-marked');
+    assert.equal(out?.projectId, 'p-marked');
+  });
+
+  it('refuses a projectId provision with a reason when the restore declines', async () => {
+    const { resolve, state } = makeResolver({
+      hosts: { web: hub },
+      detached: ['p-marked'],
+      restoreDetachedShell: async () => null,
+    });
+    const err = await assertUnresolved(() => resolve({ projectId: 'p-marked' }), /detached/i);
+    assert.equal((err.details as Record<string, unknown>).reason, 'not-admitted');
+    assert.equal(state.hubAsks, 0);
   });
 });

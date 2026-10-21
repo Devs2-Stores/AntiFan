@@ -86,11 +86,28 @@ import { VisualQualityScanner, type VisualQualityScanResult } from '../qa/scanne
 import { runStateMatrix, type StateMatrixOptions, type StateMatrixResult } from '../qa/state-matrix.js';
 import { normalizeCandidateOptions, runLayoutCandidates, type LayoutCandidatesOptions, type LayoutCandidatesResult } from '../qa/layout-candidates.js';
 import { requestedViewportWidth, viewportWidthMismatch } from '../browser/viewport-request.js';
+import { tabShareGrants } from '../browser/tab-share-grants.js';
 import { resolveSweepBreakpoints, viewportsToBreakpoints } from '../browser/sweep-viewports.js';
 import { pickAutoBindCandidate, storefrontHostMatches } from './tab-binding.js';
 import { FULL_PAGE_ARTIFACT_MAX_BYTES } from './artifact-store.js';
 import { composeContactSheetFromPngs } from '../verification/png-contact-sheet.js';
 import type { PageCloseAdmission } from '../run/attachment-registry';
+import { sequenceDependsOnPriorDocument } from './sequence-fence.js';
+/**
+ * A sequence that addresses the page by selector/ref/coordinates was refused because its
+ * document generation drifted: say so, and point at the recovery (re-inspect, then repeat
+ * with fresh refs) instead of the generic "re-inspect DOM" text. Any other error passes through.
+ */
+function annotateSequenceStaleDocument(err: unknown): unknown {
+  if (!(err instanceof CapabilityError) || err.code !== 'TARGET_STALE' || err.details?.targetDocumentGeneration === undefined) return err;
+  const live = err.details.liveDocumentGeneration;
+  return new CapabilityError(
+    'TARGET_STALE',
+    `The page changed since you inspected it (document generation ${String(err.details.targetDocumentGeneration)} -> ${String(live)}); this sequence addresses elements by selector, ref or coordinates on that earlier document. Take a fresh snapshot and repeat the sequence with the new refs, or start the sequence with a navigate step.`,
+    { ...err.details, dependsOnPriorDocument: true, recovery: 'anti.inspect.snapshot, then repeat anti.agent.sequence with the new refs' }
+  );
+}
+
 function isTabRecord(item: unknown): item is AntiFanTab {
   if (typeof item !== 'object' || item === null || !('id' in item)) return false;
   return typeof item.id === 'string';
@@ -153,6 +170,8 @@ export interface BrowserHostPort {
   createTab?(url?: string, activate?: boolean, options?: { capsuleId?: string; userAgentMode?: BrowserSessionUserAgentMode; ephemeral?: boolean; devicePresetId?: string; mobile?: boolean; anchorTabId?: string; plane?: 'user' | 'agent'; projectId?: string }): string;
   /** The capsule and project/workspace a tab was created in, or undefined when no capsule owns it. */
   resolveTabAffiliation?(tabId: string): { projectId?: string; workspaceId?: string; capsuleId?: string } | undefined;
+  /** The live, user-issued share grant of a tab, if any; consulted only by explicit rebind. */
+  getTabShareGrant?(tabId: string): { projectId: string; expiresAt: number } | undefined;
   resolveTabWorkspace?(tabId?: string, tabUrl?: string): string;
   closeTab?(tabId: string, source?: string): boolean;
   switchTab?(tabId: string, opts?: SwitchTabOptions): boolean;
@@ -952,14 +971,30 @@ export class WaitRegistry {
  */
 export const VIEWPORT_GATE_ADMISSION_BUDGET_MS = 30_000;
 
+interface PoisonRecord {
+  reason: string;
+  at: number;
+  /** Tab the fence covers; absent for a gate-wide fence. */
+  tabId?: string;
+  /** Tab the abandoned action ran against (what the recovery evidence is read from). */
+  actionTabId?: string;
+  generationAtPoison?: number;
+  abandoned?: Promise<unknown>;
+  abandonedSettled: boolean;
+}
+
 export class ViewportGate {
   private isLocked = false;
-  private isPoisoned = false;
   // Phase 2 (step 9): poison state is scoped by target so an unacknowledged cancel on
   // one tab/session cannot poison unrelated tabs (the over-global cross-session
-  // contamination invariant). Tabs listed here are rejected for new acquisitions;
-  // the global flag below remains as a fallback for abstraction-less poisons.
-  private poisonedTabs = new Set<string>();
+  // contamination invariant). Tabs listed here are rejected for new acquisitions until
+  // their record is lifted on evidence; the global record is the fallback for
+  // abstraction-less poisons.
+  private poisonedTabs = new Map<string, PoisonRecord>();
+  private globalPoison: PoisonRecord | null = null;
+  private generationProbe: ((tabId?: string) => number | undefined) | null = null;
+  private recoveryHandler: ((tabId: string) => Promise<boolean>) | null = null;
+  private readonly recoveries = new Map<string, Promise<boolean>>();
   private preemptionEpoch = 1;
   private activeAbortController: AbortController | null = null;
   private activeTabId: string | null = null;
@@ -997,31 +1032,155 @@ export class ViewportGate {
     if (tabId) {
       this.poisonedTabs.delete(tabId);
     } else {
-      this.isPoisoned = false;
+      this.globalPoison = null;
       this.poisonedTabs.clear();
     }
   }
 
-  public poison(reason: string, tabId?: string): void {
+  /** Reads the live document generation of a tab; used as evidence that a poisoned page was replaced. */
+  public setGenerationProbe(probe: ((tabId?: string) => number | undefined) | null): void {
+    this.generationProbe = probe;
+  }
+
+  /**
+   * Bounded host recovery for a poisoned tab (drain the CDP queue, then prove the page answers).
+   * Resolves true only when the host verified the tab is usable again.
+   */
+  public setRecoveryHandler(handler: ((tabId: string) => Promise<boolean>) | null): void {
+    this.recoveryHandler = handler;
+  }
+
+  /**
+   * Fences a tab (or, with no tab, the whole gate) after a cancelled action was never
+   * acknowledged. The record keeps the evidence needed to lift the fence later: the document
+   * generation at poison time and the abandoned action itself. A fence is never lifted
+   * without one of those proofs (see `recordRecovered`).
+   */
+  public poison(reason: string, tabId?: string, abandoned?: Promise<unknown>, actionTabId?: string): void {
+    const evidenceTabId = actionTabId ?? tabId;
+    let generationAtPoison: number | undefined;
+    if (evidenceTabId && this.generationProbe) {
+      try {
+        const probed = this.generationProbe(evidenceTabId);
+        if (typeof probed === 'number') generationAtPoison = probed;
+      } catch {
+        generationAtPoison = undefined;
+      }
+    }
+    const previous = tabId ? this.poisonedTabs.get(tabId) : this.globalPoison;
+    // A fence replacing one whose abandoned action is still running keeps waiting for both.
+    let pending: Promise<unknown> | undefined = abandoned;
+    if (previous && previous.abandoned && !previous.abandonedSettled) {
+      pending = abandoned ? Promise.allSettled([previous.abandoned, abandoned]) : previous.abandoned;
+    }
+    const record: PoisonRecord = {
+      reason,
+      at: Date.now(),
+      ...(tabId ? { tabId } : {}),
+      ...(evidenceTabId ? { actionTabId: evidenceTabId } : {}),
+      ...(generationAtPoison !== undefined ? { generationAtPoison } : {}),
+      ...(pending ? { abandoned: pending } : {}),
+      abandonedSettled: false,
+    };
+    if (pending) {
+      const markSettled = () => { record.abandonedSettled = true; };
+      pending.then(markSettled, markSettled);
+    }
     if (tabId) {
-      this.poisonedTabs.add(tabId);
+      this.poisonedTabs.set(tabId, record);
       // Only entries targeting this tab are poisoned; others keep their slot.
       for (let i = this.queue.length - 1; i >= 0; i--) {
         const entry = this.queue[i];
         if (entry && entry.tabId === tabId) {
           this.queue.splice(i, 1);
           clearTimeout(entry.timer);
-          entry.reject(new CapabilityError('TARGET_STALE', reason));
+          entry.reject(this.poisonRefusal(record, reason));
         }
       }
       return;
     }
-    this.isPoisoned = true;
+    this.globalPoison = record;
     while (this.queue.length > 0) {
       const entry = this.queue.shift()!;
       clearTimeout(entry.timer);
-      entry.reject(new CapabilityError('TARGET_STALE', reason));
+      entry.reject(this.poisonRefusal(record, reason));
     }
+  }
+
+  private hasPoisonFor(lockTabId?: string): boolean {
+    return this.globalPoison !== null || (lockTabId !== undefined && this.poisonedTabs.has(lockTabId));
+  }
+
+  private poisonRefusal(record: PoisonRecord, message?: string): CapabilityError {
+    const scope = record.tabId ? `tab '${record.tabId}'` : 'the gate';
+    return new CapabilityError(
+      'TARGET_STALE',
+      message ?? `ViewportGate is poisoned for ${scope} since ${new Date(record.at).toISOString()} (${record.reason}); the cancelled action was never acknowledged.`,
+      {
+        ...(record.tabId ? { tabId: record.tabId } : {}),
+        poisonedAt: record.at,
+        reason: record.reason,
+        canRebind: true,
+        recovery: 'anti.browser.reload or anti.browser.rebind_target (either changes the document generation), then retry',
+      }
+    );
+  }
+
+  /** Throws the refusal for the first fence that still holds after its recovery evidence is checked. */
+  private async assertNotPoisoned(lockTabId?: string): Promise<void> {
+    const global = this.globalPoison;
+    if (global && !(await this.recordRecovered(global))) throw this.poisonRefusal(global);
+    const scoped = lockTabId !== undefined ? this.poisonedTabs.get(lockTabId) : undefined;
+    if (scoped && !(await this.recordRecovered(scoped))) throw this.poisonRefusal(scoped);
+  }
+
+  /**
+   * Lifts a fence only on evidence that the abandoned action can no longer act:
+   * the abandoned action settled, the document generation changed (navigate, reload and
+   * rebind all bump it), or the host drained the target and proved the page answers.
+   * Anything else keeps the fence.
+   */
+  private async recordRecovered(record: PoisonRecord): Promise<boolean> {
+    const lift = (): boolean => {
+      if (record.tabId !== undefined) {
+        if (this.poisonedTabs.get(record.tabId) === record) this.poisonedTabs.delete(record.tabId);
+      } else if (this.globalPoison === record) {
+        this.globalPoison = null;
+      }
+      return true;
+    };
+    if (record.abandonedSettled) return lift();
+    const evidenceTabId = record.actionTabId;
+    if (evidenceTabId && record.generationAtPoison !== undefined && this.generationProbe) {
+      let live: number | undefined;
+      try {
+        live = this.generationProbe(evidenceTabId);
+      } catch {
+        live = undefined;
+      }
+      if (typeof live === 'number' && live !== record.generationAtPoison) return lift();
+    }
+    if (evidenceTabId && this.recoveryHandler && (await this.runRecovery(evidenceTabId))) return lift();
+    return false;
+  }
+
+  /** At most one recovery runs per tab; concurrent callers share its outcome. */
+  private runRecovery(tabId: string): Promise<boolean> {
+    const inFlight = this.recoveries.get(tabId);
+    if (inFlight) return inFlight;
+    const handler = this.recoveryHandler;
+    if (!handler) return Promise.resolve(false);
+    const run = (async () => {
+      try {
+        return (await handler(tabId)) === true;
+      } catch {
+        return false;
+      } finally {
+        this.recoveries.delete(tabId);
+      }
+    })();
+    this.recoveries.set(tabId, run);
+    return run;
   }
 
   public preemptActiveAgent(reason = 'Physical human user input preempted agent action', tabId?: string): void {
@@ -1044,9 +1203,7 @@ export class ViewportGate {
     options: ViewportLockOptions = {}
   ): Promise<T> {
     const lockTabId = options.tabId?.trim() || undefined;
-    if (this.isPoisoned || (lockTabId !== undefined && this.poisonedTabs.has(lockTabId))) {
-      throw new CapabilityError('TARGET_STALE', 'ViewportGate is poisoned due to unacknowledged action cancellation');
-    }
+    if (this.hasPoisonFor(lockTabId)) await this.assertNotPoisoned(lockTabId);
     // Close admission, before the caller joins the queue: a page inside its reservation
     // window (or an application that is quitting) admits no new work, so this action has to
     // be refused now rather than after it waited for the lock it would then hold over a
@@ -1069,9 +1226,14 @@ export class ViewportGate {
     const release = await this.acquire(lockTabId, timeoutMs, controller.signal);
 
     // 2. Recheck poison immediately after acquisition before executing action
-    if (this.isPoisoned || (lockTabId !== undefined && this.poisonedTabs.has(lockTabId))) {
-      release();
-      throw new CapabilityError('TARGET_STALE', 'ViewportGate is poisoned due to unacknowledged action cancellation');
+    if (this.hasPoisonFor(lockTabId)) {
+      try {
+        await this.assertNotPoisoned(lockTabId);
+      } catch (err) {
+        release();
+        options.signal?.removeEventListener('abort', onParentAbort);
+        throw err;
+      }
     }
 
     // 2a. Close admission again, now that the lock is held: the page may have been reserved
@@ -1123,7 +1285,7 @@ export class ViewportGate {
           }
         }
         if (!ack) {
-          this.poison('ViewportGate poisoned due to unacknowledged action cancellation', poisonScope);
+          this.poison('ViewportGate poisoned due to unacknowledged action cancellation', poisonScope, actionPromise ?? undefined, lockTabId);
           reject(err);
           return;
         }
@@ -1135,7 +1297,7 @@ export class ViewportGate {
             new Promise((r) => setTimeout(r, 500))
           ]);
           if (!settled) {
-            this.poison('ViewportGate poisoned: action failed to settle after cancellation acknowledgement', poisonScope);
+            this.poison('ViewportGate poisoned: action failed to settle after cancellation acknowledgement', poisonScope, actionPromise, lockTabId);
           }
         }
         reject(err);
@@ -1275,6 +1437,7 @@ export class ViewportGate {
     // Phase 2 (step 9): drop per-target poison so a destroyed tab no longer rejects
     // new acquisitions for the same physical tabId after recreation.
     this.poisonedTabs.delete(tabId);
+    this.recoveries.delete(tabId);
   }
 
   /** Phase 2 (step 9) contract alias: release per-target lock/poison state on tab destruction. */
@@ -1538,6 +1701,8 @@ const NORMALIZATION_BOUND_MS = 15_000;
 const NORMALIZATION_RESTORE_BOUND_MS = 15_000;
 const STAGE_BOUND_MS = 30_000;
 const TARGET_RECOVERY_BUDGET_MS = 25_000;
+/** Upper bound a caller may request for a navigation wait, whatever `timeoutMs` it passes. */
+const NAVIGATE_TIMEOUT_CEILING_MS = 60_000;
 const REVERSIBLE_DOM_TXN_GLOBAL = '__antifan_compare_txn__';
 /**
  * Per-document record of the last hydration cascade that ran to completion:
@@ -2171,6 +2336,15 @@ export class BrowserControlPort {
       }
       return true;
     });
+    this.viewportGate.setGenerationProbe((tabId) => (tabId ? this.host.getDocumentGeneration?.(tabId) : undefined));
+    this.viewportGate.setRecoveryHandler(async (tabId) => {
+      if (typeof this.host.drainTarget !== 'function' || typeof this.host.readRenderSurface !== 'function') return false;
+      const drained = await this.host.drainTarget(tabId, undefined, TARGET_RECOVERY_BUDGET_MS);
+      if (!drained || !drained.ok || !drained.drained) return false;
+      // Drained is not enough on its own: the page must also answer a bounded probe.
+      await this.host.readRenderSurface(tabId, undefined, RENDER_SURFACE_PROBE_BOUND_MS);
+      return true;
+    });
   }
   /**
    * Injects the close-admission seam (see `PageCloseAdmission`) into this port's
@@ -2215,7 +2389,7 @@ export class BrowserControlPort {
       throw new CapabilityError(
         'POLICY_DENIED',
         `projectId selector '${selector}' cannot be honored: this call carries no authenticated project scope, so there is no scope to confirm it against. A selector can only restate the session's own project, never acquire one.`,
-        { selectorProjectId: selector }
+        { selectorProjectId: selector, recovery: 'Omit the projectId selector, or run from a terminal assigned to a project so the call carries an authenticated project scope.' }
       );
     }
     if (selector !== authenticated) {
@@ -2385,7 +2559,7 @@ export class BrowserControlPort {
       throw new CapabilityError(
         'POLICY_DENIED',
         `Tab '${tabId}' is outside this session's project/workspace scope; use anti.browser.tabs.list for the tabs this session may address`,
-        { tabId }
+        { tabId, recovery: 'anti.browser.tabs.list' }
       );
     }
     // Session records first so an owned tab resolves even when the
@@ -2407,10 +2581,19 @@ export class BrowserControlPort {
 
   async navigate(target: BrowserTarget, url: string, explicitTabId?: string, options?: { timeoutMs?: number }): Promise<{ navigated: boolean; target: BrowserTarget }> {
     const tabId = this.resolveTargetTab(target, explicitTabId, 'read');
-    if (!url || !/^https?:\/\//i.test(url)) throw new CapabilityError('INVALID_ARGUMENT', 'Navigation requires an http(s) URL');
+    const navigationUrl = typeof url === 'string' ? url.trim() : '';
+    // about:blank is the only non-http(s) document a session may navigate to (a clean-slate
+    // reset with no origin); file:, javascript:, data: and every other about: page stay refused.
+    if (!navigationUrl || !(navigationUrl === 'about:blank' || /^https?:\/\//i.test(navigationUrl))) {
+      throw new CapabilityError('INVALID_ARGUMENT', 'Navigation requires an http(s) URL or about:blank');
+    }
+    const requestedTimeoutMs = options?.timeoutMs;
+    const navigationTimeoutMs = typeof requestedTimeoutMs === 'number' && Number.isFinite(requestedTimeoutMs) && requestedTimeoutMs > 0
+      ? Math.min(Math.floor(requestedTimeoutMs), NAVIGATE_TIMEOUT_CEILING_MS)
+      : undefined;
     const navigated = typeof this.host.navigateAndWait === 'function'
-      ? await this.host.navigateAndWait(tabId, url, options?.timeoutMs)
-      : await this.host.navigate(tabId, url);
+      ? await this.host.navigateAndWait(tabId, navigationUrl, navigationTimeoutMs)
+      : await this.host.navigate(tabId, navigationUrl);
     if (!navigated) {
       const failure = typeof this.host.getLastNavigationFailure === 'function'
         ? this.host.getLastNavigationFailure(tabId)
@@ -2803,6 +2986,33 @@ export class BrowserControlPort {
     };
   }
 
+  /** A probe failure that is the CDP/compositor outliving its bound, not a surface that is absent. */
+  private isRenderSurfaceTimeout(err: unknown): boolean {
+    const code = err instanceof Error && 'code' in err ? String((err as { code?: unknown }).code) : undefined;
+    if (code === 'CAPTURE_TIMEOUT' || code === 'RENDER_SURFACE_TIMEOUT') return true;
+    return err instanceof Error && /timed out after \d+ms/i.test(err.message);
+  }
+
+  /** Bounded render-surface probe that is retried once when it times out; any other failure is final. */
+  private async readRenderSurfaceRetryingTimeout(tabId: string, paneId: 'desktop' | 'mobile' | undefined): Promise<RenderSurfaceSnapshot> {
+    const probe = this.host.readRenderSurface;
+    if (typeof probe !== 'function') throw new CapabilityError('CAPABILITY_NOT_FOUND', 'readRenderSurface is not supported by host');
+    try {
+      return await probe.call(this.host, tabId, paneId, RENDER_SURFACE_PROBE_BOUND_MS);
+    } catch (err) {
+      if (!this.isRenderSurfaceTimeout(err)) throw err;
+      try {
+        return await probe.call(this.host, tabId, paneId, RENDER_SURFACE_PROBE_BOUND_MS);
+      } catch (retryErr) {
+        // The first probe's own hung Runtime.evaluate still holds the target's queue, so the
+        // retry is refused as draining. That is the same hang, not another command's drain:
+        // report the timeout so the caller sees PROBE_TIMEOUT rather than a busy target.
+        if (retryErr instanceof Error && 'code' in retryErr && retryErr.code === 'TARGET_BUSY_DRAINING') throw err;
+        throw retryErr;
+      }
+    }
+  }
+
   /**
    * Refuses to start bounded render work on a tab whose renderer has no laid-out
    * surface. Fail-closed by design: a 0x0 surface never completes a raster, so
@@ -2819,15 +3029,26 @@ export class BrowserControlPort {
     if (typeof this.host.readRenderSurface !== 'function') return undefined;
     let snapshot: RenderSurfaceSnapshot | undefined;
     try {
-      snapshot = await this.host.readRenderSurface(tabId, paneId, RENDER_SURFACE_PROBE_BOUND_MS);
+      snapshot = await this.readRenderSurfaceRetryingTimeout(tabId, paneId);
     } catch (err) {
       const code = err instanceof Error && 'code' in err ? String((err as { code?: unknown }).code) : undefined;
       if (code === 'TARGET_BUSY_DRAINING') throw err;
       if (allowDegraded) return undefined;
+      // A probe that outlived its bound twice is a hung renderer the caller may retry; a probe
+      // that answered with no geometry (or could not run) means the tab has no surface. Same
+      // code, different remedy, so the cause says which.
+      const timedOut = this.isRenderSurfaceTimeout(err);
       throw new CapabilityError(
         'NO_RENDER_SURFACE',
         `${operation} cannot run on tab '${tabId}': the render surface could not be measured (${err instanceof Error ? err.message : String(err)})`,
-        { tabId, paneId, operation, cause: classifyRenderSurfaceCause(undefined) }
+        {
+          tabId,
+          paneId,
+          operation,
+          cause: timedOut ? 'PROBE_TIMEOUT' : 'ABSENT_SURFACE',
+          retryable: timedOut,
+          probeCause: classifyRenderSurfaceCause(undefined),
+        }
       );
     }
     if (snapshot && (!Number.isFinite(snapshot.vw) || !Number.isFinite(snapshot.vh) || snapshot.vw < 1 || snapshot.vh < 1)) {
@@ -4312,6 +4533,7 @@ export class BrowserControlPort {
           used: currentTabs.size,
           limit: SESSION_TAB_LIMIT,
           countedTabIds: [...currentTabs].slice(0, SESSION_TAB_QUOTA_SAMPLE_MAX),
+          recovery: 'anti.browser.tabs.close {tabId} on a tab this session owns, then retry anti.browser.tabs.create',
         });
       }
     }
@@ -4396,6 +4618,7 @@ export class BrowserControlPort {
             used,
             limit: SESSION_TAB_LIMIT,
             countedTabIds,
+            recovery: 'anti.browser.tabs.close {tabId} on a tab this session owns, then retry anti.browser.tabs.create',
           });
         }
         throw new CapabilityError('SESSION_STALE', `Browser tab '${tabId}' could not be adopted into session '${boundTabId}' although its anchor is live (${used ?? 'unknown'} of ${SESSION_TAB_LIMIT} counted tabs); the tab was closed instead of leaking outside the session`, {
@@ -4434,6 +4657,11 @@ export class BrowserControlPort {
         throw new CapabilityError(
           'TARGET_MISMATCH',
           `Cannot retarget to tab "${cleanId}". This session is isolated to tab "${liveBoundId.trim()}" and its managed tabs.`,
+          {
+            tabId: cleanId,
+            boundTabId: liveBoundId.trim(),
+            recovery: 'anti.browser.tabs.list shows the tabs this session may retarget to',
+          }
         );
       }
     }
@@ -4500,10 +4728,29 @@ export class BrowserControlPort {
           measuredRequested?.projectId === target.projectId &&
           measuredRequested?.workspaceId === target.workspaceId
         );
-        if (!allowed && !sameProjectScope) {
+        // A tab the user shared with this project's agents: the grant must be live, name
+        // this session's project, and agree with whatever the tab measures. Reaches only
+        // this explicit rebind, never session ownership. A host that does not answer the
+        // seam is read through the process-wide registry, as the catalogue's retarget check is.
+        const shareGrant = !allowed && !sameProjectScope
+          ? (this.host.getTabShareGrant ? this.host.getTabShareGrant(effectiveTabId) : tabShareGrants.get(effectiveTabId))
+          : undefined;
+        const sharedByUser = Boolean(
+          shareGrant &&
+          shareGrant.expiresAt > Date.now() &&
+          target?.projectId && shareGrant.projectId === target.projectId &&
+          (measuredRequested?.projectId === undefined || measuredRequested.projectId === target.projectId) &&
+          (measuredRequested?.workspaceId === undefined || measuredRequested.workspaceId === target.workspaceId)
+        );
+        if (!allowed && !sameProjectScope && !sharedByUser) {
           throw new CapabilityError(
             'TARGET_MISMATCH',
             `Cannot rebind to tab "${effectiveTabId}". This session is isolated to tab "${priorBoundId.trim()}" and its managed tabs.`,
+            {
+              tabId: effectiveTabId,
+              boundTabId: priorBoundId.trim(),
+              recovery: 'anti.browser.tabs.list shows the tabs this session may rebind to',
+            }
           );
         }
       }
@@ -4540,7 +4787,7 @@ export class BrowserControlPort {
       browserEpoch: epoch,
     };
   }
-  closeTab(tabId: string, context?: { target?: BrowserTarget }): { closed: boolean; tabId: string; failoverTabId?: string } {
+  closeTab(tabId: string, context?: { target?: BrowserTarget }): { closed: boolean; tabId: string; failoverTabId?: string; alreadyGone?: boolean } {
     if (!this.host.closeTab) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'closeTab is not supported by host');
     let targetId = tabId;
     if (typeof tabId === 'string' && tabId.startsWith('#')) {
@@ -4551,6 +4798,21 @@ export class BrowserControlPort {
         if (matchedTab?.id) {
           targetId = matchedTab.id;
         }
+      }
+    }
+    // A tab that no longer exists cannot be closed again: report it as already gone
+    // BEFORE the authority check, so a repeated close is idempotent. A tab that still
+    // exists but is outside this session's authority is still refused below.
+    if (typeof targetId === 'string' && targetId.trim().length > 0 && !targetId.trim().startsWith('#')) {
+      const trimmedId = targetId.trim();
+      const hostHasTab = typeof this.host.hasTab === 'function' ? this.host.hasTab(trimmedId) : undefined;
+      const listed = typeof this.host.getTabList === 'function'
+        ? this.host.getTabList().filter(isTabRecord).some((tab) => tab.id === trimmedId)
+        : undefined;
+      const knownAbsent = hostHasTab === false ? listed !== true : (hostHasTab === undefined && listed === false);
+      if (knownAbsent) {
+        this.verifiedTabGeometry.delete(trimmedId);
+        return { closed: false, tabId: trimmedId, alreadyGone: true };
       }
     }
     const rawBoundId = context?.target?.tabId;
@@ -4565,7 +4827,11 @@ export class BrowserControlPort {
     if (boundId && targetId.trim() !== boundId.trim()) {
       const isAllowed = this.host.isTabAllowed ? this.host.isTabAllowed(boundId.trim(), targetId.trim()) : false;
       if (!isAllowed) {
-        throw new CapabilityError('TARGET_MISMATCH', `Cannot close tab "${targetId}". This session is isolated to tab "${boundId}" and its managed tabs.`);
+        throw new CapabilityError('TARGET_MISMATCH', `Cannot close tab "${targetId}". This session is isolated to tab "${boundId}" and its managed tabs.`, {
+          tabId: targetId,
+          boundTabId: boundId,
+          recovery: 'anti.browser.tabs.list shows the tabs this session may close',
+        });
       }
     }
     const closed = Boolean(this.host.closeTab(targetId, 'mcp-tool'));
@@ -4646,7 +4912,15 @@ export class BrowserControlPort {
     }
 
     if (!targetId) {
-      throw new CapabilityError('TARGET_MISMATCH', `Cannot switch to unknown tab '${tabId}'.`);
+      // A `#N` index names a position, not a tab: an out-of-range index never existed, so it is a
+      // mismatch with the current list rather than a tab that went away.
+      if (/^#\d+$/.test(rawId)) {
+        throw new CapabilityError('TARGET_MISMATCH', `Cannot switch tab: '${rawId}' does not match any tab in this window`, {
+          tabId: rawId,
+          recovery: 'anti.browser.tabs.list, then pass a listed tabId or a #N index within the list',
+        });
+      }
+      throw this.tabGoneError(tabId, 'anti.browser.tabs.list');
     }
 
     if (isAgentPlane) {
@@ -4663,7 +4937,12 @@ export class BrowserControlPort {
       if (!isAllowed) {
         throw new CapabilityError(
           'TARGET_MISMATCH',
-          `Cannot switch to tab '${tabId}'. This session is isolated to tab '${boundId}'.`
+          `Cannot switch to tab '${tabId}'. This session is isolated to tab '${boundId}'.`,
+          {
+            tabId,
+            boundTabId: boundId,
+            recovery: 'anti.browser.tabs.list shows the tabs this session may switch to',
+          }
         );
       }
     }
@@ -4883,11 +5162,41 @@ export class BrowserControlPort {
     if (!args || !Array.isArray(args.actions) || args.actions.length === 0) {
       throw new CapabilityError('INVALID_ARGUMENT', 'actions must be a non-empty array');
     }
-    const effectiveTabId = this.resolveTargetTab(target, args.tabId, 'write', args as Record<string, unknown>);
-    return this.viewportGate.withLock(async () => {
-      this.revalidateTargetInsideLock(target, effectiveTabId);
-      return await this.host.executeActionSequence!({ ...args, tabId: effectiveTabId });
-    }, { tabId: effectiveTabId, signal });
+    const dependsOnPriorDocument = sequenceDependsOnPriorDocument(args.actions);
+    // A sequence that never touches the document the caller observed (it navigates first, or
+    // only waits / screenshots) is rebased onto the live generation BEFORE both generation
+    // fences. Tab existence, tab/epoch identity and `isTabAllowed` still run on the rebased
+    // target, and only the bound tab is rebased: an explicit other tab keeps its own check.
+    let fencedTarget = target;
+    const boundTabId = target?.tabId?.trim();
+    if (!dependsOnPriorDocument && target && boundTabId) {
+      const explicitTabId = args.tabId?.trim();
+      const candidateTabId = explicitTabId ? (this.host.resolveTargetTabId?.(explicitTabId) ?? explicitTabId) : boundTabId;
+      if (candidateTabId === boundTabId) {
+        const liveGeneration = this.host.getDocumentGeneration?.(boundTabId);
+        if (typeof liveGeneration === 'number') fencedTarget = { ...target, documentGeneration: liveGeneration };
+      }
+    }
+    // The lock deadline must outlive the slowest navigation the caller asked for.
+    const navigationBudgetMs = args.actions.reduce((sum, step) => {
+      const requested = step && step.type === 'navigate' && typeof step.timeoutMs === 'number' && Number.isFinite(step.timeoutMs) ? step.timeoutMs : 0;
+      return sum + Math.min(Math.max(requested, 0), NAVIGATE_TIMEOUT_CEILING_MS);
+    }, 0);
+    const lockTimeoutMs = navigationBudgetMs > 0 ? Math.max(VIEWPORT_GATE_ADMISSION_BUDGET_MS, navigationBudgetMs + 10_000) : undefined;
+    try {
+      const effectiveTabId = this.resolveTargetTab(fencedTarget, args.tabId, 'write', args as Record<string, unknown>);
+      return await this.viewportGate.withLock(async () => {
+        this.revalidateTargetInsideLock(fencedTarget, effectiveTabId);
+        const result = await this.host.executeActionSequence!({ ...args, tabId: effectiveTabId });
+        const liveDocumentGeneration = this.host.getDocumentGeneration?.(effectiveTabId);
+        if (typeof liveDocumentGeneration === 'number' && result && typeof result === 'object' && !Array.isArray(result)) {
+          return { ...(result as Record<string, unknown>), liveDocumentGeneration };
+        }
+        return result;
+      }, { tabId: effectiveTabId, signal, ...(lockTimeoutMs !== undefined ? { timeoutMs: lockTimeoutMs } : {}) });
+    } catch (err) {
+      throw dependsOnPriorDocument ? annotateSequenceStaleDocument(err) : err;
+    }
   }
 
   async uploadFileInput(params: { refOrSelector: string; filePaths: string[]; workspaceRoot?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ success: boolean; uploadedCount: number; reason?: string }> {
@@ -4956,6 +5265,7 @@ export class BrowserControlPort {
         throw new CapabilityError('TARGET_STALE', `Target tab '${tabId}' no longer exists`, {
           tabId,
           canRebind: false,
+          recovery: 'anti.browser.tabs.list, then anti.browser.rebind_target to a live tab',
         });
       }
     }
@@ -4969,6 +5279,7 @@ export class BrowserControlPort {
           targetDocumentGeneration: target.documentGeneration,
           liveDocumentGeneration: liveDocGen,
           canRebind: true,
+          recovery: 'anti.inspect.snapshot, then repeat the action with the new refs',
         }
       );
     }
@@ -4979,6 +5290,7 @@ export class BrowserControlPort {
         targetDocumentGeneration: target.documentGeneration,
         liveDocumentGeneration: liveDocGen,
         canRebind: true,
+        recovery: 'anti.inspect.snapshot, then repeat the action with the new refs',
       });
     }
   }
@@ -5196,7 +5508,7 @@ export class BrowserControlPort {
     let probeError: { code: string; message: string } | undefined;
     if (typeof this.host.readRenderSurface === 'function') {
       try {
-        surface = await this.host.readRenderSurface(effectiveTabId, undefined, RENDER_SURFACE_PROBE_BOUND_MS);
+        surface = await this.readRenderSurfaceRetryingTimeout(effectiveTabId, undefined);
       } catch (err) {
         probeError = {
           code: err instanceof Error && 'code' in err ? String((err as { code?: unknown }).code) : 'PROBE_FAILED',
@@ -8859,6 +9171,10 @@ export class BrowserControlPort {
     };
   }
 
+  private tabGoneError(tabId: string, recovery: string): CapabilityError {
+    return new CapabilityError('TARGET_STALE', `Tab '${tabId}' no longer exists`, { tabId, canRebind: true, recovery });
+  }
+
   private boundTabGoneError(boundTabId: string, target?: BrowserTarget): CapabilityError {
     const autoBindCandidate = this.resolveAutoBindCandidate({ target });
     return new CapabilityError(
@@ -8943,7 +9259,7 @@ export class BrowserControlPort {
             throw this.boundTabGoneError(boundId, target);
           }
         } else {
-          throw new CapabilityError('CAPABILITY_NOT_FOUND', `Unknown tab ID: ${explicitTabId}`);
+          throw this.tabGoneError(explicitTabId, 'anti.browser.tabs.list');
         }
       }
       if ((operationType === 'write' || operationType === 'lifecycle') && target?.tabId && target.tabId.trim().length > 0 && candidate !== target.tabId.trim()) {
@@ -8956,7 +9272,11 @@ export class BrowserControlPort {
               if (!params.paneId) params.paneId = 'mobile';
             }
           } else {
-            throw new CapabilityError('TARGET_MISMATCH', `Explicit tabId "${explicitTabId}" does not match target tabId "${target.tabId}". Note: In split review mode, use the bound tabId with paneId: "mobile" to target the mobile pane.`);
+            throw new CapabilityError('TARGET_MISMATCH', `Explicit tabId "${explicitTabId}" does not match target tabId "${target.tabId}". Note: In split review mode, use the bound tabId with paneId: "mobile" to target the mobile pane.`, {
+              tabId: explicitTabId,
+              boundTabId: target.tabId,
+              recovery: 'anti.browser.rebind_target {tabId} to move the session, or anti.browser.tabs.create {url} to open the page in an agent tab of this project',
+            });
           }
         }
       }
@@ -8999,7 +9319,9 @@ export class BrowserControlPort {
         // user's working tab and visually hijack it. Require a dedicated automation
         // tab (which the branch above auto-provisions) or an explicit target; otherwise
         // refuse so the user's browsing surface is never touched by agent operations.
-        throw new CapabilityError('TARGET_REQUIRED', 'No dedicated automation tab is available and no explicit target tabId was provided. Refusing to target the user\'s active tab. Auto-provision an agent tab or pass an explicit tabId.');
+        throw new CapabilityError('TARGET_REQUIRED', 'No dedicated automation tab is available and no explicit target tabId was provided. Refusing to target the user\'s active tab. Auto-provision an agent tab or pass an explicit tabId.', {
+          recovery: 'anti.browser.tabs.list, then pass a tabId (or anti.browser.tabs.create {url} to open an agent tab)',
+        });
       }
     }
 
@@ -9018,6 +9340,7 @@ export class BrowserControlPort {
             targetDocumentGeneration: target.documentGeneration,
             liveDocumentGeneration: liveDocGen,
             canRebind: true,
+            recovery: 'anti.inspect.snapshot, then repeat the action with the new refs',
           }
         );
       }

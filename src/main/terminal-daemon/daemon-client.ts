@@ -23,6 +23,7 @@ import WebSocket from 'ws';
 import { HOST_METHOD, HOST_EVENT, HOST_EVENT_TO_LOCAL } from './protocol';
 import type { HostNewSessionParams, HostNewSessionResult, HostRestartParams, HostStartParams, HostStartResult, HostTransferOwnerParams } from './protocol';
 import type { BridgeRequestPayload, BridgeResponsePayload, BridgeEventPayload, TerminalAckPayload, TerminalSleepResult, TerminalRoleMeta } from '../../shared/contracts';
+import { CapabilityError } from '../../shared/control-plane-contracts';
 import type { TerminalWaitInput, TerminalWaitResult } from '../../shared/control-plane-contracts';
 import type { DaemonSpawnResult } from './daemon-spawner';
 
@@ -773,7 +774,7 @@ export class DaemonTerminalProxy extends EventEmitter {
 
   async waitTerminal(input: TerminalWaitInput, signal?: AbortSignal): Promise<TerminalWaitResult> {
     if (signal?.aborted) {
-      throw new Error('Terminal wait aborted');
+      throw new CapabilityError('WAIT_ABORTED', 'Terminal wait aborted', { sessionId: input.sessionId });
     }
     const timeoutMs = typeof input.timeoutMs === 'number' && Number.isFinite(input.timeoutMs)
       ? input.timeoutMs
@@ -785,7 +786,7 @@ export class DaemonTerminalProxy extends EventEmitter {
     );
     if (!signal) return callPromise;
     return new Promise<TerminalWaitResult>((resolve, reject) => {
-      const onAbort = (): void => reject(new Error('Terminal wait aborted'));
+      const onAbort = (): void => reject(new CapabilityError('WAIT_ABORTED', 'Terminal wait aborted', { sessionId: input.sessionId }));
       signal.addEventListener('abort', onAbort, { once: true });
       callPromise.then(
         (value) => { signal.removeEventListener('abort', onAbort); resolve(value); },

@@ -713,7 +713,15 @@ export class AttachmentRegistry {
         `Attachment ${record.id} was minted from terminal '${record.originTerminalSessionId}' under project '${record.projectId}'; ` +
           `that terminal now resolves to ${scope ? `project '${scope.projectId}'` : 'no attributable project'}, so this authority is refused. ` +
           'Re-mint the session from the terminal in its current project.',
-        { attachmentId: record.id, originTerminalSessionId: record.originTerminalSessionId, mintedProjectId: record.projectId, mintedWorkspaceId: record.workspaceId, resolvedProjectId: scope?.projectId, resolvedWorkspaceId: scope?.workspaceId }
+        {
+          attachmentId: record.id,
+          originTerminalSessionId: record.originTerminalSessionId,
+          mintedProjectId: record.projectId,
+          mintedWorkspaceId: record.workspaceId,
+          resolvedProjectId: scope?.projectId,
+          resolvedWorkspaceId: scope?.workspaceId,
+          recovery: 'Start a new session from the terminal in its current project (the terminal moved or lost its project); this attachment cannot be re-pointed.',
+        }
       );
     }
     if (tabId && this.resolveTabAffiliation) {
@@ -723,7 +731,13 @@ export class AttachmentRegistry {
           'POLICY_DENIED',
           `Attachment ${record.id} is bound to tab '${tabId}' which measures in project '${affiliation.projectId}', ` +
             `not the terminal's minted project '${record.projectId}'. Rebind to a tab owned by that project's window.`,
-          { attachmentId: record.id, boundTabId: tabId, mintedProjectId: record.projectId, measuredTabProjectId: affiliation.projectId }
+          {
+            attachmentId: record.id,
+            boundTabId: tabId,
+            mintedProjectId: record.projectId,
+            measuredTabProjectId: affiliation.projectId,
+            recovery: 'anti.browser.tabs.list, then anti.browser.rebind_target {tabId} with a tab of the minted project, or anti.browser.tabs.create {url} to open one.',
+          }
         );
       }
     }
@@ -793,7 +807,15 @@ export class AttachmentRegistry {
 
     const activeRevision = this.activeRevisionByAttachment.get(record.id);
     if (activeRevision !== revision) {
-      throw new CapabilityError('REVISION_STALE', `Authority revision is inactive for new execution: expected ${activeRevision}, got ${revision}`);
+      throw new CapabilityError(
+        'REVISION_STALE',
+        `Authority revision is inactive for new execution: expected ${activeRevision}, got ${revision}`,
+        {
+          attachmentId: record.id,
+          cause: 'The attachment authority rotated after this revision was issued; the request was refused before any effect or nonce.',
+          recovery: 'Resend the same call with the authority revision returned by the last response or by renewing the attachment; the refusal ran before execution, so resending cannot duplicate an effect.',
+        }
+      );
     }
 
     if (invocationId) {
@@ -1077,10 +1099,22 @@ export class AttachmentRegistry {
     }
     const affiliation = this.resolveTabAffiliation?.(tabId);
     if (affiliation?.projectId && affiliation.projectId !== record.projectId) {
-      throw new CapabilityError('PROJECT_MISMATCH', 'Rebinding cannot grant authority over a foreign project');
+      throw new CapabilityError('PROJECT_MISMATCH', 'Rebinding cannot grant authority over a foreign project', {
+        attachmentId,
+        tabId,
+        tabProjectId: affiliation.projectId,
+        attachmentProjectId: record.projectId,
+        recovery: 'anti.browser.tabs.list for tabs of this session\'s project, or anti.browser.tabs.create {url} to open the page in an agent tab of this project.',
+      });
     }
     if (affiliation?.workspaceId && affiliation.workspaceId !== record.workspaceId) {
-      throw new CapabilityError('WORKSPACE_MISMATCH', 'Rebinding cannot grant authority over a foreign workspace');
+      throw new CapabilityError('WORKSPACE_MISMATCH', 'Rebinding cannot grant authority over a foreign workspace', {
+        attachmentId,
+        tabId,
+        tabWorkspaceId: affiliation.workspaceId,
+        attachmentWorkspaceId: record.workspaceId,
+        recovery: 'anti.browser.tabs.list for tabs of this session\'s workspace, or anti.browser.tabs.create {url} to open the page in an agent tab of this workspace.',
+      });
     }
     // Only a move onto a different page is a new binding: a same-page generation
     // refresh settles work admitted before the reservation, so a reserved page's
@@ -1498,14 +1532,14 @@ export class AttachmentRegistry {
       throw new CapabilityError(
         'TARGET_STALE',
         `Cannot ${operation}: the close reservation for tab '${tabId}' could not be read (${cause}). Retry, or rebind to a live tab.`,
-        { tabId, closeReservationUnreadable: true }
+        { tabId, closeReservationUnreadable: true, recovery: 'Retry shortly, or anti.browser.tabs.list and anti.browser.rebind_target {tabId} to a live tab.' }
       );
     }
     if (!reserved) return;
     throw new CapabilityError(
       'TARGET_STALE',
       `Cannot ${operation}: tab '${tabId}' is reserved for close and admits no new binding. Nothing was bound; rebind to a live tab once the close is done.`,
-      { tabId, reservedForClose: true }
+      { tabId, reservedForClose: true, recovery: 'anti.browser.tabs.list, then anti.browser.rebind_target {tabId} to a live tab once the close is done.' }
     );
   }
 

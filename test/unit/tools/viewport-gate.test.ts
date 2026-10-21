@@ -217,11 +217,10 @@ describe('ViewportGate Unit Tests (Phase 03)', () => {
     let p1StartedResolve!: () => void;
     const p1Started = new Promise<void>((r) => { p1StartedResolve = r; });
 
-    const p1 = gate.withLock(async (signal) => {
+    const p1 = gate.withLock(async () => {
       p1StartedResolve();
-      await new Promise<void>((resolve) => {
-        signal.addEventListener('abort', () => resolve());
-      });
+      // The action never answers the abort: nothing proves it stopped acting.
+      await new Promise<void>(() => {});
     }, { tabId: 'tab-unack' });
 
     await p1Started;
@@ -276,11 +275,10 @@ describe('ViewportGate Unit Tests (Phase 03)', () => {
 
     let startedResolve!: () => void;
     const started = new Promise<void>((r) => { startedResolve = r; });
-    const p1 = gate.withLock(async (signal) => {
+    const p1 = gate.withLock(async () => {
       startedResolve();
-      await new Promise<void>((_, rej) => {
-        signal.addEventListener('abort', () => rej(signal.reason));
-      });
+      // The abandoned action never settles, so the fence has no evidence to lift on.
+      await new Promise<void>(() => {});
     }, { tabId: 'tab-a' });
     await started;
     gate.preemptActiveAgent('User typed on tab-a', 'tab-a');
@@ -304,5 +302,136 @@ describe('ViewportGate Unit Tests (Phase 03)', () => {
     );
     const untouched = await gate.withLock(async () => 'ok', { tabId: 'tab-c' });
     assert.strictEqual(untouched, 'ok');
+  });
+});
+
+describe('ViewportGate poison recovery on evidence', () => {
+  const NEVER = () => new Promise<void>(() => {});
+
+  /** Poisons `tabId` with a lease timeout whose action never answers the cancel. */
+  async function poisonByHungAction(gate: ViewportGate, tabId: string): Promise<void> {
+    gate.setCancellationHandler(async () => false);
+    await assert.rejects(
+      async () => gate.withLock(NEVER, { tabId, timeoutMs: 30 }),
+      (err: unknown) => err instanceof CapabilityError && err.code === 'LEASE_EXPIRED'
+    );
+  }
+
+  it('clears the fence when the document generation changed since the poison', async () => {
+    const gate = new ViewportGate();
+    let generation = 4;
+    gate.setGenerationProbe(() => generation);
+    await poisonByHungAction(gate, 'tab-gen');
+
+    await assert.rejects(
+      async () => gate.withLock(async () => 'denied', { tabId: 'tab-gen' }),
+      (err: unknown) => err instanceof CapabilityError && err.code === 'TARGET_STALE'
+    );
+
+    generation = 5;
+    assert.strictEqual(await gate.withLock(async () => 'ok', { tabId: 'tab-gen' }), 'ok');
+    // The record is gone for good, not just bypassed once.
+    assert.strictEqual(await gate.withLock(async () => 'again', { tabId: 'tab-gen' }), 'again');
+  });
+
+  it('clears the fence when the host drained the target and proved the page answers', async () => {
+    const gate = new ViewportGate();
+    const drained: string[] = [];
+    gate.setRecoveryHandler(async (tabId) => { drained.push(tabId); return true; });
+    await poisonByHungAction(gate, 'tab-drain');
+
+    assert.strictEqual(await gate.withLock(async () => 'ok', { tabId: 'tab-drain' }), 'ok');
+    assert.deepStrictEqual(drained, ['tab-drain']);
+    assert.strictEqual(await gate.withLock(async () => 'again', { tabId: 'tab-drain' }), 'again');
+    assert.deepStrictEqual(drained, ['tab-drain'], 'a lifted fence needs no second recovery');
+  });
+
+  it('keeps refusing with a recovery instruction when the drain fails', async () => {
+    const gate = new ViewportGate();
+    gate.setRecoveryHandler(async () => false);
+    await poisonByHungAction(gate, 'tab-drain-fail');
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await assert.rejects(
+        async () => gate.withLock(async () => 'denied', { tabId: 'tab-drain-fail' }),
+        (err: unknown) => err instanceof CapabilityError
+          && err.code === 'TARGET_STALE'
+          && typeof err.details?.recovery === 'string'
+          && /anti\.browser\.(reload|rebind_target)/.test(String(err.details?.recovery))
+          && err.details?.tabId === 'tab-drain-fail'
+      );
+    }
+  });
+
+  it('keeps refusing when the recovery handler throws', async () => {
+    const gate = new ViewportGate();
+    gate.setRecoveryHandler(async () => { throw new Error('probe exploded'); });
+    await poisonByHungAction(gate, 'tab-drain-throw');
+
+    await assert.rejects(
+      async () => gate.withLock(async () => 'denied', { tabId: 'tab-drain-throw' }),
+      (err: unknown) => err instanceof CapabilityError && err.code === 'TARGET_STALE'
+    );
+  });
+
+  it('does not clear the fence while the abandoned action is still hung and nothing else proves recovery', async () => {
+    const gate = new ViewportGate();
+    gate.setGenerationProbe(() => 7);
+    await poisonByHungAction(gate, 'tab-hung');
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await assert.rejects(
+        async () => gate.withLock(async () => 'denied', { tabId: 'tab-hung' }),
+        (err: unknown) => err instanceof CapabilityError && err.code === 'TARGET_STALE'
+      );
+    }
+    // A fence on one tab never leaks onto another.
+    assert.strictEqual(await gate.withLock(async () => 'ok', { tabId: 'tab-free' }), 'ok');
+  });
+
+  it('clears the fence once the abandoned action itself settles', async () => {
+    const gate = new ViewportGate();
+    gate.setCancellationHandler(async () => false);
+    let finish!: () => void;
+    const hung = new Promise<void>((resolve) => { finish = resolve; });
+
+    await assert.rejects(
+      async () => gate.withLock(() => hung, { tabId: 'tab-settles', timeoutMs: 30 }),
+      (err: unknown) => err instanceof CapabilityError && err.code === 'LEASE_EXPIRED'
+    );
+    await assert.rejects(
+      async () => gate.withLock(async () => 'denied', { tabId: 'tab-settles' }),
+      (err: unknown) => err instanceof CapabilityError && err.code === 'TARGET_STALE'
+    );
+
+    finish();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.strictEqual(await gate.withLock(async () => 'ok', { tabId: 'tab-settles' }), 'ok');
+  });
+
+  it('runs one recovery for concurrent callers on the same poisoned tab', async () => {
+    const gate = new ViewportGate();
+    let calls = 0;
+    let release!: (value: boolean) => void;
+    gate.setRecoveryHandler(() => {
+      calls++;
+      return new Promise<boolean>((resolve) => { release = resolve; });
+    });
+    await poisonByHungAction(gate, 'tab-concurrent');
+
+    const first = gate.withLock(async () => 'a', { tabId: 'tab-concurrent' });
+    const second = gate.withLock(async () => 'b', { tabId: 'tab-concurrent' });
+    await new Promise((resolve) => setImmediate(resolve));
+    release(true);
+
+    assert.deepStrictEqual(await Promise.all([first, second]), ['a', 'b']);
+    assert.strictEqual(calls, 1);
+  });
+
+  it('releasing a tab drops its fence', async () => {
+    const gate = new ViewportGate();
+    await poisonByHungAction(gate, 'tab-gone');
+    gate.releaseForTab('tab-gone');
+    assert.strictEqual(await gate.withLock(async () => 'ok', { tabId: 'tab-gone' }), 'ok');
   });
 });

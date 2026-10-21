@@ -743,6 +743,34 @@ describe('evaluatePreCaptureQuiescence (capture-admissibility verdicts)', () => 
     assert.strictEqual(result.warnings.rotatedImages, 0);
   });
 
+  it('names anti.media.freeze as the remedy when the image inventory keeps moving', async () => {
+    const arriving = (index: number) =>
+      index === 0
+        ? sampleOf()
+        : sampleOf({
+            imageParts: ['https://ex.com/hero.png|1200x600|0,0,1200,600|c', 'https://ex.com/late.png|300x248|0,700,300,248|c'],
+            imageContentParts: ['https://ex.com/hero.png|1200x600', 'https://ex.com/late.png|300x248'],
+            imageStructureParts: ['1200x600', '300x248'],
+            imageStructureHash: 'bbbb2222',
+          });
+
+    const { result } = await evaluate(arriving);
+
+    assert.strictEqual(result.failingPredicate, 'imageIdentityStable');
+    assert.match(result.reason ?? '', /remedy: freeze the carousel\/slider with anti\.media\.freeze/);
+    assert.match(result.reason ?? '', /first differing box size/, 'the measured part of the reason is unchanged');
+  });
+
+  it('names wait-and-retry or anti.media.freeze as the remedy when layout drifts past tolerance', async () => {
+    const growing = (index: number) => sampleOf({ docHeight: 3000 + index * 100 });
+
+    const { result } = await evaluate(growing);
+
+    assert.strictEqual(result.failingPredicate, 'layoutStable');
+    assert.match(result.reason ?? '', /exceeds tolerance \d+px/);
+    assert.match(result.reason ?? '', /remedy: wait and retry, or freeze animations with anti\.media\.freeze/);
+  });
+
   it('admits a 7px late layout settle on a tall document', async () => {
     const lateSettle = (index: number) => sampleOf({ docHeight: index === 0 ? 7583 : 7576 });
 

@@ -6,6 +6,8 @@ export interface SettingsFinding {
   id?: string;
   file: string;
   line?: number;
+  /** JSON pointer when the finding sits in a minified single-line file, where no line can be named. */
+  pointer?: string;
   message?: string;
   detail?: string;
   count?: number;

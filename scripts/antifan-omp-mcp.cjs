@@ -31,11 +31,15 @@ const QA_VALIDATE_PROPERTIES = {
   expectedStatus: { type: 'number', description: 'HTTP status the contract screen declares for this route (for example 404 on a not-found screen). A document returning exactly that status is not reported as ROUTE_404; echoed on the receipt' },
   viewports: { type: 'object', description: 'Baseline comparison results per viewport ({desktop|tablet|mobile: {mismatchPercent, passed}}). All three are required for summary.certification CERTIFIED; without them the pass is STRUCTURAL', properties: { desktop: { type: 'object', properties: { mismatchPercent: { type: 'number' }, passed: { type: 'boolean' } } }, tablet: { type: 'object', properties: { mismatchPercent: { type: 'number' }, passed: { type: 'boolean' } } }, mobile: { type: 'object', properties: { mismatchPercent: { type: 'number' }, passed: { type: 'boolean' } } } } },
   allowNonTheme: { type: 'boolean', description: 'Accept a workspaceRoot without theme markers (layout/theme.liquid, config/settings_schema.json, config/settings.html) for a plain-folder run; otherwise such a root is refused with WORKSPACE_NOT_THEME and no receipt is written' },
+  greenfield: { type: 'object', description: 'Declare that no visual baseline exists yet for this storefront (a new build). The run records the reason and the observed baseline state on the receipt; it is refused when baselines already exist for the route', properties: { reason: { type: 'string', description: 'Why the run has no baseline to compare against' } }, required: ['reason'] },
 };
 
 const SWEEP_VIEWPORTS_PROPERTY = { type: 'array', maxItems: 5, description: 'Extra viewport sizes appended to the standard widths, for example landscape phone {w:667,h:375}, laptop {w:1366,h:600}, short phone {w:375,h:350}. At most 5 entries; w and h are integers between 200 and 3000 CSS px', items: { type: 'object', properties: { w: { type: 'number' }, h: { type: 'number' } }, required: ['w', 'h'] } };
 
 const PROBE_TAB_PROPERTIES = { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } };
+
+// One sequence step shape, shared by the `actions` argument and its `steps` alias.
+const SEQUENCE_STEPS_PROPERTY = { type: 'array', items: { type: 'object', properties: { type: { type: 'string', enum: ['navigate', 'click', 'type', 'scroll', 'hover', 'pressKey', 'wait', 'screenshot', 'snapshot'] }, url: { type: 'string' }, ref: { type: 'string' }, selector: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, text: { type: 'string' }, clear: { type: 'boolean' }, deltaY: { type: 'number' }, key: { type: 'string' }, modifiers: { type: 'array', items: { type: 'string' } }, waitMs: { type: 'number', description: 'Pause length for wait steps (1-10000 ms, default 100)' }, settleMs: { type: 'number' }, format: { type: 'string', enum: ['jpeg', 'png'] }, quality: { type: 'number' } }, required: ['type'] } };
 
 // Definition row shape: [name, description, properties, required?, oneOf?,
 // ambientTargetField?]. The fifth element is either a oneOf list of required
@@ -62,7 +66,7 @@ const definitions = [
   ['anti.browser.tabs.close', 'Close a tab in live AntiFan Desktop Browser GUI by tabId.', { tabId: { type: 'string' } }, ['tabId']],
   ['anti.browser.rebind_target', 'Rebind this session attachment to a live tabId after the bound tab detached or died. Use tabs.list to find a live tab, then rebind; subsequent calls target that tab.', { tabId: { type: 'string' } }, ['tabId']],
   ['anti.browser.set_automation_target', 'Set the primary automation target tab for this session (authority rotation via CAS).', { tabId: { type: 'string' } }, ['tabId']],
-  ['anti.browser.navigate', 'Navigate active or background tab in live AntiFan Desktop Browser GUI.', { url: { type: 'string' }, tabId: { type: 'string' } }, ['url'], [], 'tabId'],
+  ['anti.browser.navigate', 'Navigate active or background tab in live AntiFan Desktop Browser GUI.', { url: { type: 'string' }, tabId: { type: 'string' }, timeoutMs: { type: 'number', description: 'Navigation budget in milliseconds (default 20000, capped at 60000)' } }, ['url'], [], 'tabId'],
   ['anti.browser.reload', 'Reload active or background tab in live AntiFan Desktop Browser GUI.', { tabId: { type: 'string' } }, [], [], 'tabId'],
   ['anti.inspect.dom', 'Read DOM elements and computed attributes from AntiFan Desktop tab (supports desktop and mobile split panes). Operates directly against background tab.', { selector: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], [], 'tabId'],
   ['anti.inspect.console', 'Get tab console messages and failed requests from the bound or specified tab.', { tabId: { type: 'string' }, level: { type: 'number' } }, [], [], 'tabId'],
@@ -92,7 +96,7 @@ const definitions = [
   ['device.wait', "Wait on the real device: 'timeout' sleeps; 'page_loaded'/'stable' sample frames until rendering stops changing. That is a rendering heuristic, not a load or network-idle guarantee.", { type: { type: 'string', enum: ['timeout', 'page_loaded', 'stable'] }, value: { type: 'number', description: "Milliseconds for type 'timeout'" }, timeoutMs: { type: 'number' } }, ['type']],
   ['theme.qa_validate', 'Run the authoritative Theme QA verification workflow for the bound storefront tab and workspace. summary.verdict is the structural verdict; summary.certification (STRUCTURAL | CERTIFIED) and summary.matrixVerdict say whether the 8-dimension QA matrix certified it — a STRUCTURAL PASS has not measured interaction, visual fidelity or CWV.', QA_VALIDATE_PROPERTIES, [], [], 'tabId'],
   ['theme.debug_bundle', 'Return an atomic storefront diagnostic bundle with platform, Liquid, overflow, and HS findings.', { tabId: { type: 'string' } }, [], [], 'tabId'],
-  ['theme.settings_check', 'Run offline Haravan theme settings, binding, and asset reference checks (settings_schema.json / settings.html against Liquid) without requiring a browser tab.', { workspaceRoot: { type: 'string', description: 'Theme workspace root; defaults to the authoritative workspace' } }],
+  ['theme.settings_check', 'Run offline Haravan theme settings, binding, and asset reference checks (settings_schema.json / settings.html against Liquid) without requiring a browser tab.', { workspaceRoot: { type: 'string', description: 'Theme workspace root; defaults to the authoritative workspace' }, files: { type: 'array', items: { type: 'string' }, description: 'Theme files (relative to workspaceRoot) whose findings to keep. Filters the result; it does not shorten the run. A path that escapes workspaceRoot is refused' }, changedSince: { type: ['string', 'number'], description: 'ISO timestamp or epoch milliseconds; keeps only findings for files modified at or after it. Filters the result; it does not shorten the run' } }],
   ['anti.theme.qa_validate', 'Alias of theme.qa_validate: run the authoritative Theme QA verification workflow for the bound storefront tab and workspace. Read summary.certification: STRUCTURAL means the QA matrix did not certify the PASS.', QA_VALIDATE_PROPERTIES, [], [], 'tabId'],
   ['anti.theme.debug_bundle', 'Alias of theme.debug_bundle: return an atomic storefront diagnostic bundle with platform, Liquid, overflow, and HS findings.', { tabId: { type: 'string' } }, [], [], 'tabId'],
   ['theme.assert_cart', 'Inspect passive storefront cart contract telemetry without adding synthetic items.', { tabId: { type: 'string' } }, [], [], 'tabId'],
@@ -134,7 +138,7 @@ const definitions = [
   ['anti.inspect.page_inventory', 'Scan entire physical page structure from y=0 to scrollHeight, returning list of all sections, coordinates, heights, and layout groups (chống sót header/footer/newsletter).', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], [], 'tabId'],
   ['anti.inspect.style_diff', 'Compare computed CSS styles and box-model metrics between elements on two tabs (or two selectors).', { selector: { type: 'string', description: 'CSS selector of target element on tab 1' }, comparisonSelector: { type: 'string', description: 'CSS selector on tab 2 (defaults to selector)' }, tabId: { type: 'string' }, comparisonTabId: { type: 'string' }, properties: { type: 'array', items: { type: 'string' }, description: 'CSS properties to compare' } }, ['selector'], [], 'tabId'],
   ['anti.spec.validate_gate', 'Validate HTML Specification against target page to certify HTML_SPEC_READY status before theme compilation.', { specTabId: { type: 'string' }, targetTabId: { type: 'string' }, tolerance: { type: 'number' } }, ['specTabId']],
-  ['anti.agent.sequence', 'Execute an atomic multi-step action sequence (navigate, click, type, scroll, hover, pressKey, wait, screenshot, snapshot) in 1 roundtrip with auto-wait and navigation guards. Pause with { "type": "wait", "waitMs": 600 } (1-10000 ms); press keys with { "type": "pressKey", "key": "Escape" }.', { actions: { type: 'array', items: { type: 'object', properties: { type: { type: 'string', enum: ['navigate', 'click', 'type', 'scroll', 'hover', 'pressKey', 'wait', 'screenshot', 'snapshot'] }, url: { type: 'string' }, ref: { type: 'string' }, selector: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, text: { type: 'string' }, clear: { type: 'boolean' }, deltaY: { type: 'number' }, key: { type: 'string' }, modifiers: { type: 'array', items: { type: 'string' } }, waitMs: { type: 'number', description: 'Pause length for wait steps (1-10000 ms, default 100)' }, settleMs: { type: 'number' }, format: { type: 'string', enum: ['jpeg', 'png'] }, quality: { type: 'number' } }, required: ['type'] } }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, stopOnError: { type: 'boolean' } }, ['actions'], [], 'tabId'],
+  ['anti.agent.sequence', 'Execute an atomic multi-step action sequence (navigate, click, type, scroll, hover, pressKey, wait, screenshot, snapshot) in 1 roundtrip with auto-wait and navigation guards. Supply the steps as `actions` or as its alias `steps`, never both. Pause with { "type": "wait", "waitMs": 600 } (1-10000 ms); press keys with { "type": "pressKey", "key": "Escape" }.', { actions: SEQUENCE_STEPS_PROPERTY, steps: { ...SEQUENCE_STEPS_PROPERTY, description: 'Alias of actions; mutually exclusive with it' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, stopOnError: { type: 'boolean' } }, [], [{ required: ['actions'] }, { required: ['steps'] }], 'tabId'],
   ['anti.artifact.read', 'Read an authorized artifact by ID with bounded chunk size (clamped to max 32KB per frame).', { artifactId: { type: 'string' }, offset: { type: 'number' }, limit: { type: 'number' } }, ['artifactId']],
   ['anti.artifact.stat', 'Retrieve metadata and size information for an authorized artifact.', { artifactId: { type: 'string' } }, ['artifactId']],
   ['browser.set-viewport', 'Set the bound Chromium tab viewport dimensions and device emulation.', { width: { type: 'number' }, height: { type: 'number' }, mobile: { type: 'boolean' }, deviceScaleFactor: { type: 'number' }, tabId: { type: 'string' }, reload: { type: 'boolean' } }, ['width', 'height'], [], 'tabId'],
@@ -231,6 +235,7 @@ const definitions = [
   ['terminal.create', 'Create a new base or split terminal PTY session', { cwd: { type: 'string' }, parentId: { type: 'string' }, initialCols: { type: 'number' }, initialRows: { type: 'number' } }],
   ['terminal.close', 'Close a terminal session and safely terminate its process tree', { sessionId: { type: 'string', description: 'Session ID to close' }, isSplit: { type: 'boolean', description: 'Whether target is a split session' } }, ['sessionId']],
   ['anti.sheet.extract', 'Extract a Google Sheet feedback row or header summary directly via authenticated in-tab GViz CSV instead of running anti.browser.evaluate.', { tabId: { type: 'string' }, row: { type: 'number' }, gid: { type: 'string' } }, [], [], 'tabId'],
+  ['anti.sheet.write_cell', 'Write one cell of a Google Sheet through its authenticated in-tab editor. The header row is protected unless allowHeader is set, a supplied expectedPrevious must equal the live cell value or the write is refused, and the written value is read back: a write that cannot be confirmed is reported as unverified, never assumed. Mutating: never replayed after a possible execution.', { tabId: { type: 'string' }, cell: { type: 'string', description: 'A1 notation of the target cell, for example "F12"' }, value: { type: ['string', 'number', 'boolean'], description: 'Value to write' }, expectedPrevious: { type: ['string', 'number', 'boolean'], description: 'Optional precondition: the live cell value the caller last read' }, gid: { type: 'string', description: 'Sheet tab gid' }, allowHeader: { type: 'boolean', description: 'Allow writing to the header row' } }, ['cell', 'value'], [], 'tabId'],
   ['anti.inspect.layout', 'Inspect computed bounding boxes, flex/grid layout, and visibility for one or more selectors instead of running anti.browser.evaluate.', { selector: { type: 'string' }, selectors: { type: 'array', items: { type: 'string' } }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], [], 'tabId'],
   ['anti.inspect.font', 'Inspect rendered platform fonts, fallback chains, and Vietnamese glyph coverage via CDP instead of running anti.browser.evaluate.', { selector: { type: 'string' }, ref: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], [], 'tabId'],
   ['browser.set-device-preset', 'Emulate a named responsive device preset (viewport, DPR, mobile UA, and touch) on a tab instead of manual set_viewport calls.', { presetId: { type: 'string' }, tabId: { type: 'string' }, reload: { type: 'boolean' } }, ['presetId'], [], 'tabId'],
@@ -1631,10 +1636,13 @@ function wireDispatchSocket(ws) {
           if (ws === dispatchWs) {
             persistAuthorityRevision(response.data.authorityRevision || response.data.replacementAuthorityRevision);
           }
+          const bindingMeta = ws === dispatchWs ? acceptBindingChanged(response.data.bindingChanged) : undefined;
           if (response.data.data !== undefined) {
-            entry.resolve(response.data.data);
+            entry.resolve(response.data.data, bindingMeta);
             return;
           }
+          entry.resolve(response.data, bindingMeta);
+          return;
         }
         entry.resolve(response.data);
       } else {
@@ -1680,7 +1688,11 @@ function wireDispatchSocket(ws) {
       if (entry.ws !== ws) continue;
       clearTimeout(entry.timer);
       pendingDispatchCalls.delete(id);
-      entry.reject(transportError('CONNECTION_CLOSED', JSON.stringify({ code: 'CONNECTION_CLOSED', message: detail, closeCode: code, closeReason: reasonText || undefined }),
+      const diagnostic = { code: 'CONNECTION_CLOSED', message: detail, closeCode: code, closeReason: reasonText || undefined };
+      // A bare 4001 reads as a credential fault. When the last recovery recorded why it could not
+      // restore authority, that reason travels with the close so the label is never the whole story.
+      if (code === 4001 && lastAutohealFailures.length > 0) diagnostic.details = { autohealCause: composeAutohealCause() };
+      entry.reject(transportError('CONNECTION_CLOSED', JSON.stringify(diagnostic),
         { transmitted: entry.transmitted, signedAttachmentId: entry.signedAttachmentId, closeCode: code, socket: ws }));
     }
   });
@@ -1810,6 +1822,7 @@ function httpJsonPost(host, port, requestPath, payload, timeoutMs = PAIRING_ATTE
             // cause both key off these, and re-deriving them from a message string is guesswork.
             err.status = typeof res.statusCode === 'number' ? res.statusCode : null;
             err.errorCode = typeof parsed.error === 'string' ? parsed.error : null;
+            if (parsed && typeof parsed.details === 'object' && parsed.details !== null) err.details = parsed.details;
             reject(err);
           }
         } catch {
@@ -1931,6 +1944,96 @@ function rememberAutohealFailure(text) {
   lastAutohealFailure = text;
   lastAutohealFailures.push(text);
   if (lastAutohealFailures.length > 8) lastAutohealFailures.shift();
+}
+
+// ─── Definitive refusals and diagnostic details ──────────────────────────────
+// A pairing refusal that names a policy or scope fact (the terminal's project has no window, the
+// target is gone) is not an availability fault: retrying it, or falling back to a held secret, can
+// only surface a later, vaguer failure such as a 4001 close. The refusal is therefore remembered,
+// stamped with the recovery run that produced it, so the call that triggered that recovery can
+// report the real code instead of the transport symptom.
+let lastDefinitiveRefusal = null; // { code, message, details, run }
+let autohealRun = 0;
+
+const DEFINITIVE_REFUSAL_RECOVERY = Object.freeze({
+  TERMINAL_SCOPE_UNRESOLVED: 'Mở lại cửa sổ project của terminal này (Project Picker) hoặc chạy lại từ terminal đã gán project; chi tiết ở runtime/bridge-client-failures.jsonl',
+  TARGET_STALE: 'gọi anti.browser.tabs.list rồi anti.browser.rebind_target',
+});
+
+// BRIDGE_UNREACHABLE and ECONNREFUSED are availability facts (nothing is listening), never a verdict.
+function definitiveRefusalCode(err) {
+  const { msg, errorCode } = pairingFailureParts(err);
+  if (errorCode && errorCode !== 'BRIDGE_UNREACHABLE' && TERMINAL_PAIRING_ERRORS.has(errorCode)) return errorCode;
+  for (const code of TERMINAL_PAIRING_ERRORS) {
+    if (code !== 'BRIDGE_UNREACHABLE' && msg.includes(code)) return code;
+  }
+  return null;
+}
+
+function definitiveRefusalError(prior) {
+  const refusal = lastDefinitiveRefusal;
+  const recovery = DEFINITIVE_REFUSAL_RECOVERY[refusal.code];
+  const cause = composeAutohealCause();
+  const details = {
+    ...(refusal.details && typeof refusal.details === 'object' ? refusal.details : {}),
+    cause,
+    autohealCause: cause,
+    ...(recovery ? { recovery } : {}),
+    ...(prior ? { previousFailure: prior } : {}),
+  };
+  return transportError(refusal.code, JSON.stringify({ code: refusal.code, message: refusal.message, details }), details);
+}
+
+// The socket opened and the bridge then closed it as unauthorized: the shape of a refusal that was
+// only discoverable at dispatch time.
+function isDefinitiveCloseError(err) {
+  if (!err || (err.code !== 'CONNECTION_CLOSED' && err.code !== 'CONNECTION_ERROR')) return false;
+  const closeCode = err.details && err.details.closeCode;
+  return closeCode === 4001 || closeCode === 4003;
+}
+
+// Merge keys into the JSON diagnostic an error carries as its message; a plain-text message is
+// wrapped so the keys are never silently dropped.
+function attachDiagnosticDetails(err, extra) {
+  if (!err || !extra || Object.keys(extra).length === 0) return;
+  let diagnostic = null;
+  try {
+    const parsed = JSON.parse(err.message);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) diagnostic = parsed;
+  } catch {}
+  if (!diagnostic) {
+    diagnostic = { code: typeof err.code === 'string' ? err.code : 'CAPABILITY_ERROR', message: String((err && err.message) || err) };
+  }
+  diagnostic.details = { ...(diagnostic.details && typeof diagnostic.details === 'object' ? diagnostic.details : {}), ...extra };
+  err.message = JSON.stringify(diagnostic);
+}
+
+// A socket the bridge closed without a status (1005) before the frame was written is the signature of
+// a bridge rebinding its listener. The frame never left, so one immediate retry on the same
+// authority is safe and cheaper than a full recovery.
+const QUICK_RETRY_DELAY_MS = 150;
+function isQuickRetryClose(err) {
+  const details = err && err.details;
+  return Boolean(details && details.transmitted === false && (details.closeCode === 1005 || details.socketNotOpen === true));
+}
+
+function currentBootCandidate() {
+  const boot = getBootstrap();
+  return { host: (boot && typeof boot.host === 'string' && boot.host) || '127.0.0.1', port: boot ? boot.port : undefined };
+}
+
+// The bridge reports a bound-tab move it performed on the caller's behalf. A reply from an older
+// bridge simply lacks the field, which leaves the binding as it was.
+function acceptBindingChanged(raw) {
+  if (!raw || typeof raw !== 'object' || typeof raw.newTabId !== 'string' || raw.newTabId.length === 0) return undefined;
+  recordBoundTab(raw.newTabId);
+  return {
+    bindingChanged: {
+      ...(typeof raw.oldTabId === 'string' && raw.oldTabId ? { oldTabId: raw.oldTabId } : {}),
+      newTabId: raw.newTabId,
+      reason: typeof raw.reason === 'string' && raw.reason ? raw.reason : 'unspecified',
+    },
+  };
 }
 
 // ─── Client-failure journal ──────────────────────────────────────────────────
@@ -2132,6 +2235,8 @@ function autohealSession() {
 async function autohealSessionOnce() {
   const candidates = resolveFailoverCandidates();
   lastAutohealFailures = [];
+  autohealRun += 1;
+  lastDefinitiveRefusal = null;
   if (candidates.length === 0) {
     const noCandidateCause = 'BRIDGE_NOT_RUNNING: no endpoint discovered (no pin and no discovery file)';
     rememberAutohealFailure(noCandidateCause);
@@ -2159,6 +2264,15 @@ async function autohealSessionOnce() {
         // bare "Unexpected server response" that names nothing.
         const pairingCause = `${candidate.host}:${candidate.port} pairing unavailable (${describePairingFailure(pairErr)})`;
         rememberAutohealFailure(pairingCause);
+        const refusalCode = definitiveRefusalCode(pairErr);
+        if (refusalCode) {
+          lastDefinitiveRefusal = {
+            code: refusalCode,
+            message: pairingFailureParts(pairErr).msg,
+            details: (pairErr && (pairErr.details ?? pairErr.data)) || undefined,
+            run: autohealRun,
+          };
+        }
         if (!authSecret) throw pairErr;
         process.stderr.write(
           `[AntiFan Autoheal] Pairing refused on ${candidate.host}:${candidate.port} ` +
@@ -2413,6 +2527,10 @@ async function autohealSessionOnce() {
       rememberAutohealFailure(candidateCause);
       recordClientFailure('CONNECT_FAILED', candidateCause);
       process.stderr.write(`[AntiFan Autoheal] Candidate ${candidate.host}:${candidate.port} failed: ${err.message}\n`);
+      // A definitive refusal is this bridge's verdict about THIS client (scope, project, policy).
+      // Trying the next candidate would hand the terminal to another instance's bridge, which is
+      // an authority leak, not a recovery; only availability failures fall through.
+      if (lastDefinitiveRefusal && lastDefinitiveRefusal.run === autohealRun) break;
     }
   }
   // Pairing reasons name the actual availability fact — no codes left, the queue too slow, the
@@ -2650,7 +2768,12 @@ async function probeCatalogueOnce() {
   }
 }
 
-async function invoke(method, params = {}, callerRequestId) {
+async function invoke(method, params = {}, callerRequestId, meta) {
+  // Per-call view of the recovery state: a refusal only counts when a recovery run begun after this
+  // call started produced it, so an old refusal never relabels an unrelated failure.
+  const healRunAtStart = autohealRun;
+  const refusalOfThisCall = () => (lastDefinitiveRefusal && lastDefinitiveRefusal.run > healRunAtStart ? lastDefinitiveRefusal : null);
+  const invokeMeta = meta && typeof meta === 'object' ? meta : null;
   const allowedCaps = resolveAllowedCapabilities();
   const forbiddenCaps = resolveForbiddenCapabilities();
   if (!isCapabilityPermitted(method, allowedCaps, forbiddenCaps)) {
@@ -2755,7 +2878,11 @@ async function invoke(method, params = {}, callerRequestId) {
       const noGrantCause = `AntiFan Desktop Bridge did not grant access — ${lastAutohealFailure || 'no candidate answered'}`;
       recordClientFailure('MCP_BRIDGE_OFFLINE', noGrantCause);
       process.stderr.write(`MCP_BRIDGE_OFFLINE: ${noGrantCause}\n`);
-      throw transportError('MCP_CONTEXT_REQUIRED', JSON.stringify({ code: 'MCP_CONTEXT_REQUIRED', message: 'OMP MCP proxy requires an authoritative Main bootstrap' }));
+      throw transportError('MCP_CONTEXT_REQUIRED', JSON.stringify({
+        code: 'MCP_CONTEXT_REQUIRED',
+        message: `OMP MCP proxy requires an authoritative Main bootstrap; ${noGrantCause}`,
+        details: { autohealCause: lastAutohealFailure || 'no candidate answered' },
+      }));
     }
   }
 
@@ -2854,7 +2981,7 @@ async function invoke(method, params = {}, callerRequestId) {
         signedAttachmentId: boot.attachmentId,
         requestId: identity.requestId,
         idempotencyKey: identity.idempotencyKey,
-        resolve: (data) => {
+        resolve: (data, resolveMeta) => {
           const targetTabId =
             (data && typeof data === 'object' && typeof data.tabId === 'string' && data.tabId) ||
             (data && typeof data === 'object' && data.target && typeof data.target.tabId === 'string' && data.target.tabId) ||
@@ -2884,6 +3011,7 @@ async function invoke(method, params = {}, callerRequestId) {
               recordBoundTab(data.failoverTabId);
             }
           }
+          if (resolveMeta && resolveMeta.bindingChanged && invokeMeta) invokeMeta.bindingChanged = resolveMeta.bindingChanged;
           resolve(data);
         },
         reject,
@@ -2891,6 +3019,11 @@ async function invoke(method, params = {}, callerRequestId) {
       });
 
       try {
+        // A socket that is no longer open drops the frame without raising: sending would record a
+        // transmission that never happened. Refuse here so the frame is known to be unsent.
+        if (ws.readyState !== WebSocket.OPEN) {
+          throw transportError('CONNECTION_ERROR', `Dispatch WebSocket is not open (readyState=${ws.readyState})`, { socketNotOpen: true, socket: ws });
+        }
         ws.send(JSON.stringify({
           id,
           method: 'antifan.capability.dispatch',
@@ -2921,12 +3054,14 @@ async function invoke(method, params = {}, callerRequestId) {
       } catch (err) {
         clearTimeout(timer);
         pendingDispatchCalls.delete(id);
-        reject(transportError('CONNECTION_ERROR', String(err.message || err), { transmitted: false, signedAttachmentId: boot.attachmentId }));
+        reject(transportError('CONNECTION_ERROR', String(err.message || err), { ...(err && err.details), transmitted: false, signedAttachmentId: boot.attachmentId }));
       }
     });
   };
 
   let healedOnce = false;
+  let staleRefreshes = 0;
+  let quickRetried = false;
   let retargetedOnce = false;
   let rebindAttempted = false;
   let currentBoot = bootstrap;
@@ -2985,14 +3120,38 @@ async function invoke(method, params = {}, callerRequestId) {
         identity = resolveInvocationIdentity(undefined, {});
         continue;
       }
-      if (!isRetryableTransportError(err) || healedOnce || attempt === 2) {
-        if (previousFailure) {
-          try {
-            const diagnostic = JSON.parse(err.message);
-            diagnostic.details = { ...diagnostic.details, previousFailure };
-            err.message = JSON.stringify(diagnostic);
-          } catch {}
+      // The host refuses a stale revision before it claims the invocation, so resending is safe even
+      // for a mutation. Re-reading the revision from the same attachment needs no pairing code; two
+      // rotations in a row are tolerated, a third is a real failure.
+      if (err && err.code === 'REVISION_STALE' && staleRefreshes < 2 && attempt < 2) {
+        staleRefreshes += 1;
+        previousFailure = { code: 'REVISION_STALE', refresh: staleRefreshes, ...(previousFailure ? { earlier: previousFailure } : {}) };
+        const refreshed = await tryReuseLiveAttachment(currentBootCandidate());
+        if (refreshed) {
+          currentBoot = refreshed;
+          continue;
         }
+      }
+      if (!quickRetried && attempt < 2 && isQuickRetryClose(err)) {
+        quickRetried = true;
+        previousFailure = { code: err.code, closeCode: err.details?.closeCode, transmitted: false, signedAttachmentId: err.details?.signedAttachmentId, quickRetry: true };
+        const closedSocket = err.details?.socket;
+        if (closedSocket) {
+          if (dispatchWs === closedSocket) dispatchWs = null;
+          try { closedSocket.close(); } catch {}
+        }
+        await sleep(QUICK_RETRY_DELAY_MS);
+        continue;
+      }
+      if (!isRetryableTransportError(err) || healedOnce || attempt === 2) {
+        if (refusalOfThisCall() && isDefinitiveCloseError(err)) throw definitiveRefusalError(previousFailure);
+        const extra = {};
+        if (previousFailure) extra.previousFailure = previousFailure;
+        if (isRetryableTransportError(err) && (healedOnce || err.code === 'CONNECTION_FAILED') && lastAutohealFailures.length > 0) {
+          extra.autohealCause = composeAutohealCause();
+          extra.autohealCandidates = lastAutohealFailures.slice();
+        }
+        attachDiagnosticDetails(err, extra);
         if (annotateCatalogueMiss(err, method, mapped)) void probeCatalogueOnce();
         throw err;
       }
@@ -3005,7 +3164,10 @@ async function invoke(method, params = {}, callerRequestId) {
         try { failedSocket.close(); } catch {}
       }
       const healed = await autohealSession();
-      if (!healed || !healed.secret) continue;
+      if (!healed || !healed.secret) {
+        if (refusalOfThisCall()) throw definitiveRefusalError(previousFailure);
+        continue;
+      }
       currentBoot = healed;
       const transmitted = err.details?.transmitted;
       if (transmitted === false) {
@@ -3223,13 +3385,53 @@ async function listTools() {
   };
 }
 
+// A page script returns whatever the page produced: a bare string, a number, null, an object. Passed
+// through as-is, a string result is indistinguishable from a diagnostic message and `null` from an
+// empty reply, so every evaluate-family result is delivered as one stable JSON envelope. Errors are
+// never wrapped; they keep their own typed diagnostic.
+const EVALUATE_ENVELOPE_TOOLS = new Set([
+  'anti.browser.evaluate',
+  'anti.inspect.eval',
+  'browser.evaluate',
+  'antifan_evaluate',
+  'anti.browser.evaluate_frame',
+]);
+
+function isEvaluateTool(name) {
+  return EVALUATE_ENVELOPE_TOOLS.has(name) || EVALUATE_ENVELOPE_TOOLS.has(CAPABILITY_MAP[name]);
+}
+
+function evaluateValueType(value) {
+  if (value === null) return 'null';
+  if (value === undefined) return 'undefined';
+  const type = typeof value;
+  return type === 'string' || type === 'number' || type === 'boolean' ? type : 'object';
+}
+
+function wrapEvaluateResult(data) {
+  // A bridge that already answers in the envelope shape is not wrapped a second time.
+  if (data && typeof data === 'object' && data.ok === true && 'value' in data && typeof data.valueType === 'string') return data;
+  return { ok: true, value: data, valueType: evaluateValueType(data) };
+}
+
 async function callTool(request, extra) {
+  const meta = {};
+  const result = await runCallTool(request, extra, meta);
+  // The bridge moved this session's bound tab while serving the call; the caller sees it as a
+  // trailing line so the result's own content is untouched.
+  if (meta.bindingChanged && result && Array.isArray(result.content)) {
+    result.content.push({ type: 'text', text: `bindingChanged: ${JSON.stringify(meta.bindingChanged)}` });
+  }
+  return result;
+}
+
+async function runCallTool(request, extra, meta) {
   try {
     const bootstrap = getBootstrap();
     const callerRequestId = extra && (typeof extra.requestId === 'string' || typeof extra.requestId === 'number')
       ? String(extra.requestId)
       : undefined;
-    const data = await invoke(request.params.name, request.params.arguments || {}, callerRequestId);
+    const data = await invoke(request.params.name, request.params.arguments || {}, callerRequestId, meta);
     // Nonterminal pending-cleanup: the invocation still owns resources and has no
     // receipt yet. Surface it as a typed non-error result carrying the identity
     // required to join (re-issue with the same idempotencyKey).
@@ -3242,6 +3444,9 @@ async function callTool(request, extra) {
       request.params.name === 'artifact_stat';
     if (isStat) {
       return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
+    }
+    if (isEvaluateTool(request.params.name)) {
+      return { content: [{ type: 'text', text: JSON.stringify(wrapEvaluateResult(data)) }] };
     }
 
     // Screenshot capabilities return an evidence envelope ({ok, artifactRef,
@@ -3441,6 +3646,11 @@ module.exports = {
   invoke,
   invokeCore,
   DEFAULT_CLIENT_TIMEOUT_MS,
+  isEvaluateTool,
+  wrapEvaluateResult,
+  isQuickRetryClose,
+  definitiveRefusalCode,
+  callTool,
   READ_SAFE_CAPABILITIES,
   ambientTargetFieldFor,
   recordClientFailure,

@@ -544,6 +544,8 @@ export interface PreCaptureQuiescenceResult {
     toleratedPredicates: string[];
     /** True when a fonts-only refusal was re-sampled once after waiting on document.fonts.ready. */
     fontsRetried?: boolean;
+    /** Wall time of the fonts retry (document.fonts.ready wait plus the re-sample); present only when the retry ran. */
+    fontsRetryMs?: number;
   };
 }
 
@@ -781,7 +783,7 @@ export async function evaluatePreCaptureQuiescence(
   evalHost: EvalHost,
   tabId: string,
   paneId: 'desktop' | 'mobile' = 'desktop',
-  options: { dwellMs?: number; signal?: AbortSignal; fullPage?: boolean; fontsRetryWaitMs?: number } = {}
+  options: PreCaptureQuiescenceOptions = {}
 ): Promise<PreCaptureQuiescenceResult> {
   const first = await evaluatePreCaptureQuiescenceOnce(evalHost, tabId, paneId, options);
   const p = first.predicates;
@@ -791,18 +793,37 @@ export async function evaluatePreCaptureQuiescence(
     p.documentGenerationSettled && p.viewportStable && p.imagesSettled && p.imageIdentityStable && p.layoutStable;
   const retryWaitMs = options.fontsRetryWaitMs ?? FONTS_RETRY_WAIT_MS;
   if (!onlyFontsFailed || retryWaitMs <= 0 || options.signal?.aborted) return first;
+  const retryStartedAt = Date.now();
   try {
     await evalHost.evalJs(buildFontSettleScript(retryWaitMs), tabId, paneId);
   } catch {}
   const second = await evaluatePreCaptureQuiescenceOnce(evalHost, tabId, paneId, options);
-  return { ...second, measurements: { ...second.measurements, fontsRetried: true } };
+  return { ...second, measurements: { ...second.measurements, fontsRetried: true, fontsRetryMs: Date.now() - retryStartedAt } };
+}
+
+/** Which capture tool is asking, so a remedy only names parameters that tool actually accepts. */
+export type PreCaptureSurface = 'viewport' | 'fullPage' | 'reference';
+
+export interface PreCaptureQuiescenceOptions {
+  dwellMs?: number;
+  signal?: AbortSignal;
+  fullPage?: boolean;
+  fontsRetryWaitMs?: number;
+  surface?: PreCaptureSurface;
+}
+
+function srclessImageRemedy(surface: PreCaptureSurface | undefined): string {
+  if (surface === 'viewport') {
+    return 'scroll the page to load lazy images (anti.agent.cursor.scroll), or use anti.screenshot.full_page with materializeDataSrc:true to swap data-src/data-srcset';
+  }
+  return 'promote with materializeDataSrc:true to swap data-src/data-srcset, or materialize the page manually and retry';
 }
 
 async function evaluatePreCaptureQuiescenceOnce(
   evalHost: EvalHost,
   tabId: string,
   paneId: 'desktop' | 'mobile',
-  options: { dwellMs?: number; signal?: AbortSignal; fullPage?: boolean }
+  options: PreCaptureQuiescenceOptions
 ): Promise<PreCaptureQuiescenceResult> {
   const t0 = Date.now();
   const dwellMs = options.dwellMs ?? 250;
@@ -1092,7 +1113,7 @@ async function evaluatePreCaptureQuiescenceOnce(
     ready = false;
     failingPredicate = 'imagesSettled';
     reason = srclessImages > 0
-      ? `Detected ${srclessImages} unmaterialized image(s) (empty src with lazy-source attrs)${sample2.pendingImages > 0 ? ` alongside ${sample2.pendingImages} pending image(s) still loading` : ''}; remedy: promote with materializeDataSrc:true to swap data-src/data-srcset, or materialize the page manually and retry`
+      ? `Detected ${srclessImages} unmaterialized image(s) (empty src with lazy-source attrs)${sample2.pendingImages > 0 ? ` alongside ${sample2.pendingImages} pending image(s) still loading` : ''}; remedy: ${srclessImageRemedy(options.surface)}`
       : `Detected ${sample2.pendingImages} pending image(s) still loading`;
   } else if (!imageIdentityStable) {
     ready = false;
@@ -1100,11 +1121,11 @@ async function evaluatePreCaptureQuiescenceOnce(
     // The only facts measured here are the image sizes that changed, the witness box,
     // and the document geometry that held constant: a page-specific class name in the
     // reason would assert an observation this gate never made for any other page.
-    reason = `Tracked image inventory moved while document geometry held constant: docHeight ${sample2.docHeight} / scrollWidth ${sample2.scrollWidth} constant (${sample2.imageStructureCount ?? structure2.length} tracked image(s)), first differing box size: ${movingWitness}`;
+    reason = `Tracked image inventory moved while document geometry held constant: docHeight ${sample2.docHeight} / scrollWidth ${sample2.scrollWidth} constant (${sample2.imageStructureCount ?? structure2.length} tracked image(s)), first differing box size: ${movingWitness}; remedy: freeze the carousel/slider with anti.media.freeze, then retry`
   } else if (!layoutStable) {
     ready = false;
     failingPredicate = 'layoutStable';
-    reason = `Document layout did not hold within tolerance across ${layoutObservations} observation(s): docHeight ${layoutWindow.firstHeight} -> ${layoutWindow.lastHeight}, scrollWidth ${layoutWindow.firstWidth} -> ${layoutWindow.lastWidth}, drift ${layoutDriftPx}px exceeds tolerance ${lastLayoutTolerance}px${layoutWindowTruncated ? ' (window ended early: a sample evaluation failed)' : ''}`;
+    reason = `Document layout did not hold within tolerance across ${layoutObservations} observation(s): docHeight ${layoutWindow.firstHeight} -> ${layoutWindow.lastHeight}, scrollWidth ${layoutWindow.firstWidth} -> ${layoutWindow.lastWidth}, drift ${layoutDriftPx}px exceeds tolerance ${lastLayoutTolerance}px${layoutWindowTruncated ? ' (window ended early: a sample evaluation failed)' : ''}; remedy: wait and retry, or freeze animations with anti.media.freeze`
   }
 
   return {

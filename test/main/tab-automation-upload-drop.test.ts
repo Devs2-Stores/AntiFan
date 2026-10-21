@@ -43,6 +43,9 @@ describe('TabAutomationHost: Upload & Drag-Drop Automation Security & CDP Parity
       isDestroyed: () => false,
       getURL: () => 'https://example.com/products/test',
       executeJavaScript: async (code: string) => {
+        if (code.includes('>> nth=0')) {
+          throw new Error("SyntaxError: Failed to execute 'querySelector' on 'Document': 'button >> nth=0' is not a valid selector.");
+        }
         if (code.includes('zero-dim')) {
           return null;
         }
@@ -65,6 +68,17 @@ describe('TabAutomationHost: Upload & Drag-Drop Automation Security & CDP Parity
           throw new Error('CDP Hardware Error: Target closed');
         }
         cdpCommandsSent.push({ method, params });
+        if (method === 'Runtime.evaluate' && String(params?.expression || '').includes('>> nth=0')) {
+          return {
+            exceptionDetails: {
+              text: 'Uncaught',
+              exception: {
+                className: 'SyntaxError',
+                description: "SyntaxError: Failed to execute 'querySelector' on 'Document': 'button >> nth=0' is not a valid selector.",
+              },
+            },
+          };
+        }
         if (method === 'Runtime.evaluate') {
           return { result: { objectId: 'obj-file-input-42' } };
         }
@@ -214,6 +228,29 @@ describe('TabAutomationHost: Upload & Drag-Drop Automation Security & CDP Parity
       async () => host.dropFiles('@e999', [testFile1]),
       (err: unknown) => err instanceof CapabilityError && err.code === 'REF_NOT_FOUND'
     );
+  });
+
+  it('5b. A selector that is not valid CSS is INVALID_SELECTOR with a hint, never a missing element', async () => {
+    const { host, cdpCommandsSent } = createHarness({ workspaceRoot: tmpRoot });
+
+    await assert.rejects(
+      async () => host.uploadFileInput('button >> nth=0', [testFile1]),
+      (err: unknown) => err instanceof CapabilityError
+        && err.code === 'INVALID_SELECTOR'
+        && err.details?.['selector'] === 'button >> nth=0'
+        && typeof err.details?.['recovery'] === 'string'
+        && /not valid CSS/.test(err.message)
+    );
+    assert.strictEqual(cdpCommandsSent.some((c) => c.method === 'DOM.setFileInputFiles'), false);
+
+    await assert.rejects(
+      async () => host.dropFiles('button >> nth=0', [testFile1]),
+      (err: unknown) => err instanceof CapabilityError
+        && err.code === 'INVALID_SELECTOR'
+        && err.details?.['selector'] === 'button >> nth=0'
+        && typeof err.details?.['recovery'] === 'string'
+    );
+    assert.strictEqual(cdpCommandsSent.some((c) => c.method === 'Input.dispatchDragEvent'), false);
   });
 
   it('6. Rejects zero-dimension drop target with REF_NOT_FOUND', async () => {

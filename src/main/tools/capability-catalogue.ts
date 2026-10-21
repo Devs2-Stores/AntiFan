@@ -18,6 +18,7 @@ import {
 import { WorkspaceRegistry } from '../project/workspace-registry';
 import { DEVICE_ERROR_REMEDIATION } from '../../shared/device-control-contracts';
 import { assertRequiredArgs } from './required-args';
+import { tabShareGrants, type TabShareGrant } from '../browser/tab-share-grants';
 
 export interface SessionCapabilityFilter {
   allowedCapabilityNames?: string[];
@@ -144,6 +145,13 @@ export interface CapabilityCatalogueOptions {
    */
   resolveTabAffiliation?: (tabId: string) => { projectId?: string; workspaceId?: string; capsuleId?: string } | undefined;
   resolveTabId?: (tabIdOrIdentifier: string) => string | undefined;
+  /**
+   * Live user-issued share grant of a tab, consulted only by the explicit-retarget check.
+   * Absent, the process-wide registry answers. It never feeds `isTabAllowed`.
+   */
+  resolveTabShareGrant?: (tabId: string) => TabShareGrant | undefined;
+  /** Journal hook for each retarget a grant authorised; absent, the process-wide registry journals. */
+  noteTabShareGrantUse?: (grant: TabShareGrant) => void;
   resolveFailoverTabId?: (staleTabId: string) => string | undefined;
   getDocumentGeneration?: (tabId?: string) => number;
   /**
@@ -212,13 +220,46 @@ export class CapabilityCatalogue {
     if (!this.options.resolveTabAffiliation || !authorityScope.projectId || !authorityScope.workspaceId) return false;
     try {
       const requested = this.options.resolveTabAffiliation(requestedTabId);
-      return Boolean(
+      if (
         requested?.projectId === authorityScope.projectId &&
         requested?.workspaceId === authorityScope.workspaceId
-      );
+      ) {
+        return true;
+      }
+      return this.acceptsTabShareGrant(requestedTabId, requested, {
+        projectId: authorityScope.projectId,
+        workspaceId: authorityScope.workspaceId,
+      });
     } catch {
       return false;
     }
+  }
+
+  /**
+   * A tab the user shared with the agent. Needs a live grant for the attachment's own
+   * project AND a measured affiliation that does not contradict it: a user tab measures
+   * no capsule (undefined) and the grant stands in for the missing measurement, but a tab
+   * measured into another project or workspace is refused whatever the grant says.
+   * Reached only from the retarget check — never from `isTabAllowed`.
+   */
+  private acceptsTabShareGrant(
+    requestedTabId: string,
+    measured: { projectId?: string; workspaceId?: string } | undefined,
+    authorityScope: { projectId: string; workspaceId: string }
+  ): boolean {
+    const resolveGrant = this.options.resolveTabShareGrant ?? ((tabId: string) => tabShareGrants.get(tabId));
+    const grant = resolveGrant(requestedTabId);
+    if (!grant || grant.tabId !== requestedTabId) return false;
+    if (!(grant.expiresAt > Date.now())) return false;
+    if (grant.projectId !== authorityScope.projectId) return false;
+    if (measured?.projectId !== undefined && measured.projectId !== authorityScope.projectId) return false;
+    if (measured?.workspaceId !== undefined && measured.workspaceId !== authorityScope.workspaceId) return false;
+    try {
+      (this.options.noteTabShareGrantUse ?? ((used: TabShareGrant) => tabShareGrants.noteUse(used)))(grant);
+    } catch {
+      // The journal never decides authority.
+    }
+    return true;
   }
 
   /**
@@ -690,7 +731,12 @@ export class CapabilityCatalogue {
         throw new CapabilityError(
           'TARGET_MISMATCH',
           `Unknown browser target: ${reqTabId}. This session's live target is '${context.browserTarget.tabId}'; rebind with anti.browser.rebind_target.`,
-          { requestedTabId: reqTabId, liveTabId: context.browserTarget.tabId, rebindTool: 'anti.browser.rebind_target' }
+          {
+            requestedTabId: reqTabId,
+            liveTabId: context.browserTarget.tabId,
+            rebindTool: 'anti.browser.rebind_target',
+            recovery: `Retry with tabId '${context.browserTarget.tabId}' (this session's live target), or list live tabs with anti.browser.tabs.list and call anti.browser.rebind_target {tabId} with one of them.`,
+          }
         );
       }
       const canonicalId = canonicalTargetId.trim();
@@ -740,7 +786,13 @@ export class CapabilityCatalogue {
                 }
                 throw new CapabilityError(
                   'TARGET_MISMATCH',
-                  `Tab ID mismatch: expected ${context.browserTarget.tabId}, got ${reqTabId}. Note: In split review mode, use the bound tabId with paneId: "mobile" to target the mobile pane.`
+                  `Tab ID mismatch: expected ${context.browserTarget.tabId}, got ${reqTabId}. Note: In split review mode, use the bound tabId with paneId: "mobile" to target the mobile pane.`,
+                  {
+                    boundTabId: context.browserTarget.tabId,
+                    requestedTabId: reqTabId,
+                    candidateTabIds: [context.browserTarget.tabId],
+                    recovery: `Retry with tabId '${context.browserTarget.tabId}' (this session's bound tab), or call anti.browser.rebind_target {tabId} with a tab this session manages, or anti.browser.tabs.create {url} to reopen the page in an agent tab.`,
+                  }
                 );
               }
             }
