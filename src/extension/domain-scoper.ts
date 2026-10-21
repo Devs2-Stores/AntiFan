@@ -1,5 +1,5 @@
 import { getDomain } from 'tldts';
-import { isIdentityCookieName } from '../shared/identity-cookie-patterns';
+import { isIdentityCookie } from '../shared/identity-cookie-patterns';
 
 export const SCOPE_PROFILES: Record<string, RegExp[]> = {
   google: [
@@ -14,7 +14,6 @@ export const SCOPE_PROFILES: Record<string, RegExp[]> = {
     /(^|\.)haravan\.com$/,
     /(^|\.)myharavan\.com$/,
     /(^|\.)myshopify\.com$/,
-    /(^|\.)shopify\.com$/,
     /(^|\.)shopifycloud\.com$/,
     /(^|\.)sapo\.vn$/,
     /(^|\.)mysapo\.net$/,
@@ -92,8 +91,9 @@ export function isCookieInScope(
   if (!rawDomain) return false;
   // 0. Identity cookies stay out of scope however the rest of the scope is
   // configured: no profile, wildcard, active-tab match or custom domain may
-  // pull an auth cookie into a sync payload.
-  if (isIdentityCookieName(cookie.name)) {
+  // pull an auth cookie, or any cookie of an identity-only host, into a sync
+  // payload.
+  if (isIdentityCookie(cookie)) {
     return false;
   }
   // 0.1. Google/YouTube session auth tokens are single-owner per browser instance.

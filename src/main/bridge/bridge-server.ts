@@ -42,7 +42,7 @@ import { enforceProtectedDirectoryDacl, enforceProtectedFileDacl, resolveCurrent
 import { ControlPlaneRuntime } from '../control-plane/control-plane-runtime';
 import { deriveCapsulePartition } from '../browser/browser-session-partition';
 import { extensionCookieImportSetDetails, type ExtensionCookieInput } from '../browser/chrome-profile-sync';
-import { isIdentityCookieName } from '../../shared/identity-cookie-patterns';
+import { isIdentityCookie } from '../../shared/identity-cookie-patterns';
 import { injectedScriptStore } from '../browser/scripts/injected-script-store.js';
 export const OFFICIAL_COMPANION_EXTENSION_ID = 'khjcaadjohoclofjkkfblkbfbpmjjedp';
 
@@ -79,7 +79,6 @@ export const DEFAULT_EXTENSION_ALLOWED_DOMAINS: string[] = [
   'bizwebvietnam.net',
   'bizweb.vn',
   'dktcdn.net',
-  'shopify.com',
   'myshopify.com',
   'shopifycloud.com',
 ];
@@ -1846,8 +1845,8 @@ export class BridgeServer {
             // an already signed-in jar with another browser's copy is what
             // invalidates the session server-side, so no caller is allowed to
             // do it.
-            const identityCookies = rawCookies.filter((c: ExtensionCookieInput) => isIdentityCookieName(c.name));
-            const importableCookies = rawCookies.filter((c: ExtensionCookieInput) => !isIdentityCookieName(c.name));
+            const identityCookies = rawCookies.filter((c: ExtensionCookieInput) => isIdentityCookie(c));
+            const importableCookies = rawCookies.filter((c: ExtensionCookieInput) => !isIdentityCookie(c));
             const candidateCookies = verifiedExtensionGrant
               ? (verifiedExtensionGrant.allowedDomains && verifiedExtensionGrant.allowedDomains.length > 0
                   ? importableCookies.filter((c: ExtensionCookieInput) => {
@@ -1868,11 +1867,41 @@ export class BridgeServer {
               const names = [...new Set(identityCookies.map((c) => c.name))].join(', ');
               console.warn(`[antifan] cookie import refused ${identityCookies.length} identity cookie(s) (${names}) for ${requestedPartition || resolvedTargetTabId || 'unspecified target'}`);
             }
+            // A bulk hydrate is a snapshot of Chrome's jar, not a fresh user
+            // action, so it may only fill gaps. Overwriting a cookie the
+            // AntiFan jar already holds replaces state the page may have just
+            // rotated, and the replay of that stale copy is what logs a signed-in
+            // user out. Delta syncs stay authoritative because they mirror a
+            // change Chrome just observed. An extension payload that does not
+            // say which kind it is counts as hydrate (fail-closed).
+            const isHydrate = Boolean(verifiedExtensionGrant) && data.source !== 'chrome-extension-delta';
+            const liveJar = new Set<string>();
+            let liveJarWinsCount = 0;
+            const liveJarKey = (name: string, domain: string, cookiePath: string): string =>
+              `${name}|${(domain.startsWith('.') ? domain.slice(1) : domain).toLowerCase()}|${cookiePath}`;
+            if (isHydrate && candidateCookies.length > 0) {
+              // One snapshot per request: the jar is read once and looked up by
+              // name|domain|path, never queried per cookie.
+              const nowSeconds = Date.now() / 1000;
+              for (const live of await targetSession.cookies.get({})) {
+                if (live.expirationDate && live.expirationDate <= nowSeconds) continue;
+                liveJar.add(liveJarKey(live.name, live.domain || '', live.path || '/'));
+              }
+            }
             for (const cookie of candidateCookies) {
               const setDetails = extensionCookieImportSetDetails(cookie, { persistSessionCookies: persistSession });
               if (!setDetails) {
                 skippedCount++;
                 continue;
+              }
+
+              if (isHydrate) {
+                const setHost = setDetails.domain || new URL(setDetails.url).hostname;
+                if (liveJar.has(liveJarKey(setDetails.name || '', setHost, setDetails.path || '/'))) {
+                  liveJarWinsCount++;
+                  skippedCount++;
+                  continue;
+                }
               }
 
               try {
@@ -1894,6 +1923,7 @@ export class BridgeServer {
               skippedCount,
               failedCount,
               filteredCount,
+              liveJarWinsCount,
               authRejectedCount: identityCookies.length,
               totalReceived: rawCookies.length,
               targetTabId: resolvedTargetTabId ?? (data.tabId || 'unspecified'),

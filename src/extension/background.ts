@@ -308,6 +308,7 @@ export function __resetExtensionStateForTesting(): void {
   lastBridgeError = null;
   handshakeFailureCount = 0;
   nextHandshakeAttemptAt = 0;
+  isHydrating = false;
 }
 
 
@@ -373,6 +374,7 @@ export async function dispatchFullSync(allCookies: ExtensionCookie[]): Promise<{
 
   const payload = {
     profileName: 'Chrome Live (Zero-Touch Native)',
+    source: 'chrome-extension-hydrate',
     timestamp: Date.now(),
     cookies: allCookies.map((c: any) => ({
       name: c.name,
@@ -415,6 +417,53 @@ export async function dispatchDeltaSync(batch: DeltaSyncBatch): Promise<{ succes
 
 let isHydrating = false;
 
+// Hydrate dedupe.
+//
+// Every successful handshake starts a hydrate, and MV3 re-handshakes on every
+// worker wake, so without memory the same unchanged jar is re-posted over and
+// over. Like the handshake backoff, the record lives in chrome.storage.local:
+// module state does not survive a worker restart, which is the case that has to
+// be bounded. The receiver stays the authority (it never overwrites a live
+// cookie from a hydrate); this only avoids the repeat traffic.
+//
+// The digest is keyed by the target partition, not by the grant token: the token
+// is a fresh UUID per handshake, so including it would make every wake look new.
+const HYDRATE_DIGEST_STORAGE_KEY = 'antifanHydrateDigest';
+const HYDRATE_MIN_INTERVAL_MS = 30 * 60 * 1000;
+
+interface HydrateRecord {
+  digest: string;
+  at: number;
+}
+
+async function computeHydrateDigest(cookies: ExtensionCookie[], target: string): Promise<string> {
+  const subtle = globalThis.crypto?.subtle;
+  if (!subtle) return '';
+  const rows = cookies
+    .map((c) => `${c.name}|${c.domain}|${c.path}|${c.expirationDate ?? ''}`)
+    .sort();
+  const bytes = new TextEncoder().encode(`${target}\n${rows.join('\n')}`);
+  const hash = new Uint8Array(await subtle.digest('SHA-256', bytes));
+  return Array.from(hash, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function readHydrateRecord(): Promise<HydrateRecord | null> {
+  if (typeof chrome === 'undefined' || !chrome.storage?.local?.get) return null;
+  try {
+    const stored = await chrome.storage.local.get([HYDRATE_DIGEST_STORAGE_KEY]);
+    const record = stored?.[HYDRATE_DIGEST_STORAGE_KEY];
+    if (record && typeof record.digest === 'string' && typeof record.at === 'number') return record;
+  } catch {}
+  return null;
+}
+
+async function persistHydrateRecord(record: HydrateRecord): Promise<void> {
+  if (typeof chrome === 'undefined' || !chrome.storage?.local?.set) return;
+  try {
+    await chrome.storage.local.set({ [HYDRATE_DIGEST_STORAGE_KEY]: record });
+  } catch {}
+}
+
 export async function triggerAutoHydration(): Promise<{ success: boolean; count: number; error?: string }> {
   if (isHydrating) {
     return { success: true, count: 0 };
@@ -431,8 +480,19 @@ export async function triggerAutoHydration(): Promise<{ success: boolean; count:
     if (scopedCookies.length === 0) {
       return { success: true, count: 0 };
     }
+    const target = `${bridgeAuth?.activePartition ?? ''}|${bridgeAuth?.activeCapsuleId ?? ''}`;
+    const digest = await computeHydrateDigest(scopedCookies, target);
+    if (digest) {
+      const previous = await readHydrateRecord();
+      if (previous && previous.digest === digest && Date.now() - previous.at < HYDRATE_MIN_INTERVAL_MS) {
+        return { success: true, count: 0 };
+      }
+    }
     const result = await dispatchFullSync(scopedCookies);
     console.log(`[AntiFan Extension] Auto-hydrated ${result.count} cookies into AntiFan Desktop.`);
+    if (result.success && digest) {
+      await persistHydrateRecord({ digest, at: Date.now() });
+    }
     return result;
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);

@@ -793,6 +793,18 @@
     }
     return false;
   }
+  var IDENTITY_HOST_SUFFIXES = [
+    "shopify.com"
+  ];
+  function isIdentityHost(host) {
+    if (typeof host !== "string") return false;
+    const clean = host.trim().toLowerCase().replace(/^\./, "");
+    if (!clean) return false;
+    return IDENTITY_HOST_SUFFIXES.some((suffix) => clean === suffix || clean.endsWith(`.${suffix}`));
+  }
+  function isIdentityCookie(cookie) {
+    return isIdentityCookieName(cookie.name) || isIdentityHost(cookie.domain) || isIdentityHost(cookie.host);
+  }
 
   // src/extension/domain-scoper.ts
   var SCOPE_PROFILES = {
@@ -808,7 +820,6 @@
       /(^|\.)haravan\.com$/,
       /(^|\.)myharavan\.com$/,
       /(^|\.)myshopify\.com$/,
-      /(^|\.)shopify\.com$/,
       /(^|\.)shopifycloud\.com$/,
       /(^|\.)sapo\.vn$/,
       /(^|\.)mysapo\.net$/,
@@ -864,7 +875,7 @@
   function isCookieInScope(cookie, enabledProfiles2 = ["google", "ecommerce"], activeTabHostname = null, customDomains = [], options) {
     const rawDomain = (cookie.domain || "").replace(/^\./, "").trim().toLowerCase();
     if (!rawDomain) return false;
-    if (isIdentityCookieName(cookie.name)) {
+    if (isIdentityCookie(cookie)) {
       return false;
     }
     if (!options?.allowGoogleAuth && isGoogleOrYouTubeDomain(rawDomain) && isGoogleAuthCookieName(cookie.name)) {
@@ -1239,6 +1250,7 @@
     lastBridgeError = null;
     handshakeFailureCount = 0;
     nextHandshakeAttemptAt = 0;
+    isHydrating = false;
   }
   async function executeAuthenticatedCookieImport(payload, authSupplier, reauthSupplier, fetchFn = fetch) {
     let auth = await authSupplier();
@@ -1286,6 +1298,7 @@
     }
     const payload = {
       profileName: "Chrome Live (Zero-Touch Native)",
+      source: "chrome-extension-hydrate",
       timestamp: Date.now(),
       cookies: allCookies.map((c) => ({
         name: c.name,
@@ -1320,6 +1333,34 @@
     );
   }
   var isHydrating = false;
+  var HYDRATE_DIGEST_STORAGE_KEY = "antifanHydrateDigest";
+  var HYDRATE_MIN_INTERVAL_MS = 30 * 60 * 1e3;
+  async function computeHydrateDigest(cookies, target) {
+    const subtle = globalThis.crypto?.subtle;
+    if (!subtle) return "";
+    const rows = cookies.map((c) => `${c.name}|${c.domain}|${c.path}|${c.expirationDate ?? ""}`).sort();
+    const bytes = new TextEncoder().encode(`${target}
+${rows.join("\n")}`);
+    const hash = new Uint8Array(await subtle.digest("SHA-256", bytes));
+    return Array.from(hash, (b) => b.toString(16).padStart(2, "0")).join("");
+  }
+  async function readHydrateRecord() {
+    if (typeof chrome === "undefined" || !chrome.storage?.local?.get) return null;
+    try {
+      const stored = await chrome.storage.local.get([HYDRATE_DIGEST_STORAGE_KEY]);
+      const record = stored?.[HYDRATE_DIGEST_STORAGE_KEY];
+      if (record && typeof record.digest === "string" && typeof record.at === "number") return record;
+    } catch {
+    }
+    return null;
+  }
+  async function persistHydrateRecord(record) {
+    if (typeof chrome === "undefined" || !chrome.storage?.local?.set) return;
+    try {
+      await chrome.storage.local.set({ [HYDRATE_DIGEST_STORAGE_KEY]: record });
+    } catch {
+    }
+  }
   async function triggerAutoHydration() {
     if (isHydrating) {
       return { success: true, count: 0 };
@@ -1336,8 +1377,19 @@
       if (scopedCookies.length === 0) {
         return { success: true, count: 0 };
       }
+      const target = `${bridgeAuth?.activePartition ?? ""}|${bridgeAuth?.activeCapsuleId ?? ""}`;
+      const digest = await computeHydrateDigest(scopedCookies, target);
+      if (digest) {
+        const previous = await readHydrateRecord();
+        if (previous && previous.digest === digest && Date.now() - previous.at < HYDRATE_MIN_INTERVAL_MS) {
+          return { success: true, count: 0 };
+        }
+      }
       const result = await dispatchFullSync(scopedCookies);
       console.log(`[AntiFan Extension] Auto-hydrated ${result.count} cookies into AntiFan Desktop.`);
+      if (result.success && digest) {
+        await persistHydrateRecord({ digest, at: Date.now() });
+      }
       return result;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

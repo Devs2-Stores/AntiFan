@@ -4,7 +4,7 @@ import { EventEmitter } from 'node:events';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
-import { BridgeServer } from '../../src/main/bridge/bridge-server';
+import { BridgeServer, DEFAULT_EXTENSION_ALLOWED_DOMAINS } from '../../src/main/bridge/bridge-server';
 import { LocalIpcServer } from '../../src/main/native-messaging/local-ipc-server';
 import { LocalIpcClient } from '../../src/main/native-messaging/local-ipc-client';
 import {
@@ -12,6 +12,7 @@ import {
   executeAuthenticatedCookieImport,
   dispatchDeltaSync,
   loadSettings,
+  triggerAutoHydration,
   ensureBridgeAuth,
   __resetExtensionStateForTesting,
   type BridgeAuth,
@@ -739,6 +740,64 @@ test('Companion Pipeline: identity cookies stay out of extension scope under eve
   assert.strictEqual(isCookieInScope({ name: 'cart', domain: '.haravan.com' }, ['all']), true);
 });
 
+test('Companion Pipeline: Shopify account-plane cookies are refused even when the grant covers open admin tabs', async () => {
+  // The handshake grant adds the host of every open AntiFan tab to the
+  // allowlist, so a merchant working in admin.shopify.com puts that host in
+  // the grant. Chrome's own Shopify login must still never overwrite the one
+  // signed in inside AntiFan: the storefront cookie lands, every cookie on the
+  // shopify.com account plane is refused, whatever its name.
+  const host = new MockTabHost();
+  const server = new BridgeServer(host as unknown as NativeTabHost, 0);
+  const port = await server.start();
+  const targetPartition = 'persist:profile-default';
+  const payloadCookies = [
+    { name: 'account_session', value: 'chrome-login', domain: 'accounts.shopify.com', path: '/' },
+    { name: 'admin_session', value: 'chrome-admin', domain: 'admin.shopify.com', path: '/' },
+    { name: 'device_id', value: 'chrome-device', domain: '.shopify.com', path: '/' },
+    { name: 'storefront_digest', value: 'preview-pass', domain: 'rebel-streetwear.myshopify.com', path: '/' },
+  ];
+
+  try {
+    const grant = server.issueExtensionGrant(targetPartition, [
+      ...DEFAULT_EXTENSION_ALLOWED_DOMAINS,
+      'admin.shopify.com',
+      'accounts.shopify.com',
+      'dev.shopify.com',
+    ]);
+    const res = await fetch(`http://127.0.0.1:${port}/api/cookies/import`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${grant.grantToken}`,
+      },
+      body: JSON.stringify({ targetPartition, cookies: payloadCookies }),
+    });
+    assert.strictEqual(res.status, 200);
+    const data = (await res.json()) as Record<string, unknown>;
+    assert.strictEqual(data.importedCount, 1);
+    assert.strictEqual(data.authRejectedCount, 3);
+
+    const landedNames = (await host.session.cookies.get({})).map((c) => c.name);
+    assert.deepStrictEqual(landedNames, ['storefront_digest']);
+  } finally {
+    server.dispose();
+  }
+});
+
+test('Companion Pipeline: Shopify account-plane cookies stay out of extension scope under every scope configuration', async () => {
+  const accountCookie = { name: 'account_session', domain: 'accounts.shopify.com' };
+
+  assert.strictEqual(isCookieInScope(accountCookie, ['all']), false);
+  assert.strictEqual(isCookieInScope(accountCookie, ['ecommerce']), false);
+  assert.strictEqual(isCookieInScope(accountCookie, ['ecommerce'], 'admin.shopify.com'), false);
+  assert.strictEqual(isCookieInScope({ name: 'device_id', domain: '.shopify.com' }, ['ecommerce'], null, ['shopify.com']), false);
+
+  // The suffix match is label-aligned: storefront hosts that merely end in
+  // "shopify.com" as a string keep syncing.
+  assert.strictEqual(isCookieInScope({ name: 'storefront_digest', domain: 'rebel-streetwear.myshopify.com' }, ['ecommerce']), true);
+  assert.strictEqual(isCookieInScope({ name: 'cart', domain: '.myshopify.com' }, ['all']), true);
+});
+
 test('Companion Pipeline: Google auth cookies are suppressed in background sync but permitted on manual active-tab sync', async () => {
   const googleAuthCookies = [
     { name: 'SAPISID', domain: '.google.com' },
@@ -793,3 +852,315 @@ test('Companion Pipeline: Google auth cookies are suppressed in background sync 
   );
 });
 
+
+/**
+ * A jar with the semantics the receiver relies on: a cookie is unique per
+ * name + domain + path, a second set replaces the first, `get({})` lists every
+ * live cookie, and a host-only cookie reports the host it was set for.
+ */
+class LiveJarCookieStore {
+  private jar = new Map<string, Record<string, unknown>>();
+  public getAllCalls = 0;
+  public getCalls = 0;
+
+  private static keyOf(name: string, domain: string, cookiePath: string): string {
+    return `${name}|${domain.startsWith('.') ? domain.slice(1) : domain}|${cookiePath}`;
+  }
+
+  public seed(cookie: { name: string; value: string; domain: string; path?: string; expirationDate?: number }): void {
+    const cookiePath = cookie.path ?? '/';
+    this.jar.set(LiveJarCookieStore.keyOf(cookie.name, cookie.domain, cookiePath), { ...cookie, path: cookiePath });
+  }
+
+  public async set(details: { url: string; name: string; value: string; domain?: string; path?: string; expirationDate?: number }): Promise<void> {
+    const domain = details.domain ?? new URL(details.url).hostname;
+    const cookiePath = details.path ?? '/';
+    this.jar.set(LiveJarCookieStore.keyOf(details.name, domain, cookiePath), {
+      name: details.name,
+      value: details.value,
+      domain,
+      path: cookiePath,
+      expirationDate: details.expirationDate,
+    });
+  }
+
+  public async get(query: { name?: string; domain?: string; path?: string }): Promise<Array<Record<string, unknown>>> {
+    if (query.name === undefined && query.domain === undefined && query.path === undefined) this.getAllCalls += 1;
+    else this.getCalls += 1;
+    return [...this.jar.values()].filter((c) => {
+      if (query.name && c.name !== query.name) return false;
+      if (query.domain && c.domain !== query.domain) return false;
+      if (query.path && c.path !== query.path) return false;
+      return true;
+    });
+  }
+
+  public async flushStore(): Promise<void> {}
+
+  public valueOf(name: string): unknown {
+    return [...this.jar.values()].find((c) => c.name === name)?.value;
+  }
+}
+
+class LiveJarTabHost extends MockTabHost {
+  public liveJar = new LiveJarCookieStore();
+  public override session = { cookies: this.liveJar as unknown as MockCookieStore };
+}
+
+async function postCookieImport(
+  port: number,
+  token: string,
+  body: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  const res = await fetch(`http://127.0.0.1:${port}/api/cookies/import`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(body),
+  });
+  assert.strictEqual(res.status, 200);
+  return (await res.json()) as Record<string, unknown>;
+}
+
+test('Companion Pipeline: hydrate never overwrites a live non-identity cookie', async () => {
+  const host = new LiveJarTabHost();
+  host.liveJar.seed({ name: 'foo', value: 'live', domain: '.haravan.com' });
+  const server = new BridgeServer(host as unknown as NativeTabHost, 0);
+  const port = await server.start();
+  const targetPartition = 'persist:profile-default';
+
+  try {
+    const grant = server.issueExtensionGrant(targetPartition, ['haravan.com']);
+    const data = await postCookieImport(port, grant.grantToken, {
+      targetPartition,
+      source: 'chrome-extension-hydrate',
+      cookies: [
+        { name: 'foo', value: 'chrome', domain: '.haravan.com', path: '/' },
+        { name: 'bar', value: 'chrome', domain: '.haravan.com', path: '/' },
+      ],
+    });
+
+    assert.strictEqual(host.liveJar.valueOf('foo'), 'live', 'the cookie the AntiFan jar already holds must win');
+    assert.strictEqual(host.liveJar.valueOf('bar'), 'chrome', 'a cookie the jar lacks is still filled in');
+    assert.ok((data.liveJarWinsCount as number) >= 1);
+    assert.strictEqual(data.liveJarWinsCount, 1);
+    assert.strictEqual(data.importedCount, 1);
+    assert.strictEqual(data.skippedCount, 1, 'a cookie skipped because the live jar won is still counted as skipped');
+    assert.strictEqual(host.liveJar.getCalls, 0, 'the jar is read once per request, never once per cookie');
+    assert.strictEqual(host.liveJar.getAllCalls, 1);
+  } finally {
+    server.dispose();
+  }
+});
+
+test('Companion Pipeline: hydrate into an empty jar imports every cookie', async () => {
+  const host = new LiveJarTabHost();
+  const server = new BridgeServer(host as unknown as NativeTabHost, 0);
+  const port = await server.start();
+  const targetPartition = 'persist:profile-default';
+
+  try {
+    const grant = server.issueExtensionGrant(targetPartition, ['haravan.com']);
+    const data = await postCookieImport(port, grant.grantToken, {
+      targetPartition,
+      source: 'chrome-extension-hydrate',
+      cookies: [
+        { name: 'foo', value: 'chrome', domain: '.haravan.com', path: '/' },
+        { name: 'bar', value: 'chrome', domain: 'shop.haravan.com', path: '/' },
+      ],
+    });
+
+    assert.strictEqual(data.importedCount, 2);
+    assert.strictEqual(data.liveJarWinsCount, 0);
+    assert.strictEqual(host.liveJar.valueOf('foo'), 'chrome');
+    assert.strictEqual(host.liveJar.valueOf('bar'), 'chrome');
+  } finally {
+    server.dispose();
+  }
+});
+
+test('Companion Pipeline: an extension payload without a source is treated as hydrate', async () => {
+  const host = new LiveJarTabHost();
+  host.liveJar.seed({ name: 'foo', value: 'live', domain: '.haravan.com' });
+  const server = new BridgeServer(host as unknown as NativeTabHost, 0);
+  const port = await server.start();
+  const targetPartition = 'persist:profile-default';
+
+  try {
+    const grant = server.issueExtensionGrant(targetPartition, ['haravan.com']);
+    const data = await postCookieImport(port, grant.grantToken, {
+      targetPartition,
+      cookies: [{ name: 'foo', value: 'chrome', domain: '.haravan.com', path: '/' }],
+    });
+
+    assert.strictEqual(data.liveJarWinsCount, 1);
+    assert.strictEqual(data.importedCount, 0);
+    assert.strictEqual(host.liveJar.valueOf('foo'), 'live');
+  } finally {
+    server.dispose();
+  }
+});
+
+test('Companion Pipeline: delta still mirrors non-identity cookies and identity cookies stay refused', async () => {
+  const host = new LiveJarTabHost();
+  host.liveJar.seed({ name: 'foo', value: 'old', domain: '.haravan.com' });
+  host.liveJar.seed({ name: 'idsrv', value: 'live-identity', domain: '.accounts.haravan.com' });
+  const server = new BridgeServer(host as unknown as NativeTabHost, 0);
+  const port = await server.start();
+  const targetPartition = 'persist:profile-default';
+
+  try {
+    const grant = server.issueExtensionGrant(targetPartition, ['haravan.com']);
+    const data = await postCookieImport(port, grant.grantToken, {
+      targetPartition,
+      source: 'chrome-extension-delta',
+      cookies: [
+        { name: 'foo', value: 'new', domain: '.haravan.com', path: '/' },
+        { name: 'idsrv', value: 'chrome-identity', domain: '.accounts.haravan.com', path: '/' },
+      ],
+    });
+
+    assert.strictEqual(host.liveJar.valueOf('foo'), 'new', 'a delta mirrors the change Chrome just observed');
+    assert.strictEqual(host.liveJar.valueOf('idsrv'), 'live-identity', 'the identity cookie must never be replaced');
+    assert.strictEqual(data.importedCount, 1);
+    assert.strictEqual(data.liveJarWinsCount, 0);
+    assert.ok((data.authRejectedCount as number) > 0);
+    assert.strictEqual(host.liveJar.getAllCalls, 0, 'a delta does not snapshot the jar');
+  } finally {
+    server.dispose();
+  }
+});
+
+test('Companion Pipeline: the master bridge token is not subject to hydrate set-if-absent', async () => {
+  const host = new LiveJarTabHost();
+  host.liveJar.seed({ name: 'foo', value: 'live', domain: '.haravan.com' });
+  const server = new BridgeServer(host as unknown as NativeTabHost, 0);
+  const port = await server.start();
+
+  try {
+    const data = await postCookieImport(port, server.getToken(), {
+      targetPartition: 'persist:profile-default',
+      cookies: [{ name: 'foo', value: 'explicit', domain: '.haravan.com', path: '/' }],
+    });
+
+    assert.strictEqual(data.liveJarWinsCount, 0);
+    assert.strictEqual(host.liveJar.valueOf('foo'), 'explicit');
+  } finally {
+    server.dispose();
+  }
+});
+
+function installHydrationChrome(storage: Record<string, unknown>, cookies: Array<Record<string, unknown>>): {
+  connectCount: () => number;
+} {
+  let connects = 0;
+  (globalThis as any).chrome = {
+    storage: {
+      local: {
+        get: async (keys: string[]) => Object.fromEntries(keys.filter((k) => k in storage).map((k) => [k, storage[k]])),
+        set: async (items: Record<string, unknown>) => { Object.assign(storage, items); },
+        remove: async () => {},
+      },
+    },
+    cookies: { getAll: async () => cookies },
+    runtime: {
+      connectNative: () => {
+        connects += 1;
+        let listener: ((msg: unknown) => void) | null = null;
+        return {
+          onMessage: { addListener: (cb: (msg: unknown) => void) => { listener = cb; } },
+          onDisconnect: { addListener: () => {} },
+          postMessage: () => {
+            queueMicrotask(() => listener?.({
+              status: 'SUCCESS',
+              token: `grant-${connects}`,
+              port: 20130,
+              activePartition: 'persist:profile-default',
+            }));
+          },
+          disconnect: () => {},
+        };
+      },
+    },
+  };
+  return { connectCount: () => connects };
+}
+
+test('Companion Pipeline: an identical hydrate is skipped across a worker restart', async () => {
+  __resetExtensionStateForTesting();
+  const originalFetch = globalThis.fetch;
+  const originalChrome = (globalThis as any).chrome;
+  const storage: Record<string, unknown> = {};
+  const chromeCookies = [
+    { name: 'cart', value: 'a', domain: '.haravan.com', path: '/', secure: true, httpOnly: false },
+    { name: 'theme', value: 'b', domain: '.haravan.com', path: '/', secure: true, httpOnly: false, expirationDate: 4102444800 },
+  ];
+  const sent: Array<Record<string, unknown>> = [];
+  (globalThis as any).fetch = (async (_input: unknown, init?: { body?: string }) => {
+    sent.push(JSON.parse(init?.body ?? '{}'));
+    return { status: 200, ok: true, json: async () => ({ success: true, importedCount: 2 }) } as any;
+  }) as unknown as typeof fetch;
+  const chromeMock = installHydrationChrome(storage, chromeCookies);
+
+  try {
+    const first = await triggerAutoHydration();
+    assert.strictEqual(first.success, true);
+    assert.strictEqual(sent.length, 1);
+    assert.strictEqual(sent[0]?.source, 'chrome-extension-hydrate', 'bulk sync must declare itself as hydrate');
+    assert.ok(storage['antifanHydrateDigest'], 'the digest must be persisted after a successful hydrate');
+
+    // A service-worker restart drops every module variable but keeps storage.
+    __resetExtensionStateForTesting();
+    const second = await triggerAutoHydration();
+    assert.deepStrictEqual(second, { success: true, count: 0 });
+    assert.strictEqual(sent.length, 1, 'an unchanged jar inside the interval must not be posted again');
+    assert.strictEqual(chromeMock.connectCount(), 1, 'a skipped hydrate must not spawn another native host');
+
+    // A changed jar is a new digest and is posted again.
+    chromeCookies.push({ name: 'wishlist', value: 'c', domain: '.haravan.com', path: '/', secure: true, httpOnly: false });
+    __resetExtensionStateForTesting();
+    const third = await triggerAutoHydration();
+    assert.strictEqual(third.success, true);
+    assert.strictEqual(sent.length, 2);
+  } finally {
+    __resetExtensionStateForTesting();
+    globalThis.fetch = originalFetch;
+    (globalThis as any).chrome = originalChrome;
+  }
+});
+
+test('Companion Pipeline: a failed hydrate is not remembered and is retried', async () => {
+  __resetExtensionStateForTesting();
+  const originalFetch = globalThis.fetch;
+  const originalChrome = (globalThis as any).chrome;
+  const storage: Record<string, unknown> = {};
+  let status = 500;
+  let posts = 0;
+  (globalThis as any).fetch = (async () => {
+    posts += 1;
+    return {
+      status,
+      ok: status === 200,
+      json: async () => ({ success: true, importedCount: 1 }),
+      text: async () => 'boom',
+    } as any;
+  }) as unknown as typeof fetch;
+  installHydrationChrome(storage, [
+    { name: 'cart', value: 'a', domain: '.haravan.com', path: '/', secure: true, httpOnly: false },
+  ]);
+
+  try {
+    const failed = await triggerAutoHydration();
+    assert.strictEqual(failed.success, false);
+    assert.strictEqual(storage['antifanHydrateDigest'], undefined, 'a failed hydrate must not be recorded');
+
+    status = 200;
+    __resetExtensionStateForTesting();
+    const retried = await triggerAutoHydration();
+    assert.strictEqual(retried.success, true);
+    assert.strictEqual(posts, 2);
+  } finally {
+    __resetExtensionStateForTesting();
+    globalThis.fetch = originalFetch;
+    (globalThis as any).chrome = originalChrome;
+  }
+});

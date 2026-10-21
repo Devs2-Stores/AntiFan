@@ -180,6 +180,11 @@ Trạng thái từng đề xuất ở §5 bản gốc. Mọi dòng "đã" dướ
 14. **Bằng chứng** — `npm run compile` exit 0 (sinh lại `extension/background.js` 189 227 B, sync sang `%LOCALAPPDATA%\AntiFan\extension`). `extension-companion-pipeline` **12/12**. Đột biến để chứng minh test thật sự bắt lỗi chứ không xanh do không chạy: thay filter bên nhận bằng `false` → test ranh giới **fail** (`importedCount` 4 ≠ 2, tức cookie danh tính lọt vào store); thay filter bên gửi bằng `false` → test scope **fail**. Chạy luật bên gửi trên **30 cookie Haravan thật** đọc từ SQLite của Chrome: `accounts.haravan.com/idsrv` + `idsv.device` bị chặn, 25 cookie storefront còn sync (3 cookie `.haravan.app/_ga*` bị loại là do luật domain sẵn có — `haravan.app` ≠ `haravan.com` — không phải filter mới).
 15. **Chưa kiểm chứng trên tiến trình đang chạy** — bản này **chưa load** vào app đang mở: code Main nằm trong tiến trình Electron đã khởi động trước khi sửa, và extension trong Chrome cũng chưa reload. Phép thử sống (POST `idsrv` vào bridge của app đang chạy) **cố ý không chạy**: tiến trình đang chạy là bản **cũ**, nó sẽ **ghi** cookie đó và phá phiên Haravan thật của người dùng — đúng cái lỗi đang sửa. Cần restart AntiFan + reload extension rồi mới đo lại.
 
+### P4 — Shopify: chặn theo host (2026-10-20)
+
+16. **Đã** — luật theo tên ở mục 13 không đủ cho Shopify: tài khoản, admin, partners và Dev Dashboard đều nằm trên `shopify.com` với tên cookie không liệt kê trước được, và grant của handshake cộng host của mọi tab đang mở vào allowlist. `isIdentityCookie` nay chặn mọi cookie của host `shopify.com` ở cả hai đầu; chi tiết và số đo trong `CHANGELOG.md` (v1.3.6).
+17. **Đã** — hydrate hàng loạt không còn ghi đè cookie không phải danh tính mà jar AntiFan đã có: receiver chụp jar một lần cho mỗi request và bỏ qua cookie đã tồn tại (`liveJarWinsCount`), còn delta vẫn mirror. Extension thêm `source: 'chrome-extension-hydrate'` và dedupe bền trong `chrome.storage.local` (`antifanHydrateDigest`, 30 phút, khoá theo partition thay vì grant token). Receiver là thẩm quyền; dedupe chỉ giảm lưu lượng.
+
 ### Lệnh tái lập
 ```bash
 npm run compile

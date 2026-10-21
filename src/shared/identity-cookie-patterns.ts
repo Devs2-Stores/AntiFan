@@ -20,8 +20,14 @@
  * Haravan list": a value one client is expected to refresh cannot be copied to
  * a second live client without the two evicting each other.
  *
- * Name-only on purpose. These names are identity markers wherever they appear;
- * it is the platform that defines them, not the host they landed on.
+ * Names are identity markers wherever they appear: it is the platform that
+ * defines them, not the host they landed on. Some platforms keep their whole
+ * account plane on hosts that carry no storefront context at all, and use
+ * cookie names nobody can enumerate in advance. Shopify is one: accounts,
+ * admin, partners and the dev dashboard all live under `shopify.com`, while
+ * storefronts and their preview/password cookies live on `myshopify.com` or a
+ * custom domain. Every cookie on such a host is identity, so the host itself
+ * is the rule.
  */
 export const IDENTITY_COOKIE_PATTERNS: readonly RegExp[] = [
   // IdentityServer4: idsrv, idsrv.session, idsrv.device, idsrv.external, and the
@@ -39,7 +45,7 @@ export const IDENTITY_COOKIE_PATTERNS: readonly RegExp[] = [
   /^__Secure-[0-9]?PSIDCC$/i,
 ];
 
-export function isIdentityCookieName(name: string | null | undefined): boolean {
+function isIdentityCookieName(name: string | null | undefined): boolean {
   if (typeof name !== 'string') return false;
   const trimmed = name.trim();
   if (!trimmed) return false;
@@ -47,4 +53,19 @@ export function isIdentityCookieName(name: string | null | undefined): boolean {
     if (pattern.test(trimmed)) return true;
   }
   return false;
+}
+
+const IDENTITY_HOST_SUFFIXES: readonly string[] = [
+  'shopify.com',
+];
+
+function isIdentityHost(host: string | null | undefined): boolean {
+  if (typeof host !== 'string') return false;
+  const clean = host.trim().toLowerCase().replace(/^\./, '');
+  if (!clean) return false;
+  return IDENTITY_HOST_SUFFIXES.some((suffix) => clean === suffix || clean.endsWith(`.${suffix}`));
+}
+
+export function isIdentityCookie(cookie: { name?: string | null; domain?: string | null; host?: string | null }): boolean {
+  return isIdentityCookieName(cookie.name) || isIdentityHost(cookie.domain) || isIdentityHost(cookie.host);
 }
