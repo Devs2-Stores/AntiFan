@@ -524,7 +524,8 @@ const RESTORE_SEPARATOR_BYTES = Buffer.byteLength(RESTORE_SEPARATOR, 'utf8');
  * process unable to exit after teardown (the live theme proof stages its report and then
  * never terminates), while the same proof exits cleanly on winpty. Opt in with
  * ANTIFAN_USE_CONPTY=1 only after re-verifying process exit on the target machine;
- * ANTIFAN_USE_CONPTY=0 forces the winpty fallback.
+ * ANTIFAN_USE_CONPTY=0 forces the winpty fallback. The terminal host process opts in through
+ * its spawn environment (daemonEnv), so only the GUI's in-process manager stays on winpty.
  */
 export const DEFAULT_USE_CONPTY = false;
 const MIN_TERMINAL_ROWS = 8;
@@ -947,7 +948,12 @@ export class TerminalManager extends EventEmitter {
   // after the file write is confirmed so a crash mid-write loses nothing.
   private dirtySessionIds = new Set<string>();
   private persistedFragments = new Map<string, {
-    fragment: string;
+    // Already UTF-8 encoded. The state file holds up to 1MB per session across
+    // dozens of sessions; caching the JSON as a string still forced fs.writeFile
+    // to re-encode the whole multi-MB payload on the host's only JS thread every
+    // pass (~200ms for a 26MB file), which is the same thread that forwards
+    // keystrokes to the PTYs.
+    fragment: Buffer;
     lastSeq: number;
     bufferBytes: number;
     // The sealed buffer string, or the raw buffer of a record that never grew
@@ -1087,7 +1093,7 @@ export class TerminalManager extends EventEmitter {
    * display-only history and is never persisted — re-writing it would stack
    * one history banner per restart.
    */
-  private serializeSessionFragment(s: Session): string {
+  private serializeSessionFragment(s: Session): Buffer {
     const cols = s.pendingCols || s.pty?.cols || this.lastCols || 120;
     const rows = s.pendingRows || s.pty?.rows || this.lastRows || 30;
     const state = s.state;
@@ -1119,7 +1125,7 @@ export class TerminalManager extends EventEmitter {
     ) {
       return cached.fragment;
     }
-    const fragment = JSON.stringify({
+    const fragment = Buffer.from(JSON.stringify({
       id: s.id,
       name: s.name,
       cwd: s.cwd,
@@ -1140,7 +1146,7 @@ export class TerminalManager extends EventEmitter {
       restoredTail: restoredTailSource ? safeSliceTail(restoredTailSource, MAX_PERSISTED_BYTES) : undefined,
       exitCode: s.exitCode,
       exitedAt: s.exitedAt,
-    });
+    }), 'utf8');
     this.persistedFragments.set(s.id, {
       fragment,
       lastSeq: s.lastSeq || 0,
@@ -1169,21 +1175,55 @@ export class TerminalManager extends EventEmitter {
    * payload. Also drops fragment cache entries for sessions that no longer
    * exist so the map cannot leak across closes.
    */
-  private serializePersistPayload(): string {
-    const fragments: string[] = [];
+  private serializePersistPayload(): Buffer {
+    const fragments: Buffer[] = [];
     for (const s of this.sessions.values()) {
       fragments.push(this.serializeSessionFragment(s));
     }
+    return this.assemblePersistPayload(fragments);
+  }
+
+  /**
+   * The background-write form of serializePersistPayload. Re-serializing one
+   * dirty session is a ~1MB tail concat + stringify + encode (tens of ms), and
+   * a busy host has several dirty at once; yielding after each fresh fragment
+   * keeps any single block short so queued keystrokes still reach their PTY.
+   * A session closed during a yield is left out, and one opened during it is
+   * picked up by the persist it scheduled itself.
+   */
+  private async serializePersistPayloadAsync(): Promise<Buffer> {
+    const serialized: Array<{ session: Session; fragment: Buffer }> = [];
+    for (const s of Array.from(this.sessions.values())) {
+      if (this.sessions.get(s.id) !== s) continue;
+      const previous = this.persistedFragments.get(s.id)?.fragment;
+      const fragment = this.serializeSessionFragment(s);
+      serialized.push({ session: s, fragment });
+      if (fragment !== previous) await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+    return this.assemblePersistPayload(
+      serialized.filter(({ session }) => this.sessions.get(session.id) === session).map(({ fragment }) => fragment),
+    );
+  }
+
+  private assemblePersistPayload(fragments: Buffer[]): Buffer {
     for (const id of this.persistedFragments.keys()) {
       if (!this.sessions.has(id)) this.persistedFragments.delete(id);
     }
     // Compact JSON: the state file is machine-read on restore, and pretty
     // printing a multi-MB buffer string only burns main-thread time.
-    return (
+    const parts: Buffer[] = [Buffer.from(
       `{"activeSessionId":${JSON.stringify(this.activeSessionId)},` +
       `"lastCols":${this.lastCols || 120},"lastRows":${this.lastRows || 30},` +
-      `"sessions":[${fragments.join(',')}]}`
-    );
+      `"sessions":[`,
+      'utf8',
+    )];
+    const comma = Buffer.from(',', 'utf8');
+    fragments.forEach((fragment, index) => {
+      if (index > 0) parts.push(comma);
+      parts.push(fragment);
+    });
+    parts.push(Buffer.from(']}', 'utf8'));
+    return Buffer.concat(parts);
   }
 
   /**
@@ -1217,8 +1257,8 @@ export class TerminalManager extends EventEmitter {
       const dirtySnapshot = new Set(this.dirtySessionIds);
       try {
         await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
-        const serialized = this.serializePersistPayload();
-        await fs.promises.writeFile(tempPath, serialized, 'utf8');
+        const serialized = await this.serializePersistPayloadAsync();
+        await fs.promises.writeFile(tempPath, serialized);
         if (this.writeSequence === currentSeq) {
           try {
             await fs.promises.rename(tempPath, filePath);
@@ -1226,7 +1266,7 @@ export class TerminalManager extends EventEmitter {
           } catch {
             // Windows safe fallback: write directly to target file ONLY if sequence is still current
             if (this.writeSequence === currentSeq) {
-              await fs.promises.writeFile(filePath, serialized, 'utf8');
+              await fs.promises.writeFile(filePath, serialized);
               this.clearDirtySessions(dirtySnapshot);
             }
             await fs.promises.unlink(tempPath).catch(() => {});
@@ -1280,12 +1320,12 @@ export class TerminalManager extends EventEmitter {
       fs.mkdirSync(path.dirname(filePath), { recursive: true });
       const serialized = this.serializePersistPayload();
       try {
-        fs.writeFileSync(tempPath, serialized, 'utf8');
+        fs.writeFileSync(tempPath, serialized);
         fs.renameSync(tempPath, filePath);
         this.clearDirtySessions(dirtySnapshot);
       } catch {
         // Windows safe fallback: write directly to target file if rename throws (locked / AV / EPERM)
-        fs.writeFileSync(filePath, serialized, 'utf8');
+        fs.writeFileSync(filePath, serialized);
         this.clearDirtySessions(dirtySnapshot);
         try {
           if (fs.existsSync(tempPath)) {

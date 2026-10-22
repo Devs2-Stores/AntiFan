@@ -201,13 +201,24 @@ export interface ShellContentGeometry {
   sidebarActualWidth: number;
 }
 
+// Compiled asset paths already found on disk. Chrome-surface authorization resolves an asset on
+// every renderer IPC — each keystroke typed into a terminal included — and a synchronous
+// existsSync per message showed up as ~0.5s of main-thread time per 30s. A miss is not cached,
+// so an asset that appears later (a compile during dev) is still picked up.
+const compiledRendererAssets = new Map<string, string>();
+
 /**
  * Resolve a renderer asset that may live beside the compiled output or in the
  * source tree during development.
  */
 export function resolveRendererAsset(fileName: string): string {
+  const known = compiledRendererAssets.get(fileName);
+  if (known) return known;
   const compiled = path.join(__dirname, '..', '..', 'renderer', fileName);
-  if (fs.existsSync(compiled)) return compiled;
+  if (fs.existsSync(compiled)) {
+    compiledRendererAssets.set(fileName, compiled);
+    return compiled;
+  }
   return path.join(process.cwd(), 'src', 'renderer', fileName);
 }
 

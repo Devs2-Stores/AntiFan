@@ -93,11 +93,22 @@ interface RunLivenessInputs {
   updatedAt: number;
 }
 
-function readRunLivenessInputs(filePath: string, stamp: string): RunLivenessInputs {
+/**
+ * Run files read on the libuv pool for one background sweep, keyed by entry name. Only run files
+ * (*.json minus *.brief.json) carry a stat/content; `entries` is the full directory listing.
+ */
+interface PreloadedRunFiles {
+  entries: string[];
+  files: Map<string, { stat: fs.Stats | null; content: string | null }>;
+}
+
+const isRunFileName = (entry: string): boolean => entry.endsWith('.json') && !entry.endsWith('.brief.json');
+
+function readRunLivenessInputs(read: () => string, stamp: string): RunLivenessInputs {
   const invalid: RunLivenessInputs = { stamp, valid: false, ended: false, pid: 0, updatedAt: 0 };
   let data: Partial<TerminalRunStateFile>;
   try {
-    data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    data = JSON.parse(read());
   } catch {
     return invalid;
   }
@@ -138,6 +149,12 @@ export class RunStateService extends EventEmitter {
   // Parsed edit-guard change summary per (cwd, ompSessionId), reused while the
   // log's mtime:size stamp and the requested runSeq hold.
   private readonly changesCache = new Map<string, { stamp: string; runSeq: number; result: RunChanges }>();
+  // Set only for the synchronous stretch of a background sweep: the prune and the projection
+  // read run files from it instead of the disk.
+  private preloadedRunFiles: PreloadedRunFiles | null = null;
+  private backgroundSweepInFlight = false;
+  // A trigger that arrived while a background sweep was in flight; `prune` is OR-ed across them.
+  private backgroundSweepQueued: { prune: boolean } | null = null;
 
   constructor(options: RunStateServiceOptions) {
     super();
@@ -173,9 +190,7 @@ export class RunStateService extends EventEmitter {
     }
 
     this.sweepTimer = setInterval(() => {
-      try {
-        this.sweepSync();
-      } catch {}
+      void this.sweepInBackground(true).catch(() => {});
     }, this.sweepMs);
 
     if (typeof this.sweepTimer.unref === 'function') {
@@ -215,7 +230,7 @@ export class RunStateService extends EventEmitter {
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
     this.debounceTimer = setTimeout(() => {
       this.debounceTimer = undefined;
-      this.emitIfChanged(false);
+      void this.sweepInBackground(false).catch(() => {});
     }, 100);
     if (typeof this.debounceTimer.unref === 'function') {
       this.debounceTimer.unref();
@@ -226,6 +241,87 @@ export class RunStateService extends EventEmitter {
     // Emit only on an observable change: prune deleted something, or the set
     // of run files the card projection reads changed since the last emit.
     this.emitIfChanged(this.pruneSync());
+  }
+
+  /**
+   * The timer/watch form of sweepSync. Agents rewrite their run file on every
+   * heartbeat and the watch fires right after each write — exactly when
+   * Windows real-time scanning still holds the fresh file, so a synchronous
+   * read parks the main thread (measured up to ~300 ms) and keystrokes for
+   * every window wait behind it. Here the disk reads run on the libuv pool;
+   * the prune and the projection then run unchanged over that snapshot.
+   */
+  public async sweepInBackground(prune = true): Promise<void> {
+    if (this.backgroundSweepInFlight) {
+      this.backgroundSweepQueued = { prune: prune || (this.backgroundSweepQueued?.prune ?? false) };
+      return;
+    }
+    this.backgroundSweepInFlight = true;
+    try {
+      const snapshot = await this.preloadRunFiles();
+      this.preloadedRunFiles = snapshot;
+      try {
+        this.emitIfChanged(prune ? this.pruneSync() : false);
+      } finally {
+        this.preloadedRunFiles = null;
+      }
+    } finally {
+      this.backgroundSweepInFlight = false;
+    }
+    const queued = this.backgroundSweepQueued;
+    this.backgroundSweepQueued = null;
+    if (queued) await this.sweepInBackground(queued.prune);
+  }
+
+  /** Null when the runs dir cannot be listed; the sweep then falls back to the disk reads. */
+  private async preloadRunFiles(): Promise<PreloadedRunFiles | null> {
+    let entries: string[];
+    try {
+      entries = await fs.promises.readdir(this.runsDir);
+    } catch {
+      return null;
+    }
+    const files: PreloadedRunFiles['files'] = new Map();
+    await Promise.all(entries.filter(isRunFileName).map(async (entry) => {
+      const filePath = path.join(this.runsDir, entry);
+      let stat: fs.Stats | null = null;
+      try {
+        stat = await fs.promises.stat(filePath);
+      } catch {}
+      let content: string | null = null;
+      if (stat?.isFile()) {
+        try {
+          content = await fs.promises.readFile(filePath, 'utf8');
+        } catch {}
+      }
+      files.set(entry, { stat, content });
+    }));
+    return { entries, files };
+  }
+
+  private listRunsDir(): string[] {
+    return this.preloadedRunFiles ? [...this.preloadedRunFiles.entries] : fs.readdirSync(this.runsDir);
+  }
+
+  private statRunFile(entry: string): fs.Stats {
+    if (!this.preloadedRunFiles) return fs.statSync(path.join(this.runsDir, entry));
+    const stat = this.preloadedRunFiles.files.get(entry)?.stat;
+    if (!stat) throw new Error(`ENOENT: ${entry}`);
+    return stat;
+  }
+
+  private readRunFile(entry: string): string {
+    if (!this.preloadedRunFiles) return fs.readFileSync(path.join(this.runsDir, entry), 'utf8');
+    const content = this.preloadedRunFiles.files.get(entry)?.content;
+    if (typeof content !== 'string') throw new Error(`ENOENT: ${entry}`);
+    return content;
+  }
+
+  /** A file the prune removed must not be projected later in the same pass. */
+  private forgetRunFile(entry: string): void {
+    if (!this.preloadedRunFiles) return;
+    this.preloadedRunFiles.entries = this.preloadedRunFiles.entries.filter((name) => name !== entry);
+    this.preloadedRunFiles.files.delete(entry);
   }
 
   /**
@@ -253,7 +349,7 @@ export class RunStateService extends EventEmitter {
     if (!fs.existsSync(this.runsDir)) return null;
     let entries: string[];
     try {
-      entries = fs.readdirSync(this.runsDir);
+      entries = this.listRunsDir();
     } catch {
       // A transient read failure proves nothing changed; keep the baseline.
       return this.lastEmittedRunFingerprint;
@@ -262,11 +358,10 @@ export class RunStateService extends EventEmitter {
     const seen = new Set<string>();
     const parts: string[] = [];
     for (const entry of entries) {
-      if (!entry.endsWith('.json') || entry.endsWith('.brief.json')) continue;
-      const filePath = path.join(this.runsDir, entry);
+      if (!isRunFileName(entry)) continue;
       let stat: fs.Stats | null = null;
       try {
-        stat = fs.statSync(filePath);
+        stat = this.statRunFile(entry);
       } catch {}
       if (!stat || !stat.isFile()) {
         parts.push(`${entry}!`);
@@ -276,7 +371,7 @@ export class RunStateService extends EventEmitter {
       const stamp = `${stat.mtimeMs}:${stat.size}`;
       let inputs = this.runLivenessInputs.get(entry);
       if (!inputs || inputs.stamp !== stamp) {
-        inputs = readRunLivenessInputs(filePath, stamp);
+        inputs = readRunLivenessInputs(() => this.readRunFile(entry), stamp);
         this.runLivenessInputs.set(entry, inputs);
       }
       const verdict = !inputs.valid
@@ -306,7 +401,7 @@ export class RunStateService extends EventEmitter {
 
     let entries: string[];
     try {
-      entries = fs.readdirSync(this.runsDir);
+      entries = this.listRunsDir();
     } catch {
       return cards;
     }
@@ -316,14 +411,13 @@ export class RunStateService extends EventEmitter {
 
     for (const entry of entries) {
       // Carve out *.brief.json and non-json entries
-      if (!entry.endsWith('.json') || entry.endsWith('.brief.json')) {
+      if (!isRunFileName(entry)) {
         continue;
       }
 
-      const filePath = path.join(this.runsDir, entry);
       let content: string;
       try {
-        content = fs.readFileSync(filePath, 'utf8');
+        content = this.readRunFile(entry);
       } catch {
         continue;
       }
@@ -546,7 +640,7 @@ export class RunStateService extends EventEmitter {
     if (!fs.existsSync(this.runsDir)) return changed;
     let entries: string[];
     try {
-      entries = fs.readdirSync(this.runsDir);
+      entries = this.listRunsDir();
     } catch {
       return changed;
     }
@@ -555,7 +649,7 @@ export class RunStateService extends EventEmitter {
     const activeOmpSessions = new Set<string>();
 
     for (const file of entries) {
-      if (!file.endsWith('.json') || file.endsWith('.brief.json')) {
+      if (!isRunFileName(file)) {
         continue;
       }
 
@@ -564,7 +658,7 @@ export class RunStateService extends EventEmitter {
 
       let data: Partial<TerminalRunStateFile> | null = null;
       try {
-        data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+        data = JSON.parse(this.readRunFile(file));
       } catch {
         // Malformed run file
       }
@@ -590,6 +684,7 @@ export class RunStateService extends EventEmitter {
       if (shouldPrune) {
         try {
           fs.unlinkSync(filePath);
+          this.forgetRunFile(file);
           changed = true;
         } catch {}
 
@@ -598,6 +693,7 @@ export class RunStateService extends EventEmitter {
         try {
           if (fs.existsSync(briefMirrorPath)) {
             fs.unlinkSync(briefMirrorPath);
+            this.forgetRunFile(`${sid}.brief.json`);
           }
         } catch {}
 
@@ -625,6 +721,7 @@ export class RunStateService extends EventEmitter {
         if (!session) {
           try {
             fs.unlinkSync(path.join(this.runsDir, file));
+            this.forgetRunFile(file);
             changed = true;
           } catch {}
         }

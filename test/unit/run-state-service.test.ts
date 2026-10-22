@@ -66,6 +66,7 @@ interface RunStateServiceConstructor {
     start(): void;
     stop(): void;
     sweepSync(): void;
+    sweepInBackground(prune?: boolean): Promise<void>;
     on(event: string, listener: () => void): unknown;
     removeListener(event: string, listener: () => void): unknown;
     getRunsSync(): RunCardLike[];
@@ -738,5 +739,96 @@ describe('RunStateService Suite', () => {
     const after = service.readChanges(workspaceDir, ompSessionId, 1);
     assert.deepStrictEqual(after?.files, ['a.liquid', 'b.liquid'], 'an append must invalidate the cached summary');
     assert.strictEqual(service.readChanges(workspaceDir, ompSessionId, 2)?.fileCount, 0, 'a different runSeq is not served from cache');
+  });
+
+  test('13. the background sweep reads run files off the main thread and projects what sweepSync would', async () => {
+    const bgRunsDir = path.join(tempRoot, 'background-sweep-runs');
+    fs.mkdirSync(bgRunsDir, { recursive: true });
+    const liveSessions = new Set(['bg-live', 'bg-gone']);
+    const service = new RunStateService({
+      runsDir: bgRunsDir,
+      lookupSession: (id: string) => (liveSessions.has(id) ? { id } : undefined),
+      isProcessAlive: () => true,
+      clock: () => clockTime,
+      watch: false,
+    });
+    const writeRun = (id: string) => fs.writeFileSync(
+      path.join(bgRunsDir, `${id}.json`),
+      JSON.stringify({ schema: 1, terminalSessionId: id, ompSessionId: `omp-${id}`, pid: 4242, cwd: workspaceDir, mode: 'direct', state: 'running', runSeq: 1, updatedAt: clockTime }),
+      'utf8',
+    );
+    writeRun('bg-live');
+    writeRun('bg-gone');
+    fs.writeFileSync(path.join(bgRunsDir, 'bg-gone.brief.json'), '{}', 'utf8');
+
+    const emitted: RunCardLike[][] = [];
+    service.on('change', ((cards: RunCardLike[]) => { emitted.push(cards); }) as () => void);
+
+    // A synchronous read or stat of a run file is the stall this path exists to avoid.
+    const { syncBuiltinESMExports } = require('node:module');
+    const realReadFileSync = fs.readFileSync;
+    const realStatSync = fs.statSync;
+    const syncRunFileTouches: string[] = [];
+    const inRunsDir = (target: unknown) => typeof target === 'string' && path.resolve(target).startsWith(path.resolve(bgRunsDir));
+    liveSessions.delete('bg-gone');
+    try {
+      fs.readFileSync = (target: string, ...rest: unknown[]) => {
+        if (inRunsDir(target)) syncRunFileTouches.push(`read ${path.basename(target)}`);
+        return realReadFileSync(target, ...rest);
+      };
+      fs.statSync = (target: string, ...rest: unknown[]) => {
+        if (inRunsDir(target)) syncRunFileTouches.push(`stat ${path.basename(target)}`);
+        return realStatSync(target, ...rest);
+      };
+      syncBuiltinESMExports();
+      await service.sweepInBackground(true);
+    } finally {
+      fs.readFileSync = realReadFileSync;
+      fs.statSync = realStatSync;
+      syncBuiltinESMExports();
+    }
+
+    assert.deepStrictEqual(syncRunFileTouches, [], 'no run file may be read or stat-ed synchronously');
+    assert.strictEqual(fs.existsSync(path.join(bgRunsDir, 'bg-gone.json')), false, 'prune still removes a gone session');
+    assert.strictEqual(fs.existsSync(path.join(bgRunsDir, 'bg-gone.brief.json')), false, 'its brief mirror goes with it');
+    assert.strictEqual(emitted.length, 1);
+    assert.deepStrictEqual(emitted[0]!.map((c) => c.terminalSessionId), ['bg-live'], 'a file pruned in the pass is not projected');
+    assert.deepStrictEqual(emitted[0], service.getRunsSync(), 'the background projection equals the synchronous one');
+
+    // Unchanged set: the background pass is as quiet as sweepSync.
+    await service.sweepInBackground(true);
+    assert.strictEqual(emitted.length, 1);
+  });
+
+  test('14. overlapping background sweeps coalesce into one follow-up pass', async () => {
+    const overlapRunsDir = path.join(tempRoot, 'background-overlap-runs');
+    fs.mkdirSync(overlapRunsDir, { recursive: true });
+    const service = new RunStateService({
+      runsDir: overlapRunsDir,
+      lookupSession: (id: string) => ({ id }),
+      isProcessAlive: () => true,
+      clock: () => clockTime,
+      watch: false,
+    });
+    let changes = 0;
+    service.on('change', () => { changes += 1; });
+
+    const realReaddir = fs.promises.readdir;
+    let passes = 0;
+    try {
+      fs.promises.readdir = (...args: unknown[]) => {
+        passes += 1;
+        return realReaddir(...args);
+      };
+      const first = service.sweepInBackground(false);
+      const second = service.sweepInBackground(false);
+      const third = service.sweepInBackground(false);
+      await Promise.all([first, second, third]);
+    } finally {
+      fs.promises.readdir = realReaddir;
+    }
+
+    assert.strictEqual(passes, 2, 'triggers during an in-flight pass collapse into a single follow-up');
+    assert.strictEqual(changes, 1, 'the follow-up over an unchanged set stays quiet');
   });
 });
