@@ -12,6 +12,7 @@ import { TerminalDeltaResult, TerminalJournalEntry, TerminalAckPayload, Terminal
 import { ownerKey } from './window-owner';
 import { PtyWorkerHost } from './pty-worker-host';
 import { absorbConoutRelayErrors } from './pty-conout-relay';
+import { settleConsoleListOnAgentExit } from './pty-agent-teardown';
 export function resolveScriptsDir(): string | undefined {
   let dir = __dirname;
   for (let i = 0; i < 6; i++) {
@@ -1883,6 +1884,7 @@ export class TerminalManager extends EventEmitter {
     }
     // The worker-hosted proxy carries no agent, so this only arms PTYs spawned on this thread.
     absorbConoutRelayErrors(child);
+    settleConsoleListOnAgentExit(child);
     if (isBenchmarkEnabled()) {
       recordBenchmark({ surface: 'terminal', name: 'ptySpawn', value: performance.now() - spawnStart, extra: { sessionId: id, conpty: canUseConpty && !this.conptyFailed } });
     }

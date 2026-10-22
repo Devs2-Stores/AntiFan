@@ -15,6 +15,7 @@ import { parentPort } from 'node:worker_threads';
 import { spawn as spawnProcess } from 'node:child_process';
 import * as pty from 'node-pty';
 import { absorbConoutRelayErrors } from './pty-conout-relay';
+import { releaseAgentHandles, settleConsoleListOnAgentExit } from './pty-agent-teardown';
 
 export type PtyWorkerRequest =
   | { op: 'spawn'; token: number; file: string; options: pty.IPtyForkOptions | pty.IWindowsPtyForkOptions; useConpty: boolean; fallbackCwd: string }
@@ -99,6 +100,8 @@ function handleSpawn(req: Extract<PtyWorkerRequest, { op: 'spawn' }>): void {
   const token = req.token;
   // Unhandled here, the relay's teardown EPIPE would end this thread and every shell it hosts.
   absorbConoutRelayErrors(child);
+  // Otherwise each ConPTY kill holds this thread open 5 s, and shutdown waits for the thread.
+  settleConsoleListOnAgentExit(child);
   ptys.set(token, child);
   post({ type: 'spawned', token, pid: child.pid, conptyFailed, ...(conptyError ? { conptyError } : {}) });
   child.onData((data) => {
@@ -112,6 +115,8 @@ function handleSpawn(req: Extract<PtyWorkerRequest, { op: 'spawn' }>): void {
   child.onExit(({ exitCode, signal }) => {
     ptys.delete(token);
     flushToken(token);
+    // Exit is reported once the output socket has closed, so nothing is left to read.
+    releaseAgentHandles(child);
     post({ type: 'exit', token, exitCode, ...(typeof signal === 'number' ? { signal } : {}) });
   });
 }
@@ -122,6 +127,7 @@ function kill(token: number): void {
   const pid = child.pid;
   try { child.resume(); } catch {}
   try { child.kill(); } catch {}
+  releaseAgentHandles(child);
   killTree(pid);
 }
 
