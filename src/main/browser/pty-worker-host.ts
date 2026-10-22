@@ -25,7 +25,8 @@ const CRASH_LIMIT = 3;
  */
 const SHUTDOWN_DRAIN_BASE_MS = 1_500;
 const SHUTDOWN_DRAIN_PER_SHELL_MS = 500;
-// node-pty's console-list agent gives up after 5 s; measured exit 4.9 s after `drained` (25 shells).
+// The worker releases what node-pty holds after a kill (`pty-agent-teardown.ts`) and exits right
+// after its last kill; this only bounds a wedged thread.
 const SHUTDOWN_EXIT_MS = 8_000;
 
 type Listener<T> = (value: T) => void;
