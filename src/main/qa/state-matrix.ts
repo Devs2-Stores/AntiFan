@@ -385,7 +385,20 @@ export function buildDiscoverScript(specs: StateMatrixTriggerSpec[], maxTriggers
         const words = textOf(el);
         const href = el.getAttribute('href');
         const inert = el.tagName !== 'A' || !href || href.startsWith('#') || href.toLowerCase().startsWith('javascript:');
-        if (inert && words.length <= 80 && PDP_OPENER_WORDS.test(words)) { isTrigger = true; pdpOpener = true; }
+        // A <summary> of a native <details> whose content stays in normal flow expands in place and
+        // never opens an overlay. Themes that build modals, drawers or popovers on <details>
+        // (details-modal, menu-drawer, a positioned share popover) keep the summary as an opener.
+        let disclosure = false;
+        const det = el.tagName === 'SUMMARY' && el.parentElement && el.parentElement.tagName === 'DETAILS' ? el.parentElement : null;
+        if (det && !det.closest('details-modal, menu-drawer, header-drawer, [role="dialog"], [aria-modal="true"]')) {
+          disclosure = true;
+          for (const child of Array.from(det.children)) {
+            if (child === el) continue;
+            const pos = getComputedStyle(child).position;
+            if (pos === 'fixed' || pos === 'absolute') { disclosure = false; break; }
+          }
+        }
+        if (inert && !disclosure && words.length <= 80 && PDP_OPENER_WORDS.test(words)) { isTrigger = true; pdpOpener = true; }
       }
       if (isTrigger) candidates.push({ el, panel: resolvePanel(el), spec: null, pdp: pdpOpener });
     }

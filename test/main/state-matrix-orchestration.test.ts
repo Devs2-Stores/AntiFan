@@ -286,6 +286,25 @@ describe('state matrix product-page openers', () => {
     assert.ok(discoverScript.includes('const PDP = true'));
   });
 
+  it('skips an in-flow <details> summary but keeps <details> overlays as openers', () => {
+    const req = createRequire(__filename);
+    const jsdomPath = req.resolve('jsdom', { paths: process.env.ANTIFAN_JSDOM ? [process.env.ANTIFAN_JSDOM, __dirname] : [__dirname] });
+    const { JSDOM } = req(jsdomPath) as { JSDOM: new (html: string, opts: Record<string, unknown>) => { window: { eval(code: string): unknown } } };
+    const dom = new JSDOM(`<!doctype html><html><body><main>
+<details class="acc"><summary class="acc-head">Đánh giá &amp; Hỏi đáp</summary><p>Chưa có đánh giá.</p></details>
+<details-modal class="quick"><details><summary class="modal-share">Chia sẻ</summary><div role="dialog">Link</div></details></details-modal>
+<details class="pop"><summary class="popover-share">Share</summary><div style="position: absolute">Link</div></details>
+<button type="button" class="review-open">Đánh giá</button>
+</main></body></html>`, { runScripts: 'outside-only', url: 'https://shop.example.com/products/demo' });
+    const res = dom.window.eval(buildDiscoverScript([], 8, 'pdp')) as { triggers: Array<{ trigger: string }>; skipped: Array<{ selector: string }> };
+    const seen = [...res.triggers.map((t) => t.trigger), ...res.skipped.map((s) => s.selector)];
+    const has = (re: RegExp) => seen.some((s) => re.test(s));
+    assert.ok(!has(/acc-head/), `an in-flow accordion summary must not be a candidate: ${JSON.stringify(seen)}`);
+    assert.ok(has(/modal-share/), `a details-modal summary must stay a candidate: ${JSON.stringify(seen)}`);
+    assert.ok(has(/popover-share/), `a summary with a positioned popover must stay a candidate: ${JSON.stringify(seen)}`);
+    assert.ok(has(/review-open/), `the review button must stay a candidate: ${JSON.stringify(seen)}`);
+  });
+
   it('refuses an unknown auto-populate mode', async () => {
     const { deps } = fakeDeps(() => ({ ok: true }));
     await assert.rejects(runStateMatrix(deps, { autoPopulate: 'cart' as never }), /autoPopulate must be "pdp"/);
