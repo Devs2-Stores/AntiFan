@@ -88,7 +88,9 @@ function handleSpawn(req: Extract<PtyWorkerRequest, { op: 'spawn' }>): void {
         child = spawnOnce(req.file, { ...req.options, useConpty: false } as pty.IWindowsPtyForkOptions, req.fallbackCwd);
       }
     } else {
-      child = spawnOnce(req.file, req.options, req.fallbackCwd);
+      // Explicit: node-pty treats an absent useConpty as "ConPTY on build 18309+", so leaving it
+      // out silently ran every shell on ConPTY and made ANTIFAN_USE_CONPTY=0 a no-op here.
+      child = spawnOnce(req.file, { ...req.options, useConpty: false } as pty.IWindowsPtyForkOptions, req.fallbackCwd);
     }
   } catch (err) {
     post({ type: 'spawnError', token: req.token, message: err instanceof Error ? err.message : String(err) });

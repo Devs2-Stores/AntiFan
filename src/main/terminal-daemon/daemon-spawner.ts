@@ -159,8 +159,17 @@ function detectJobMembership(): 'in-job' | 'free' | 'unknown' {
   }
 }
 
-function daemonEnv(token: string, version: string, extra: Record<string, string>): Record<string, string> {
+/**
+ * The host owns every interactive PTY and runs them on ConPTY: measured keypress→echo through
+ * winpty was p50 257 ms / p90 635 ms for a full-repaint agent TUI vs 68 / 308 ms on ConPTY. (The
+ * host's worker already landed on ConPTY implicitly through node-pty's default; this makes it the
+ * stated choice.) The GUI process keeps winpty (DEFAULT_USE_CONPTY) because its exit is what ConPTY
+ * once hung; the host's shutdown has a forced-exit deadline instead. An explicit
+ * ANTIFAN_USE_CONPTY in the GUI's environment (including '0' to force winpty) still wins.
+ */
+export function daemonEnv(token: string, version: string, extra: Record<string, string>): Record<string, string> {
   return {
+    ANTIFAN_USE_CONPTY: '1',
     ...process.env,
     ELECTRON_RUN_AS_NODE: '1',
     ANTIFAN_TERMINAL_HOST_TOKEN: token,

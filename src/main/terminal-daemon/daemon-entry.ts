@@ -483,6 +483,12 @@ function main(): void {
             // other N-1 shells on every daemon exit.
             respond(true, { shuttingDown: true });
             log('shutdown requested by client');
+            // A PTY backend that wedges during teardown (ConPTY has hung process exit before)
+            // must not leave a stale host alive: dispose gets a deadline, then the host exits anyway.
+            setTimeout(() => {
+              log('dispose on shutdown exceeded 5000ms; forcing exit');
+              process.exit(0);
+            }, 5000).unref?.();
             try { await tm.dispose(); } catch (err) { log(`dispose on shutdown failed: ${String(err)}`); }
             setTimeout(() => process.exit(0), 50).unref?.();
             break;
