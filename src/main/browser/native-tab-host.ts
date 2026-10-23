@@ -16,9 +16,9 @@ import { EventEmitter } from 'node:events';
 import { performance } from 'node:perf_hooks';
 import { StorageLocations } from '../config/storage-locations';
 import { parseOwnerKey } from '../project/project-context';
-import { openSpace, createConfirmationStore, type SpaceOpenDeps } from '../project/space-open';
+import { openSpace, openSpaceSplits, describeSpaceSplits, createConfirmationStore, type SpaceOpenDeps, type SpaceSplitAnchor, type SpaceSplitDeps } from '../project/space-open';
 import { buildSpaceTemplate, writeSpaceManifestExclusive, antifanDirUnignoredInGit } from '../project/space-manifest';
-import type { SpaceInitResult, ReadFilePreviewResult, CaptureFullPageResult } from '../../shared/contracts';
+import type { SpaceInitResult, SpaceOpenReason, SpaceSplitsInfo, ReadFilePreviewResult, CaptureFullPageResult } from '../../shared/contracts';
 import { AntiFanTab, SplitPaneId, AntiFanPickedElement, TOOLBAR_CHANNELS, SIDEBAR_CHANNELS, TERMINAL_CHANNELS, FRAME_BACKDROP_CHANNELS, PROJECT_WINDOW_CHANNELS, TerminalAckPayload, TerminalDataPayload, TerminalNewInFolderResult, SpaceOpenResult, TerminalTabLayout, TerminalTabPrefs, TERMINAL_TAB_LAYOUT_DEFAULT_WIDTH, clampTerminalTabSidebarWidth, TERMINAL_CATEGORY_COLORS_MAX, TERMINAL_CATEGORY_COLOR_PATTERN, ToolbarPhoneStatus, TerminalAgentAffinityInfo, ProjectWindowIdentity, BRIDGE_CHANNELS, RunCardState, RunControlOp, RunControlReason, RunControlResult, CapsuleBrief, CapsuleBriefResult, CapsuleBriefReason } from '../../shared/contracts';
 import { buildBridgeHealthReport, subscribeBridgeHealth } from '../bridge/bridge-health';
 import { RunStateService } from '../run/run-state-service';
@@ -482,6 +482,12 @@ function senderWebContentsId(sender: unknown): number | undefined {
   if (!sender || typeof sender !== 'object' || !('id' in sender)) return undefined;
   const id = sender.id;
   return typeof id === 'number' ? id : undefined;
+}
+
+/** The `sessionId` a Space split request names, when its payload names one. */
+function spaceSplitSessionId(payload: unknown): string | undefined {
+  if (!payload || typeof payload !== 'object' || !('sessionId' in payload)) return undefined;
+  return typeof payload.sessionId === 'string' ? payload.sessionId : undefined;
 }
 
 function isExistingDirectory(candidate: string | undefined): boolean {
@@ -4741,8 +4747,7 @@ export class NativeTabHost extends EventEmitter {
       let targetOwnerKey = '';
       const store = createConfirmationStore(path.join(StorageLocations.getControlPlaneDir(), 'space-confirmed.json'));
       const deps: SpaceOpenDeps = {
-        folderKey: canonicalFolderKey,
-        admit: () => host.assertApplicationAdmitsHostWork(TERMINAL_CHANNELS.SPACE_OPEN),
+        ...host.spaceTerminalDeps(TERMINAL_CHANNELS.SPACE_OPEN, () => targetOwnerKey),
         isConfirmed: store.isConfirmed,
         recordConfirmed: store.recordConfirmed,
         openWindow: async (folderPath) => {
@@ -4785,14 +4790,6 @@ export class NativeTabHost extends EventEmitter {
             },
           };
         },
-        sessions: () =>
-          (manager.listSessions() as SessionSummary[]).map((s) => ({
-            id: s.id,
-            cwd: s.cwd,
-            state: s.state,
-            spaceTerminalId: s.spaceTerminalId,
-            splitOf: s.splitOf,
-          })),
         mint: async (directory, capsuleId, spec) =>
           await host.admitThenRun<string | null>(TERMINAL_CHANNELS.SPACE_OPEN, { ownerKey: targetOwnerKey }, async () => {
             const sessionId = await manager.createSession(directory, capsuleId, targetOwnerKey, {
@@ -4804,36 +4801,40 @@ export class NativeTabHost extends EventEmitter {
             await manager.renameSession(sessionId, spec.label);
             return sessionId;
           }),
-        mintSplit: async (directory, _capsuleId, parentSessionId, spec) =>
-          await host.admitThenRun<string | null>(TERMINAL_CHANNELS.SPACE_OPEN, { ownerKey: targetOwnerKey }, async () => {
-            // The split inherits the parent's window owner and capsule inside the manager; the
-            // pane owns its role, idle policy, directory and label from the first persist.
-            const sessionId = await manager.createSplitSession(parentSessionId, directory, undefined, undefined, {
-              role: spec.role,
-              idlePolicy: spec.idlePolicy,
-              spaceTerminalId: spec.id,
-              name: spec.label,
-            });
-            return typeof sessionId === 'string' && sessionId ? sessionId : null;
-          }),
-        findSyncDuplicate: (directory, capsuleId) => {
-          const briefOf = (id: string) => (id ? host.capsuleManager.get(id)?.brief : undefined);
-          // Splits count: a watcher in a lower pane pushes to its remote exactly like a base shell.
-          const live = (manager.listSessions() as SessionSummary[])
-            .filter((s) => s.role === 'sync' && s.state === 'running')
-            .map((s) => ({
-              id: s.id,
-              label: String(s.displayLabel || s.name || s.id),
-              folder: String(s.cwd || ''),
-              brief: briefOf(typeof s.capsuleId === 'string' ? s.capsuleId : ''),
-            }));
-          const duplicate = findSyncDuplicate(syncIdentity(directory, briefOf(capsuleId)), live);
-          return duplicate ? { id: duplicate.id, label: duplicate.label } : undefined;
-        },
-        typeCommand: (sessionId, text) => manager.writeTo(sessionId, text),
-        wake: async (sessionId) => (await manager.wakeSession(sessionId)) !== false,
       };
       return openSpace(deps, realPath, typeof payload.confirmHash === 'string' ? payload.confirmHash : undefined);
+    },
+  },
+  {
+    channel: TERMINAL_CHANNELS.SPACE_SPLITS_INFO,
+    surface: ['sidebar', 'terminalPopout'],
+    sessionArgs: (args) => [spaceSplitSessionId(args[0])],
+    run: ({ host }, event, args): SpaceSplitsInfo => {
+      const resolved = host.resolveSpaceSplitAnchor(event?.sender?.id, spaceSplitSessionId(args[0]));
+      if (!resolved.ok) return resolved;
+      return describeSpaceSplits(resolved.folder, resolved.anchor.spaceTerminalId);
+    },
+  },
+  {
+    channel: TERMINAL_CHANNELS.SPACE_OPEN_SPLITS,
+    surface: ['sidebar', 'terminalPopout'],
+    sessionArgs: (args) => [spaceSplitSessionId(args[0])],
+    run: async ({ host }, event, args): Promise<SpaceOpenResult> => {
+      host.assertApplicationAdmitsHostWork(TERMINAL_CHANNELS.SPACE_OPEN_SPLITS);
+      const raw = args[0];
+      const confirmHash = raw && typeof raw === 'object' && 'confirmHash' in raw ? raw.confirmHash : undefined;
+      if (confirmHash !== undefined && typeof confirmHash !== 'string') {
+        return { ok: false, reason: 'INVALID_PAYLOAD', message: 'confirmHash must be a string' };
+      }
+      const resolved = host.resolveSpaceSplitAnchor(event?.sender?.id, spaceSplitSessionId(raw));
+      if (!resolved.ok) return resolved;
+      const store = createConfirmationStore(path.join(StorageLocations.getControlPlaneDir(), 'space-confirmed.json'));
+      const deps: SpaceSplitDeps = {
+        ...host.spaceTerminalDeps(TERMINAL_CHANNELS.SPACE_OPEN_SPLITS, () => resolved.ownerKey),
+        isConfirmed: store.isConfirmed,
+        recordConfirmed: store.recordConfirmed,
+      };
+      return openSpaceSplits(deps, resolved.folder, resolved.anchor, confirmHash);
     },
   },
   {
@@ -14312,6 +14313,98 @@ export class NativeTabHost extends EventEmitter {
 
   public getSpaceWindowOpener(): NativeTabHost['spaceWindowOpener'] {
     return this.spaceWindowOpener;
+  }
+
+  /**
+   * The terminal half of opening a Space, as this host performs it: rows read from the manager, splits
+   * minted under the window owner `ownerKey()` names when the mint runs (a full open learns it only
+   * once its window exists), and the duplicate-watcher check against this host's capsule briefs.
+   */
+  private spaceTerminalDeps(
+    channel: string,
+    ownerKey: () => string,
+  ): Omit<SpaceSplitDeps, 'isConfirmed' | 'recordConfirmed'> {
+    const manager = TerminalManager.getInstance();
+    return {
+      folderKey: canonicalFolderKey,
+      admit: () => this.assertApplicationAdmitsHostWork(channel),
+      sessions: () =>
+        (manager.listSessions() as SessionSummary[]).map((s) => ({
+          id: s.id,
+          cwd: s.cwd,
+          state: s.state,
+          spaceTerminalId: s.spaceTerminalId,
+          splitOf: s.splitOf,
+        })),
+      mintSplit: async (directory, _capsuleId, parentSessionId, spec) =>
+        await this.admitThenRun<string | null>(channel, { ownerKey: ownerKey() }, async () => {
+          // The split inherits the parent's window owner and capsule inside the manager; the
+          // pane owns its role, idle policy, directory and label from the first persist.
+          const sessionId = await manager.createSplitSession(parentSessionId, directory, undefined, undefined, {
+            role: spec.role,
+            idlePolicy: spec.idlePolicy,
+            spaceTerminalId: spec.id,
+            name: spec.label,
+          });
+          return typeof sessionId === 'string' && sessionId ? sessionId : null;
+        }),
+      findSyncDuplicate: (directory, capsuleId) => {
+        const briefOf = (id: string) => (id ? this.capsuleManager.get(id)?.brief : undefined);
+        // Splits count: a watcher in a lower pane pushes to its remote exactly like a base shell.
+        const live = (manager.listSessions() as SessionSummary[])
+          .filter((s) => s.role === 'sync' && s.state === 'running')
+          .map((s) => ({
+            id: s.id,
+            label: String(s.displayLabel || s.name || s.id),
+            folder: String(s.cwd || ''),
+            brief: briefOf(typeof s.capsuleId === 'string' ? s.capsuleId : ''),
+          }));
+        const duplicate = findSyncDuplicate(syncIdentity(directory, briefOf(capsuleId)), live);
+        return duplicate ? { id: duplicate.id, label: duplicate.label } : undefined;
+      },
+      typeCommand: (sessionId, text) => manager.writeTo(sessionId, text),
+      wake: async (sessionId) => (await manager.wakeSession(sessionId)) !== false,
+    };
+  }
+
+  /**
+   * The open base terminal a request names, with the Space folder its splits come from: the folder
+   * the sidebar groups the row under (its capsule's workspace root, else its own cwd). A project
+   * window reaches only its own workspace's Space, exactly as `antifan:space:open` does.
+   */
+  private resolveSpaceSplitAnchor(
+    senderId: number | undefined,
+    sessionId: string | undefined,
+  ): { ok: true; folder: string; anchor: SpaceSplitAnchor; ownerKey: string } | { ok: false; reason: SpaceOpenReason; message: string } {
+    if (!sessionId) {
+      return { ok: false, reason: 'INVALID_PAYLOAD', message: 'sessionId must be a non-empty string' };
+    }
+    const row = (TerminalManager.getInstance().listSessions() as SessionSummary[]).find((s) => s.id === sessionId);
+    if (!row || row.splitOf || (row.state !== 'running' && row.state !== 'sleeping')) {
+      return { ok: false, reason: 'SESSION_INVALID', message: `'${sessionId}' is not an open base terminal` };
+    }
+    const capsule = row.capsuleId ? this.capsuleManager.get(row.capsuleId) : undefined;
+    const rawFolder = capsule?.workspacePath?.trim() ? capsule.workspacePath : String(row.cwd || '');
+    let folder = '';
+    try {
+      folder = rawFolder ? fs.realpathSync.native(rawFolder) : '';
+      if (folder && !fs.statSync(folder).isDirectory()) folder = '';
+    } catch {
+      folder = '';
+    }
+    if (!folder) return { ok: false, reason: 'FOLDER_INVALID', message: `'${rawFolder}' is not a readable directory` };
+    if (!this.isSharedTerminalManagerSender(senderId)) {
+      const ownRoot = this.resolveWindowWorkspaceRoot();
+      if (!ownRoot || canonicalFolderKey(ownRoot) !== canonicalFolderKey(folder)) {
+        return { ok: false, reason: 'FOLDER_NOT_OWNED', message: 'This window can only open its own workspace Space' };
+      }
+    }
+    return {
+      ok: true,
+      folder,
+      anchor: { sessionId, capsuleId: row.capsuleId ?? '', ...(row.spaceTerminalId ? { spaceTerminalId: row.spaceTerminalId } : {}) },
+      ownerKey: row.ownerKey ?? '',
+    };
   }
   /**
    * Nesting depth of admitted agent actions. The keyboard action the automation host

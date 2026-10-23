@@ -22,6 +22,7 @@ import type {
   TerminalNewInFolderResult,
   SpaceOpenResult,
   SpaceInitResult,
+  SpaceSplitsInfo,
   TerminalTabPrefs,
   ReadFilePreviewResult,
 } from '../shared/contracts';
@@ -102,6 +103,12 @@ const api = {
   // Scaffold `.antifan/space.json` from the folder's current terminals and tabs (never overwrites).
   createSpaceManifest: (folder: string): Promise<SpaceInitResult> =>
     ipcRenderer.invoke(TERMINAL_CHANNELS.SPACE_INIT, { folder }),
+  // The splits the Space around a base terminal declares for it (read fresh from space.json).
+  getSpaceSplits: (sessionId: string): Promise<SpaceSplitsInfo> =>
+    ipcRenderer.invoke(TERMINAL_CHANNELS.SPACE_SPLITS_INFO, { sessionId }),
+  // Open those splits under that base. NEEDS_CONFIRM works exactly as for `openSpace`.
+  openSpaceSplits: (sessionId: string, confirmHash?: string): Promise<SpaceOpenResult> =>
+    ipcRenderer.invoke(TERMINAL_CHANNELS.SPACE_OPEN_SPLITS, confirmHash ? { sessionId, confirmHash } : { sessionId }),
   splitTerminal: (parentId: string, options?: string | { cwd?: string; cols?: number; rows?: number }) => {
     const payload = typeof options === 'string' ? { parentId, cwd: options } : { parentId, ...(options || {}) };
     return ipcRenderer.invoke('antifan:terminal:split-session', payload);

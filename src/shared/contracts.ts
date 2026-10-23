@@ -795,6 +795,13 @@ export const TERMINAL_CHANNELS = {
   SPACE_OPEN: 'antifan:space:open',
   /** Scaffold `.antifan/space.json` from the folder's current terminals and tabs. Never overwrites. */
   SPACE_INIT: 'antifan:space:init',
+  /**
+   * The splits the Space around a base terminal declares for it (`splitOf` entries of the base spec
+   * the session stands for), read fresh from `.antifan/space.json` on every call.
+   */
+  SPACE_SPLITS_INFO: 'antifan:space:splits-info',
+  /** Open those declared splits under that same base terminal: no new window, no new base shell. */
+  SPACE_OPEN_SPLITS: 'antifan:space:open-splits',
   OPEN_LINK: 'antifan:terminal:open-link',
   SET_TAB_PREFS: 'antifan:terminal:set-tab-prefs',
   /** One run-control request (cancel or steer) aimed at a run bound to a terminal session. */
@@ -897,7 +904,11 @@ export type SpaceOpenReason =
   | 'CONFIRM_MISMATCH'
   | 'WINDOW_FAILED'
   | 'CREATE_FAILED'
-  | 'SENDER_NOT_ADMITTED';
+  | 'SENDER_NOT_ADMITTED'
+  /** The named session is missing, closed, or itself a split pane. */
+  | 'SESSION_INVALID'
+  /** The Space declares no split for the base terminal the session stands for. */
+  | 'NO_SPLITS';
 
 export type SpaceOpenResult =
   | {
@@ -913,6 +924,22 @@ export type SpaceOpenResult =
     }
   | { ok: false; reason: 'NEEDS_CONFIRM'; hash: string; commands: Array<{ label: string; command: string }> }
   | { ok: false; reason: SpaceOpenReason; message: string; errors?: Array<{ path: string; message: string }> };
+
+/** One split a Space declares for a base terminal, as the split toggle presents it. */
+export interface SpaceSplitDescriptor {
+  /** The manifest id: a live split under the base carrying this `spaceTerminalId` is this entry. */
+  id: string;
+  label: string;
+  role: 'agent' | 'sync' | 'shell';
+  /** Folder-relative directory, absent when the split starts in the project folder itself. */
+  cwd?: string;
+  command?: string;
+}
+
+/** The answer `antifan:space:splits-info` gives: the project folder and the splits declared for the base. */
+export type SpaceSplitsInfo =
+  | { ok: true; folder: string; baseSpecId: string; splits: SpaceSplitDescriptor[] }
+  | { ok: false; reason: SpaceOpenReason; message: string };
 
 export type SpaceInitResult =
   | { ok: true; terminals: number; tabs: number; gitignoreWarning?: true }

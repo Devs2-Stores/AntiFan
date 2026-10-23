@@ -3,7 +3,7 @@ import * as assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { openSpace, createConfirmationStore, type SpaceOpenDeps, type SpaceSessionView } from '../../src/main/project/space-open';
+import { openSpace, openSpaceSplits, describeSpaceSplits, createConfirmationStore, type SpaceOpenDeps, type SpaceSessionView } from '../../src/main/project/space-open';
 import { parseSpaceManifest, antifanDirUnignoredInGit, type SpaceTabSpec } from '../../src/main/project/space-manifest';
 
 function folderWith(manifest: unknown, files: Record<string, string> = {}): string {
@@ -288,6 +288,103 @@ describe('openSpace', () => {
       assert.match(result.ok ? '' : (result as { message: string }).message, /split of 'up'/);
       assert.equal(h.minted.length, 0);
     });
+  });
+});
+
+describe('openSpaceSplits', () => {
+  const LAYOUT = {
+    version: 1,
+    terminals: [
+      { id: 'main', label: 'Agent', role: 'agent', command: 'omp' },
+      { id: 'haravan', label: 'Haravan sync', role: 'sync', cwd: 'Haravan', splitOf: 'main', command: 'hrv theme dev' },
+      { id: 'sapo', label: 'Sapo', role: 'shell', cwd: 'Sapo', splitOf: 'main' },
+      { id: 'docs', label: 'Docs', role: 'shell' },
+      { id: 'docs-log', label: 'Docs log', role: 'shell', splitOf: 'docs', command: 'git log' },
+    ],
+  };
+  const projectFolder = (): string => folderWith(LAYOUT, { 'Haravan/layout/theme.liquid': 'x', 'Sapo/layouts/theme.bwt': 'x' });
+  /** A harness whose confirmations are keyed like the real store, so scoping is observable. */
+  const keyedHarness = () => {
+    const h = harness(false);
+    const store = createConfirmationStore(path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-space-splits-')), 'c.json'));
+    h.deps.isConfirmed = store.isConfirmed;
+    h.deps.recordConfirmed = store.recordConfirmed;
+    return h;
+  };
+
+  it('opens the declared splits under a terminal the user already has, minting no base and no window', async () => {
+    const h = harness(true);
+    const folder = projectFolder();
+    h.sessions.push({ id: 'user-1', cwd: folder, state: 'running' });
+    const result = await openSpaceSplits(h.deps, folder, { sessionId: 'user-1', capsuleId: 'cap1' }, undefined);
+    assert.deepEqual(result, { ok: true, terminalsOpened: 2, terminalsReused: 0, tabsOpened: 0, tabsReused: 0 });
+    assert.equal(h.windowOpens(), 0);
+    assert.deepEqual(h.minted.map((m) => [m.kind, m.specId, m.parent, m.directory]), [
+      ['split', 'haravan', 'user-1', path.join(folder, 'Haravan')],
+      ['split', 'sapo', 'user-1', path.join(folder, 'Sapo')],
+    ]);
+    assert.deepEqual(h.typed, [{ id: 't1', text: 'hrv theme dev\r' }], 'only the split commands run; the base command never does');
+
+    const again = await openSpaceSplits(h.deps, folder, { sessionId: 'user-1', capsuleId: 'cap1' }, undefined);
+    assert.deepEqual(again, { ok: true, terminalsOpened: 0, terminalsReused: 2, tabsOpened: 0, tabsReused: 0 });
+    assert.equal(h.minted.length, 2, 'a second press mints no extra pane');
+    assert.equal(h.typed.length, 1, 'a running watcher is not retyped');
+  });
+
+  it('gives a terminal minted for a base entry that entry\'s splits, and refuses one whose entry declares none', async () => {
+    const h = harness(true);
+    const folder = projectFolder();
+    h.sessions.push({ id: 'docs-1', cwd: folder, state: 'running', spaceTerminalId: 'docs' });
+    const result = await openSpaceSplits(h.deps, folder, { sessionId: 'docs-1', capsuleId: 'cap1', spaceTerminalId: 'docs' }, undefined);
+    assert.equal(result.ok, true);
+    assert.deepEqual(h.minted.map((m) => [m.specId, m.parent]), [['docs-log', 'docs-1']]);
+
+    const lonely = folderWith({ version: 1, terminals: [{ id: 'main', role: 'agent' }, { id: 'w', role: 'shell' }, { id: 'p', role: 'shell', splitOf: 'w' }] });
+    h.sessions.push({ id: 'main-1', cwd: lonely, state: 'running', spaceTerminalId: 'main' });
+    const refused = await openSpaceSplits(h.deps, lonely, { sessionId: 'main-1', capsuleId: 'cap1', spaceTerminalId: 'main' }, undefined);
+    assert.equal(refused.ok, false);
+    assert.equal((refused as { reason: string }).reason, 'NO_SPLITS');
+    assert.equal(h.minted.length, 1);
+    assert.equal(describeSpaceSplits(lonely, 'main').ok, false);
+    const info = describeSpaceSplits(lonely, undefined);
+    assert.deepEqual(info.ok ? [info.baseSpecId, info.splits.map((s) => s.id)] : info, ['w', ['p']]);
+  });
+
+  it('refuses a split pane or a closed terminal as the anchor without minting', async () => {
+    const h = harness(true);
+    const folder = projectFolder();
+    h.sessions.push({ id: 'base', cwd: folder, state: 'running' }, { id: 'pane', cwd: folder, state: 'running', splitOf: 'base' }, { id: 'gone', cwd: folder, state: 'closed' });
+    for (const sessionId of ['pane', 'gone', 'missing']) {
+      const result = await openSpaceSplits(h.deps, folder, { sessionId, capsuleId: 'cap1' }, undefined);
+      assert.equal((result as { reason?: string }).reason, 'SESSION_INVALID', sessionId);
+    }
+    assert.equal(h.minted.length, 0);
+  });
+
+  it('asks for the split commands only, and that consent never pre-approves the whole Space', async () => {
+    const h = keyedHarness();
+    const folder = projectFolder();
+    h.sessions.push({ id: 'user-1', cwd: folder, state: 'running' });
+    const first = await openSpaceSplits(h.deps, folder, { sessionId: 'user-1', capsuleId: 'cap1' }, undefined);
+    assert.equal((first as { reason?: string }).reason, 'NEEDS_CONFIRM');
+    assert.deepEqual((first as { commands: unknown }).commands, [{ label: 'Haravan sync', command: 'hrv theme dev' }]);
+    assert.equal(h.minted.length, 0);
+    const confirmed = await openSpaceSplits(h.deps, folder, { sessionId: 'user-1', capsuleId: 'cap1' }, (first as { hash: string }).hash);
+    assert.equal(confirmed.ok, true);
+
+    const whole = await openSpace(h.deps, folder, undefined);
+    assert.equal((whole as { reason?: string }).reason, 'NEEDS_CONFIRM', 'the base command was never shown, so it was never approved');
+    assert.equal(h.windowOpens(), 0);
+  });
+
+  it('runs the splits without asking again once the whole Space was confirmed', async () => {
+    const h = keyedHarness();
+    const folder = projectFolder();
+    const asked = await openSpace(h.deps, folder, undefined);
+    assert.equal((await openSpace(h.deps, folder, (asked as { hash: string }).hash)).ok, true);
+    h.sessions.push({ id: 'user-1', cwd: folder, state: 'running' });
+    const result = await openSpaceSplits(h.deps, folder, { sessionId: 'user-1', capsuleId: 'cap1' }, undefined);
+    assert.equal(result.ok, true);
   });
 });
 
