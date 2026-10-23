@@ -127,7 +127,7 @@ describe('hub project appearance', () => {
     assert.strictEqual(header.classList.contains('is-project-starred'), false);
   });
 
-  it('collapses on a header click; the inline Web Hub button and the menu both switch without collapsing', async () => {
+  it('collapses on a header click; the inline open-window button and the menu both open the project without collapsing', async () => {
     const harness = await loadManagerWithProjects();
     seed(harness, [
       { id: 't-1', name: 'Terminal 1', state: 'running', ownerKey: 'project:p1', folderKey: 'e:\\work\\x', folderLabel: 'x', folderPath: 'E:\\Work\\x' },
@@ -141,7 +141,7 @@ describe('hub project appearance', () => {
     assert.strictEqual(lastArgs(harness, 'openProject'), undefined, 'a header click is not a project switch');
     assert.strictEqual(header.getAttribute('aria-expanded'), 'false', 'a header click collapses the section');
 
-    assert.strictEqual(header.querySelectorAll('[data-role="project-open"]').length, 1, 'the header carries exactly one Web Hub switch');
+    assert.strictEqual(header.querySelectorAll('[data-role="project-open"]').length, 1, 'the header carries exactly one open-project-window button');
     const openBtn = header.querySelector('[data-role="project-open"]');
     assert.ok(openBtn);
     assert.notStrictEqual(openBtn.style.display, 'none', 'the switch is visible on a manager project section');

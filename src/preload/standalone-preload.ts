@@ -10,8 +10,6 @@ import type {
   ProjectOpenPickerAnswerPayload,
   ProjectOpenPickerPush,
   ProjectOpenResult,
-  ProjectDetachResult,
-  ProjectReattachResult,
   ProjectRemoveRequest,
   ProjectRenameResult,
   ProjectRemoveResult,
@@ -68,16 +66,6 @@ const api = {
     ipcRenderer.invoke(PROJECT_WINDOW_CHANNELS.PROJECT_REMOVE, request),
   answerProjectRemove: (payload: { projectId: string; confirmed: boolean }): Promise<ProjectRemoveResult> =>
     ipcRenderer.invoke(PROJECT_WINDOW_CHANNELS.PROJECT_REMOVE_ANSWER, payload),
-  // The one explicit user intention to move the project this window presents into its
-  // own shell. Main enforces the exclusivity and performs the live tab move; a refusal
-  // (unknown project, vetoed tab close) is a typed result, not a rejected invoke.
-  detachProject: (request: { projectId: string }): Promise<ProjectDetachResult> =>
-    ipcRenderer.invoke(PROJECT_WINDOW_CHANNELS.PROJECT_DETACH, request),
-  // The inverse: bring a detached `project:<id>` shell home. Main closes it through
-  // the close coordinator (a veto refuses typed, nothing folds), folds the owner
-  // record into the hub's, and ingests the rows into the live hub when there is one.
-  reattachProject: (request: { projectId: string }): Promise<ProjectReattachResult> =>
-    ipcRenderer.invoke(PROJECT_WINDOW_CHANNELS.PROJECT_REATTACH, request),
   getInitialState: () => ipcRenderer.invoke('antifan:sidebar:get-initial-state'),
   startTerminal: (cwd?: string) => ipcRenderer.invoke('antifan:terminal:start', cwd),
   sendTerminalInput: (input: string) => ipcRenderer.invoke('antifan:terminal:input', input),
@@ -88,7 +76,7 @@ const api = {
   resizeTerminalTo: (id: string, cols: number, rows: number) => ipcRenderer.invoke('antifan:terminal:resize-session', { id, cols, rows }),
   newTerminal: (cwd?: string) => ipcRenderer.invoke('antifan:terminal:new-session', cwd),
   // Mint a terminal bound to one real folder and nothing else: no capsule switch, no cwd
-  // re-point, no other window touched. `folder` skips the chooser — the hub's per-group
+  // re-point, no other window touched. `folder` skips the chooser — the manager's per-group
   // mint and its header button differ only in who picked the directory.
   newTerminalInFolder: (folder?: string): Promise<TerminalNewInFolderResult> =>
     ipcRenderer.invoke(TERMINAL_CHANNELS.NEW_IN_FOLDER, folder ? { folder } : {}),

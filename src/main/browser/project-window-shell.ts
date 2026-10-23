@@ -47,7 +47,7 @@ export { ownerKey, type WindowOwner };
 /** Human label for a title bar; disambiguation with a path stays the caller's job. */
 export function ownerLabel(owner: WindowOwner): string {
   if (owner.kind === 'project') return owner.projectId;
-  return owner.kind === 'web' ? 'AntiFan Browser' : 'Unassigned';
+  return 'Unassigned';
 }
 
 /**
@@ -514,7 +514,7 @@ export class ProjectWindowShell {
 
   /**
    * The shared Terminal Manager (the `unassigned` owner) shows terminals only: no toolbar, no
-   * tab strip, no page area. Web content lives in the `web` hub; this window is its companion.
+   * tab strip, no page area. Browser pages live in the project windows.
    */
   public isTerminalOnly(): boolean {
     return this.owner.kind === 'unassigned';

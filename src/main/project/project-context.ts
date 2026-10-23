@@ -60,7 +60,6 @@ export function uniqueValidatedClaim(
 /** What a durable owner key names. The inverse of `ownerKey()` plus the agent spelling. */
 export type ParsedOwnerKey =
   | { kind: 'project'; projectId: string }
-  | { kind: 'web' }
   | { kind: 'unassigned' }
   | { kind: 'agent'; tabId: string }
   /** `project:` with no usable id: a corrupted stamp, a claim that cannot be honoured or ignored. */
@@ -78,7 +77,6 @@ export function parseOwnerKey(key: unknown): ParsedOwnerKey {
     return projectId ? { kind: 'project', projectId } : { kind: 'malformed' };
   }
   if (key === 'unassigned') return { kind: 'unassigned' };
-  if (key === 'web') return { kind: 'web' };
   if (key.startsWith('agent:')) return { kind: 'agent', tabId: key.slice('agent:'.length) };
   return { kind: 'other' };
 }
@@ -208,7 +206,7 @@ function fromOwnerKey(ports: ProjectContextPorts, key: unknown): ProjectContext 
     case 'project': return describeProject(ports, parsed.projectId, 'owner-key');
     case 'malformed': return { kind: 'unresolved', reason: 'MALFORMED_OWNER_KEY' };
     case 'agent': return { kind: 'agent', ownerKey: key as string };
-    // The web hub and 'other' keys own terminals outside every project: they resolve to the
+    // The Terminal Manager and 'other' keys own terminals outside every project: they resolve to the
     // shared unassigned context rather than naming a project they do not belong to.
     default: return { kind: 'unassigned', ownerKey: 'unassigned' };
   }

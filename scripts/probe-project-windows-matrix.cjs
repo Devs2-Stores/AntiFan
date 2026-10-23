@@ -6,6 +6,12 @@
  * throwaway Chromium profile, throwaway workspace capsules, own bridge port, own processes) and
  * walks the phase-5 test-scenario matrix row by row.
  *
+ * Window model under test: every project has its own window (owner key `project:<id>`), created
+ * by the factory the user's Open Project request ends in; `'unassigned'` is the shared, terminal-only
+ * Terminal Manager. The startup window is the project named by ANTIFAN_PROJECT_ID. The harness
+ * seeds a flat version-1 saved-tabs document so the boot migration (backup, version bump,
+ * unresolved pages kept in the Unassigned record) is judged by row R4g.
+ *
  * Every matrix row is declared up front in `ROW_PLAN`, so the receipt always carries the whole
  * matrix: a row whose judge never ran is emitted as BLOCKED ("the run ended before this row was
  * observed"), never omitted and never passed. A row is PASS only with the values it observed in
@@ -419,6 +425,10 @@ const BETA = PROJECTS.beta;
 const UNKNOWN_PROJECT_ID = 'project-00000000-0000-4000-8000-0000000000ff';
 
 process.env.ANTIFAN_DATA_ROOT = tempRoot;
+// A probe launched from an AntiFan terminal inherits that app's config dir; left alone, the
+// bridge would publish its discovery file into the live app's config and the history store
+// would read the user's real history. Pin it inside the throwaway root.
+process.env.ANTIFAN_CONFIG_DIR = path.join(tempRoot, 'config');
 process.env.ANTIFAN_USER_DATA = profileDir;
 process.env.ANTIFAN_PROJECT_ID = ALPHA.projectId;
 process.env.ANTIFAN_WORKSPACE_ID = ALPHA.workspaceId;
@@ -1058,7 +1068,7 @@ function windowStateRecord(ownerKeyValue) {
     return null;
   }
 }
-/** The owner record a window's tabs are persisted under, from the version-2 document. */
+/** The owner record a window's tabs are persisted under, from the owner-keyed saved-tabs document. */
 function savedOwnerRecord(ownerKeyValue) {
   const document = readSavedTabsDocument();
   if (!document || !document.owners) return null;
@@ -1602,18 +1612,11 @@ async function run() {
   // ------------------------------------------------------------------ R1, two windows
   let betaKey = null;
   await automated('R1', async (row) => {
-    // Opening a project activates it in the single 'web' hub; it never mints a window. The one
-    // path to a second project window is the user's detach, so R1 opens B, then detaches it.
+    // Opening a project through the user channel creates that project's own window: OPENED means
+    // the window was just made, FOCUSED means the user joined the one already live.
     const openResult = await openProject(alphaSidebar, BETA.projectId);
     row.observed.openResult = openResult;
-    expect(openResult && (openResult.status === 'OPENED' || openResult.status === 'FOCUSED'), `opening B returned ${JSON.stringify(openResult)}`);
-    const detachResult = await bounded(
-      alphaSidebar.executeJavaScript(`window.antifanStandalone.detachProject({ projectId: ${JSON.stringify(BETA.projectId)} })`, true),
-      20000,
-      'sidebar detachProject',
-    );
-    row.observed.detachResult = detachResult;
-    expect(detachResult && detachResult.status === 'DETACHED', `detaching B returned ${JSON.stringify(detachResult)}`);
+    expect(openResult && openResult.status === 'OPENED', `opening B returned ${JSON.stringify(openResult)}`);
     const betaEntry = await waitFor(
       () => snapshot().find((entry) => entry.owner.kind === 'project' && entry.owner.projectId === BETA.projectId) || false,
       'the second project window',
@@ -1647,13 +1650,14 @@ async function run() {
 
     const beforeDuplicate = snapshot();
     const duplicate = await openProject(alphaSidebar, BETA.projectId);
+    const duplicateOfA = await openProject(alphaSidebar, ALPHA.projectId);
     await sleep(200);
     const afterDuplicate = snapshot();
     const alphaEntry = entryFor(alphaKey);
     const betaEntryAfter = entryFor(betaKey);
     row.observed = {
       openResult,
-      detachResult,
+      duplicateOfA,
       duplicate,
       placement,
       shellCountBefore: beforeDuplicate.length,
@@ -1671,13 +1675,8 @@ async function run() {
     expect(duplicate && duplicate.status === 'FOCUSED', `the duplicate open returned ${JSON.stringify(duplicate)}`);
     expect(afterDuplicate.length === beforeDuplicate.length, `the duplicate open changed the shell count from ${beforeDuplicate.length} to ${afterDuplicate.length}`);
     expect(entryFor(betaKey)?.windowId === betaEntry.windowId, 'the second window changed identity across the duplicate open');
-    // Detaching the project the hub presents clears the hub's scope by design
-    // (transferHubProjectTabs), so the hub now presents nothing. Every later row types into,
-    // measures and mints terminals from A, so A is brought back through the same user channel.
-    const restoredA = await openProject(alphaSidebar, ALPHA.projectId);
-    row.observed.restoredA = restoredA;
-    expect(restoredA && (restoredA.status === 'OPENED' || restoredA.status === 'FOCUSED'), `re-opening A on the hub returned ${JSON.stringify(restoredA)}`);
-    await waitFor(() => court.hostForOwner(alphaKey)?.activeProject() === ALPHA.projectId, 'the hub to present A again', 10000);
+    expect(duplicateOfA && duplicateOfA.status === 'FOCUSED', `re-opening A returned ${JSON.stringify(duplicateOfA)}`);
+    expect(entryFor(alphaKey)?.windowId === bootstrap.windowId, 'window A changed identity when it was re-opened');
   });
 
   // ------------------------------------------------------------------ R1-HW (hardware)
@@ -1937,8 +1936,8 @@ async function run() {
     const terminal = planeOf().terminal;
     // One session per window, each created with its own window's workspace and capsule: until the
     // two can be told apart there is nothing whose separation could be measured.
-    // Each session carries the owner key its window mints under (the hub mints A's rows as
-    // `project:<A>`, the detached B window as its own key), exactly as a sidebar mint does;
+    // Each session carries the owner key its window mints under (`project:<id>` for each project
+    // window), exactly as a sidebar mint does;
     // without one the chrome scope check refuses the session for both windows.
     const sessionA = await bounded(Promise.resolve(terminal.createSession(ALPHA.path, ALPHA.capsuleId, `project:${ALPHA.projectId}`)), 15000, 'create A terminal session');
     const sessionB = await bounded(Promise.resolve(terminal.createSession(BETA.path, BETA.capsuleId, betaKey)), 15000, 'create B terminal session');
@@ -3072,8 +3071,8 @@ async function run() {
     expect(sessionCapsule === BETA.capsuleId, `the created terminal session's capsule provenance was '${String(sessionCapsule)}', expected '${BETA.capsuleId}'`);
 
     await sleep(400);
-    // The one auxiliary window that exists now: the shared Terminal Manager. R7's real
-    // invariant — a detached window survives window A's close — exercises through it.
+    // The one auxiliary window that exists now: the shared Terminal Manager. R7's auxiliary
+    // half — a window the closing project does not own survives window A's close — exercises through it.
     // `openTerminalManager` only reports that the ask reached Main, so presence is read
     // from the directory after the settle, same as every other window.
     betaHostNow.openTerminalManager();
@@ -3309,14 +3308,20 @@ async function run() {
 
   // ------------------------------------------------------------------ R4g: Unassigned reachable
   await automated('R4g', async (row) => {
+    const { PROJECT_WINDOWS_SAVED_TABS_VERSION } = require(compiledModule('browser/saved-tabs-migration.js'));
     const document = await waitFor(
       () => {
         const read = readSavedTabsDocument();
-        return read && read.version === 2 && read.owners && read.owners.unassigned && read.owners.unassigned.tabs && read.owners.unassigned.tabs.length > 0 ? read : false;
+        return read && read.version === PROJECT_WINDOWS_SAVED_TABS_VERSION && read.owners && read.owners.unassigned && read.owners.unassigned.tabs && read.owners.unassigned.tabs.length > 0 ? read : false;
       },
-      'the version-2 saved-tabs document with its Unassigned owner record',
+      `the version-${PROJECT_WINDOWS_SAVED_TABS_VERSION} saved-tabs document with its Unassigned owner record`,
       20000,
     ).catch(() => readSavedTabsDocument());
+    // The boot migration backs the document up before its first rewrite; the copy is the
+    // pre-migration flat document, so it still carries every legacy tab.
+    const backups = fs.readdirSync(profileDir).filter((name) => name.startsWith('saved-tabs.json.pre-project-windows-') && name.endsWith('.bak'));
+    let backupTabIds = [];
+    try { backupTabIds = (JSON.parse(fs.readFileSync(path.join(profileDir, backups[0]), 'utf8')).tabs ?? []).map((tab) => tab.id); } catch {}
     const migratedIds = savedTabIds('unassigned');
     // A restored page is a fresh host tab: the persisted id is the record's key, and the live tab is
     // minted with a new one, so the pages are identified by the URL they carry. That also keeps the
@@ -3337,6 +3342,8 @@ async function run() {
     const entry = entryFor(unassignedEntry.ownerKey);
     row.observed = {
       savedTabsVersion: document && document.version,
+      backups,
+      backupTabIds,
       migratedOwners: ownerKeys,
       migratedTabIds: migratedIds,
       claimedByProjectWindows,
@@ -3349,7 +3356,9 @@ async function run() {
       foregroundBefore: foregroundId(),
       foregroundAfter: foregroundId(),
     };
-    expect(document && document.version === 2, `the saved-tabs document version is ${String(document && document.version)}`);
+    expect(document && document.version === PROJECT_WINDOWS_SAVED_TABS_VERSION, `the saved-tabs document version is ${String(document && document.version)}`);
+    expect(backups.length === 1, `the boot migration left ${backups.length} backup(s): ${JSON.stringify(backups)}`);
+    expect(LEGACY_TABS.every((legacy) => backupTabIds.includes(legacy.id)), `the migration backup is missing legacy tabs: ${JSON.stringify(backupTabIds)}`);
     expect(LEGACY_TABS.every((legacy) => migratedIds.includes(legacy.id)), `the migrated Unassigned record is missing legacy tabs: ${JSON.stringify(migratedIds)}`);
     expect(claimedByProjectWindows.length === 0, `project windows guessed ownership of the unresolved pages: ${JSON.stringify(claimedByProjectWindows)}`);
     expect(entry, 'the Unassigned window was not created');
@@ -3381,18 +3390,19 @@ async function run() {
       15000,
     ).catch(() => null);
     const alphaSupplementTitle = tabRecord(alphaSupplementTab)?.title ?? '';
-    // The duplicate-name pair: D shares A's name in another folder. Presenting D on the hub and
-    // opening a page there stamps a hub row with D, then A is presented again.
-    // The close rows replaced A's window, so the boot sidebar handle is gone; read the live one.
+    // The duplicate-name pair: D shares A's name in another folder. D has its own window, which
+    // is opened (or joined, when an earlier row left it live) through the user channel and given
+    // a page, so two windows carry rows under the same project name.
     const alphaSidebarLive = await sidebarFor(alphaKey);
     const deltaOpened = await openProject(alphaSidebarLive, PROJECTS.delta.projectId);
-    expect(deltaOpened && (deltaOpened.status === 'OPENED' || deltaOpened.status === 'FOCUSED'), `presenting D on the hub returned ${JSON.stringify(deltaOpened)}`);
-    await waitFor(() => court.hostForOwner(alphaKey)?.activeProject() === PROJECTS.delta.projectId, 'the hub to present D', 10000);
-    const deltaTab = await createTabViaToolbar(alphaToolbarLive, baseUrl('/delta'));
-    expect(typeof deltaTab === 'string' && deltaTab.length > 0, 'the hub opened no page while presenting D');
-    const alphaBack = await openProject(alphaSidebarLive, ALPHA.projectId);
-    expect(alphaBack && (alphaBack.status === 'OPENED' || alphaBack.status === 'FOCUSED'), `re-presenting A on the hub returned ${JSON.stringify(alphaBack)}`);
-    await waitFor(() => court.hostForOwner(alphaKey)?.activeProject() === ALPHA.projectId, 'the hub to present A again', 10000);
+    expect(deltaOpened && (deltaOpened.status === 'OPENED' || deltaOpened.status === 'FOCUSED'), `opening D returned ${JSON.stringify(deltaOpened)}`);
+    const deltaWindow = await waitFor(
+      () => snapshot().find((entry) => entry.owner.kind === 'project' && entry.owner.projectId === PROJECTS.delta.projectId) || false,
+      'the D window',
+    );
+    const deltaToolbarLive = await toolbarFor(deltaWindow.ownerKey);
+    const deltaTab = await createTabViaToolbar(deltaToolbarLive, baseUrl('/delta'));
+    expect(typeof deltaTab === 'string' && deltaTab.length > 0, 'window D opened no page for the inventory to carry');
     const fromAlpha = await searchFrom(alphaToolbarLive, '');
     const fromBeta = await searchFrom(betaToolbar, '');
     const unassignedEntry = snapshot().find((entry) => entry.owner.kind === 'unassigned');
@@ -3442,9 +3452,9 @@ async function run() {
     expect(ownerLabels.length >= 2, `the inventory spans ${ownerLabels.length} owners: ${JSON.stringify(ownerLabels)}`);
     // The Unassigned window is the terminal-only Terminal Manager: it has no page tabs to list.
     expect(!ownerLabels.some((label) => String(label).includes('Unassigned')), `an Unassigned row is listed: ${JSON.stringify(ownerLabels)}`);
-    // One presenting window, one honest label: every hub row carries the hub's product name
-    // (the e2e web-hub contract), and the stamped project shows through the row's path label.
-    expect(ownerLabels.includes('AntiFan Browser'), `no hub row carries the hub's product label: ${JSON.stringify(ownerLabels)}`);
+    // Every row carries the name of the project whose window holds it, so the A window's own
+    // rows are labelled with A's name and the A/D duplicate shares that name across two windows.
+    expect(ownerLabels.some((label) => String(label).includes(ALPHA.name)), `no row for window A ('${ALPHA.name}') is listed: ${JSON.stringify(ownerLabels)}`);
     expect(ownerLabels.some((label) => String(label).includes(BETA.name)), `no row for window B ('${BETA.name}') is listed: ${JSON.stringify(ownerLabels)}`);
     const duplicateRows = rowsAlpha.filter((rowItem) => rowItem.tabId === alphaSupplementTab || rowItem.tabId === deltaTab);
     expect(duplicateRows.length === 2, `the A and D pages are not both listed: ${JSON.stringify(duplicateRows.map((rowItem) => rowItem.tabId))}`);
@@ -3543,39 +3553,24 @@ async function run() {
 
   // ------------------------------------------------------------------ R0: five windows, twenty tabs
   await automated('R0', async (row) => {
-    // The boot project lives on the 'web' hub and is never detachable; every other project gets
-    // its own window only through the user's detach, so five windows are the hub presenting A
-    // plus four detached project windows.
+    // Every project has its own window, so five windows are five projects opened through the
+    // user's own Open Project channel (a window an earlier row closed is opened again the same way).
     const wanted = [PROJECTS.alpha, PROJECTS.beta, PROJECTS.gamma, PROJECTS.delta, PROJECTS.epsilon];
     const keys = {};
-    const detachResults = {};
+    const openResults = {};
     const alphaSidebarLive = await sidebarFor(alphaKey);
     for (const project of wanted) {
-      let ownerKeyValue = alphaKey;
-      if (project.projectId !== ALPHA.projectId) {
-        let entry = snapshot().find((candidate) => candidate.owner.kind === 'project' && candidate.owner.projectId === project.projectId);
-        if (!entry) {
-          const opened = await openProject(alphaSidebarLive, project.projectId);
-          expect(opened && (opened.status === 'OPENED' || opened.status === 'FOCUSED'), `opening ${project.projectId} returned ${JSON.stringify(opened)}`);
-          detachResults[project.projectId] = await bounded(
-            alphaSidebarLive.executeJavaScript(`window.antifanStandalone.detachProject({ projectId: ${JSON.stringify(project.projectId)} })`, true),
-            20000,
-            'sidebar detachProject',
-          );
-          expect(detachResults[project.projectId]?.status === 'DETACHED', `detaching ${project.projectId} returned ${JSON.stringify(detachResults[project.projectId])}`);
-          entry = await waitFor(
-            () => snapshot().find((candidate) => candidate.owner.kind === 'project' && candidate.owner.projectId === project.projectId) || false,
-            `the detached ${project.projectId} window`,
-          );
-        }
-        ownerKeyValue = entry.ownerKey;
+      let entry = snapshot().find((candidate) => candidate.owner.kind === 'project' && candidate.owner.projectId === project.projectId);
+      if (!entry) {
+        openResults[project.projectId] = await openProject(alphaSidebarLive, project.projectId);
+        expect(openResults[project.projectId]?.status === 'OPENED', `opening ${project.projectId} returned ${JSON.stringify(openResults[project.projectId])}`);
+        entry = await waitFor(
+          () => snapshot().find((candidate) => candidate.owner.kind === 'project' && candidate.owner.projectId === project.projectId) || false,
+          `the ${project.projectId} window`,
+        );
       }
-      keys[project.projectId] = ownerKeyValue;
+      keys[project.projectId] = entry.ownerKey;
     }
-    // Each detach clears the hub's scope, so A is presented on the hub again before measuring.
-    const restoredA = await openProject(alphaSidebarLive, ALPHA.projectId);
-    expect(restoredA && (restoredA.status === 'OPENED' || restoredA.status === 'FOCUSED'), `re-opening A on the hub returned ${JSON.stringify(restoredA)}`);
-    await waitFor(() => court.hostForOwner(alphaKey)?.activeProject() === ALPHA.projectId, 'the hub to present A again', 10000);
     for (const project of wanted) {
       const ownerKeyValue = keys[project.projectId];
       const toolbar = await toolbarFor(ownerKeyValue);
@@ -3609,7 +3604,7 @@ async function run() {
       totalTabs,
       shellCount: snapshot().length,
       duplicateNameWindows: duplicateNames.map((item) => ({ ownerKey: item.ownerKey, title: item.title, pathLabel: item.pathLabel })),
-      detachResults,
+      openResults,
     };
     row.ids = {
       windowIds: windowIdsOf(Object.values(keys)),

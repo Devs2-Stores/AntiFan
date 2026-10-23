@@ -70,6 +70,7 @@ interface FakeHost {
   getActiveTabId: () => string;
   getTabList: () => Array<{ id: string; zoomFactor: number }>;
   createTab: (url?: string) => boolean;
+  canHostTabs: () => boolean;
   reopenClosedTab: () => boolean;
   closeTab: (tabId: string, source?: string) => boolean;
   captureScreenshot: () => boolean;
@@ -88,10 +89,11 @@ interface FakeHost {
   setZoom: (tabId: string, zoom: number) => boolean;
 }
 
-function fakeHost(): FakeHost {
+function fakeHost(overrides: { canHostTabs?: boolean } = {}): FakeHost {
   const calls: Array<[string, ...unknown[]]> = [];
   const record = (name: string) => (...args: unknown[]) => { calls.push([name, ...args]); return true; };
   return {
+    canHostTabs: () => overrides.canHostTabs ?? true,
     calls,
     getActiveTabId: () => 'tab-1',
     getTabList: () => [{ id: 'tab-1', zoomFactor: 1.0 }],
@@ -133,6 +135,12 @@ describe('dispatchApplicationMenuShortcut replays the retired menubar chords', (
     const host = fakeHost();
     assert.strictEqual(dispatch(key({ control: true, key: 't' }), host), true);
     assert.deepStrictEqual(called(host, 'createTab'), [['https://www.google.com']]);
+  });
+
+  it('Ctrl+T does nothing in a window that cannot host a tab (the Terminal Manager)', () => {
+    const host = fakeHost({ canHostTabs: false });
+    assert.strictEqual(dispatch(key({ control: true, key: 't' }), host), true, 'the chord is still the app\'s, never the page\'s');
+    assert.strictEqual(called(host, 'createTab').length, 0);
   });
 
   it('lowercase and uppercase letters resolve to the same accelerator', () => {

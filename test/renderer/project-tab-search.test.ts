@@ -499,17 +499,15 @@ describe('Cross-project tab search', () => {
     assert.match(searchStatus(ctx.doc), /no handler registered/);
   });
 
-  test('the tab strip names its project scope on the identity chip', async () => {
+  test('the tab strip names its project on the identity chip', async () => {
     const ctx = await loadToolbar(ACME_IDENTITY, makeStub());
     dom = ctx.dom;
-    // A detached project shell's strip is scoped to that project; the chip carries the
-    // label (and the detach affordance), the rows never do.
+    // The chip carries the project label; the rows never do.
     const chip = ctx.doc.getElementById('projectIdentityChip');
     assert.ok(chip, 'the project identity chip exists');
     await flush();
     assert.equal(chip.style.display, 'inline-flex', 'a project identity surfaces the chip');
     assert.equal(ctx.doc.getElementById('projectIdentityName')?.textContent, 'Acme');
-    assert.equal(chip.classList.contains('is-detached'), true, 'a project-owned shell reads as detached');
     assert.equal(ctx.doc.getElementById('projectChipTitle')?.textContent, 'Acme', 'the popover title mirrors the identity');
   });
 });

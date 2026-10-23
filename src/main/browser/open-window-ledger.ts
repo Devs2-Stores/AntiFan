@@ -1,12 +1,11 @@
 /**
- * Which secondary windows were open when the process last ran: detached `project:<id>`
- * shells and the shared Terminal Manager (`unassigned`). The hub (`web`) is not tracked —
- * the bootstrap always opens it.
+ * Which windows were open when the process last ran: `project:<id>` project windows and
+ * the shared Terminal Manager (`unassigned`).
  *
- * The saved-tabs `detached` marker cannot answer this: it deliberately survives an ordinary
- * window close (the project stays detached until an explicit reattach), so a boot that
- * restored every marked record resurrected windows the user had closed. This ledger is the
- * window-level fact the boot restore reads instead.
+ * The saved-tabs `project:<id>` record cannot answer this: it deliberately survives an
+ * ordinary window close (a project's tabs are restored when its window opens again), so a
+ * boot that restored every record resurrected windows the user had closed. This ledger is
+ * the window-level fact the boot restore reads instead.
  *
  * Main writes it while the process runs — a key is added when a shell is created and removed
  * only when the USER closes it (never by an application quit), so a killed process, a crash
@@ -31,7 +30,7 @@ export function openWindowLedgerPath(savedTabsPath: string): string {
   return path.join(path.dirname(savedTabsPath), OPEN_WINDOWS_FILE);
 }
 
-/** Owner keys the ledger tracks: everything the bootstrap does not open on its own. */
+/** Owner keys the ledger tracks: every project window and the Terminal Manager. */
 export function isTrackedWindowOwnerKey(key: string): boolean {
   return key === 'unassigned' || (key.startsWith('project:') && key.length > 'project:'.length);
 }
@@ -77,7 +76,7 @@ function writeOpenWindowLedger(filePath: string, keys: ReadonlySet<string>): voi
   }
 }
 
-/** Record a window as open. Untracked keys (the hub) and no-op changes write nothing. */
+/** Record a window as open. Untracked keys and no-op changes write nothing. */
 export function markWindowOpen(filePath: string, key: string): void {
   if (!isTrackedWindowOwnerKey(key)) return;
   const current = new Set(readOpenWindowLedger(filePath) ?? []);

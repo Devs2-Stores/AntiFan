@@ -26,9 +26,9 @@ export interface AntiFanTab {
   userAgentMode?: 'clean' | 'native';
   partition?: string;
   /**
-   * The project this tab was minted under on the 'web' hub, or absent for a shared
-   * tab (visible under every project) or a tab on a non-web shell. Stamped at mint
-   * and persisted verbatim: never re-resolved against the hub's current project.
+   * The project whose window minted this tab, stamped at mint and persisted verbatim.
+   * Absent on a tab minted outside a project window (the Terminal Manager has no tabs);
+   * never re-resolved afterwards.
    */
   projectId?: string;
   /**
@@ -417,8 +417,6 @@ export const PROJECT_WINDOW_CHANNELS = {
   PROJECT_OPEN_PICKER_ANSWER: 'antifan:project:open-picker-answer',
   PROJECT_RENAME: 'antifan:project:rename',
   PROJECT_REMOVE: 'antifan:project:remove',
-  PROJECT_DETACH: 'antifan:project:detach',
-  PROJECT_REATTACH: 'antifan:project:reattach',
   PROJECT_SET_APPEARANCE: 'antifan:project:set-appearance',
   PROJECT_REMOVE_ANSWER: 'antifan:project:remove-answer',
   CLOSE_REFUSED: 'antifan:close:refused',
@@ -432,7 +430,6 @@ export const PROJECT_WINDOW_CHANNELS = {
  */
 export type ProjectWindowOwner =
   | { kind: 'project'; projectId: string }
-  | { kind: 'web' }
   | { kind: 'unassigned' };
 
 /**
@@ -447,12 +444,6 @@ export type ProjectWindowOwner =
 export interface ProjectWindowIdentity {
   owner: ProjectWindowOwner;
   title: string;
-  /**
-   * The project a 'web' hub is presenting, or null for no active project. Carried
-   * only for the web owner — a project shell's membership lives on `owner` — so a
-   * renderer that cannot read a definite id shows the whole strip (fail-open).
-   */
-  activeProjectId?: string | null;
   /** Workspace path that disambiguates duplicate project titles. */
   pathLabel?: string;
   /** Workspace root this shell's terminals and workspace-scoped tools belong to. */
@@ -526,34 +517,6 @@ export type ProjectOpenResult =
   | { status: 'OPENED'; projectId: string }
   | { status: 'FOCUSED'; projectId: string }
   | { status: 'CANCELLED'; projectId?: string }
-  | { status: 'FAILED'; projectId?: string; reason: string };
-
-/**
- * The answer `PROJECT_DETACH` gives the renderer. `DETACHED` means the project now
- * owns its own `project:<id>` shell — created by this call — and any hub tabs stamped
- * with it moved there. `FOCUSED` means the detached shell already existed and this call
- * only presented it (a re-detach is a join, never a second window). `FAILED` carries a
- * classed reason (`INVALID_PROJECT_ID`, `UNKNOWN_PROJECT`, `DETACH_REFUSED` for tabs
- * that refused to leave the hub, `CLOSE_IN_PROGRESS`, or a message); `projectId` rides
- * every answer that names a real project, like `ProjectOpenResult`.
- */
-export type ProjectDetachResult =
-  | { status: 'DETACHED'; projectId: string }
-  | { status: 'FOCUSED'; projectId: string }
-  | { status: 'FAILED'; projectId?: string; reason: string };
-
-/**
- * The answer `PROJECT_REATTACH` gives the renderer. `REATTACHED` means the
- * detached `project:<id>` shell is gone, its owner record was folded into
- * `owners.web` (marker cleared), and a live hub ingested the rows. `FAILED`
- * carries a classed reason: `PROJECT_UNAVAILABLE` (unknown or blank id),
- * `NOT_DETACHED` (no live shell, no persisted marker), `REATTACH_IN_PROGRESS`
- * (a second request while the first runs), `CLOSE_REFUSED` (the shell close was
- * vetoed — the record stays marked and nothing is folded), `SETTLE_INCOMPLETE`
- * (the post-fold file re-read could not prove the landing), or a message.
- */
-export type ProjectReattachResult =
-  | { status: 'REATTACHED'; projectId: string }
   | { status: 'FAILED'; projectId?: string; reason: string };
 
 /**

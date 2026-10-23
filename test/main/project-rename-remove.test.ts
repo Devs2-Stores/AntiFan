@@ -36,15 +36,12 @@ import { ProjectRegistry } from '../../src/main/project/project-registry';
 import { WorkspaceCapsuleManager } from '../../src/main/project/workspace-capsule';
 import {
   hasValidatedAffiliation,
-  installShellForTesting,
   isKnownProjectId,
   renameProjectEntry,
   removeProjectEntry,
   synchronizeCapsulesWithRegistry,
   projectRegistry as sharedProjectRegistry,
 } from '../../src/main/index';
-import type { NativeTabHost } from '../../src/main/browser/native-tab-host';
-import type { ProjectWindowShell } from '../../src/main/browser/project-window-shell';
 import { TerminalManager } from '../../src/main/browser/terminal-manager';
 
 const PROJECT_A = 'project-00000000-0000-4000-8000-0000000000a1';
@@ -69,62 +66,24 @@ const PROJECT_J = 'project-00000000-0000-4000-8000-0000000000aa';
 const WORKSPACE_J = 'workspace-00000000-0000-4000-8000-0000000000aa';
 const PROJECT_GHOST = 'project-00000000-0000-4000-8000-000000000000';
 
-/**
- * A 'web' shell as `removeProjectEntry` sees it: present enough for `liveShellFor` to
- * find, optionally with a host for the live-close path. Registered through Main's own
- * test seam — the same `liveShellFor`/`hostForOwnerKey` readers production uses, so a
- * shell with no host resolves to exactly the state a live window whose host could not
- * be resolved leaves behind.
- */
-function installWebShell(host?: {
-  activeProject?: string | null;
-  closeTabsForProject?: (projectId: string) => Promise<{ closed: string[]; vetoed: string[] }> | { closed: string[]; vetoed: string[] };
-}) {
-  const calls: { close: string[]; activeProject: Array<string | null>; affiliationCleared: number } = {
-    close: [],
-    activeProject: [],
-    affiliationCleared: 0,
-  };
-  let active = host?.activeProject ?? null;
-  const hostLike = host
-    ? ({
-        activeProject: () => active,
-        setActiveProject: (projectId: string | null) => { active = projectId; calls.activeProject.push(projectId); },
-        getWindowWorkspaceAffiliation: () => null,
-        setWindowWorkspaceAffiliation: (affiliation: unknown) => { if (affiliation === null) calls.affiliationCleared += 1; },
-        closeTabsForProject: async (projectId: string) => {
-          calls.close.push(projectId);
-          return host.closeTabsForProject ? host.closeTabsForProject(projectId) : { closed: [], vetoed: [] };
-        },
-      } as unknown as NativeTabHost)
-    : undefined;
-  const shellLike = {
-    owner: { kind: 'web' },
-    window: { isDestroyed: () => false },
-  } as unknown as ProjectWindowShell;
-  const unregister = installShellForTesting(shellLike, hostLike);
-  return { calls, unregister, activeProject: () => active };
-}
-
 /** The saved-tabs file the host-free purge reads, under this run's ANTIFAN_USER_DATA. */
 function savedTabsPath(): string {
   return path.join(process.env.ANTIFAN_USER_DATA ?? '', 'saved-tabs.json');
 }
 
-/** A v2 saved-tabs document with rows under the 'web' owner record. */
+/** A saved-tabs document with one `project:<id>` owner record per project. */
 function seedSavedTabs(projectRows: Record<string, Array<Record<string, unknown>>>): void {
-  const tabs = Object.entries(projectRows).flatMap(([projectId, rows]) =>
-    rows.map((row) => ({ ...row, projectId })));
-  fs.writeFileSync(savedTabsPath(), JSON.stringify({
-    version: 2,
-    owners: { web: { updatedAt: 1, tabs } },
-  }, null, 2), 'utf8');
+  const owners: Record<string, { updatedAt: number; tabs: Array<Record<string, unknown>> }> = {};
+  for (const [projectId, rows] of Object.entries(projectRows)) {
+    owners[`project:${projectId}`] = { updatedAt: 1, tabs: rows.map((row) => ({ ...row, projectId })) };
+  }
+  fs.writeFileSync(savedTabsPath(), JSON.stringify({ version: 3, owners }, null, 2), 'utf8');
 }
 
-/** The 'web' owner record on disk, or the whole file when `web` is absent. */
-function readWebOwnerRecord(): { tabs?: Array<Record<string, unknown>> } {
+/** The owners map of the saved-tabs file on disk. */
+function readOwners(): Record<string, { tabs?: Array<Record<string, unknown>> }> {
   const data = JSON.parse(fs.readFileSync(savedTabsPath(), 'utf8')) as { owners?: Record<string, { tabs?: Array<Record<string, unknown>> }> };
-  return data.owners?.web ?? {};
+  return data.owners ?? {};
 }
 
 let tmpDir = '';
@@ -296,11 +255,11 @@ describe('Project rename/remove', () => {
     }
   });
 
-  it("with no web window the removal purges the project's persisted rows host-free", async () => {
-    seedProject(PROJECT_E, WORKSPACE_E, 'No Hub');
+  it("with no project window the removal purges the project's persisted record host-free", async () => {
+    seedProject(PROJECT_E, WORKSPACE_E, 'No Window');
     seedSavedTabs({
       [PROJECT_E]: [{ id: 'e1', url: 'https://example.test/e1' }, { id: 'e2', url: 'https://example.test/e2' }],
-      other: [{ id: 'o1', url: 'https://example.test/o1' }],
+      [PROJECT_B]: [{ id: 'o1', url: 'https://example.test/o1' }],
     });
     try {
       const tm = installFakeTerminalManager([]);
@@ -310,11 +269,12 @@ describe('Project rename/remove', () => {
       } finally {
         tm.restore();
       }
-      const record = readWebOwnerRecord();
+      const owners = readOwners();
+      assert.strictEqual(owners[`project:${PROJECT_E}`], undefined, "the project's owner record is gone");
       assert.deepStrictEqual(
-        (record.tabs ?? []).map((row) => row.id),
+        (owners[`project:${PROJECT_B}`]?.tabs ?? []).map((row) => row.id),
         ['o1'],
-        "every persisted row for the project is gone; other projects' rows survive",
+        "other projects' records survive",
       );
       assert.strictEqual(isKnownProjectId(PROJECT_E), false);
     } finally {
@@ -344,90 +304,6 @@ describe('Project rename/remove', () => {
       }
     } finally {
       unseedProject(PROJECT_F);
-      fs.rmSync(savedTabsPath(), { force: true });
-    }
-  });
-
-  it('a live web window whose host cannot be resolved fails closed and leaves the file untouched', async () => {
-    seedProject(PROJECT_G, WORKSPACE_G, 'Orphan Window');
-    seedSavedTabs({ [PROJECT_G]: [{ id: 'g1', url: 'https://example.test/g1' }] });
-    // Shell present, host deliberately absent: the tab rows may still be open somewhere
-    // the harness cannot see, so the purge must not run — the state the seam models.
-    const shell = installWebShell();
-    try {
-      const tm = installFakeTerminalManager([]);
-      try {
-        const result = await removeProjectEntry({ projectId: PROJECT_G });
-        assert.deepStrictEqual(result, { status: 'FAILED', projectId: PROJECT_G, reason: 'WEB_HUB_UNAVAILABLE' });
-        assert.strictEqual(sharedProjectRegistry.getProject(PROJECT_G).state, 'open');
-        assert.strictEqual(isKnownProjectId(PROJECT_G), true);
-        assert.deepStrictEqual(
-          (readWebOwnerRecord().tabs ?? []).map((row) => row.id),
-          ['g1'],
-          'persisted rows survive while the window might still show them',
-        );
-      } finally {
-        tm.restore();
-      }
-    } finally {
-      shell.unregister();
-      unseedProject(PROJECT_G);
-      fs.rmSync(savedTabsPath(), { force: true });
-    }
-  });
-
-  it("a live web hub closes the project's tabs and drops its active project only when it was showing that project", async () => {
-    seedProject(PROJECT_H, WORKSPACE_H, 'Hub Active');
-    seedProject(PROJECT_I, WORKSPACE_I, 'Hub Other');
-    seedSavedTabs({
-      [PROJECT_I]: [{ id: 'g1', url: 'https://example.test/g1' }],
-      [PROJECT_H]: [{ id: 'h1', url: 'https://example.test/h1' }],
-    });
-    const tm = installFakeTerminalManager([]);
-    const hub = installWebShell({ activeProject: PROJECT_H });
-    try {
-      const removedOther = await removeProjectEntry({ projectId: PROJECT_I });
-      assert.strictEqual(removedOther.status, 'REMOVED');
-      assert.deepStrictEqual(hub.calls.close, [PROJECT_I], "the hub closes the removed project's tabs");
-      assert.strictEqual(hub.activeProject(), PROJECT_H, 'an unrelated active project survives the removal');
-      assert.deepStrictEqual(hub.calls.activeProject, []);
-      assert.deepStrictEqual((readWebOwnerRecord().tabs ?? []).map((row) => row.id), ['h1'], 'the persisted purge still ran under the live hub');
-
-      const removedActive = await removeProjectEntry({ projectId: PROJECT_H });
-      assert.strictEqual(removedActive.status, 'REMOVED');
-      assert.deepStrictEqual(hub.calls.close, [PROJECT_I, PROJECT_H]);
-      assert.strictEqual(hub.activeProject(), null, 'the hub stops pointing at a project that no longer exists');
-      assert.deepStrictEqual(hub.calls.activeProject, [null]);
-      assert.strictEqual(hub.calls.affiliationCleared, 1, 'the workspace affiliation drops with the record');
-      assert.deepStrictEqual(readWebOwnerRecord().tabs ?? [], []);
-    } finally {
-      tm.restore();
-      hub.unregister();
-      unseedProject(PROJECT_I);
-      unseedProject(PROJECT_H);
-      fs.rmSync(savedTabsPath(), { force: true });
-    }
-  });
-
-  it('a refused tab close puts the hub back on the project it was showing', async () => {
-    seedProject(PROJECT_J, WORKSPACE_J, 'Hub Vetoed');
-    seedSavedTabs({ [PROJECT_J]: [{ id: 'h1', url: 'https://example.test/h1' }] });
-    const tm = installFakeTerminalManager([]);
-    const hub = installWebShell({
-      activeProject: PROJECT_J,
-      closeTabsForProject: () => ({ closed: [], vetoed: ['h1'] }),
-    });
-    try {
-      const refused = await removeProjectEntry({ projectId: PROJECT_J });
-      assert.strictEqual(refused.status, 'CLOSE_REFUSED');
-      // Cleared before the close (so no tab is minted for a dying project), restored after the veto.
-      assert.deepStrictEqual(hub.calls.activeProject, [null, PROJECT_J]);
-      assert.strictEqual(hub.activeProject(), PROJECT_J, 'a refused removal leaves the hub on its project');
-      assert.deepStrictEqual((readWebOwnerRecord().tabs ?? []).map((row) => row.id), ['h1'], 'nothing is purged on refusal');
-    } finally {
-      tm.restore();
-      hub.unregister();
-      unseedProject(PROJECT_J);
       fs.rmSync(savedTabsPath(), { force: true });
     }
   });

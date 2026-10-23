@@ -2,22 +2,23 @@
  * Protected close and coordinated application quit — real Electron probe.
  *
  * Boots the shipping main process in this Electron instance and drives its own
- * entrypoints, then judges what the process actually did:
+ * entrypoints, then judges what the process actually did. Every project has its own
+ * window: A is the startup window, B is opened through the sidebar's "open project"
+ * channel, and further project windows come from the same factory.
  *
  *   a. the coordinator is idle at boot (no reservations, phase `open`);
- *   b. a close attempt reserves its pages synchronously, then closes one window and
- *      leaves its siblings — and their tabs — untouched;
+ *   b. a close attempt reserves its pages synchronously, then closes one project window
+ *      and leaves its sibling project window — and its tabs — untouched;
  *   c. a new tab arriving inside the close window survives and retains the shell;
  *   d. a page that vetoes its unload produces an honest partial, never an undo promise;
  *   e. a binding attempted while its page is reserved is refused (TARGET_STALE), so a
  *      page can never be bound and then destroyed by the same attempt;
  *   f. a Quit while a run is queued is refused with no service teardown, and repeated
  *      Quit requests coalesce into the one attempt;
- *   g. a late veto in the shared Terminal Manager (a first-class shell) keeps every
- *      service alive and releases application admission;
- *   i. the Terminal Manager that vetoed a quit stays discoverable to the shipping gate,
- *      so a later attempt reaches it instead of losing it;
- *   j. the unload settle question per case — for a programmatic close and for a user-driven
+ *   g. a late veto in one project window, with another project window and the shared
+ *      Terminal Manager (a first-class shell) open, closes the veto-free shells, keeps
+ *      every service alive and releases application admission;
+ *   i. the unload settle question per case — for a programmatic close and for a user-driven
  *      one, which of `destroyed` / `will-prevent-unload` / neither arrives, and after how long,
  *      observed on the WebContents that can report it;
  *   h. the last browser shell going away drives the same application gate: ordered
@@ -27,6 +28,9 @@
  * Every check names the value it judged, and a check that cannot observe its subject
  * fails rather than skips: this probe is the acceptance evidence unit tests cannot give
  * (real windows, real unload vetoes, a real process exit).
+ *
+ * The probe runs in a throwaway data root, Chromium profile and capsule set (see below), on
+ * its own bridge port.
  *
  * Run: node scripts/run-electron.cjs scripts/probe-quit-coordination.cjs
  * Evidence: plans/260927-0315-project-windows/reports/quit-coordination-probe.{json,log}
@@ -103,6 +107,10 @@ const GAMMA = {
 };
 
 process.env.ANTIFAN_DATA_ROOT = tempRoot;
+// A probe launched from an AntiFan terminal inherits that app's config dir; left alone, the
+// bridge would publish its discovery file into the live app's config and the history store
+// would read the user's real history. Pin it inside the throwaway root.
+process.env.ANTIFAN_CONFIG_DIR = path.join(tempRoot, 'config');
 process.env.ANTIFAN_USER_DATA = path.join(tempRoot, 'Profile');
 process.env.ANTIFAN_PROJECT_ID = ALPHA.projectId;
 process.env.ANTIFAN_WORKSPACE_ID = ALPHA.workspaceId;
@@ -163,7 +171,7 @@ const ROW_ACCOUNTING = 'every row of the probe executed and reported pass';
 const EXPECTED_ROWS = [
   'the coordinator is idle at boot: one browser shell, no reservation, phase open',
   'a real queued run exists in the shipping run service',
-  'two browser shells exist: the hub with its tabs, the manager beside it',
+  'two project windows exist, each with its own tabs',
   'a close attempt reserves its member pages before it awaits anything',
   'closing one window disposes only it, releases its reservation, and starts no quit',
   'a closed window leaves no chrome content reachable and reports no survivor',
@@ -175,7 +183,7 @@ const EXPECTED_ROWS = [
   'a binding attempted during unload is refused; a page cannot be bound and then destroyed',
   'a late veto in a project shell while the Manager is open keeps services alive, releases admission and never commits',
   'the application is still usable after the late veto: a window opens and runs a page',
-  'the vetoed quit closed the page-less manager and retained the vetoing shell',
+  'the vetoed quit closed the page-less manager and the veto-free project window, and retained the vetoing shell',
   'unload settle (a): a page with no unload handler is destroyed by the close and reports no veto',
   'unload settle (b): a vetoing page reports will-prevent-unload, survives the close, and dies once disarmed',
   'unload settle (c): an already-destroyed content reports no event, so its outcome is read from state',
@@ -594,43 +602,54 @@ async function run() {
     expect(queuedRuns.some((run) => run.id === queuedRun.id && run.state === 'queued'), `the run service does not list ${queuedRun.id} as queued`);
   });
 
-  // ---- (b) the second surface: the shared Terminal Manager --------------------------
-  // One Web Hub presents every project (openProject re-presents the same shell), so the
-  // second independent surface the gate answers for is the shared Terminal Manager — a
-  // first-class shell of its own, not a second project window (none exists anymore).
+  // ---- (b) the second surface: a real second project window ---------------------------
+  // Every project has its own window, so the sibling the gate must leave alone is B's own
+  // window, opened through the sidebar's "open project" channel that ends in the same factory
+  // every window comes from. It carries a tab of its own: that page is what proves A's close
+  // reserves, closes and disposes only A's pages.
   const openB = await openProject(sidebarA, BETA.projectId);
+  expect(openB && openB.status === 'OPENED', `opening B through the user channel returned ${JSON.stringify(openB)}`);
   const betaEntry = await bounded(
-    authority.ensureProjectWindow({ kind: 'unassigned' }, 'user'),
+    waitFor(() => authority.snapshot().find((entry) => entry.owner.kind === 'project' && entry.owner.projectId === BETA.projectId) || false, 'the B window'),
     30000,
-    'the shared Terminal Manager'
+    'the B project window',
   );
   const betaKey = betaEntry.ownerKey;
-  // The veto/close rows run on the hub itself: a second project shell no longer exists, so
-  // `gammaKey` names the hub — rebound after every close/reopen below.
+  const toolbarB = surfaceOf(authority.shellFor(betaKey), 'toolbar');
+  await waitForApi(toolbarB, "typeof window.antifanToolbar === 'object' && typeof window.antifanToolbar.createTab === 'function'");
+  // The veto/close rows below run on a project window opened for them (`gammaKey`), rebound
+  // after every close/reopen.
   let gammaKey = alphaKey;
   await bounded(waitFor(() => authority.browserShellCount() === 2, 'two browser shells'), 20000, 'two browser shells to exist');
 
   const tabA = await createTabViaToolbar(toolbarA);
   const tabB = await createTabViaToolbar(toolbarA);
+  const tabBeta = await createTabViaToolbar(toolbarB);
   await sleep(250);
   observations.windows = {
     openB,
     keys: { alphaKey, betaKey, gammaKey },
-    tabs: { tabA, tabB },
+    tabs: { tabA, tabB, tabBeta },
     counts: authority.snapshot().map((entry) => ({ key: entry.ownerKey, tabs: entry.tabIds })),
   };
 
-  await check('two browser shells exist: the hub with its tabs, the manager beside it', () => {
+  await check('two project windows exist, each with its own tabs', () => {
     expect(authority.browserShellCount() === 2, `browserShellCount() was ${authority.browserShellCount()}`);
-    const manager = authority.snapshot().find((candidate) => candidate.ownerKey === betaKey);
-    expect(manager, 'the Terminal Manager is not in the directory');
-    expect(manager.owner.kind === 'unassigned', `the second shell's owner is ${JSON.stringify(manager.owner)}`);
-    const hub = authority.snapshot().find((candidate) => candidate.ownerKey === alphaKey);
-    expect(hub, 'the web hub is not in the directory');
+    const alphaWindow = authority.snapshot().find((candidate) => candidate.ownerKey === alphaKey);
+    const betaWindow = authority.snapshot().find((candidate) => candidate.ownerKey === betaKey);
+    expect(alphaWindow, 'the A window is not in the directory');
+    expect(betaWindow, 'the B window is not in the directory');
+    expect(alphaWindow.owner.kind === 'project' && alphaWindow.owner.projectId === ALPHA.projectId, `the first window's owner is ${JSON.stringify(alphaWindow.owner)}`);
+    expect(betaWindow.owner.kind === 'project' && betaWindow.owner.projectId === BETA.projectId, `the second window's owner is ${JSON.stringify(betaWindow.owner)}`);
+    expect(alphaWindow.windowId !== betaWindow.windowId, `both windows report id ${alphaWindow.windowId}`);
     for (const tab of [tabA, tabB]) {
-      expect(typeof tab === 'string' && tab.length > 0, `the hub created no tab (${JSON.stringify(tab)})`);
-      expect(hub.tabIds.includes(tab), `the hub does not list tab ${tab}: ${JSON.stringify(hub.tabIds)}`);
+      expect(typeof tab === 'string' && tab.length > 0, `window A created no tab (${JSON.stringify(tab)})`);
+      expect(alphaWindow.tabIds.includes(tab), `window A does not list tab ${tab}: ${JSON.stringify(alphaWindow.tabIds)}`);
+      expect(!betaWindow.tabIds.includes(tab), `window B lists A's tab ${tab}`);
     }
+    expect(typeof tabBeta === 'string' && tabBeta.length > 0, `window B created no tab (${JSON.stringify(tabBeta)})`);
+    expect(betaWindow.tabIds.includes(tabBeta), `window B does not list tab ${tabBeta}: ${JSON.stringify(betaWindow.tabIds)}`);
+    expect(!alphaWindow.tabIds.includes(tabBeta), `window A lists B's tab ${tabBeta}`);
   });
 
   // ---- (b) close one window while its siblings are idle ------------------------------
@@ -646,7 +665,7 @@ async function run() {
   const alphaAttempt = bounded(authority.attemptClose(alphaKey, 'user'), 20000, 'close of the first window');
   const reservedDuringAttempt = authority.reservations();
   const alphaReport = await alphaAttempt;
-  await bounded(waitFor(() => authority.browserShellCount() === 1, 'the hub to close'), 15000, 'the hub to leave the directory');
+  await bounded(waitFor(() => authority.browserShellCount() === 1, 'the closed window to leave the directory'), 15000, 'the closed window to leave the directory');
   currentStep = 'judge what the closed window left behind';
   const alphaChromeTimeline = await chromeDeathTimeline(alphaChromeBeforeClose);
   const alphaWarnings = shellWarnings.slice(warningsBeforeAlphaClose);
@@ -701,9 +720,10 @@ async function run() {
   await check('a close attempt reserves its member pages before it awaits anything', () => {
     expect(reservedDuringAttempt.reservedCount > 0, `no page was reserved: ${JSON.stringify(reservedDuringAttempt)}`);
     expect(reservedDuringAttempt.reservedTabIds.includes(tabA), `the attempt did not reserve its own page ${tabA}: ${JSON.stringify(reservedDuringAttempt.reservedTabIds)}`);
-    // The manager owns no pages, so the old "sibling page is not reserved" check now reads:
-    // every reserved page belongs to the closing hub itself.
-    expect(reservedDuringAttempt.reservedTabIds.every((id) => alphaTabsBeforeClose.includes(id)), `the attempt reserved a page outside the closing hub: ${JSON.stringify(reservedDuringAttempt.reservedTabIds)}`);
+    // The sibling window's page is not part of A's close: every reserved page belongs to the
+    // closing window itself.
+    expect(reservedDuringAttempt.reservedTabIds.every((id) => alphaTabsBeforeClose.includes(id)), `the attempt reserved a page outside the closing window: ${JSON.stringify(reservedDuringAttempt.reservedTabIds)}`);
+    expect(!reservedDuringAttempt.reservedTabIds.includes(tabBeta), `the attempt reserved the sibling window's page ${tabBeta}: ${JSON.stringify(reservedDuringAttempt.reservedTabIds)}`);
   });
 
   await check('closing one window disposes only it, releases its reservation, and starts no quit', () => {
@@ -717,6 +737,8 @@ async function run() {
     expect(authority.hostForOwner(betaKey) !== null, "the closed window's close disposed the sibling shell's host");
     const betaEntry = authority.snapshot().find((entry) => entry.ownerKey === betaKey);
     expect(betaEntry !== undefined, `the sibling shell is gone: ${JSON.stringify(authority.snapshot().map((entry) => entry.ownerKey))}`);
+    expect(betaEntry.tabIds.includes(tabBeta), `the sibling window lost its page ${tabBeta}: ${JSON.stringify(betaEntry.tabIds)}`);
+    expect(!alphaReport.closed.some((page) => page.tabId === tabBeta), `the close reported the sibling window's page ${tabBeta}`);
     const after = authority.reservations();
     expect(after.reservedCount === 0 && after.applicationReserved === false, `the attempt left a reservation behind: ${JSON.stringify(after)}`);
     expect(app.isReady() === true, 'the process is no longer ready after a window closed');
@@ -727,12 +749,11 @@ async function run() {
   });
 
   // ---- (d) a page that vetoes its unload ---------------------------------------------
-  // The hub was closed above; the remaining close rows run on a reopened hub with the
-  // manager open beside it — same surfaces, same gate, one less project shell to pretend
-  // exists.
-  const gammaReopenD = await bounded(authority.ensureProjectWindow({ kind: 'project', projectId: GAMMA.projectId }, 'user'), 30000, 'reopen the hub for the veto row');
+  // Window A was closed above; the remaining close rows run on a project window opened for
+  // them, with B's window open beside it — same surfaces, same gate.
+  const gammaReopenD = await bounded(authority.ensureProjectWindow({ kind: 'project', projectId: GAMMA.projectId }, 'user'), 30000, 'open the project window for the veto row');
   gammaKey = gammaReopenD.ownerKey;
-  const toolbarG = surfaceOf(authority.shellFor(gammaKey), 'toolbar');
+  let toolbarG = surfaceOf(authority.shellFor(gammaKey), 'toolbar');
   await waitForApi(toolbarG, "typeof window.antifanToolbar === 'object' && typeof window.antifanToolbar.createTab === 'function'");
   currentRow = 'unload veto';
   currentStep = 'create the page that will refuse to unload';
@@ -805,7 +826,7 @@ async function run() {
 
   // ---- explicit force: cancel must do nothing, confirmation destroys only this shell ----
   currentRow = 'explicit force-close';
-  const forceEntry = await bounded(authority.ensureProjectWindow({ kind: 'project', projectId: GAMMA.projectId }, 'user'), 30000, 'reopen the hub for the force row');
+  const forceEntry = await bounded(authority.ensureProjectWindow({ kind: 'project', projectId: GAMMA.projectId }, 'user'), 30000, 'join the project window for the force row');
   const forceKey = forceEntry.ownerKey;
   const forceToolbar = surfaceOf(authority.shellFor(forceKey), 'toolbar');
   await waitForApi(forceToolbar, "typeof window.antifanToolbar === 'object' && typeof window.antifanToolbar.forceCloseWindow === 'function'");
@@ -862,6 +883,15 @@ async function run() {
     const after = authority.reservations();
     expect(after.reservedCount === 0 && after.applicationReserved === false, `the force left a reservation behind: ${JSON.stringify(after)}`);
   });
+
+  // The forced window is gone. The refused quit below has to judge two project windows it
+  // could have closed, so the project is opened again beside B, with a page of its own.
+  const queuedWindow = await bounded(authority.ensureProjectWindow({ kind: 'project', projectId: GAMMA.projectId }, 'user'), 30000, 'reopen the project window for the queued-run row');
+  gammaKey = queuedWindow.ownerKey;
+  toolbarG = surfaceOf(authority.shellFor(gammaKey), 'toolbar');
+  await waitForApi(toolbarG, "typeof window.antifanToolbar === 'object' && typeof window.antifanToolbar.createTab === 'function'");
+  await createTabViaToolbar(toolbarG, 'about:blank', 'toolbar createTab for the queued-run row');
+  await bounded(waitFor(() => authority.browserShellCount() === 2, 'two project windows'), 20000, 'two project windows before the queued quit');
 
   // ---- (f) a Quit while a run is queued ----------------------------------------------
   currentRow = 'quit with a queued run';
@@ -949,7 +979,7 @@ async function run() {
     // The probe's own binding must not leak into the rest of the run.
     try { await bounded(controlPlane.runs.attachments.revokeAttachment(mintOutcome.attachmentId), 15000, 'revoke the probe binding'); } catch {}
   }
-  await bounded(waitFor(() => authority.browserShellCount() === 1, 'the hub to close'), 20000, 'the hub to leave the directory');
+  await bounded(waitFor(() => authority.browserShellCount() === 1, 'the closed window to leave the directory'), 20000, 'the closed window to leave the directory');
   observations.bindingDuringUnload = { gammaPageForBinding, mintOutcome, report: bindingReport, count: authority.browserShellCount() };
 
   await check('a binding attempted during unload is refused; a page cannot be bound and then destroyed', () => {
@@ -960,11 +990,12 @@ async function run() {
     expect(authority.hostForTab(gammaPageForBinding) === null, 'the closed page still resolves to a host');
   });
 
-  // ---- (g) a late veto while the Terminal Manager is open ----------------------------
-  // The shared Terminal Manager is a first-class shell with no page area — a veto can
-  // only live on a real page, so this arms one on a fresh project window opened after the
-  // manager. By the time it refuses, older shells are already gone: the real late-veto
-  // shape survives intact, and the surviving manager makes the discovery row below honest.
+  // ---- (g) a late veto while B's window and the Terminal Manager are open -------------
+  // The shared Terminal Manager is a first-class shell with no page area, and B's window
+  // holds a page that does not veto. A veto can only live on a real page, so this arms one
+  // on a project window opened after both. By the time it refuses, the older shells are
+  // already gone: the real late-veto shape survives intact, and the vetoing shell is the
+  // only one the discovery row below has left to find.
   currentRow = 'late shell veto';
   currentStep = 'open the shared Terminal Manager, then a project window with a vetoing page';
   const managerEntry = await bounded(
@@ -1060,6 +1091,7 @@ async function run() {
     expect(managerEvents.some((event) => event.includes('will-prevent-unload')) || (vetoWindow && !vetoWindow.isDestroyed()), `the page never produced a veto and the window is gone: ${JSON.stringify(managerEvents)}`);
     expect(auxCensus.some((window) => window.id === vetoWindowId && !window.destroyed), `the vetoing shell is gone: ${JSON.stringify(auxCensus)}`);
     expect(auxQuitReport.closedShells.includes(managerKey), `the manager the gate closed is not among closedShells: ${JSON.stringify(auxQuitReport.closedShells)}`);
+    expect(auxQuitReport.closedShells.includes(betaKey), `B's veto-free window the gate closed is not among closedShells: ${JSON.stringify(auxQuitReport.closedShells)}`);
     expect(app.isReady() === true, 'the app is no longer ready after a vetoed quit');
     expect(!auxJournal.some((entry) => entry.event === 'shutdown.begin'), `a service teardown ran despite the veto: ${JSON.stringify(auxJournal.map((entry) => entry.event))}`);
     const afterVeto = authority.reservations();
@@ -1085,10 +1117,11 @@ async function run() {
     expect(controlPlane.runs.listRuns(alpha.projectId).length >= 1, 'the control plane stopped answering after the veto');
   });
 
-  // The manager is a page-less shell, so the vetoed quit closed it legitimately while the
-  // vetoing hub was retained. The directory read has to agree with what the gate reported:
-  // closed shells are gone, survivors still answer.
+  // The manager is a page-less shell and B's page does not veto, so the vetoed quit closed both
+  // legitimately while the vetoing window was retained. The directory read has to agree with
+  // what the gate reported: closed shells are gone, survivors still answer.
   const managerEntryAfterVeto = authority.snapshot().find((entry) => entry.ownerKey === managerKey);
+  const betaEntryAfterVeto = authority.snapshot().find((entry) => entry.ownerKey === betaKey);
   const vetoEntryAfterVeto = authority.snapshot().find((entry) => entry.ownerKey === vetoKey);
   observations.managerDiscovery = {
     managerInDirectory: managerEntryAfterVeto ? { ownerKey: managerEntryAfterVeto.ownerKey, tabIds: [...managerEntryAfterVeto.tabIds] } : null,
@@ -1096,8 +1129,9 @@ async function run() {
     censusWindowIds: windowCensus().map((window) => window.id),
     managerGone: !managerWindow || managerWindow.isDestroyed(),
   };
-  await check('the vetoed quit closed the page-less manager and retained the vetoing shell', () => {
+  await check('the vetoed quit closed the page-less manager and the veto-free project window, and retained the vetoing shell', () => {
     expect(managerEntryAfterVeto === undefined, `the manager the gate reported closed still sits in the directory: ${JSON.stringify(managerEntryAfterVeto)}`);
+    expect(betaEntryAfterVeto === undefined, `B's window the gate reported closed still sits in the directory: ${JSON.stringify(betaEntryAfterVeto)}`);
     expect(vetoEntryAfterVeto, `the vetoing shell vanished from the directory: ${JSON.stringify(observations.managerDiscovery)}`);
     expect(vetoEntryAfterVeto.tabIds.includes(lateVetoTab), `the vetoing page is not among the retained shell's tabs: ${JSON.stringify(vetoEntryAfterVeto.tabIds)}`);
     expect(authority.hostForOwner(vetoKey), 'the vetoing shell kept no host after the quit it refused');
@@ -1249,9 +1283,9 @@ async function run() {
   await evalIn(settleUserPage, DISARM_UNLOAD_VETO, 'disarm the settle (d) veto').catch(() => {});
 
   // ---- (h) the last browser shell drives the same gate --------------------------------
-  // The manager already closed inside the vetoed quit, so the reopened hub is the only
-  // browser shell left: its own native close is what drives the committed application
-  // quit — same gate, last shell standing.
+  // The manager and B's window already closed inside the vetoed quit, so the reopened project
+  // window is the only browser shell left: its own native close is what drives the committed
+  // application quit — same gate, last shell standing.
   currentRow = 'final committed exit';
   const remainingShells = authority.snapshot();
   expect(remainingShells.length === 1, `more than one shell is still open before the final close: ${JSON.stringify(remainingShells.map((entry) => entry.ownerKey))}`);

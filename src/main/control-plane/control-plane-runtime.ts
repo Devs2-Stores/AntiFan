@@ -77,6 +77,14 @@ export interface ControlPlaneRuntimeOptions {
    */
   resolveTerminalProjectScope?: (terminalSessionId: string) => { projectId: string; workspaceId: string } | undefined;
   /**
+   * Gives a terminal whose scope is `unattributed` a project, once, from the folder its shell was
+   * started in; see `createTerminalProjectAdopter`. It resolves after the terminal's owner key
+   * names the project (so the next scope read is `measured`) and rejects with a typed
+   * `TERMINAL_SCOPE_UNRESOLVED` when no project can be chosen. Omitted: an unattributed terminal
+   * stays unattributed, as before.
+   */
+  adoptTerminalProject?: (terminalSessionId: string) => Promise<void>;
+  /**
    * Measured capsule affiliation of a tab (same probe the browser port uses for
    * routed tab creation). Terminal-origin sessions refuse a bound/provisioned tab
    * that measures in a different project than the terminal resolved to.
@@ -147,6 +155,7 @@ export class ControlPlaneRuntime {
   private devicePort: DeviceControlPort | null = null;
   private deviceManager: DeviceRegistryPort | null = null;
   private readonly resolveTerminalProjectScopeOption?: (terminalSessionId: string) => { projectId: string; workspaceId: string } | undefined;
+  private readonly adoptTerminalProjectOption?: (terminalSessionId: string) => Promise<void>;
   private readonly resolveTabAffiliationOption?: (tabId: string) => { projectId?: string; workspaceId?: string; capsuleId?: string } | undefined;
   // Memoized workspace-root resolution: wether resolving from a workspace record
   // or the fallback chain, the sync fs.existsSync checks only need to run once
@@ -238,6 +247,7 @@ export class ControlPlaneRuntime {
     this.transport = new CapabilityTransportAdapter(this.capabilities, this.runs.attachments, this.ledger);
     this.terminal = options.terminal ?? TerminalManager.getInstance();
     this.resolveTerminalProjectScopeOption = options.resolveTerminalProjectScope;
+    this.adoptTerminalProjectOption = options.adoptTerminalProject;
     this.resolveTabAffiliationOption = options.resolveTabAffiliation;
     // Terminal-origin scope gates on the attachment registry: minting records the
     // terminal id, and every later validate re-measures it through these seams. Only a
@@ -574,6 +584,19 @@ export class ControlPlaneRuntime {
     return { kind: 'unattributed' };
   }
 
+  /**
+   * Bring a terminal that no project claims under one, before anything measures it. Acts only
+   * when `resolveTerminalScope` answers `unattributed`; a measured or unmeasurable terminal is
+   * left exactly as it is, so adoption can never widen or redirect a real claim. Idempotent:
+   * once the terminal's owner key names its project the scope reads `measured` and this is a
+   * no-op. Rejects with `TERMINAL_SCOPE_UNRESOLVED` when no project can be chosen.
+   */
+  public async ensureTerminalProject(terminalSessionId: string): Promise<void> {
+    if (!this.adoptTerminalProjectOption || !terminalSessionId) return;
+    if (this.resolveTerminalScope(terminalSessionId).kind !== 'unattributed') return;
+    await this.adoptTerminalProjectOption(terminalSessionId);
+  }
+
   public resolveTabAffiliation(tabId: string): { projectId?: string; workspaceId?: string; capsuleId?: string } | undefined {
     return this.resolveTabAffiliationOption?.(tabId);
   }
@@ -711,6 +734,7 @@ export class ControlPlaneRuntime {
     const terminalSessionId = typeof options.originTerminalSessionId === 'string' && options.originTerminalSessionId.trim()
       ? options.originTerminalSessionId.trim()
       : undefined;
+    if (terminalSessionId) await this.ensureTerminalProject(terminalSessionId);
     const terminalScope = terminalSessionId ? this.resolveTerminalScope(terminalSessionId) : undefined;
     const measuredTerminalScope = terminalScope?.kind === 'measured' ? terminalScope : undefined;
     if (terminalSessionId && measuredTerminalScope) {

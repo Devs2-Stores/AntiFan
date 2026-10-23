@@ -202,7 +202,7 @@ export interface CloseSurface {
   restoreSurvivingLayout?(survivingTabIds: readonly string[]): void;
 
   /**
-   * Detached-lifecycle persistence seam (optional): called once, after the
+   * Project-window persistence seam (optional): called once, after the
    * shell-scope evidence gate passes and immediately before the per-page close
    * loop. A surface that implements it snapshots its persisted owner record NOW —
    * before `closePage` empties the live map — so the window's own teardown can
@@ -881,14 +881,13 @@ export class ProjectCloseCoordinator {
         return finalize(this.readMembers(surface, lastObservedMembers));
       }
 
-      // A detached `project:` shell is parked, not dismantled: its tab rows are the
-      // persisted state `reattachProject` folds back to the hub. The surface snapshots
-      // them HERE — before `closePage` empties the live map — and the window's own
-      // teardown writes that parked record. The close pipeline itself is unchanged:
-      // per-page readLiveUse, closePage, vetoes, reservations and outcome records all
-      // run exactly as they do for any other owner. A park failure refuses the close —
-      // rows that cannot be parked would be lost, which is the one outcome the
-      // detached lifecycle must never produce.
+      // A `project:` shell is parked, not dismantled: its tab rows are the persisted state
+      // the project's window reopens with. The surface snapshots them HERE — before
+      // `closePage` empties the live map — and the window's own teardown writes that parked
+      // record. The close pipeline itself is unchanged: per-page readLiveUse, closePage,
+      // vetoes, reservations and outcome records all run exactly as they do for any other
+      // owner. A park failure refuses the close — rows that cannot be parked would be lost,
+      // which is the one outcome a project window's close must never produce.
       if (surface.parkTabsForClose) {
         try {
           surface.parkTabsForClose();

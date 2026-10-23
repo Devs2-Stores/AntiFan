@@ -10,12 +10,10 @@
  */
 
 /**
- * Stable identity of whatever owns a window. `project` windows are retired — every web
- * surface is the one `web` hub, `unassigned` is the shared Terminal Manager; the two are
- * disjoint and the `project` variant stays in the type only so stored owner keys like
- * `project:<id>` keep parsing where a migration reads them.
+ * Stable identity of whatever owns a window: one `project` window per project, or
+ * `unassigned`, the shared Terminal Manager. The two are disjoint.
  */
-export type WindowOwner = { kind: 'project'; projectId: string } | { kind: 'web' } | { kind: 'unassigned' };
+export type WindowOwner = { kind: 'project'; projectId: string } | { kind: 'unassigned' };
 
 /** Collision-free map key for an owner. Project IDs and the sentinels cannot alias. */
 export function ownerKey(owner: WindowOwner): string {

@@ -103,7 +103,7 @@ async function main() {
     await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
     const origin = `http://127.0.0.1:${server.address().port}`;
 
-    const winShell = new ProjectWindowShell({ owner: { kind: 'web' }, title: 'AntiFan JS Dialog Smoke', bounds: { width: 1280, height: 800 }, show: true });
+    const winShell = new ProjectWindowShell({ owner: { kind: 'project', projectId: 'project-00000000-0000-4000-8000-0000000000e2' }, title: 'AntiFan JS Dialog Smoke', bounds: { width: 1280, height: 800 }, show: true });
     tabHost = new NativeTabHost(winShell);
     setChromeSenderResolver((webContents) => {
       const surface = winShell.chromeSurfaceFor(webContents.id) || tabHost.surfaceForWebContents(webContents.id);

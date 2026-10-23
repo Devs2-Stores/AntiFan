@@ -300,27 +300,19 @@ export interface BridgeMintTargetRequest {
  * `undefined` resolution means "no owner to route by" — the bridge falls back to its
  * construction host (the unattributed, single-window behavior).
  *
- * The resolver is asynchronous because answering may have to bring the hub back: the
- * hub can be closed while sibling windows keep the process running, and the claims it
- * serves then have no live window until one is reopened.
+ * The resolver is asynchronous because answering may have to reopen a project window: a
+ * project's window can be closed while its terminals live on, and the claims they serve
+ * then have no live window until one is reopened.
  */
 export interface BridgeMintTargetResolution {
   host: NativeTabHost;
   capsuleId?: string;
   /**
-   * The project the minted tab is stamped under. The web hub is one window that presents
-   * several projects, and a host that is handed no project stamps a new strip tab with
-   * whichever project the hub happens to be showing — so a tab pinned to another
-   * project's capsule would be listed under the wrong project. Absent means no project
-   * is provable and the host keeps its own default.
+   * The project the minted tab is stamped under: the terminal's own project when it names
+   * one, else the project its capsule belongs to. Absent means no project is provable and
+   * the host keeps its own default.
    */
   projectId?: string;
-  /**
-   * The resolver vouches that a project-claimed terminal legitimately has no capsule to
-   * pin: the claimed project is the process's boot project, which no capsule ever claims.
-   * Without it a project claim lacking a capsule is refused (fail closed).
-   */
-  unpinnedBootProject?: boolean;
 }
 
 export type BridgeMintHostResolver = (opts: BridgeMintTargetRequest) => Promise<BridgeMintTargetResolution | undefined>;
@@ -2494,11 +2486,10 @@ export class BridgeServer {
   }
 
   /**
-   * Re-point the construction host at a new hub. Closing the hub while sibling windows
-   * keep the process running disposes the host this bridge was built with; when the hub
-   * is opened again it gets a new host, and every unattributed answer — status, the
-   * active tab, the mint fallback, the relayed host events — must come from that one,
-   * never from the disposed host.
+   * Re-point the construction host at another window's host. Closing the window this bridge
+   * was built with disposes its host while sibling windows keep the process running; every
+   * unattributed answer — status, the active tab, the mint fallback, the relayed host
+   * events — must then come from a live window's host, never from the disposed one.
    */
   public setTabHost(host: NativeTabHost): void {
     if (host === this.tabHost) return;
@@ -4046,6 +4037,10 @@ export class BridgeServer {
   private async resolveMintTarget(opts: BridgeMintTargetRequest): Promise<BridgeMintTargetResolution | undefined> {
     const tm = TerminalManager.getInstance();
     const terminalSessionId = typeof opts.terminalSessionId === 'string' && opts.terminalSessionId.trim() ? opts.terminalSessionId.trim() : undefined;
+    // A terminal no project claims is given its project (from the folder it runs in) before
+    // anything below reads its owner key or capsule; a terminal that already names a project
+    // is untouched, and one no project can be chosen for refuses here, typed.
+    if (terminalSessionId && this.controlPlaneRuntime) await this.controlPlaneRuntime.ensureTerminalProject(terminalSessionId);
     // 'default' is the daemon's unattributed sentinel, not a workspace stamp — a session
     // carrying it must never pin a tab under that literal id.
     const stampedCapsuleId = terminalSessionId ? tm.sessionCapsuleId(terminalSessionId) : undefined;
@@ -4056,7 +4051,7 @@ export class BridgeServer {
     const parsedOwner = parseOwnerKey(ownerKey);
     const projectClaimed = parsedOwner.kind === 'project' || parsedOwner.kind === 'malformed';
     const resolution = this.mintHostResolver ? await this.mintHostResolver({ ...opts, terminalSessionId }) : undefined;
-    if (projectClaimed && (!resolution?.host || (!resolution.capsuleId && !resolution.unpinnedBootProject))) {
+    if (projectClaimed && (!resolution?.host || !resolution.capsuleId)) {
       throw new CapabilityError(
         'TERMINAL_SCOPE_UNRESOLVED',
         `TERMINAL_SCOPE_UNRESOLVED: Cannot mint an agent tab from terminal '${terminalSessionId}': a project owns it, but no owning window ` +

@@ -201,7 +201,7 @@ describe('Renderer split-pane behaviour', () => {
     assert.strictEqual(handler(keyEvent('D', { altKey: true, shiftKey: true })), false, 'Alt+Shift+D toggles the split');
     assert.strictEqual(handler(keyEvent('\\', { ctrlKey: true })), false, 'Ctrl+\\ toggles the split');
     const toggles = splitCalls.length;
-    // Ctrl+Shift+D is the application's detach/reattach-project chord: the terminal must not claim it.
+    // Ctrl+Shift+D is not a split chord: the terminal must not claim it.
     assert.strictEqual(handler(keyEvent('d', { ctrlKey: true, shiftKey: true })), true, 'Ctrl+Shift+D is not a split chord');
     assert.strictEqual(splitCalls.length, toggles);
   });

@@ -69,8 +69,16 @@ describe('BridgeServer Terminal Affinity Resolution Live RPC Contract Tests', ()
     }
   }
 
+  // Terminal adoption seam: every startSession for a terminal asks the runtime to give an
+  // unclaimed terminal its project first. A case that exercises adoption swaps `adopt`.
+  const adoptedTerminals: string[] = [];
+  let adopt: (terminalSessionId: string) => Promise<void> = async () => {};
   const mockControlPlane = {
-    createCliSession: async (opts: any) => {
+    ensureTerminalProject: async (terminalSessionId: string) => {
+      adoptedTerminals.push(terminalSessionId);
+      await adopt(terminalSessionId);
+    },
+    createCliSession: async (opts: { projectId?: string; workspaceId?: string; tabId?: string }) => {
       lastSessionCreatedOpts = opts;
       return {
         run: { id: 'run-test-123456789012' },
@@ -359,15 +367,48 @@ describe('BridgeServer Terminal Affinity Resolution Live RPC Contract Tests', ()
     }
   });
 
-  it('10b. Mints unpinned for a project-claimed terminal when the resolver vouches it is the boot project', async () => {
-    installTerminalStub({}, { 'term-boot': 'project:proj-boot' });
-    resolverStub = () => ({ host: mockHost as unknown as NativeTabHost, unpinnedBootProject: true });
+  it('10b. Adopts an unclaimed terminal before reading its owner, and refuses with no mint when no project can be chosen', async () => {
+    installTerminalStub({}, { 'term-adopt': 'unassigned' });
+    let mintsBefore = mockHost.createTabCalls.length;
+    // Adoption stamps the project the terminal's folder belongs to: the mint must read it.
+    adopt = async (id) => {
+      terminalFacts.ownerById[id] = 'project:proj-adopted';
+      terminalFacts.capsuleById[id] = 'capsule-adopted';
+    };
+    // The owner the bridge reads, and the resolver's answer, both depend on adoption having
+    // run first: read before it, the terminal is still 'unassigned' and resolves to no capsule.
+    const readOwner = terminalStub.sessionOwnerKey;
+    const ownersRead: Array<string | undefined> = [];
+    terminalStub.sessionOwnerKey = (id) => {
+      const owner = readOwner(id);
+      if (id === 'term-adopt') ownersRead.push(owner);
+      return owner;
+    };
+    resolverStub = (opts) => (opts.terminalSessionId === 'term-adopt' && terminalFacts.ownerById['term-adopt'] === 'project:proj-adopted'
+      ? { host: mockHost as unknown as NativeTabHost, capsuleId: 'capsule-adopted', projectId: 'proj-adopted' }
+      : undefined);
     try {
-      const resp = await rpcCall('antifan.cli.startSession', { terminalSessionId: 'term-boot' });
+      const resp = await rpcCall('antifan.cli.startSession', { terminalSessionId: 'term-adopt' });
       assert.strictEqual(resp.success, true);
-      assert.strictEqual(lastSessionCreatedOpts?.tabId, 'tab-created');
-      assert.strictEqual(lastCreateTabCall()?.options?.capsuleId, undefined);
+      assert.strictEqual(adoptedTerminals.at(-1), 'term-adopt');
+      assert.ok(ownersRead.length > 0 && ownersRead.every((owner) => owner === 'project:proj-adopted'), `owner read before adoption: ${JSON.stringify(ownersRead)}`);
+      assert.strictEqual(mockHost.createTabCalls.length, mintsBefore + 1);
+      assert.strictEqual(lastCreateTabCall()?.options?.capsuleId, 'capsule-adopted', 'the mint reads the owner adoption stamped');
+      assert.strictEqual(lastCreateTabCall()?.options?.projectId, 'proj-adopted');
+
+      // The shape the real adopter throws: the code leads the message the caller is shown.
+      adopt = async (id) => {
+        throw new CapabilityError('TERMINAL_SCOPE_UNRESOLVED', `TERMINAL_SCOPE_UNRESOLVED: Terminal '${id}' belongs to no project. E:\\Work is a grouping folder.`);
+      };
+      terminalFacts.ownerById['term-adopt'] = 'unassigned';
+      mintsBefore = mockHost.createTabCalls.length;
+      const refused = await rpcCall('antifan.cli.startSession', { terminalSessionId: 'term-adopt' });
+      assert.strictEqual(refused.success, false);
+      assert.ok(String(refused.error).includes('TERMINAL_SCOPE_UNRESOLVED'));
+      assert.strictEqual(mockHost.createTabCalls.length, mintsBefore, 'a refused adoption mints nothing');
     } finally {
+      adopt = async () => {};
+      terminalStub.sessionOwnerKey = readOwner;
       restoreTerminalManager();
     }
   });

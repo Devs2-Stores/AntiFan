@@ -57,6 +57,10 @@ class RecordingTabHost extends EventEmitter {
     return Boolean(tabId && this.tabs.some((tab) => tab.id === tabId));
   }
 
+  public canHostTabs(): boolean {
+    return true;
+  }
+
   public getActiveTabId(): string {
     this.activeTabQueries += 1;
     return 'tab-foreground';
@@ -888,7 +892,10 @@ describe('Zero-argument active-tab authority', () => {
     }
 
     function hostOwnedBy(ownerKeyValue: string): NativeTabHost {
-      return asHost(Object.assign(new RecordingTabHost(), { windowOwnerKey: () => ownerKeyValue }));
+      return asHost(Object.assign(new RecordingTabHost(), {
+        windowOwnerKey: () => ownerKeyValue,
+        canHostTabs: () => ownerKeyValue.startsWith('project:'),
+      }));
     }
 
     function refusalOf(act: () => unknown): CapabilityError {
@@ -917,19 +924,45 @@ describe('Zero-argument active-tab authority', () => {
       assert.strictEqual('projectId' in (refusal.details ?? {}), false, 'no project was named, so none is echoed');
     });
 
-    it('TARGET_REQUIRED lists only project windows, never the hub or the terminal manager', () => {
+    it('TARGET_REQUIRED counts and lists only project windows, never the terminal manager', () => {
       const directory = new TabAuthorityDirectory();
       directory.register(projectWindow('project-a'), hostOwnedBy('project:project-a'));
-      directory.register(projectWindow('project-hub'), hostOwnedBy('web'));
+      directory.register(projectWindow('project-b'), hostOwnedBy('project:project-b'));
       directory.register(projectWindow('project-manager'), hostOwnedBy('unassigned'));
       const authority = new TabAmbientAuthority({ directory });
 
       const refusal = refusalOf(() => authority.ambientHostOrThrow('project-unknown'));
 
       assert.strictEqual(refusal.code, 'TARGET_REQUIRED');
-      assert.strictEqual(refusal.details?.liveHosts, 3);
-      assert.deepStrictEqual(refusal.details?.liveProjectIds, ['project-a']);
+      assert.strictEqual(refusal.details?.liveHosts, 2, 'the manager cannot host tabs, so it is not a live host');
+      assert.match(refusal.message, /^2 project windows are live/);
+      assert.deepStrictEqual(refusal.details?.liveProjectIds, ['project-a', 'project-b']);
       assert.strictEqual(refusal.details?.projectId, 'project-unknown', 'the requested project is echoed');
+    });
+
+    it('a lone Terminal Manager is no tab host: ambient resolution refuses instead of answering it', () => {
+      const directory = new TabAuthorityDirectory();
+      directory.register(projectWindow('project-manager'), hostOwnedBy('unassigned'));
+      const authority = new TabAmbientAuthority({ directory });
+
+      const refusal = refusalOf(() => authority.ambientHostOrThrow());
+      assert.strictEqual(refusal.code, 'TARGET_REQUIRED');
+      assert.strictEqual(refusal.details?.liveHosts, 0);
+      assert.deepStrictEqual(refusal.details?.liveProjectIds, []);
+      const placement = refusalOf(() => authority.hostForNewTab(undefined, 'project-a'));
+      assert.strictEqual(placement.code, 'TARGET_REQUIRED', 'a new tab never lands in the manager');
+    });
+
+    it('the one project window answers ambient resolution even while the Terminal Manager is live', () => {
+      const directory = new TabAuthorityDirectory();
+      const manager = hostOwnedBy('unassigned');
+      const project = hostOwnedBy('project:project-a');
+      directory.register(projectWindow('project-manager'), manager);
+      directory.register(projectWindow('project-a'), project);
+      const authority = new TabAmbientAuthority({ directory });
+
+      assert.strictEqual(authority.ambientHostOrThrow(), project);
+      assert.strictEqual(authority.hostForNewTab(undefined, undefined), project);
     });
 
     it('TARGET_REQUIRED stays typed when a host cannot name its owner', () => {
