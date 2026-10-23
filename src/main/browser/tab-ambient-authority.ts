@@ -74,7 +74,9 @@ export class TabAmbientAuthority {
   ambientHostOrThrow(projectId?: string): NativeTabHost {
     const projectHost = projectId ? this.deps.directory.hostForProject(projectId) : undefined;
     if (projectHost) return projectHost;
-    const hosts = this.deps.directory.hosts();
+    // The Terminal Manager has no page area: counting it would let a lone manager answer
+    // as "the" window and hand out a tab nobody can see, or inflate the live-window count.
+    const hosts = this.deps.directory.hosts().filter((host) => host.canHostTabs());
     const automationHost = hosts.find((host) => host.getAutomationTabId() != null);
     if (automationHost) return automationHost;
     if (hosts.length === 1) return hosts[0]!;

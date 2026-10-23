@@ -41,6 +41,7 @@ import {
 import { ownerKey, type WindowOwner } from '../../src/main/browser/project-window-shell';
 import { TerminalOutputRouter } from '../../src/main/browser/terminal-output-router';
 import { SIDEBAR_CHANNELS, TERMINAL_CHANNELS, TOOLBAR_CHANNELS } from '../../src/shared/contracts';
+import { CapabilityError } from '../../src/shared/control-plane-contracts';
 import type { ShellDouble } from '../support/project-window-shell-double';
 // Type-only: erased at compile time, so it loads nothing before the Electron fault is installed.
 import type { TabHostCloseAdmission } from '../../src/main/browser/native-tab-host';
@@ -887,6 +888,30 @@ describe('saved tabs: one record per owner', () => {
 // ---------------------------------------------------------------------------
 // 3. Search inventory
 // ---------------------------------------------------------------------------
+
+describe('tab capability: only project windows host browser tabs', () => {
+  it('reports a project window as a tab host and the Terminal Manager as none', () => {
+    assert.equal(createHost({ owner: PROJECT_A }).canHostTabs(), true);
+    assert.equal(createHost({ owner: { kind: 'unassigned' } }).canHostTabs(), false);
+  });
+
+  it('createTab on the Terminal Manager refuses with a typed error and mints no tab', () => {
+    const manager = createHost({ owner: { kind: 'unassigned' } });
+
+    for (const url of ['https://example.test/', 'C:\\Work\\notes\\preview.html', undefined]) {
+      assert.throws(
+        () => manager.createTab(url),
+        (err: unknown) => err instanceof CapabilityError
+          && err.code === 'TARGET_REQUIRED'
+          && err.details?.ownerKey === 'unassigned'
+          && typeof err.details?.recovery === 'string',
+        `a tab minted for ${String(url)} would be an invisible view in a window with no page area`,
+      );
+    }
+    assert.equal(manager.tabs.size, 0);
+    assert.deepEqual(manager.tabOrder, []);
+  });
+});
 
 describe('search inventory', () => {
   it('lists user-visible tabs in strip order with owner and path labels', () => {

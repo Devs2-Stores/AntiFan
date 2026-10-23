@@ -5258,6 +5258,16 @@ export class NativeTabHost extends EventEmitter {
     return this.shell?.owner?.kind === 'unassigned';
   }
 
+  /**
+   * Whether this window can present a browser tab. Only project windows have a page area;
+   * the shared Terminal Manager is terminals-only, so a tab minted there would be an
+   * invisible 0x0 view nobody can see or close. Like `isTerminalOnlyWindow`, a host whose
+   * shell carries no owner keeps the browser behaviour.
+   */
+  public canHostTabs(): boolean {
+    return !this.isTerminalOnlyWindow();
+  }
+
   public toggleSidebar(): boolean {
     // The Terminal Manager's sidebar is the whole window; closing it would leave nothing.
     if (this.isTerminalOnlyWindow()) return true;
@@ -8508,6 +8518,16 @@ export class NativeTabHost extends EventEmitter {
     }
   ): string {
     if (this.isDisposed) return '';
+    if (!this.canHostTabs()) {
+      throw new CapabilityError(
+        'TARGET_REQUIRED',
+        `The ${this.windowOwnerKey()} window has no page area and cannot host a browser tab`,
+        {
+          ownerKey: this.windowOwnerKey(),
+          recovery: 'Open a project window (or pass a tab id that lives in one), then retry; anti.browser.tabs.list shows the live tabs.',
+        },
+      );
+    }
     const trimmed = (initialUrl || '').trim();
     if (trimmed && (trimmed.startsWith('file://') || /^[a-zA-Z]:[/\\]/.test(trimmed))) {
       const previewTabId = this.createPreviewTab(trimmed);

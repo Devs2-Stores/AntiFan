@@ -101,6 +101,7 @@ describe('tab ambient authority refusals', () => {
   function host(ownerKeyValue: string, tabs: readonly string[] = []): NativeTabHost {
     return {
       windowOwnerKey: () => ownerKeyValue,
+      canHostTabs: () => ownerKeyValue.startsWith('project:'),
       hasTab: (id: string) => tabs.includes(id),
       getAutomationTabId: () => null,
     } as unknown as NativeTabHost;
@@ -117,16 +118,16 @@ describe('tab ambient authority refusals', () => {
     assert.strictEqual(detailsOf(refusal).liveHosts, 2);
   });
 
-  it('TARGET_REQUIRED lists project windows only, never the hub or the terminal manager', () => {
+  it('TARGET_REQUIRED lists project windows only, never the terminal manager', () => {
     const directory = new TabAuthorityDirectory();
     directory.register(shell('project-a'), host('project:project-a'));
-    directory.register(shell('hub'), host('web'));
+    directory.register(shell('project-b'), host('project:project-b'));
     directory.register(shell('manager'), host('unassigned'));
     const refusal = refusalOf(() => new TabAmbientAuthority({ directory }).ambientHostOrThrow('project-unknown'));
 
     assertActionable(refusal, 'TARGET_REQUIRED', 'mixed windows');
-    assert.deepStrictEqual(detailsOf(refusal).liveProjectIds, ['project-a']);
-    assert.strictEqual(detailsOf(refusal).liveHosts, 3);
+    assert.deepStrictEqual(detailsOf(refusal).liveProjectIds, ['project-a', 'project-b']);
+    assert.strictEqual(detailsOf(refusal).liveHosts, 2);
     assert.strictEqual(detailsOf(refusal).projectId, 'project-unknown');
   });
 

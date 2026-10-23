@@ -341,6 +341,17 @@ blocks the rewrite: the old file stays as it is, the ids are journaled
 project that window was presenting plus the project windows the `open-windows.json`
 ledger lists, or only the Terminal Manager when there are none.
 
+Only a project window can host a browser tab (`NativeTabHost.canHostTabs()`). Ambient tab
+resolution in `tab-ambient-authority.ts` counts only those windows: with the Terminal
+Manager alone it refuses `TARGET_REQUIRED`, and the refusal's `liveHosts`/`liveProjectIds`
+list project windows only. `createTab` on the Terminal Manager refuses `TARGET_REQUIRED`
+instead of minting an invisible tab. The bridge's fallback host never stays on the Terminal
+Manager once a project window exists. A URL from a second launch (or a launch URL no project
+window consumed at boot) opens in the project window focused most recently; with no project
+window the project picker opens and the URL goes to the window of the project the user
+picks, or is dropped (`launch-url.dropped` in the lifecycle journal) when the picker is
+dismissed. A terminal link clicked in the Terminal Manager follows the same rule.
+
 Document-level preferences in `saved-tabs.json` (`bookmarks`, `mutedSites`,
 `activeChromeProfileId`, `sidebarWidth`, `isSidebarOpen`) belong to whichever window changed
 them: a window writes the keys that differ from what the document held when that window

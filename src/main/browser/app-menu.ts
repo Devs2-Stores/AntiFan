@@ -225,7 +225,7 @@ export function dispatchApplicationMenuShortcut(input: Electron.Input, ctx: Appl
       options?.openProjectPicker?.(window);
       return true;
     case 'Ctrl+T':
-      host?.createTab('https://www.google.com');
+      if (host?.canHostTabs()) host.createTab('https://www.google.com');
       return true;
     case 'Ctrl+Shift+T':
       host?.reopenClosedTab();
@@ -505,7 +505,10 @@ export function buildApplicationMenu(mainWindow: BrowserWindow, tabHost?: Native
         {
           label: 'New Tab',
           accelerator: 'CmdOrCtrl+T',
-          click: (_item, focusedWindow: BaseWindow | undefined) => hostForClick(focusedWindow)?.createTab('https://www.google.com'),
+          click: (_item, focusedWindow: BaseWindow | undefined) => {
+            const host = hostForClick(focusedWindow);
+            if (host?.canHostTabs()) host.createTab('https://www.google.com');
+          },
         },
         {
           label: 'Reopen Closed Tab',

@@ -748,6 +748,15 @@ async function openTerminalLinkInOwner(ownerKeyValue: string, url: string): Prom
     assertApplicationAdmitsWork(closeReservations, 'Open terminal link owner');
     host = (await ensureProjectWindow(shellOwner, 'user')).host;
   }
+  if (!host.canHostTabs()) {
+    // The Terminal Manager has no page area: the link opens in the project window the user
+    // was last in, or in the project they pick when none is open.
+    const projectShell = projectShellForExternalUrl();
+    const projectHost = projectShell ? tabAuthorities.hostForShell(projectShell) : undefined;
+    if (projectHost) return Boolean(projectHost.createTab(url));
+    void openUrlInPickedProject(url, BrowserWindow.getFocusedWindow());
+    return true;
+  }
   return Boolean(host.createTab(url));
 }
 
@@ -848,21 +857,30 @@ if (!gotTheLock) {
   app.exit(exitCode ?? 0);
 } else {
   app.on('second-instance', (_event, commandLine) => {
-    // A second launch is a user action in an already running process: bring the
-    // window the user is working in forward and route its URL argument there. Every
-    // live shell is a candidate — the focused window is the user's target — and a
+    // A second launch is a user action in an already running process: bring the window the
+    // user is working in forward and route its URL argument to a window that can show it.
+    // A URL opens in the project window focused most recently (never the Terminal Manager,
+    // which has no page area); with no project window the user picks the project. A
     // process with no shell ignores the launch instead of resurrecting a global one.
     const shells = liveProjectShells();
     if (shells.length === 0) return;
-    const target = shellForBrowserWindow(BrowserWindow.getFocusedWindow()) ?? shells[0]!;
+    const urlArg = launchUrlArgument(commandLine);
+    const urlTarget = urlArg ? projectShellForExternalUrl() : undefined;
+    const target = urlTarget ?? shellForBrowserWindow(BrowserWindow.getFocusedWindow()) ?? shells[0]!;
     if (target.window.isMinimized()) target.window.restore();
     target.window.show();
     target.window.focus();
 
-    const urlArg = launchUrlArgument(commandLine);
-    if (urlArg) {
-      tabAuthorities.hostForShell(target)?.createTab(urlArg);
+    if (!urlArg) return;
+    if (urlTarget) {
+      try {
+        tabAuthorities.hostForShell(urlTarget)?.createTab(urlArg);
+      } catch (err) {
+        recordLifecycleEvent('launch-url.dropped', { reason: 'tab-refused', detail: redactCredentials(String(err)) });
+      }
+      return;
     }
+    void openUrlInPickedProject(urlArg, target.window);
   });
 }
 
@@ -1671,6 +1689,7 @@ function attachShellLifecycle(shell: ProjectWindowShell): void {
   // Windows only: the OS is ending the session (logoff, restart, shutdown). The windows it
   // destroys next were open at exit, so their ledger keys must survive.
   shell.window.on('session-end', () => { osSessionEnding = true; });
+  if (shell.owner.kind === 'project') shell.window.on('focus', () => { lastFocusedProjectShell = shell; });
   shell.onCloseRequest(() => {
     // A benchmark run owns its windows (see `refusesWindowClose`): an incidental close
     // would end the measurement and destroy the tabs it was measuring, so the request is
@@ -1734,6 +1753,21 @@ export function resetOsSessionEndingForTesting(): void {
  * `repointBridgeAnchor`), so the bridge never keeps serving through a disposed host.
  */
 let bridgeAnchorShell: ProjectWindowShell | null = null;
+
+/** The project window the user last focused: the target of a URL that names no project. */
+let lastFocusedProjectShell: ProjectWindowShell | null = null;
+
+/**
+ * The project window an external URL opens in: the focused one, else the one focused most
+ * recently, else the oldest live one. The Terminal Manager is never a candidate.
+ */
+function projectShellForExternalUrl(): ProjectWindowShell | undefined {
+  const projectShells = liveProjectShells().filter((shell) => shell.owner.kind === 'project' && !shell.window.isDestroyed());
+  const focused = shellForBrowserWindow(BrowserWindow.getFocusedWindow());
+  if (focused && projectShells.includes(focused)) return focused;
+  if (lastFocusedProjectShell && projectShells.includes(lastFocusedProjectShell)) return lastFocusedProjectShell;
+  return projectShells[0];
+}
 
 function repointBridgeAnchor(closed: ProjectWindowShell): void {
   if (bridgeAnchorShell !== closed) return;
@@ -1822,7 +1856,11 @@ async function ensureProjectWindow(
   attachSharedServices(host);
   // The bridge answers requests that name no window from one fallback host; the first
   // window created is it until that window closes.
-  if (!bridgeAnchorShell || bridgeAnchorShell.window.isDestroyed()) {
+  // A project window is the only place a page can live, so the bridge never anchors on the
+  // Terminal Manager while one exists: a project window opened after a manager-only boot takes
+  // the anchor over.
+  const anchorGone = !bridgeAnchorShell || bridgeAnchorShell.window.isDestroyed();
+  if (anchorGone || (owner.kind === 'project' && bridgeAnchorShell!.owner.kind !== 'project')) {
     bridgeAnchorShell = shell;
     bridgeServer?.setTabHost(host);
   }
@@ -3336,6 +3374,35 @@ async function openProjectWindow(payload: unknown, parent?: BrowserWindow | null
 }
 
 /**
+ * Deliver an external URL when no project window is live: ask the user which project it
+ * belongs to (the same picker "Open project" uses), then open it in that project's window.
+ * A dismissed picker or a failed open drops the URL, journaled, instead of parking it in a
+ * window that cannot show a page. The URL itself is never journaled (it may carry credentials).
+ */
+async function openUrlInPickedProject(url: string, parent: BrowserWindow | null): Promise<void> {
+  const result = await openProjectWindow({}, parent);
+  if (result.status !== 'OPENED' && result.status !== 'FOCUSED') {
+    recordLifecycleEvent('launch-url.dropped', {
+      reason: result.status === 'CANCELLED' ? 'project-picker-dismissed' : 'project-open-failed',
+      ...(result.status === 'FAILED' ? { detail: result.reason } : {}),
+    });
+    return;
+  }
+  const shell = liveShellFor(ownerKey({ kind: 'project', projectId: result.projectId }));
+  const host = shell ? tabAuthorities.hostForShell(shell) : undefined;
+  if (!host) {
+    recordLifecycleEvent('launch-url.dropped', { reason: 'project-window-closed', projectId: result.projectId });
+    return;
+  }
+  try {
+    host.createTab(url);
+    recordLifecycleEvent('launch-url.delivered', { projectId: result.projectId });
+  } catch (err) {
+    recordLifecycleEvent('launch-url.dropped', { reason: 'tab-refused', projectId: result.projectId, detail: redactCredentials(String(err)) });
+  }
+}
+
+/**
  * The window a Space opens into: the project that owns the folder (adopted or created exactly as a
  * folder open does, no dialog), its window presented, and the host plus owner key its shells and
  * tabs belong to. The folder is already a realpath the route validated.
@@ -3872,6 +3939,11 @@ async function createWindow(): Promise<void> {
   const openAtLastExit = readOpenWindowLedger(openWindowLedgerPath(savedTabsFilePath()));
   await restoreProjectWindows(bootProjectIds.slice(bootOwner.kind === 'project' ? 1 : 0));
   await restoreTerminalManagerIfOpenAtLastExit(openAtLastExit, (intent) => openSharedTerminalManagerWindow(intent));
+
+  // A launch URL no project window consumed (the process booted with only the Terminal
+  // Manager) follows the same rule as a second launch: the user picks the project it opens in.
+  const unplacedLaunchUrl = consumeLaunchUrlArgument();
+  if (unplacedLaunchUrl) void openUrlInPickedProject(unplacedLaunchUrl, shell.window);
 
   // One reservation table for both seams, installed before either can serve a request:
   // the registry refuses a mint, a rebind or an adoption onto a page a close attempt has
