@@ -375,13 +375,23 @@ describe('BridgeServer Terminal Affinity Resolution Live RPC Contract Tests', ()
       terminalFacts.ownerById[id] = 'project:proj-adopted';
       terminalFacts.capsuleById[id] = 'capsule-adopted';
     };
-    resolverStub = (opts) => (opts.terminalSessionId === 'term-adopt'
+    // The owner the bridge reads, and the resolver's answer, both depend on adoption having
+    // run first: read before it, the terminal is still 'unassigned' and resolves to no capsule.
+    const readOwner = terminalStub.sessionOwnerKey;
+    const ownersRead: Array<string | undefined> = [];
+    terminalStub.sessionOwnerKey = (id) => {
+      const owner = readOwner(id);
+      if (id === 'term-adopt') ownersRead.push(owner);
+      return owner;
+    };
+    resolverStub = (opts) => (opts.terminalSessionId === 'term-adopt' && terminalFacts.ownerById['term-adopt'] === 'project:proj-adopted'
       ? { host: mockHost as unknown as NativeTabHost, capsuleId: 'capsule-adopted', projectId: 'proj-adopted' }
       : undefined);
     try {
       const resp = await rpcCall('antifan.cli.startSession', { terminalSessionId: 'term-adopt' });
       assert.strictEqual(resp.success, true);
       assert.strictEqual(adoptedTerminals.at(-1), 'term-adopt');
+      assert.ok(ownersRead.length > 0 && ownersRead.every((owner) => owner === 'project:proj-adopted'), `owner read before adoption: ${JSON.stringify(ownersRead)}`);
       assert.strictEqual(mockHost.createTabCalls.length, mintsBefore + 1);
       assert.strictEqual(lastCreateTabCall()?.options?.capsuleId, 'capsule-adopted', 'the mint reads the owner adoption stamped');
       assert.strictEqual(lastCreateTabCall()?.options?.projectId, 'proj-adopted');
@@ -398,6 +408,7 @@ describe('BridgeServer Terminal Affinity Resolution Live RPC Contract Tests', ()
       assert.strictEqual(mockHost.createTabCalls.length, mintsBefore, 'a refused adoption mints nothing');
     } finally {
       adopt = async () => {};
+      terminalStub.sessionOwnerKey = readOwner;
       restoreTerminalManager();
     }
   });
