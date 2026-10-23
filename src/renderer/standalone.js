@@ -818,7 +818,14 @@ function sameKeySet(a, b) {
   return true;
 }
 
-/** Stable partition of the section slots in `groups` (in place): promoted sections first. */
+/**
+ * Stable partition of the manager's sections (in place): awake sections first, but only
+ * inside their own block. A project section belongs to its parent-folder block, so a block
+ * never moves relative to another and an awake project cannot jump to another parent. The
+ * sections with no parent (a folder or capsule fallback, a project whose path is unknown)
+ * come first, in their own block with the same awake-first rule, and the parent-folder
+ * blocks follow, ordered by their parent key.
+ */
 function promoteAwakeProjects(groups) {
   const awake = awakeProjectKeys(groups);
   if (isSidebarReorderFrozen()) {
@@ -827,18 +834,70 @@ function promoteAwakeProjects(groups) {
     promotedProjectKeys = awake;
     promotionPending = false;
   }
+  const awakeFirst = (list) => {
+    const promoted = list.filter((g) => promotedProjectKeys.has(g.key));
+    for (const g of promoted) g.promoted = true;
+    return promoted.concat(list.filter((g) => !promotedProjectKeys.has(g.key)));
+  };
+  const blocks = new Map();
+  const others = [];
+  for (const g of groups) {
+    if (g.kind === 'project' && g.parentKey) {
+      const block = blocks.get(g.parentKey);
+      if (block) block.push(g);
+      else blocks.set(g.parentKey, [g]);
+    } else {
+      others.push(g);
+    }
+  }
   const slots = [];
   const sections = [];
-  groups.forEach((g, i) => {
+  others.forEach((g, i) => {
     if (isDerivedGroupKey(g.key)) { slots.push(i); sections.push(g); }
   });
-  const promoted = sections.filter((g) => promotedProjectKeys.has(g.key));
-  const rest = sections.filter((g) => !promotedProjectKeys.has(g.key));
-  for (const g of promoted) g.promoted = true;
-  const ordered = promoted.concat(rest);
-  slots.forEach((slot, i) => { groups[slot] = ordered[i]; });
+  const orderedSections = awakeFirst(sections);
+  slots.forEach((slot, i) => { others[slot] = orderedSections[i]; });
+  const arranged = others.slice();
+  for (const parentKey of Array.from(blocks.keys()).sort()) arranged.push(...awakeFirst(blocks.get(parentKey)));
+  groups.splice(0, groups.length, ...arranged);
   // Only project sections are reorderable, so Alt+Arrow steps among those alone.
-  displayedProjectKeys = ordered.map((g) => g.key).filter((key) => isProjectGroupKey(key));
+  displayedProjectKeys = groups.map((g) => g.key).filter((key) => isProjectGroupKey(key));
+}
+
+/** Parent-folder info of every project section, in drawn order, for the block headers. */
+function buildParentInfo(groups) {
+  const info = new Map();
+  for (const g of groups) {
+    if (g.kind !== 'project' || !g.parentKey) continue;
+    let entry = info.get(g.parentKey);
+    if (!entry) {
+      entry = { key: g.parentKey, label: g.parentLabel, path: g.parentPath, names: [] };
+      info.set(g.parentKey, entry);
+    }
+    entry.names.push(g.displayLabel || g.label);
+  }
+  return info;
+}
+
+/**
+ * Mark where the user's own order resumes inside each block: the first sleeping derived
+ * section of a block that holds at least one awake section. Blocks are the parent folders;
+ * sections without a parent form one block of their own.
+ */
+function markPromotionBoundaries(visibleGroups) {
+  const blocks = new Map();
+  for (const g of visibleGroups) {
+    if (!isDerivedGroupKey(g.key)) continue;
+    const id = g.kind === 'project' && g.parentKey ? g.parentKey : '';
+    const block = blocks.get(id);
+    if (block) block.push(g);
+    else blocks.set(id, [g]);
+  }
+  for (const block of blocks.values()) {
+    if (!block.some((g) => g.promoted === true)) continue;
+    const firstRest = block.find((g) => g.promoted !== true);
+    if (firstRest) firstRest.promotionBoundary = true;
+  }
 }
 
 /** Apply a promotion change that was held while the pointer was over the sidebar. */
@@ -970,6 +1029,8 @@ function projectDropTarget(drag, e) {
   const hit = document.elementFromPoint(e.clientX, e.clientY);
   const header = hit && hit.closest ? hit.closest('.terminal-tab-category-header.is-project-draggable') : null;
   if (!header || header === drag.header) return null;
+  // A project is only ordered among the projects of its own parent folder.
+  if ((header.getAttribute('data-parent-key') || '') !== (drag.header.getAttribute('data-parent-key') || '')) return null;
   // A drop across the awake/sleeping boundary would store an order the next render undoes
   // on screen, so the dragged section only lands among sections of its own block.
   if (promotedProjectKeys.has(drag.key) !== promotedProjectKeys.has(header.getAttribute('data-category') || '')) return null;
@@ -1135,9 +1196,10 @@ function commitProjectOrder(keys) {
   persistTerminalTabPrefs();
 }
 
-/** Drop `sourceKey` before (or after) `targetKey`. */
+/** Drop `sourceKey` before (or after) `targetKey`; both must share a parent folder. */
 function moveProjectGroup(sourceKey, targetKey, after) {
   if (!sourceKey || !targetKey || sourceKey === targetKey) return;
+  if (projectParentByKey.get(sourceKey) !== projectParentByKey.get(targetKey)) return;
   const keys = currentProjectKeys();
   if (!keys.includes(sourceKey) || !keys.includes(targetKey)) return;
   keys.splice(keys.indexOf(sourceKey), 1);
@@ -1146,12 +1208,14 @@ function moveProjectGroup(sourceKey, targetKey, after) {
 }
 
 /**
- * Move one project section by `delta` slots of the order the user sees. A promoted
- * section steps among promoted ones only: crossing the boundary would rewrite the
- * stored order while the drawn order stayed the same, which reads as a dead key.
+ * Move one project section by `delta` slots of the order the user sees inside its parent
+ * folder. A promoted section steps among promoted ones only: crossing the boundary would
+ * rewrite the stored order while the drawn order stayed the same, which reads as a dead key.
  */
 function stepProjectGroup(key, delta) {
-  const shown = displayedProjectKeys.length ? displayedProjectKeys : currentProjectKeys();
+  const parentKey = projectParentByKey.get(key);
+  const all = displayedProjectKeys.length ? displayedProjectKeys : currentProjectKeys();
+  const shown = all.filter((k) => projectParentByKey.get(k) === parentKey);
   const from = shown.indexOf(key);
   const to = from + delta;
   if (from < 0 || to < 0 || to >= shown.length) return;
@@ -1236,11 +1300,12 @@ function isFolderGroupKey(key) {
   return typeof key === 'string' && key.startsWith(FOLDER_GROUP_PREFIX) && key.length > FOLDER_GROUP_PREFIX.length;
 }
 
-/** A key derived from Main's own records (a folder, a capsule) rather than typed by the user.
- *  This is the guard every `terminalCategories` write goes through: the user list must never
- *  be able to capture a key the process invented. */
+/** A key derived from Main's own records (a folder, a capsule, a parent folder) rather than
+ *  typed by the user. This is the guard every `terminalCategories` write goes through: the
+ *  user list must never be able to capture a key the process invented. */
 function isDerivedGroupKey(key) {
-  return isCapsuleGroupKey(key) || isFolderGroupKey(key) || isProjectGroupKey(key);
+  return isCapsuleGroupKey(key) || isFolderGroupKey(key) || isProjectGroupKey(key)
+    || (typeof key === 'string' && key.startsWith(PARENT_GROUP_PREFIX) && key.length > PARENT_GROUP_PREFIX.length);
 }
 
 /** Group-key namespace for a project section: the manager's primary grouping. */
@@ -1248,6 +1313,74 @@ const PROJECT_GROUP_PREFIX = 'project:';
 
 function isProjectGroupKey(key) {
   return typeof key === 'string' && key.startsWith(PROJECT_GROUP_PREFIX) && key.length > PROJECT_GROUP_PREFIX.length;
+}
+
+/**
+ * Group-key namespace for a parent-folder block: the direct parent directory of a project's
+ * workspace folder, lower-cased. Prefixed so it can never collide with another group key,
+ * and it only ever names a block header — never a section — so rows are not filed under it.
+ */
+const PARENT_GROUP_PREFIX = 'parent:';
+/** The workspace root parent labels are written relative to; the root itself reads as its last segment. */
+const PARENT_LABEL_ROOT = 'E:\\Work';
+const PARENT_LABEL_SEPARATOR = ' › ';
+
+/** Project section key -> parent block key, as of the last grouping; absent for an unplaced project. */
+const projectParentByKey = new Map();
+
+/**
+ * The direct parent directory of `folderPath`, or null when there is none to name.
+ * `path` keeps the case Main reported; `key` is its lower-cased identity, so `E:\Work\Apps`
+ * and `e:\work\apps` are one block. Both separators and trailing ones are accepted.
+ */
+function parentFolderInfo(folderPath) {
+  const raw = typeof folderPath === 'string' ? folderPath.trim() : '';
+  if (!raw) return null;
+  const parts = raw.split(/[\\/]+/).filter(Boolean);
+  const windowsStyle = raw.includes('\\') || /^[a-zA-Z]:/.test(raw);
+  let path;
+  if (windowsStyle) {
+    const parentParts = parts.slice(0, -1);
+    if (parentParts.length === 0) return null;
+    const unc = raw.startsWith('\\\\') ? '\\\\' : '';
+    path = unc + parentParts.join('\\');
+    if (parentParts.length === 1 && !unc) path += '\\';
+  } else {
+    path = '/' + parts.slice(0, -1).join('/');
+  }
+  return { key: PARENT_GROUP_PREFIX + path.toLowerCase(), path, label: parentGroupLabel(path) };
+}
+
+/** `E:\Work\themes\f1genz` -> `THEMES › F1GENZ`; the root -> `WORK`; elsewhere the full path. */
+function parentGroupLabel(path) {
+  const root = PARENT_LABEL_ROOT.toLowerCase();
+  const folded = path.toLowerCase();
+  if (folded === root) return PARENT_LABEL_ROOT.split('\\').pop().toUpperCase();
+  if (folded.startsWith(`${root}\\`)) {
+    return path.slice(root.length + 1).split('\\').filter(Boolean)
+      .map((segment) => segment.toUpperCase()).join(PARENT_LABEL_SEPARATOR);
+  }
+  return path;
+}
+
+/**
+ * Stamp every project section of the manager with its parent block. The project's own
+ * workspace folder (Main's inventory) wins over the folder of whichever row created the
+ * section: a row may sit in a sub-folder of the workspace. A project with no known folder
+ * gets no parent and keeps the plain section placement.
+ */
+function assignParentFolders(groups) {
+  projectParentByKey.clear();
+  if (!isSharedManagerShell()) return;
+  for (const g of groups) {
+    if (g.kind !== 'project') continue;
+    const info = parentFolderInfo(projectWorkspacePaths.get(g.projectId) || g.folderPath);
+    if (!info) continue;
+    g.parentKey = info.key;
+    g.parentPath = info.path;
+    g.parentLabel = info.label;
+    projectParentByKey.set(g.key, info.key);
+  }
 }
 
 /** A folder section and a project section both speak for a workspace folder: they share the
@@ -1326,6 +1459,8 @@ let projectAppearancePending = null;
 let projectStatus = new Map();
 /** projectId -> { name, workspacePath } from Main's stored inventory. */
 let projectStoredInfo = new Map();
+/** projectId -> workspace folder, from the open candidates and the stored inventory (stored wins). */
+let projectWorkspacePaths = new Map();
 
 function ensureProjectAppearance() {
   if (projectAppearancePending) return projectAppearancePending;
@@ -1370,6 +1505,13 @@ function ensureProjectAppearance() {
         }
       }
       projectStoredInfo = nextInfo;
+      const nextPaths = new Map();
+      for (const row of rows) {
+        if (row && typeof row.projectId === 'string' && typeof row.workspacePath === 'string' && row.workspacePath.trim()) {
+          nextPaths.set(row.projectId, row.workspacePath.trim());
+        }
+      }
+      projectWorkspacePaths = nextPaths;
       return true;
     } catch {
       return false;
@@ -1607,6 +1749,7 @@ function groupSessionsByCategory(list) {
   applyStoredProjectOrder();
   groups.sort((a, b) => categoryOrder.indexOf(a.key) - categoryOrder.indexOf(b.key));
   disambiguateProjectGroupLabels(groups);
+  assignParentFolders(groups);
   return groups;
 }
 
@@ -7523,6 +7666,9 @@ function ensureCategoryHeader(group) {
   header.classList.toggle('is-awake-promoted', group.promoted === true);
   header.classList.toggle('is-promotion-boundary', group.promotionBoundary === true);
   header.setAttribute('data-group-kind', group.kind === 'capsule' || group.kind === 'folder' || group.kind === 'project' ? group.kind : 'category');
+  // A project section is only ordered among the sections of its own parent block.
+  if (group.parentKey) header.setAttribute('data-parent-key', group.parentKey);
+  else header.removeAttribute('data-parent-key');
   // The group's folder is stamped live because the capsule and path behind a reused header
   // can change while its key cannot: one folder, always the folder Main reports now.
   if (isFolderLikeGroup(group)) {
@@ -7590,6 +7736,58 @@ function ensureCategoryHeader(group) {
     : '';
   const titleHintFull = [titleHint, reorderHint].filter(Boolean).join(' · ');
   header.title = titleHintFull ? `${collapseTitle} — ${titleHintFull}` : collapseTitle;
+  return header;
+}
+
+/** Cached parent-folder block headers, by parent key. */
+const parentHeaders = new Map();
+
+/**
+ * Create-or-refresh the header of one parent-folder block: the label, the project count
+ * (and the names while there are only a few), the full path as the tooltip. Collapse goes
+ * through the same `collapsedCategories` set and persistence as every other section.
+ */
+function ensureParentHeader(info) {
+  let header = parentHeaders.get(info.key);
+  if (!header) {
+    header = document.createElement('div');
+    header.className = 'terminal-tab-parent-header';
+    header.setAttribute('data-parent-key', info.key);
+    header.setAttribute('role', 'button');
+    header.draggable = false;
+    header.tabIndex = 0;
+    const toggle = document.createElement('span');
+    toggle.className = 'terminal-tab-parent-toggle';
+    toggle.textContent = '▾';
+    const label = document.createElement('span');
+    label.className = 'terminal-tab-parent-label';
+    const names = document.createElement('span');
+    names.className = 'terminal-tab-parent-names';
+    const count = document.createElement('span');
+    count.className = 'terminal-tab-parent-count';
+    header.append(toggle, label, names, count);
+    header.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleCategoryCollapsed(header.getAttribute('data-parent-key') || '');
+    });
+    header.addEventListener('keydown', (e) => {
+      if (e.target !== header || (e.key !== 'Enter' && e.key !== ' ')) return;
+      e.preventDefault();
+      toggleCategoryCollapsed(header.getAttribute('data-parent-key') || '');
+    });
+    parentHeaders.set(info.key, header);
+  }
+  const setText = (selector, text) => {
+    const el = header.querySelector(selector);
+    if (el && el.textContent !== text) el.textContent = text;
+  };
+  setText('.terminal-tab-parent-label', info.label);
+  setText('.terminal-tab-parent-names', info.names.length <= 3 ? info.names.join(' · ') : '');
+  setText('.terminal-tab-parent-count', `${info.names.length} dự án`);
+  header.setAttribute('data-parent-path', info.path);
+  header.setAttribute('data-project-count', String(info.names.length));
+  header.title = info.path;
+  header.setAttribute('aria-expanded', isGroupCollapsed(info.key) ? 'false' : 'true');
   return header;
 }
 
@@ -8637,6 +8835,7 @@ function renderTabs() {
     displayedProjectKeys = [];
     promotionPending = false;
   }
+  const parentInfo = isSharedManagerShell() && isSidebarLayout ? buildParentInfo(groups) : new Map();
   if (sleepingSessions.length > 0) {
     groups.push({
       key: SLEEPING_CATEGORY,
@@ -8657,10 +8856,7 @@ function renderTabs() {
     : groups;
   // The rule under the last awake section marks where the user's own order resumes. Placed
   // on the drawn list, so a search that hides either block never strands it.
-  if (visibleGroups.some((g) => g.promoted === true)) {
-    const firstRest = visibleGroups.find((g) => isDerivedGroupKey(g.key) && g.promoted !== true);
-    if (firstRest) firstRest.promotionBoundary = true;
-  }
+  markPromotionBoundaries(visibleGroups);
 
   // Drop the wrap of every session that is gone, plus every tab the filter excludes. A
   // filtered-out wrap left in the DOM is invisible to `ordered`, so it could never be
@@ -8690,18 +8886,35 @@ function renderTabs() {
       folderHeaderSessionIds.delete(key);
     }
   }
+  const liveParentKeys = new Set(visibleGroups.map((g) => g.parentKey).filter(Boolean));
+  for (const [key, header] of Array.from(parentHeaders.entries())) {
+    if (!isSidebarLayout || !liveParentKeys.has(key)) {
+      header.remove();
+      parentHeaders.delete(key);
+    }
+  }
 
   const ordered = [];
   // The triage block precedes every group: rows no window owns are the hub's first
   // business, and it stays reachable in the horizontal strip as a full-width row.
   const triageNode = ensureTriageSection();
   if (triageNode) ordered.push(triageNode);
+  let lastParentKey = '';
   for (const group of visibleGroups) {
+    const parentKey = isSidebarLayout && group.kind === 'project' && group.parentKey ? group.parentKey : '';
+    if (parentKey && parentKey !== lastParentKey && parentInfo.has(parentKey)) {
+      ordered.push(ensureParentHeader(parentInfo.get(parentKey)));
+    }
+    lastParentKey = parentKey;
+    const parentCollapsed = parentKey ? isGroupCollapsed(parentKey) : false;
     if (isSidebarLayout) {
       const header = ensureCategoryHeader(group);
-      if (header) ordered.push(header);
+      if (header) {
+        header.classList.toggle('is-parent-collapsed', parentCollapsed);
+        ordered.push(header);
+      }
     }
-    const isCollapsed = group.key !== UNCATEGORIZED_CATEGORY && isSidebarLayout && isGroupCollapsed(group.key);
+    const isCollapsed = parentCollapsed || (group.key !== UNCATEGORIZED_CATEGORY && isSidebarLayout && isGroupCollapsed(group.key));
     for (const s of orderGroupItems(group.items)) {
       const wrap = ensureTerminalTabWrap(s, currentWraps);
       wrap.classList.toggle('is-sleeping', s.state === 'sleeping');
