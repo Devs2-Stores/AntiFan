@@ -498,16 +498,4 @@ describe('Cross-project tab search', () => {
     assert.equal(ctx.doc.getElementById('tabSearchResults')?.getAttribute('data-state'), 'error');
     assert.match(searchStatus(ctx.doc), /no handler registered/);
   });
-
-  test('the tab strip names its project on the identity chip', async () => {
-    const ctx = await loadToolbar(ACME_IDENTITY, makeStub());
-    dom = ctx.dom;
-    // The chip carries the project label; the rows never do.
-    const chip = ctx.doc.getElementById('projectIdentityChip');
-    assert.ok(chip, 'the project identity chip exists');
-    await flush();
-    assert.equal(chip.style.display, 'inline-flex', 'a project identity surfaces the chip');
-    assert.equal(ctx.doc.getElementById('projectIdentityName')?.textContent, 'Acme');
-    assert.equal(ctx.doc.getElementById('projectChipTitle')?.textContent, 'Acme', 'the popover title mirrors the identity');
-  });
 });

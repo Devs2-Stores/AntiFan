@@ -1204,7 +1204,7 @@ const CHROME_LAYOUT_EXPRESSION = `(() => {
     return { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height), right: Math.round(r.right), bottom: Math.round(r.bottom), display: style.display, visibility: style.visibility, overflow: style.overflow };
   };
   const byId = (id) => read(document.getElementById(id));
-  const ids = ['projectChip', 'projectChipTitle', 'projectChipPath', 'tabStrip', 'btnTabSearch', 'btnNewTab', 'urlInput', 'btnToggleSplit'];
+  const ids = ['tabStrip', 'btnTabSearch', 'btnNewTab', 'urlInput', 'btnToggleSplit'];
   const rects = {};
   for (const id of ids) rects[id] = byId(id);
   const viewport = { width: window.innerWidth, height: window.innerHeight };
@@ -1213,7 +1213,7 @@ const CHROME_LAYOUT_EXPRESSION = `(() => {
   const clippedVertically = laidOut.filter(([, rect]) => rect.y < -1 || rect.bottom > viewport.height + 1).map(([id, rect]) => ({ id, rect }));
   const tabStrip = rects.tabStrip;
   // Genuine collisions only: the chrome's controls legitimately live inside shared containers
-  // (the strip holds the chip, the tab list and the search control), so an ancestor/descendant
+  // (the strip holds the tab list and the search control), so an ancestor/descendant
   // pair is structure, not a collision. Two unrelated controls whose boxes intersect is a
   // layout defect a user would see.
   const collisions = [];
@@ -1244,8 +1244,6 @@ const CHROME_LAYOUT_EXPRESSION = `(() => {
     overlayPanel,
     overlayRows: rows,
     rowsOutsideOverlay: overlay ? rows.filter((r) => r && (r.right > overlay.right + 1 || r.x < overlay.x - 1)).length : null,
-    chipTitle: document.getElementById('projectChipTitle') ? document.getElementById('projectChipTitle').textContent || '' : null,
-    chipPath: document.getElementById('projectChipPath') ? document.getElementById('projectChipPath').textContent || '' : null,
     activeElementId: document.activeElement && document.activeElement.id ? document.activeElement.id : null,
     tabSearchDisplay: overlay ? overlay.display : null,
     // The inline value is what the page's own open/close write; the computed one is what the user
@@ -1272,6 +1270,7 @@ function nativeLayout(ownerKeyValue, tabId, paneId = 'desktop') {
   const page = tabId ? pageOf(tabId, paneId) : null;
   return {
     windowId: window.id,
+    title: window.getTitle(),
     contentBounds: { ...contentBounds },
     geometry: geometry ? { ...geometry } : null,
     toolbarHeight,
@@ -2806,8 +2805,7 @@ async function run() {
     expect(layout.clippedHorizontally.length === 0, `controls are clipped horizontally at this size: ${JSON.stringify(layout.clippedHorizontally)}`);
     expect(layout.clippedVertically.length === 0, `controls are clipped vertically at this size: ${JSON.stringify(layout.clippedVertically)}`);
     expect(layout.collisions.length === 0, `controls collide with each other: ${JSON.stringify(layout.collisions)}`);
-    expect(String(layout.chipTitle).startsWith('Matrix Storefront'), `the project chip reads '${String(layout.chipTitle)}'`);
-    expect(typeof layout.chipPath === 'string' && layout.chipPath.toLowerCase().includes('alpha'), `the project chip path is '${String(layout.chipPath)}'`);
+    expect(String(native.title).startsWith('Matrix Storefront'), `the window title reads '${String(native.title)}'`);
 
     // The keyboard contract of the search control, driven with real key events.
     const opened = await alphaToolbar.executeJavaScript("(() => { const el = document.getElementById('btnTabSearch'); if (!el) return false; el.click(); return true; })()", true);
@@ -2905,7 +2903,7 @@ async function run() {
     expect(layout.clippedVertically.length === 0, `controls are clipped vertically when maximized: ${JSON.stringify(layout.clippedVertically)}`);
     expect(layout.collisions.length === 0, `controls collide with each other when maximized: ${JSON.stringify(layout.collisions)}`);
     expect(layout.laidOutCount >= 5, `only ${layout.laidOutCount} toolbar controls are laid out when maximized`);
-    expect(String(layout.chipTitle).startsWith('Matrix Storefront'), `the project chip reads '${String(layout.chipTitle)}' when maximized`);
+    expect(String(native.title).startsWith('Matrix Storefront'), `the window title reads '${String(native.title)}' when maximized`);
     expect(display, 'the maximized window reports no display');
     if (display) {
       // A maximized window fills the monitor's *work* area, not its full bounds: the taskbar is not

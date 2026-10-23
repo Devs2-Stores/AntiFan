@@ -7550,11 +7550,10 @@ export class NativeTabHost extends EventEmitter {
   }
 
   /**
-   * Identity of the project window this host belongs to, as the toolbar renderer
-   * paints it. Every field is Main-resolved at shell construction or from this
-   * host's own affiliation — a page title or a renderer string can never become
-   * the project's name. The key's presence is the signal in a later broadcast, so
-   * this is sent on every state push rather than only once at boot.
+   * Identity of the project window this host belongs to, as Main reports it to the
+   * window's chrome (the sidebar scopes its shell owner off it). Every field is
+   * Main-resolved at shell construction or from this host's own affiliation — a page
+   * title or a renderer string can never become the project's name.
    */
   public projectWindowIdentity(): ProjectWindowIdentity {
     const workspacePath = this.resolveWindowWorkspaceRoot();

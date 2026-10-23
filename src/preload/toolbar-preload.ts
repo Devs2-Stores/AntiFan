@@ -4,7 +4,7 @@
  */
 import { contextBridge, ipcRenderer } from 'electron';
 import { PROJECT_WINDOW_CHANNELS } from '../shared/contracts';
-import type { CloseRefusalNotice, ForceCloseWindowResult, ProjectAppearanceRequest, ProjectAppearanceResult, ProjectOpenListResult, ProjectOpenPickerAnswerPayload, ProjectOpenPickerPush, ProjectOpenResult, ProjectTabActivationResult, ProjectTabSearchResult } from '../shared/contracts';
+import type { CloseRefusalNotice, ForceCloseWindowResult, ProjectAppearanceRequest, ProjectAppearanceResult, ProjectOpenListResult, ProjectOpenPickerAnswerPayload, ProjectOpenPickerPush, ProjectTabActivationResult, ProjectTabSearchResult } from '../shared/contracts';
 
 const CHANNELS = {
   GET_INITIAL_STATE: 'antifan:toolbar:get-initial-state',
@@ -128,9 +128,6 @@ const toolbarApi = {
     ipcRenderer.invoke(PROJECT_WINDOW_CHANNELS.TABS_SEARCH, { query } satisfies { query: string }),
   activateProjectTab: (tabId: string): Promise<ProjectTabActivationResult> =>
     ipcRenderer.invoke(PROJECT_WINDOW_CHANNELS.TABS_SEARCH_ACTIVATE, { tabId } satisfies { tabId: string }),
-
-  openProject: (projectId?: string, options?: { pickFolder?: boolean }): Promise<ProjectOpenResult> =>
-    ipcRenderer.invoke(PROJECT_WINDOW_CHANNELS.PROJECT_OPEN, { projectId, pickFolder: options?.pickFolder === true }),
   // The in-window project picker. `listProjects` reads the same inventory Main's own
   // dialog is built from, `onProjectOpenPicker` is the push that asks this chrome to host
   // the modal, and the answer echoes Main's requestId back with the user's choice — the

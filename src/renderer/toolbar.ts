@@ -88,12 +88,6 @@ interface ToolbarPhoneStatus {
  * bridge is validated before use: a renderer that trusted an unvalidated row could
  * address a tab id nobody reported.
  */
-interface ProjectWindowIdentity {
-  owner: { kind: 'project'; projectId: string } | { kind: 'unassigned' };
-  title: string;
-  pathLabel?: string;
-}
-
 interface ProjectTabSearchRow {
   tabId: string;
   title: string;
@@ -110,9 +104,6 @@ type ProjectTabSearchResult =
 type ProjectTabActivationResult =
   | { status: 'ACTIVATED'; tabId: string }
   | { status: 'UNAVAILABLE'; tabId: string; reasonCode: string; reason: string };
-type ProjectOpenResult =
-  | { status: 'OPENED' | 'FOCUSED' | 'CANCELLED'; projectId?: string }
-  | { status: 'FAILED'; projectId?: string; reason: string };
 
 /** Payload shape of a successful THEME_CHECKLIST_LOAD invoke. */
 interface ThemeChecklistLoadResult {
@@ -240,11 +231,6 @@ interface AntiFanToolbarApi {
   searchProjectTabs?: (query: string) => Promise<ProjectTabSearchResult>;
   /** The only path that may present another window, for one explicit user action. */
   activateProjectTab?: (tabId: string) => Promise<ProjectTabActivationResult>;
-  /**
-   * The one explicit user intention to open a project. With no id Main presents its own
-   * picker. Optional so a renderer hot-swapped ahead of its preload cannot fail at init.
-   */
-  openProject?: (projectId?: string, options?: { pickFolder?: boolean }) => Promise<ProjectOpenResult>;
   /** The picker this chrome hosts: Main pushes a requestId, this lists candidates and answers. */
   listProjects?: () => Promise<unknown>;
   onProjectOpenPicker?: (callback: (payload: { requestId?: unknown }) => void) => unknown;
@@ -4295,7 +4281,6 @@ document.addEventListener('keydown', (e) => {
   if (themeItemEditOverlay?.style.display === 'flex') { closeItemEditorDialog(); return; }
   if (themeQaOverlay?.style.display === 'flex') { themeQaOverlay.style.display = 'none'; releaseOverlay('theme-qa'); return; }
   if (findBar?.style.display === 'flex') { hideFindBar(); return; }
-  if (projectChipMenu?.style.display === 'flex') { closeProjectChipMenu(); return; }
   if (omniboxSuggestDropdown?.style.display === 'block') { hideSuggestDropdown(); return; }
 });
 if (btnQuickInspect) btnQuickInspect.addEventListener('click', () => getApi()?.toggleInspect());
@@ -5246,7 +5231,6 @@ async function initToolbar() {
       isBookmarkBarVisible = !!state.isBookmarkBarVisible;
       if (state.themeQa) renderThemeQa(state.themeQa);
       if ('phoneStatus' in state) renderPhoneStatus(state.phoneStatus as ToolbarPhoneStatus);
-      renderProjectWindowIdentity(state.projectWindow);
       renderTabs();
       renderBookmarks();
       renderChromeProfiles();
@@ -5270,12 +5254,6 @@ async function initToolbar() {
       isBookmarkBarVisible = !!s.isBookmarkBarVisible;
       if (s.themeQa) renderThemeQa(s.themeQa as unknown as ThemeQaState);
       if ('phoneStatus' in s) renderPhoneStatus(s.phoneStatus as ToolbarPhoneStatus);
-      // Main may resolve the shell's title after the first paint, so the identity rides
-      // the state broadcast too rather than being read once at boot. Presence is the
-      // signal — exactly as with `phoneStatus` above: a broadcast that leaves the key out
-      // is carrying no identity news and must not blank a chip that is already correct,
-      // while an explicit `projectWindow: null` retracts it.
-      if ('projectWindow' in s) renderProjectWindowIdentity(s.projectWindow);
       const newTabsSig = computeTabsSignature(currentTabs, activeTabId);
       if (newTabsSig !== lastTabsSignature) {
         renderTabs();
@@ -5811,71 +5789,6 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
-/**
- * Validate the identity Main reported for this shell. Anything unrecognized reads as
- * "Main has not described this shell" — never as a licence to name one here.
- */
-function parseProjectWindowIdentity(source: unknown): ProjectWindowIdentity | null {
-  if (!isPlainRecord(source)) return null;
-  const owner = source.owner;
-  if (!isPlainRecord(owner)) return null;
-  let parsedOwner: ProjectWindowIdentity['owner'];
-  if (owner.kind === 'project' && typeof owner.projectId === 'string' && owner.projectId) {
-    parsedOwner = { kind: 'project', projectId: owner.projectId };
-  } else if (owner.kind === 'unassigned') {
-    parsedOwner = { kind: 'unassigned' };
-  } else {
-    return null;
-  }
-  return {
-    owner: parsedOwner,
-    title: typeof source.title === 'string' ? source.title : '',
-    pathLabel: typeof source.pathLabel === 'string' ? source.pathLabel : undefined,
-  };
-}
-
-/**
- * The identity the last state broadcast described; the chip popover reads it for its
- * title and path.
- */
-let lastProjectIdentity: ProjectWindowIdentity | null = null;
-
-/**
- * Paint the shell's project identity. A duplicate project name is distinguished by the
- * workspace path label, which is also the chip's tooltip.
- */
-function renderProjectWindowIdentity(source: unknown) {
-  const identity = parseProjectWindowIdentity(source);
-  lastProjectIdentity = identity;
-  // The chip is the only project label: it names the project this window belongs to.
-  const chip = document.getElementById('projectIdentityChip');
-  const nameEl = document.getElementById('projectIdentityName');
-  if (!chip || !nameEl) return;
-  const showsProject = Boolean(identity && identity.owner.kind === 'project' && identity.title);
-  chip.style.display = showsProject ? 'inline-flex' : 'none';
-  if (identity && showsProject) {
-    nameEl.textContent = identity.title;
-    chip.title = identity.pathLabel ? `${identity.title} — ${identity.pathLabel}` : identity.title;
-  } else {
-    nameEl.textContent = '';
-    chip.removeAttribute('title');
-    closeProjectChipMenu();
-  }
-  syncProjectChipMenu();
-}
-
-/** Reflect the identity into the chip popover's content. */
-function syncProjectChipMenu(): void {
-  const title = document.getElementById('projectChipTitle');
-  const path = document.getElementById('projectChipPath');
-  if (title) title.textContent = lastProjectIdentity?.title || '';
-  if (path) {
-    const label = lastProjectIdentity?.pathLabel || '';
-    path.style.display = label ? '' : 'none';
-    path.textContent = label;
-  }
-}
-
 /** Validate one inventory row. A row without an addressable id is dropped, not guessed. */
 function toTabSearchRow(raw: unknown): ProjectTabSearchRow | null {
   if (!isPlainRecord(raw)) return null;
@@ -6183,7 +6096,7 @@ if (btnTabSearch) {
 }
 // ---------------------------------------------------------------------------
 // Project picker, hosted in the toolbar. Main pushes `onProjectOpenPicker` with a requestId
-// when the chip (or the menu) asks to open a project; the answer echoes that id back.
+// when the sidebar header chip asks to open a project; the answer echoes that id back.
 // Living here means the terminal sidebar stays exactly as the user left it.
 // ---------------------------------------------------------------------------
 const projectPickerOverlay = document.getElementById('projectPickerOverlay') as HTMLElement | null;
@@ -6282,71 +6195,6 @@ projectPickerOverlay?.addEventListener('click', (event) => {
   if (event.target === projectPickerOverlay) answerProjectPicker({ kind: 'cancelled' });
 });
 tabSearchClose?.addEventListener('click', () => closeTabSearch(true));
-// ---------------------------------------------------------------------------
-// Project chip menu — names this window's project and switches projects by opening
-// that project's own window. The native menubar is retired on win32/linux
-// (FocusManager crash), so this chip popover is the discoverable surface the File
-// menu used to provide.
-// ---------------------------------------------------------------------------
-const projectIdentityChip = document.getElementById('projectIdentityChip') as HTMLElement | null;
-const projectChipMenu = document.getElementById('projectChipMenu') as HTMLElement | null;
-const projectChipWrap = document.getElementById('projectIdentityWrap') as HTMLElement | null;
-const menuProjectOpenOther = document.getElementById('menuProjectOpenOther') as HTMLButtonElement | null;
-
-function openProjectChipMenu(): void {
-  if (!projectChipMenu || !projectIdentityChip) return;
-  // The chip is inside .tab-strip's overflow-x scroll box, so the menu is `fixed`
-  // and is anchored to the chip's live rect every time it opens.
-  const rect = projectIdentityChip.getBoundingClientRect();
-  projectChipMenu.style.top = `${Math.round(rect.bottom) + 6}px`;
-  projectChipMenu.style.left = `${Math.round(rect.left)}px`;
-  projectChipMenu.style.display = 'flex';
-  projectIdentityChip.setAttribute('aria-expanded', 'true');
-  acquireOverlay('project-chip');
-  syncProjectChipMenu();
-}
-
-function closeProjectChipMenu(): void {
-  if (!projectChipMenu) return;
-  if (projectChipMenu.style.display !== 'none') releaseOverlay('project-chip');
-  projectChipMenu.style.display = 'none';
-  projectIdentityChip?.setAttribute('aria-expanded', 'false');
-}
-
-projectIdentityChip?.addEventListener('click', (e) => {
-  e.stopPropagation();
-  if (projectChipMenu?.style.display === 'flex') closeProjectChipMenu();
-  else openProjectChipMenu();
-});
-projectIdentityChip?.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); openProjectChipMenu(); }
-  else if (e.key === 'ArrowDown' && projectChipMenu?.style.display === 'flex') {
-    e.preventDefault();
-    (projectChipMenu.querySelector('.project-chip-menu-item') as HTMLElement | null)?.focus();
-  }
-});
-projectChipMenu?.addEventListener('click', (e) => e.stopPropagation());
-projectChipMenu?.addEventListener('keydown', (e) => {
-  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-    e.preventDefault();
-    const items = Array.from(projectChipMenu.querySelectorAll<HTMLElement>('.project-chip-menu-item'));
-    const idx = items.indexOf(document.activeElement as HTMLElement);
-    items[(idx + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length]?.focus();
-  }
-});
-menuProjectOpenOther?.addEventListener('click', () => {
-  closeProjectChipMenu();
-  void getApi()?.openProject?.();
-});
-document.addEventListener('click', (e) => {
-  if (projectChipMenu?.style.display === 'flex' && projectChipWrap && !projectChipWrap.contains(e.target as Node)) {
-    closeProjectChipMenu();
-  }
-});
-// A fixed popover cannot track its anchor: strip scroll closes it. No window
-// 'resize' listener here — acquireOverlay() itself resizes the toolbar view,
-// which would dismiss the menu on the tick right after opening.
-document.getElementById('tabStrip')?.addEventListener('scroll', closeProjectChipMenu);
 tabSearchOverlay?.addEventListener('click', (event) => {
   if (event.target === tabSearchOverlay) closeTabSearch(true);
 });

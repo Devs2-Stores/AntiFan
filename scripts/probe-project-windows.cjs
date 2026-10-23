@@ -219,11 +219,6 @@ async function run() {
   expect(sidebarA && !sidebarA.isDestroyed(), 'the startup window has no sidebar surface');
   await waitForApi(toolbarA, "typeof window.antifanToolbar === 'object' && typeof window.antifanToolbar.searchProjectTabs === 'function'");
   await waitForApi(sidebarA, "typeof window.antifanStandalone === 'object' && typeof window.antifanStandalone.openProject === 'function'");
-  const readChip = (webContents) => webContents.executeJavaScript(
-    `(() => { const chip = document.getElementById('projectChip'); const title = document.getElementById('projectChipTitle'); const path = document.getElementById('projectChipPath');
-       return { visible: Boolean(chip) && getComputedStyle(chip).display !== 'none', title: title ? title.textContent || '' : '', path: path ? path.textContent || '' : '' }; })()`,
-    true,
-  );
 
   // ---- (b) a second project window, opened by the user's own entrypoint --------------
   const secondOpenResult = await sidebarA.executeJavaScript(
@@ -310,15 +305,6 @@ async function run() {
     expect(samePath(identityB.pathLabel, BETA.path), `window B identity pathLabel was '${identityB.pathLabel}'`);
     expect(identityA.owner.projectId !== identityB.owner.projectId, 'both windows broadcast the same project identity');
   });
-
-  // The chip is painted by the toolbar's own renderer script, which is a bundler artifact:
-  // this probe runs the main process from an isolated `tsc` build, where no bundled renderer
-  // script exists, so the rendered chip is recorded as an observation rather than judged
-  // here. What Main sends — the field that renderer paints — is asserted, per window, above.
-  observations.toolbarDom = { chipA: await readChip(toolbarA), chipB: await readChip(toolbarB) };
-  if (!observations.toolbarDom.chipA.title) {
-    console.log("  NOTE  toolbar DOM not driven: this build ships no bundled renderer script, chip rendering is the renderer lane's evidence");
-  }
 
   const tabA = await toolbarA.executeJavaScript("window.antifanToolbar.createTab('about:blank')", true);
   const tabB = await toolbarB.executeJavaScript("window.antifanToolbar.createTab('about:blank')", true);
