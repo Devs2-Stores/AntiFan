@@ -83,6 +83,7 @@ import { SemanticRefRegistry, makeTargetKey } from './semantic-ref-registry';
 import { settleWithinBound } from './target-operation-chain';
 import { TabAutomationHost } from './tab-automation-host';
 import { TabDevToolsHost, deviceMetricsOverrideParams, type TabDevToolsStats } from './tab-devtools-host';
+import { describeJsDialog, type JsDialogAnswer, type JsDialogDescription } from './js-dialog-tracker';
 import { TerminalOutputRouter } from './terminal-output-router';
 import { isTrackerBlockedUrl, isTrackerIsolationConsoleNoise } from './tracker-isolation';
 import type { TrackerIsolationReceipt } from './tracker-isolation';
@@ -8450,6 +8451,8 @@ export class NativeTabHost extends EventEmitter {
       }
     };
 
+    // Page has to be enabled before a dialog appears for it to be answerable over CDP at all.
+    this.getDevToolsHost().armJsDialogs(wc);
     this.networkTracker.ensureAttached(id, paneId, wc, () => wc.getURL()).catch(() => {});
     wc.on('did-start-loading', () => {
       state.isLoading = true;
@@ -12040,6 +12043,24 @@ export class NativeTabHost extends EventEmitter {
       release();
     }
   }
+
+  /** The JavaScript dialog the tab shows now (the named pane, else either pane), if any. */
+  public getOpenJsDialog(tabId: string, paneId?: SplitPaneId): JsDialogDescription | undefined {
+    const open = this.getDevToolsHost().findOpenJsDialog(this.resolveTargetTabId(tabId) || tabId, paneId);
+    return open ? describeJsDialog(open.dialog) : undefined;
+  }
+
+  /** Answer the tab's open JavaScript dialog and close the native box it leaves when that box is provably its own; NO_DIALOG_OPEN when none shows. */
+  public async answerJsDialog(tabId: string, paneId: SplitPaneId | undefined, accept: boolean): Promise<JsDialogAnswer> {
+    const target = this.resolveTargetTabId(tabId) || tabId;
+    const release = this.admitAgentAction('answerJsDialog', target);
+    try {
+      return await this.getDevToolsHost().answerJsDialog(target, paneId, accept);
+    } finally {
+      release();
+    }
+  }
+
   public async agentScroll(params: { deltaY?: number; selector?: string; ref?: string; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
     const release = this.admitAgentAction('agentScroll', params.tabId);
     try {

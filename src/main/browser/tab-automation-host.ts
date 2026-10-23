@@ -8,6 +8,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { SplitPaneId } from '../../shared/contracts';
 import { CapabilityError } from '../../shared/control-plane-contracts';
+import { dialogOfError, isDialogOpenError } from './js-dialog-tracker';
 import { AGENT_BROWSER_SCRIPT, sanitizeHighlightColor } from './agent-browser';
 import { SemanticRefRegistry, makeTargetKey, SnapshotFindResult } from './semantic-ref-registry';
 import {
@@ -625,6 +626,11 @@ export class TabAutomationHost {
       await this.sendCdpInputCommand(wc, 'Input.insertText', { text });
       return { success: true, executionTier: 'cdp_trusted', data: { ok: true, executed: true, tier: 'cdp_trusted', executionTier: 'cdp_trusted', rect: res.rect } };
     } catch (cdpErr) {
+      const dialog = dialogOfError(cdpErr);
+      if (dialog) {
+        // The text landed and the page answered it with a JavaScript dialog.
+        return { success: true, executionTier: 'cdp_trusted', data: { ok: true, executed: true, tier: 'cdp_trusted', executionTier: 'cdp_trusted', rect: res.rect, dialog } };
+      }
       return {
         success: false,
         reason: `CDP Input.insertText failed: ${cdpErr instanceof Error ? cdpErr.message : String(cdpErr)}`,
@@ -771,6 +777,19 @@ export class TabAutomationHost {
         };
       } catch (cdpErr) {
         const errMsg = cdpErr instanceof Error ? cdpErr.message : String(cdpErr);
+        const dialog = dialogOfError(cdpErr);
+        if (dialog) {
+          if (dispatchStage === 'none') {
+            return { success: false, fallbackNeeded: false, executionTier: 'cdp_trusted', reason: 'A JavaScript dialog opened on the pointer move, before the press', data: { dialog } };
+          }
+          // The press landed and the page answered it with a JavaScript dialog (a `confirm()` in a
+          // click handler). The frozen release settles on its own once the dialog is answered.
+          return {
+            success: true,
+            executionTier: 'cdp_trusted',
+            data: { ok: true, executed: true, tier: 'cdp_trusted', executionTier: 'cdp_trusted', inputType: touchCapable ? 'touch' : undefined, x: clickX, y: clickY, rect, dialog },
+          };
+        }
         console.warn(`[tab-automation-host] Trusted click CDP failure at stage '${dispatchStage}': ${errMsg}`);
         if (dispatchStage === 'pressed') {
           try {
@@ -806,7 +825,17 @@ export class TabAutomationHost {
         if (focusEmulationEnabled) {
           try {
             await this.sendCdpInputCommand(wc, 'Emulation.setFocusEmulationEnabled', { enabled: false }, 1000);
-          } catch {}
+          } catch (err) {
+            // Refused while the click's dialog shows; switch it off once the page is answered.
+            const devTools = this.ctx.tabDevToolsHost;
+            if (isDialogOpenError(err) && devTools) {
+              void devTools.jsDialogs.waitClosed(wc.id, 10 * 60_000)
+                .then((closed) => (closed && !wc.isDestroyed()
+                  ? this.sendCdpInputCommand(wc, 'Emulation.setFocusEmulationEnabled', { enabled: false }, 1000)
+                  : undefined))
+                .catch(() => {});
+            }
+          }
         }
       }
     };

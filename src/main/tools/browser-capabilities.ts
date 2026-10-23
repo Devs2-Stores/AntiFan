@@ -3158,6 +3158,26 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     execute: (params: { tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentClear(params, context.browserTarget),
   });
   catalogue.register({
+    name: 'anti.browser.dialog',
+    description: "Read or answer the JavaScript dialog (alert / confirm / beforeunload) the bound tab shows. While one is open every other operation on the tab is refused with DIALOG_OPEN; action 'get' reads it, 'accept' / 'dismiss' answer it. The native box left on screen is closed only when it is provably this dialog's (result nativeBox says which); a background tab's box is never closed.",
+    risk: 'write',
+    requiresBrowserTarget: true,
+    // Unbounded, not viewport-gate: the click that opened the dialog may still hold the viewport lock.
+    policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'unbounded', timeoutMs: 15_000 }),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['get', 'accept', 'dismiss'] },
+        tabId: { type: 'string' },
+        paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+      },
+      required: ['action'],
+    },
+    execute: (params: { action: 'get' | 'accept' | 'dismiss'; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
+      browser.jsDialog(params, context.browserTarget as BrowserTarget),
+  });
+
+  catalogue.register({
     name: 'anti.agent.sequence',
     description: 'Execute an atomic multi-step action sequence (navigate, click, type, scroll, hover, pressKey, wait, screenshot, snapshot) in 1 roundtrip with auto-wait and navigation guards',
     risk: 'write',

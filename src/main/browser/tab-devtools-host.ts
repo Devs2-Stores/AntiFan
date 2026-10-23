@@ -6,9 +6,11 @@
 
 import * as fs from 'node:fs';
 import path from 'node:path';
-import { net, clipboard, Rectangle } from 'electron';
+import { app, net, clipboard, Rectangle, BrowserWindow } from 'electron';
 import { AntiFanTab, SplitPaneId, AntiFanPickedElement } from '../../shared/contracts';
 import { CapabilityError } from '../../shared/control-plane-contracts';
+import { JsDialogTracker, describeJsDialog, dialogOpenError, type JsDialogAnswer, type OpenJsDialog } from './js-dialog-tracker';
+import { hwndOf, listOwnedMessageBoxes, postClose } from './native-dialog-boxes';
 import { FONT_FINDER_SCRIPT, FONT_FINDER_CLEANUP_SCRIPT } from './font-finder';
 import { GPU_LENS_SCRIPT, GPU_LENS_CLEANUP_SCRIPT } from './gpu-lens';
 import { RULER_SCRIPT } from './ruler';
@@ -305,6 +307,45 @@ export interface TabDevToolsStats {
  * reference materialization walk) pass their own through `timeoutMs`.
  */
 const EVAL_JS_DEFAULT_TIMEOUT_MS = 15_000;
+/** How long a CDP command frozen by a JavaScript dialog is watched for the dialog to close. */
+const FROZEN_COMMAND_DIALOG_WAIT_MS = 10 * 60_000;
+/** After its dialog closes, a frozen command that still has not settled within this is drained. */
+const FROZEN_COMMAND_SETTLE_GRACE_MS = 1_000;
+/**
+ * How long after a page opens a JavaScript dialog its answer waits for Electron's native box to
+ * show. Measured at ~300ms on an idle machine; an answer that beats the box leaves it on screen.
+ */
+const NATIVE_BOX_SHOW_WAIT_MS = 2_000;
+
+/**
+ * Where a dialog's native box can show, recorded as the dialog opened: the window the tab sat in
+ * (undefined for a tab in no window), and the boxes already on screen, owned by that window and
+ * unowned. The dialog's own box is one that appears afterwards.
+ */
+interface JsDialogBoxContext {
+  owner: bigint | undefined;
+  existingOwned: ReadonlySet<bigint>;
+  existingUnowned: ReadonlySet<bigint>;
+}
+
+/** Every live host's dialog tracker: an unowned box can belong to a dialog of any window. */
+const liveJsDialogTrackers = new Set<JsDialogTracker>();
+
+/** Electron titles the native boxes of page dialogs with the app name. */
+function jsDialogBoxTitle(): string {
+  return typeof app?.getName === 'function' ? app.getName() : '';
+}
+
+/** HWND of the window `wc` sits in; undefined for a WebContents in no window (a background tab). */
+function jsDialogBoxOwner(wc: Electron.WebContents): bigint | undefined {
+  try {
+    const win = BrowserWindow.fromWebContents(wc);
+    return win && !win.isDestroyed() ? hwndOf(win.getNativeWindowHandle()) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * How long a script may keep running after its tab starts a cross-document navigation. A script
  * that started the navigation itself normally returns first; one still pending after this is
@@ -522,8 +563,16 @@ export class TabDevToolsHost {
    * reporting a half-undone window as installed.
    */
   private trackerIsolation = new Map<number, { stubIdentifier: string | null; blockedPatterns: string[]; stubsInstalled: string[]; releasePending: boolean }>();
+  /** Open JavaScript dialog per WebContents, fed by the Page domain {@link armJsDialogs} enables. */
+  public readonly jsDialogs = new JsDialogTracker();
+  /** WebContents whose dialog listeners are registered; they live until the WebContents is destroyed. */
+  private jsDialogArmed = new Set<number>();
+  /** Where each open dialog's native box can show, recorded when the dialog opened. */
+  private readonly jsDialogBoxContexts = new WeakMap<OpenJsDialog, JsDialogBoxContext>();
+  private jsDialogsDisposed = false;
   constructor(ctx: TabDevToolsContext) {
     this.ctx = ctx;
+    liveJsDialogTrackers.add(this.jsDialogs);
   }
   public getIsFontFinderActive(): boolean { return this.isFontFinderActive; }
   public setIsFontFinderActive(val: boolean): void { this.isFontFinderActive = val; }
@@ -1123,6 +1172,11 @@ export class TabDevToolsHost {
     }
     const wcId = wc.id;
 
+    // A page parked in a JavaScript dialog answers nothing until the dialog is answered, so new
+    // work is refused with the dialog itself rather than queued behind it to time out.
+    const openDialog = this.jsDialogs.get(wcId);
+    if (openDialog) throw dialogOpenError(openDialog);
+
     const draining = this.cdpDrainingTargets.get(wcId);
     if (draining) {
       const drainingDuration = Date.now() - (draining.startedAt || 0);
@@ -1187,6 +1241,7 @@ export class TabDevToolsHost {
     const maxCap = method === 'Page.captureScreenshot' ? 60_000 : 30_000;
     const boundedTimeoutMs = Math.min(maxCap, Math.max(1, timeoutMs));
     let isCallerTimedOut = false;
+    let isCallerInterrupted = false;
     let isCommandDispatched = false;
     let isCommandSettled = false;
     const commandToken = Symbol(method);
@@ -1199,6 +1254,27 @@ export class TabDevToolsHost {
       }
       rejectTimeout(new Error(`CDP command ${method} timed out after ${boundedTimeoutMs}ms`));
     }, boundedTimeoutMs);
+    // A dialog that opens while this command waits (a click whose mouseReleased opens `confirm()`,
+    // a script that calls `alert`) freezes the command until the dialog is answered. The caller
+    // gets the dialog now; the command keeps its queue slot until the page resumes and it settles.
+    const { promise: interruptPromise, reject: rejectInterrupt } = Promise.withResolvers<never>();
+    interruptPromise.catch(() => {});
+    const stopDialogWatch = this.jsDialogs.onOpened(wcId, (dialog) => {
+      isCallerInterrupted = true;
+      rejectInterrupt(dialogOpenError(dialog));
+      if (!isCommandDispatched) return;
+      // The frozen command normally settles right after the answer. One that still has not, a
+      // second after the dialog closed, is drained like a timed-out command, so the queue it holds
+      // cannot wedge every later command on this target.
+      void this.jsDialogs.waitClosed(wcId, FROZEN_COMMAND_DIALOG_WAIT_MS).then((closed) => {
+        if (!closed) return;
+        setTimeout(() => {
+          if (!isCommandSettled && !wc.isDestroyed() && !this.cdpDrainingTargets.has(wcId)) {
+            this.cdpDrainingTargets.set(wcId, { method, token: commandToken, startedAt: Date.now() });
+          }
+        }, FROZEN_COMMAND_SETTLE_GRACE_MS).unref?.();
+      });
+    });
     const currentQueue = this.cdpQueues.get(wcId) || Promise.resolve();
     const { promise: queueDrainPromise, resolve: resolveQueueDrain } = Promise.withResolvers<void>();
 
@@ -1211,7 +1287,7 @@ export class TabDevToolsHost {
     this.cdpQueues.set(wcId, queueDrainPromise);
 
     const nextPromise = currentQueue.catch(() => {}).then(async () => {
-      if (isCallerTimedOut || wc.isDestroyed()) {
+      if (isCallerTimedOut || isCallerInterrupted || wc.isDestroyed()) {
         resolveQueueDrain();
         if (wc.isDestroyed()) {
           throw new Error(`WebContents destroyed before executing CDP method ${method}`);
@@ -1240,8 +1316,10 @@ export class TabDevToolsHost {
     return Promise.race([
       nextPromise,
       timeoutPromise,
+      interruptPromise,
     ]).finally(() => {
       clearTimeout(timer);
+      stopDialogWatch();
     }) as Promise<T>;
   }
 
@@ -1274,6 +1352,180 @@ export class TabDevToolsHost {
       }
     }
     this.cdpListeners.delete(wcId);
+  }
+
+  /**
+   * Attach the debugger and enable the Page domain on a tab's WebContents as soon as it exists, so
+   * a JavaScript dialog the page opens later is reported (`Page.javascriptDialogOpening`) and can be
+   * answered over CDP. Page has to be on BEFORE the dialog appears: enabling it while one shows
+   * hangs, and `Page.handleJavaScriptDialog` then answers "No dialog is showing". Every detach
+   * re-arms. `Page.enable` goes straight to the debugger, never through the per-target queue, which
+   * an input command frozen by a dialog may be holding.
+   */
+  public armJsDialogs(wc: Electron.WebContents): void {
+    if (this.jsDialogsDisposed || !wc || wc.isDestroyed()) return;
+    const dbg = wc.debugger;
+    if (!dbg || typeof dbg.on !== 'function' || typeof dbg.sendCommand !== 'function' || typeof dbg.isAttached !== 'function' || typeof dbg.attach !== 'function') return;
+    const wcId = wc.id;
+    if (!this.jsDialogArmed.has(wcId)) {
+      this.jsDialogArmed.add(wcId);
+      dbg.on('message', (_event: Electron.Event, method: string, params: Record<string, unknown>) => {
+        this.jsDialogs.handleCdpMessage(wcId, method, params);
+        if (method === 'Page.javascriptDialogOpening') this.recordJsDialogBoxContext(wc);
+      });
+      // A detach ends the session's Page domain. A dialog showing across it can no longer be
+      // answered over CDP (Page cannot be enabled under it), so it is forgotten, not reported forever.
+      dbg.on('detach', () => {
+        this.jsDialogs.markClosed(wcId);
+        setImmediate(() => this.armJsDialogs(wc));
+      });
+      if (typeof wc.on === 'function') {
+        wc.on('render-process-gone', () => this.jsDialogs.markClosed(wcId));
+        wc.once('destroyed', () => {
+          this.jsDialogArmed.delete(wcId);
+          this.jsDialogs.forget(wcId);
+        });
+      }
+    }
+    if (!dbg.isAttached()) {
+      try {
+        dbg.attach('1.3');
+        this.cdpAttachedByHost.add(wcId);
+        this.cdpWebContentsRefs.set(wcId, wc);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (!msg.includes('Already attached')) {
+          console.warn(`[TabDevToolsHost] dialog tracking could not attach to WebContents ${wcId}: ${msg}`);
+          return;
+        }
+      }
+    }
+    dbg.sendCommand('Page.enable').catch(() => {});
+  }
+
+  /** The open JavaScript dialog of a tab: the named pane, else the desktop then the mobile pane. */
+  public findOpenJsDialog(tabId: string, paneId?: SplitPaneId): { wc: Electron.WebContents; paneId: SplitPaneId; dialog: OpenJsDialog } | undefined {
+    const panes: SplitPaneId[] = paneId ? [paneId] : ['desktop', 'mobile'];
+    for (const pane of panes) {
+      const wc = this.ctx.getTabWebContents(tabId, pane);
+      if (!wc || wc.isDestroyed()) continue;
+      const dialog = this.jsDialogs.get(wc.id);
+      if (dialog) return { wc, paneId: pane, dialog };
+    }
+    return undefined;
+  }
+
+  /**
+   * Record, as a dialog opens, the window that will own its native box and the boxes already on
+   * screen. Electron draws the box a few hundred ms after this event, so the box this dialog gets
+   * is one that appears afterwards; boxes already on screen belong to other dialogs. Only Electron
+   * on Windows draws such boxes; elsewhere nothing is recorded and no box is ever closed.
+   */
+  private recordJsDialogBoxContext(wc: Electron.WebContents): void {
+    if (process.platform !== 'win32' || !process.versions.electron) return;
+    const dialog = this.jsDialogs.get(wc.id);
+    if (!dialog) return;
+    const title = jsDialogBoxTitle();
+    const owner = jsDialogBoxOwner(wc);
+    this.jsDialogBoxContexts.set(dialog, {
+      owner,
+      existingOwned: new Set(owner === undefined ? [] : listOwnedMessageBoxes(owner, title)),
+      existingUnowned: new Set(listOwnedMessageBoxes(0n, title)),
+    });
+  }
+
+  /**
+   * Answer the tab's open JavaScript dialog over CDP, then close the native box Electron leaves on
+   * screen when it is provably this dialog's. `Page.handleJavaScriptDialog` goes straight to the
+   * debugger: the per-target queue is held by whatever command the dialog froze, and that command
+   * settles only once this answer lands.
+   *
+   * Electron shows its box a few hundred ms after the page opens the dialog, and an answer that lands
+   * before the box shows leaves it on screen for good. So the answer waits, at most
+   * NATIVE_BOX_SHOW_WAIT_MS from the dialog's opening, for a box to show first.
+   *
+   * A box is closed only when all hold: the tab reported `Page.javascriptDialogClosed`; the box
+   * appeared after the dialog opened and is the only such box; and no other dialog that could own
+   * it is open. A box owned by the tab's window is checked against the other dialogs of that
+   * window. An unowned box (Electron draws one for a tab in no window, and for a second box over a
+   * window that already shows one) is checked against the open dialogs of every window. Closing
+   * another dialog's box would answer that dialog natively.
+   */
+  public async answerJsDialog(tabId: string, paneId: SplitPaneId | undefined, accept: boolean): Promise<JsDialogAnswer> {
+    const open = this.findOpenJsDialog(tabId, paneId);
+    if (!open) {
+      throw new CapabilityError('NO_DIALOG_OPEN', `Tab ${tabId} has no open JavaScript dialog to answer.`, { tabId, ...(paneId ? { paneId } : {}) });
+    }
+    const { wc, dialog } = open;
+    const boxContext = this.jsDialogBoxContexts.get(dialog);
+    const boxTitle = jsDialogBoxTitle();
+    const freshOwned = (): bigint[] => (boxContext?.owner === undefined
+      ? []
+      : listOwnedMessageBoxes(boxContext.owner, boxTitle).filter((hwnd) => !boxContext.existingOwned.has(hwnd)));
+    const freshUnowned = (): bigint[] => (boxContext
+      ? listOwnedMessageBoxes(0n, boxTitle).filter((hwnd) => !boxContext.existingUnowned.has(hwnd))
+      : []);
+    let ownedBefore = freshOwned();
+    let unownedBefore = freshUnowned();
+    if (boxContext) {
+      const showDeadline = dialog.openedAt + NATIVE_BOX_SHOW_WAIT_MS;
+      while (ownedBefore.length === 0 && unownedBefore.length === 0 && Date.now() < showDeadline && this.jsDialogs.get(wc.id) === dialog) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        ownedBefore = freshOwned();
+        unownedBefore = freshUnowned();
+      }
+    }
+    if (this.jsDialogs.get(wc.id) !== dialog) {
+      throw new CapabilityError('NO_DIALOG_OPEN', `Tab ${tabId} no longer shows the dialog; it was answered elsewhere.`, { tabId, dialog: describeJsDialog(dialog) });
+    }
+    // The other open dialogs that could own one of the fresh boxes.
+    const windowRivals = boxContext?.owner === undefined
+      ? 0
+      : this.jsDialogs.entries().filter(([id, other]) => id !== wc.id && this.jsDialogBoxContexts.get(other)?.owner === boxContext.owner).length;
+    let appRivals = -1;
+    for (const tracker of liveJsDialogTrackers) appRivals += tracker.entries().length;
+    const params: Record<string, unknown> = { accept };
+
+    const { promise: deadline, reject: expire } = Promise.withResolvers<never>();
+    const deadlineTimer = setTimeout(() => expire(new CapabilityError('EXECUTION_ERROR', 'Page.handleJavaScriptDialog did not answer within 5000ms', { tabId })), 5_000);
+    try {
+      await Promise.race([wc.debugger.sendCommand('Page.handleJavaScriptDialog', params), deadline]);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/No dialog is showing/i.test(msg)) {
+        // Answered natively (or by the page going away) between the read and this call.
+        this.jsDialogs.markClosed(wc.id);
+        throw new CapabilityError('NO_DIALOG_OPEN', `Tab ${tabId} no longer shows the dialog; it was answered elsewhere.`, { tabId, dialog: describeJsDialog(dialog) });
+      }
+      throw err;
+    } finally {
+      clearTimeout(deadlineTimer);
+    }
+
+    const closedEventSeen = await this.jsDialogs.waitClosed(wc.id, 1_000);
+    // The CDP answer succeeded, so the page holds its answer whether or not the event arrived.
+    if (!closedEventSeen) this.jsDialogs.markClosed(wc.id);
+
+    let nativeBox: JsDialogAnswer['nativeBox'];
+    if (!boxContext) {
+      nativeBox = { closed: false, reason: 'UNSUPPORTED_PLATFORM' };
+    } else if (!closedEventSeen) {
+      nativeBox = { closed: false, reason: 'CLOSE_EVENT_MISSING' };
+    } else {
+      const owned = ownedBefore.length > 0 && boxContext.owner !== undefined;
+      const candidates = owned ? ownedBefore : unownedBefore;
+      const rivals = owned ? windowRivals : appRivals;
+      const boxesAfter = new Set(listOwnedMessageBoxes(owned ? boxContext.owner! : 0n, boxTitle));
+      const stale = candidates.filter((hwnd) => boxesAfter.has(hwnd));
+      if (stale.length === 0) {
+        nativeBox = { closed: false, reason: 'NONE_LEFT', candidates: 0 };
+      } else if (stale.length === 1 && rivals === 0) {
+        nativeBox = postClose(stale[0]!) ? { closed: true } : { closed: false, reason: 'CLOSE_FAILED' };
+      } else {
+        nativeBox = { closed: false, reason: 'AMBIGUOUS', candidates: Math.max(stale.length, rivals + 1) };
+      }
+    }
+    return { tabId, paneId: open.paneId, action: accept ? 'accept' : 'dismiss', dialog: describeJsDialog(dialog), closedEventSeen, nativeBox };
   }
 
   /**
@@ -2095,7 +2347,7 @@ export class TabDevToolsHost {
             if (!st && (document.head || document.documentElement)) {
               st = document.createElement('style');
               st.id = '__antifan_screenshot_guard__';
-              st.textContent = '#__antifan_agent_overlay__, #__antifan_agent_cursor__, #__antifan_agent_highlight__, #__antifan_agent_banner__, [data-antifan-agent-cursor], #haravan-notification, #preview-bar-iframe { display: none !important; visibility: hidden !important; opacity: 0 !important; pointer-events: none !important; }';
+              st.textContent = '#__antifan_agent_overlay__, #__antifan_agent_cursor__, #__antifan_agent_highlight__, #__antifan_agent_banner__, [data-antifan-agent-cursor], #haravan-notification, #preview-bar-iframe, #bizweb-theme-previewer { display: none !important; visibility: hidden !important; opacity: 0 !important; pointer-events: none !important; }';
               (document.head || document.documentElement).appendChild(st);
             }
           })()`,
@@ -2628,7 +2880,7 @@ export class TabDevToolsHost {
               if (!st && (document.head || document.documentElement)) {
                 st = document.createElement('style');
                 st.id = '__antifan_screenshot_guard__';
-                st.textContent = '#__antifan_agent_overlay__, #__antifan_agent_cursor__, #__antifan_agent_highlight__, #__antifan_agent_banner__, [data-antifan-agent-cursor], #haravan-notification, #preview-bar-iframe { display: none !important; visibility: hidden !important; opacity: 0 !important; pointer-events: none !important; }';
+                st.textContent = '#__antifan_agent_overlay__, #__antifan_agent_cursor__, #__antifan_agent_highlight__, #__antifan_agent_banner__, [data-antifan-agent-cursor], #haravan-notification, #preview-bar-iframe, #bizweb-theme-previewer { display: none !important; visibility: hidden !important; opacity: 0 !important; pointer-events: none !important; }';
                 (document.head || document.documentElement).appendChild(st);
               }
             })()`,
@@ -3545,6 +3797,8 @@ export class TabDevToolsHost {
     if (!wc || wc.isDestroyed()) {
       throw new CapabilityError('TARGET_STALE', `Tab ${targetId} has no live web contents in pane ${effectivePane}`);
     }
+    const openDialog = this.jsDialogs.get(wc.id);
+    if (openDialog) throw dialogOpenError(openDialog, targetId);
     return this.ctx.withTabAgentWorking(targetId, async () => {
       const execute = async (): Promise<unknown> => {
         const wrapped = `(async () => {
@@ -3657,6 +3911,10 @@ export class TabDevToolsHost {
         } catch {}
         hardReject(new CapabilityError('EVAL_HARD_TIMEOUT', `Script execution hung and exceeded hard ceiling of ${hardBudgetMs}ms`));
       }, hardBudgetMs);
+      // `executeJavaScript` stays pending while the page shows a dialog (the script itself may have
+      // opened it); the caller gets the dialog instead of waiting out the hard ceiling.
+      const { promise: dialogPromise, reject: dialogReject } = Promise.withResolvers<never>();
+      const stopDialogWatch = this.jsDialogs.onOpened(wc.id, (dialog) => dialogReject(dialogOpenError(dialog, targetId)));
       try {
         const runner = async (): Promise<unknown> => {
           const paneView = effectivePane === 'mobile' ? (target.mobileView || target.view) : target.view;
@@ -3668,8 +3926,9 @@ export class TabDevToolsHost {
           return await execute();
         };
 
-        return await Promise.race([runner(), navPromise, hardWatchdogPromise]);
+        return await Promise.race([runner(), navPromise, hardWatchdogPromise, dialogPromise]);
       } finally {
+        stopDialogWatch();
         if (typeof wc.removeListener === 'function') {
           wc.removeListener('did-start-navigation', onDidStartNav);
         }
@@ -4680,6 +4939,8 @@ ${expression}
   }
 
   public dispose(): void {
+    this.jsDialogsDisposed = true;
+    liveJsDialogTrackers.delete(this.jsDialogs);
     if (this.inspectedTabId) {
       this.stopInspect(this.inspectedTabId);
     }

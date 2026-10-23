@@ -26,6 +26,7 @@ import { registerCoreCapabilities, createLazyCorePort } from '../tools/core-capa
 import { registerWorkflowCapabilities } from '../workflow/workflow-capabilities';
 import { WorkflowRegistry } from '../workflow/workflow-registry';
 import { TerminalManager, type TerminalManagerStats } from '../browser/terminal-manager';
+import type { JsDialogDescription } from '../browser/js-dialog-tracker';
 import { WorkflowEngine } from '../workflow/workflow-engine';
 import { assertExactBrowserTarget, BrowserTarget, CapabilityError, CapabilityRequestContext, issueRuntimeLease, RuntimeFeatureSwitch, RuntimeLease, WorkspaceRecord } from '../../shared/control-plane-contracts';
 import { WorkflowDefinition, WorkflowExecutionResult, WorkflowEventListener } from '../workflow/workflow-schema';
@@ -44,6 +45,8 @@ export interface ControlPlaneRuntimeOptions {
   projects?: ProjectRegistry;
   workspaces?: WorkspaceRegistry;
   getDocumentGeneration?: (tabId?: string) => number;
+  /** The JavaScript dialog a tab shows now; target-bound capabilities are refused with DIALOG_OPEN while one is open. */
+  getOpenJsDialog?: (tabId: string) => JsDialogDescription | undefined;
   getAutomationTabId?: () => string | null;
   isTabAllowed?: (primaryTabId: string, requestedTabId: string) => boolean;
   resolveTabId?: (tabIdOrIdentifier: string) => string | undefined;
@@ -227,6 +230,7 @@ export class ControlPlaneRuntime {
       resolveTabId: options.resolveTabId,
       resolveFailoverTabId: options.resolveFailoverTabId,
       getDocumentGeneration: options.getDocumentGeneration,
+      getOpenJsDialog: options.getOpenJsDialog,
       // Read lazily at dispatch time: the device adapter registers after this runtime is constructed,
       // so the binding must be resolved per request rather than captured here.
       getDeviceBinding: () => this.deviceManager?.getLiveBinding(),

@@ -812,7 +812,9 @@ export type CapabilityErrorCode =
   | 'SHEET_HEADER_PROTECTED'
   | 'SHEET_WRITE_UNVERIFIED'
   | 'GREENFIELD_BASELINE_EXISTS'
-  | 'TAB_HAS_NO_COMMITTED_URL';
+  | 'TAB_HAS_NO_COMMITTED_URL'
+  | 'DIALOG_OPEN'
+  | 'NO_DIALOG_OPEN';
 
 /**
  * Shape convention for `CapabilityError.details` on fail-closed refusals

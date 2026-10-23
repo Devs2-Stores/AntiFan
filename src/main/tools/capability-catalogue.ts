@@ -19,6 +19,13 @@ import { WorkspaceRegistry } from '../project/workspace-registry';
 import { DEVICE_ERROR_REMEDIATION } from '../../shared/device-control-contracts';
 import { assertRequiredArgs } from './required-args';
 import { tabShareGrants, type TabShareGrant } from '../browser/tab-share-grants';
+import { dialogOpenError, type JsDialogDescription } from '../browser/js-dialog-tracker';
+
+/**
+ * Target-bound capabilities that never reach the page, so an open JavaScript dialog does not
+ * refuse them: the dialog capability itself, and showing the tab to the user.
+ */
+const DIALOG_EXEMPT_CAPABILITIES: Record<string, true> = { 'anti.browser.dialog': true, 'browser.switch-tab': true };
 
 export interface SessionCapabilityFilter {
   allowedCapabilityNames?: string[];
@@ -160,6 +167,12 @@ export interface CapabilityCatalogueOptions {
    * rather than trusting a caller-supplied device identity.
    */
   getDeviceBinding?: () => (DeviceBinding & { sessionId?: string }) | undefined;
+  /**
+   * The JavaScript dialog a tab shows now, if any. While one is open the page's main thread is
+   * parked in it, so every target-bound capability except {@link DIALOG_EXEMPT_CAPABILITIES} is
+   * refused with DIALOG_OPEN at once instead of hanging until its own timeout.
+   */
+  getOpenJsDialog?: (tabId: string) => JsDialogDescription | undefined;
 }
 
 export class CapabilityCatalogue {
@@ -502,6 +515,7 @@ export class CapabilityCatalogue {
 
     if (definition.requiresBrowserTarget) {
       this.authorizeAndResolveEffectiveTarget(params, context, authoritativeWs, definition.name, definition.policy);
+      this.assertNoOpenJsDialog(definition.name, context);
     }
     if (definition.requiresDeviceTarget || context.deviceTarget) {
       // Strict on purpose, and it is the contract the tests pin rather than a loose guard:
@@ -578,6 +592,7 @@ export class CapabilityCatalogue {
 
     if (definition.requiresBrowserTarget) {
       this.authorizeAndResolveEffectiveTarget(params, context, authoritativeWs, definition.name, definition.policy);
+      this.assertNoOpenJsDialog(definition.name, context);
     }
     if (definition.requiresDeviceTarget || context.deviceTarget) {
       // Same strict contract as the authenticated path, for the same reasons (see the note there).
@@ -658,6 +673,14 @@ export class CapabilityCatalogue {
       if (filter) return filter;
     }
     return undefined;
+  }
+
+  private assertNoOpenJsDialog(capabilityName: string, context: CapabilityRequestContext): void {
+    if (DIALOG_EXEMPT_CAPABILITIES[capabilityName] === true || typeof this.options.getOpenJsDialog !== 'function') return;
+    const tabId = context.browserTarget?.tabId;
+    if (!tabId) return;
+    const dialog = this.options.getOpenJsDialog(tabId);
+    if (dialog) throw dialogOpenError(dialog, tabId);
   }
 
   private authorizeAndResolveEffectiveTarget(

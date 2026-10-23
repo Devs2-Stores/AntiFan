@@ -78,6 +78,7 @@ import {
 } from '../verification/baseline-authority.js';
 import { formatInflightNote, type InflightRequestSnapshot, type NetworkTrackerOptions } from '../browser/first-party-network-tracker.js';
 import type { BrowserSessionUserAgentMode } from '../browser/browser-session-partition';
+import type { JsDialogAnswer, JsDialogDescription } from '../browser/js-dialog-tracker';
 import type { AntiFanTab } from '../../shared/contracts';
 import { DEADLINES } from '../../shared/deadline-chain';
 import { injectedScriptStore } from '../browser/scripts/injected-script-store.js';
@@ -208,6 +209,10 @@ export interface BrowserHostPort {
   agentMove?(args: { selector?: string; ref?: string; x?: number; y?: number; label?: string; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<boolean>;
   agentClick?(params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; trusted?: boolean; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<boolean>;
   agentType?(params: { selector?: string; ref?: string; text: string; clear?: boolean; trusted?: boolean; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<boolean>;
+  /** The JavaScript dialog the tab shows now (the named pane, else either), if any. */
+  getOpenJsDialog?(tabId: string, paneId?: 'desktop' | 'mobile'): JsDialogDescription | undefined;
+  /** Answer the tab's open JavaScript dialog; NO_DIALOG_OPEN when it shows none. */
+  answerJsDialog?(tabId: string, paneId: 'desktop' | 'mobile' | undefined, accept: boolean): Promise<JsDialogAnswer>;
   agentScroll?(params: { deltaY?: number; selector?: string; ref?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<boolean>;
   agentHover?(params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<boolean>;
   agentHighlight?(params: { selector?: string; ref?: string; label?: string; color?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<boolean>;
@@ -1485,6 +1490,7 @@ export const DEFAULT_STOREFRONT_WIDGETS: readonly string[] = Object.freeze([
   '[id*="haravan-notification"]',
   '#preview-bar-iframe',
   '#admin_bar_iframe',
+  '#bizweb-theme-previewer',
   'iframe[src*="admin/preview_bar"]',
   'iframe[src*="preview_bar"]',
   '.haravan-preview-bar',
@@ -2579,7 +2585,7 @@ export class BrowserControlPort {
     };
   }
 
-  async navigate(target: BrowserTarget, url: string, explicitTabId?: string, options?: { timeoutMs?: number }): Promise<{ navigated: boolean; target: BrowserTarget }> {
+  async navigate(target: BrowserTarget, url: string, explicitTabId?: string, options?: { timeoutMs?: number }): Promise<{ navigated: boolean; target: BrowserTarget; dialog?: JsDialogDescription }> {
     const tabId = this.resolveTargetTab(target, explicitTabId, 'read');
     const navigationUrl = typeof url === 'string' ? url.trim() : '';
     // about:blank is the only non-http(s) document a session may navigate to (a clean-slate
@@ -2591,9 +2597,13 @@ export class BrowserControlPort {
     const navigationTimeoutMs = typeof requestedTimeoutMs === 'number' && Number.isFinite(requestedTimeoutMs) && requestedTimeoutMs > 0
       ? Math.min(Math.floor(requestedTimeoutMs), NAVIGATE_TIMEOUT_CEILING_MS)
       : undefined;
-    const navigated = typeof this.host.navigateAndWait === 'function'
-      ? await this.host.navigateAndWait(tabId, navigationUrl, navigationTimeoutMs)
-      : await this.host.navigate(tabId, navigationUrl);
+    const navigation = Promise.resolve(typeof this.host.navigateAndWait === 'function'
+      ? this.host.navigateAndWait(tabId, navigationUrl, navigationTimeoutMs)
+      : this.host.navigate(tabId, navigationUrl));
+    const settled = await this.untilJsDialog(tabId, undefined, navigation);
+    // A `beforeunload` prompt holds the navigation until it is answered; the caller gets the prompt.
+    if ('dialog' in settled) return { navigated: false, target, dialog: settled.dialog };
+    const navigated = settled.value;
     if (!navigated) {
       const failure = typeof this.host.getLastNavigationFailure === 'function'
         ? this.host.getLastNavigationFailure(tabId)
@@ -2625,6 +2635,28 @@ export class BrowserControlPort {
     if (settledUrl) settledTarget.url = settledUrl;
     else delete settledTarget.url;
     return { navigated: true, target: settledTarget };
+  }
+
+  /**
+   * Settles with `work`'s value, or with the JavaScript dialog the tab opens first. The work itself
+   * keeps running behind the dialog and resumes once it is answered; only the caller stops waiting.
+   */
+  private async untilJsDialog<T>(tabId: string, paneId: 'desktop' | 'mobile' | undefined, work: Promise<T>): Promise<{ value: T } | { dialog: JsDialogDescription }> {
+    const host = this.host;
+    if (typeof host.getOpenJsDialog !== 'function') return { value: await work };
+    const { promise: dialogSeen, resolve } = Promise.withResolvers<{ dialog: JsDialogDescription }>();
+    let timer: NodeJS.Timeout | undefined;
+    const poll = (): void => {
+      const dialog = host.getOpenJsDialog!(tabId, paneId);
+      if (dialog) resolve({ dialog });
+      else timer = setTimeout(poll, 100);
+    };
+    poll();
+    try {
+      return await Promise.race([work.then((value) => ({ value })), dialogSeen]);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   public async getLiveTabUrl(tabId: string): Promise<string> {
@@ -5033,7 +5065,7 @@ export class BrowserControlPort {
     }, { tabId, signal });
   }
 
-  async agentClick(args: { selector?: string; ref?: string; x?: number; y?: number; label?: string; trusted?: boolean; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ clicked: boolean; reason?: string }> {
+  async agentClick(args: { selector?: string; ref?: string; x?: number; y?: number; label?: string; trusted?: boolean; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ clicked: boolean; reason?: string; dialog?: JsDialogDescription }> {
     if (!this.host.agentClick && !this.host.dispatchAgentAction) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentClick is not supported by host');
     const tabId = this.resolveTargetTab(target, args.tabId, 'write', args as Record<string, unknown>);
     return this.viewportGate.withLock(async () => {
@@ -5042,11 +5074,14 @@ export class BrowserControlPort {
       if (outcome.success) {
         this.bumpMutationRevision(tabId);
       }
-      return outcome.success || !outcome.reason ? { clicked: outcome.success } : { clicked: false, reason: outcome.reason };
+      const result = outcome.success || !outcome.reason ? { clicked: outcome.success } : { clicked: false, reason: outcome.reason };
+      // A click that opened `alert`/`confirm`/`prompt` returns the dialog it is waiting on.
+      const dialog = this.host.getOpenJsDialog?.(tabId, args.paneId);
+      return dialog ? { ...result, dialog } : result;
     }, { tabId, signal });
   }
 
-  async agentType(args: { selector?: string; ref?: string; text: string; clear?: boolean; trusted?: boolean; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ typed: boolean }> {
+  async agentType(args: { selector?: string; ref?: string; text: string; clear?: boolean; trusted?: boolean; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ typed: boolean; dialog?: JsDialogDescription }> {
     if (!this.host.agentType && !this.host.dispatchAgentAction) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentType is not supported by host');
     const tabId = this.resolveTargetTab(target, args.tabId, 'write', args as Record<string, unknown>);
     return this.viewportGate.withLock(async () => {
@@ -5055,9 +5090,37 @@ export class BrowserControlPort {
       if (outcome.success) {
         this.bumpMutationRevision(tabId);
       }
-      return { typed: outcome.success };
+      const dialog = this.host.getOpenJsDialog?.(tabId, args.paneId);
+      return dialog ? { typed: outcome.success, dialog } : { typed: outcome.success };
     }, { tabId, signal });
   }
+
+  /**
+   * Read or answer the JavaScript dialog (`alert` / `confirm` / `beforeunload`) the
+   * target tab shows. A tab with an open dialog refuses every other operation with DIALOG_OPEN, so
+   * this is the one call that reaches it; it takes no viewport lock, since the work holding that
+   * lock may be the very click the dialog froze.
+   */
+  async jsDialog(
+    args: { action: 'get' | 'accept' | 'dismiss'; tabId?: string; paneId?: 'desktop' | 'mobile' },
+    target?: BrowserTarget
+  ): Promise<{ tabId: string; open: boolean; dialog?: JsDialogDescription } | JsDialogAnswer> {
+    if (!this.host.getOpenJsDialog || !this.host.answerJsDialog) {
+      throw new CapabilityError('CAPABILITY_NOT_FOUND', 'JavaScript dialog handling is not supported by host');
+    }
+    if (args.action !== 'get' && args.action !== 'accept' && args.action !== 'dismiss') {
+      throw new CapabilityError('INVALID_ARGUMENT', "action must be 'get', 'accept' or 'dismiss'");
+    }
+    const tabId = this.resolveTargetTab(target, args.tabId, args.action === 'get' ? 'read' : 'write', args as Record<string, unknown>);
+    if (args.action === 'get') {
+      const dialog = this.host.getOpenJsDialog(tabId, args.paneId);
+      return dialog ? { tabId, open: true, dialog } : { tabId, open: false };
+    }
+    const answer = await this.host.answerJsDialog(tabId, args.paneId, args.action === 'accept');
+    this.bumpMutationRevision(tabId);
+    return answer;
+  }
+
   async keyboardPress(args: { key: string; modifiers?: string[]; tabId?: string }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ success: boolean; key: string; modifiers: string[] }> {
     if (!this.host.sendKeyboardPress) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'sendKeyboardPress is not supported by host');
     if (!args || typeof args.key !== 'string' || args.key.trim().length === 0) {

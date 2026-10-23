@@ -4386,6 +4386,7 @@ async function createWindow(): Promise<void> {
       return null;
     },
     getDocumentGeneration: (tabId) => hostForTabOrDegrade(tabId, 'controlPlane.getDocumentGeneration')?.getDocumentGeneration(tabId) ?? 1,
+    getOpenJsDialog: (tabId) => hostForTabOrDegrade(tabId, 'controlPlane.getOpenJsDialog')?.getOpenJsDialog(tabId),
     isTabAllowed: (primaryTabId, requestedTabId) => (hostForTabOrDegrade(primaryTabId, 'controlPlane.isTabAllowed')?.isTabAllowedForPrimary(primaryTabId, requestedTabId) ?? false),
     resolveTabId: (id) => {
       if (!id) return undefined;
@@ -4676,6 +4677,8 @@ async function createWindow(): Promise<void> {
       const host = hostForTabOrBootstrap(args.tabId);
       return host.agentMove(args);
     },
+    getOpenJsDialog: (tabId, paneId) => hostForTabOrDegrade(tabId, 'port.getOpenJsDialog')?.getOpenJsDialog(tabId, paneId),
+    answerJsDialog: (tabId, paneId, accept) => hostForTabOrBootstrap(tabId).answerJsDialog(tabId, paneId, accept),
     agentClick: (params) => {
       const host = hostForTabOrBootstrap(params.tabId);
       return host.agentClick(params);
