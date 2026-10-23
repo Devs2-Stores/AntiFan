@@ -313,28 +313,43 @@ every capsule carrying an explicit `projectId`/`workspaceId` affiliation into it
 (open project + attached workspace); it runs at boot before the first window, before
 every `ensureWindow`, and once in `whenReady`. The projection is idempotent, a newer
 root wins over an older one, and an absent or ambiguous affiliation registers nothing
-rather than guessing. `isKnownProjectId` accepts the boot identity, a registry-open
-project, a capsule-claimed explicit project, or a window already open for it;
+rather than guessing. `isKnownProjectId` accepts a registry-open project, a
+capsule-claimed explicit project, or a window already open for it, and never the
+control plane's default lease id (`CONTROL_PLANE_DEFAULT_PROJECT_ID`), which is a lease
+for unattributed control-plane work and is never listed or opened as a project;
 `resolveWindowRecord`'s root fallback order is registry workspace root →
 affiliated capsule `workspacePath` → no workspace at all (the window keeps its
 stable id as its title and claims no path; it never presents the process
 directory as the project's, and a capsule whose affiliation does not validate is
 the same as no capsule).
 
-The built-in project (`project-00000000-0000-4000-8000-000000000001`) is labelled
-**Tổng hợp** instead of its generated ID label: it is the destination that needs no
-workspace, so a terminal or tab can be handed to it and have the old workspace stamp
-cleared. Its owner key, saved tabs, terminal associations and workspace remain
-unchanged; an explicit capsule or registry project name takes precedence. This label
-is resolved by Main, so an already running process needs an application restart to
-pick up the change.
+Every browser tab lives in exactly one project window, under that project's
+`project:<id>` record of `saved-tabs.json`; the Terminal Manager hosts no browser tabs.
+A document written before project windows (version below 3, with a shared `web` record)
+is migrated once at boot, before any window restores (`runSavedTabsMigrationAtBoot` in
+`src/main/index.ts`, rules in `src/main/browser/saved-tabs-migration.ts`): each tab moves
+to the record of the project it is stamped with, an unstamped tab to the project the old
+shared window was presenting, and the file is rewritten only after a
+`saved-tabs.json.pre-project-windows-<timestamp>.bak` copy exists. A tab with no home
+blocks the rewrite: the old file stays as it is, the ids are journaled
+(`saved-tabs-migration.blocked`), and the next boot tries again. Startup then reopens the
+project that window was presenting plus the project windows the `open-windows.json`
+ledger lists, or only the Terminal Manager when there are none.
+
+A terminal that no project claims (`resolveTerminalScope` answers `unattributed`) is
+adopted once from the cwd its PTY started in (`decideTerminalProjectAdoption` in
+`src/main/project/terminal-project-adoption.ts`): the project whose workspace contains
+the cwd most closely, or a new project for a folder under `E:\Work`. A drive root, the
+`E:\Work` root itself, the home folder, a folder outside `E:\Work` and a folder that
+already contains projects are refused with `TERMINAL_SCOPE_UNRESOLVED` and a recovery hint. The
+`project:<id>` stamp is written at that moment, so later reads are `measured`.
 
 Opening a project has one Main-owned surface, reached from both entrypoints — the
 File menu's `Mở dự án…` (`CmdOrCtrl+Shift+O`) and the sidebar header chip. Neither
 entrypoint names a project: `openProjectWindow` with no id builds its inventory from
 Main's own records (`collectProjectOpenCandidates`/`projectOpenDialogSpec` in
 `src/main/project/project-open-picker.ts`), offering open registry projects plus the
-boot and live-window identities, and then validates the answer through the same path
+projects whose windows are live, and then validates the answer through the same path
 an explicit request takes. A renderer that sent its own window's id would turn "open
 another project" into "focus the one already open", which is why the sidebar request
 carries none — and the chip, not the menu, is what makes the action reachable from a
@@ -519,9 +534,9 @@ terminal daemon sessions are untouched.
 **One gate for the process.** An explicit Quit, the last browser shell going away and
 `window-all-closed` all run the same attempt, and duplicates coalesce into the one in flight.
 "Last" counts only shells someone can see (shown, minimized, or armed to show on first paint):
-a hub an agent mint reopened off-screen does not keep the process alive once the last visible
+a project window an agent mint reopened off-screen does not keep the process alive once the last visible
 window closes, and a close refusal is presented only on visible shells. When that quit is
-refused (for example an agent run is still live on the hidden hub), every managed shell is
+refused (for example an agent run is still live in a hidden project window), every managed shell is
 presented first (`quit.refused.shell-revealed` in the lifecycle log), so the refusal lands in
 the chrome that holds the work instead of leaving a process with no window on screen.
 Services are torn down only after every native closure succeeded; a late veto keeps them and
@@ -529,11 +544,14 @@ reopens admission. The native close is prevented synchronously before any await,
 close is authorized only by the single-use authorization minted for the attempt that decided it,
 so an unrelated event can never push a close through.
 
-**Hub closed, siblings open.** An agent mint that lands on the hub (unclaimed, `web`/unassigned,
-or a never-detached project claim) reopens a closed hub with agent intent: created, never
-presented, focus untouched (`hub.reopened-off-screen` in the lifecycle log). The bridge is
-re-pointed at the new hub host, because the host it was built with was disposed with the old
-window. A mint for a bound tab that is gone, or a refused claim, never reopens it.
+**Project window closed, its terminal still asking.** An agent mint claimed by a project (a
+terminal stamped `project:<id>`, or a validated `projectId`) whose window is closed reopens that
+window once with agent intent: created, never presented, focus untouched
+(`project-window.reopened-off-screen` in the lifecycle log). When it cannot be reopened the mint
+refuses `TERMINAL_SCOPE_UNRESOLVED` with the reason and a recovery, and never lands in another
+project's window. A terminal no project claims answers on the ambient window, which refuses
+`TARGET_REQUIRED` when several windows make it ambiguous. A mint for a bound tab that is gone
+never reopens anything.
 
 ## Screenshot Matrix
 
