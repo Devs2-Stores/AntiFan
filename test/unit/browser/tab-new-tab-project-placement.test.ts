@@ -38,15 +38,15 @@ class FakeWindowHost {
   }
 }
 
-function shellFor(owner: { kind: 'web' } | { kind: 'project'; projectId: string }): ProjectWindowShell {
+function shellFor(owner: { kind: 'unassigned' } | { kind: 'project'; projectId: string }): ProjectWindowShell {
   return { owner, window: { isDestroyed: () => false } } as unknown as ProjectWindowShell;
 }
 
-function world(windowOwner: 'web' | 'project:project-sky') {
+function world(windowOwner: 'unassigned' | 'project:project-sky') {
   const directory = new TabAuthorityDirectory();
   const window = new FakeWindowHost(windowOwner);
   directory.register(
-    shellFor(windowOwner === 'web' ? { kind: 'web' } : { kind: 'project', projectId: 'project-sky' }),
+    shellFor(windowOwner === 'unassigned' ? { kind: 'unassigned' } : { kind: 'project', projectId: 'project-sky' }),
     window as unknown as NativeTabHost,
   );
   // The anchor: a terminal-9 anchor minted under the Unitedvision capsule inside this window.
@@ -106,7 +106,7 @@ describe('New tab placement follows the capsule project', () => {
   });
 
   it('stamps a hub tab with the capsule project instead of leaving the hub to use the one it presents', () => {
-    const { port, window, target } = world('web');
+    const { port, window, target } = world('unassigned');
 
     const result = port.openTab({}, { target });
 
@@ -125,7 +125,7 @@ describe('New tab placement follows the capsule project', () => {
       const directory = new TabAuthorityDirectory();
       const window = new FakeWindowHost(owner);
       window.tabs.set('tab-1', undefined);
-      directory.register(shellFor({ kind: 'web' }), window as unknown as NativeTabHost);
+      directory.register(shellFor({ kind: 'unassigned' }), window as unknown as NativeTabHost);
       return { authority: new TabAmbientAuthority({ directory }), window };
     }
 
@@ -135,7 +135,7 @@ describe('New tab placement follows the capsule project', () => {
     });
 
     it('answers the anchor window for the hub whichever project is requested', () => {
-      const { authority, window } = authorityWith('web');
+      const { authority, window } = authorityWith('unassigned');
       assert.strictEqual(authority.hostForNewTab('tab-1', 'project-united'), window);
     });
 
@@ -145,7 +145,7 @@ describe('New tab placement follows the capsule project', () => {
     });
 
     it('still refuses an anchor no live window owns with TARGET_STALE', () => {
-      const { authority } = authorityWith('web');
+      const { authority } = authorityWith('unassigned');
       assert.throws(
         () => authority.hostForNewTab('tab-dead', 'project-united'),
         (err: unknown) => err instanceof CapabilityError && err.code === 'TARGET_STALE',

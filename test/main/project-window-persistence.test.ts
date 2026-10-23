@@ -385,6 +385,9 @@ after(() => {
 // 1. Legacy migration
 // ---------------------------------------------------------------------------
 
+/** The flat-to-owner-keyed step stops at version 2; the project-window step that follows it runs at boot. */
+const OWNER_KEYED_VERSION = 2;
+
 describe('saved tabs: legacy migration', () => {
   it('migrates the flat document once and leaves it versioned', () => {
     freshUserData('legacy-once');
@@ -400,14 +403,14 @@ describe('saved tabs: legacy migration', () => {
     const host = createHost();
     const document = host.loadSavedTabsDocument();
 
-    assert.equal(document.version, SAVED_TABS_SCHEMA_VERSION);
+    assert.equal(document.version, OWNER_KEYED_VERSION);
     // A flat file carries no verified affiliation, so its records are Unassigned.
     assert.deepEqual(Object.keys(document.owners), [UNASSIGNED]);
     assert.equal(document.owners[UNASSIGNED].tabs.length, 2);
     assert.equal(document.owners[UNASSIGNED].activeTabId, 't1');
 
     const onDisk = readSavedTabsFile();
-    assert.equal(onDisk.version, SAVED_TABS_SCHEMA_VERSION);
+    assert.equal(onDisk.version, OWNER_KEYED_VERSION);
     assert.equal('tabs' in onDisk, false, 'flat tab list must not survive the migration');
     assert.equal('activeTabId' in onDisk, false);
     assert.equal(onDisk.sidebarWidth, 420, 'shared preferences are preserved');
@@ -464,7 +467,7 @@ describe('saved tabs: legacy migration', () => {
     // Retry converges: one migration, one record, no duplicated tabs.
     assert.deepEqual(host.migrateLegacySavedTabsFile(), { migrated: true });
     const migrated = readSavedTabsFile();
-    assert.equal(migrated.version, SAVED_TABS_SCHEMA_VERSION);
+    assert.equal(migrated.version, OWNER_KEYED_VERSION);
     assert.deepEqual(Object.keys(migrated.owners), [UNASSIGNED]);
     assert.deepEqual(migrated.owners[UNASSIGNED].tabs.map((tab: AnyRecord) => tab.id), ['t1', 't2', 't3']);
     assert.deepEqual(host.migrateLegacySavedTabsFile(), { migrated: false, reason: 'already-versioned' });
@@ -565,15 +568,15 @@ describe('saved tabs: one record per owner', () => {
     assert.equal(manager.terminalTabLayout, 'sidebar', 'a legacy layout from another window must not close the manager\'s sidebar');
     assert.equal(manager.terminalSidebarWidth, 317, 'the legacy width is the one the user dragged');
 
-    const hub = createHost({ owner: PROJECT_A });
-    hub.restoreWindowTerminalLayout(legacy);
-    assert.equal(hub.terminalTabLayout, 'horizontal');
-    assert.equal(hub.terminalSidebarWidth, 317);
+    const projectWindow = createHost({ owner: PROJECT_A });
+    projectWindow.restoreWindowTerminalLayout(legacy);
+    assert.equal(projectWindow.terminalTabLayout, 'horizontal');
+    assert.equal(projectWindow.terminalSidebarWidth, 317);
 
-    // The user resizes the manager's column; the hub, untouched, saves after it.
+    // The user resizes the manager's column; the project window, untouched, saves after it.
     manager.applyTerminalTabPrefsFromUser({ layout: 'sidebar', sidebarWidth: 290 });
     manager.persistSync();
-    hub.persistSync();
+    projectWindow.persistSync();
 
     const saved = readSavedTabsFile();
     assert.equal(saved.terminalTabLayout, undefined, 'no window may impose its layout on the others');
@@ -588,27 +591,27 @@ describe('saved tabs: one record per owner', () => {
     assert.equal(reopened.terminalSidebarWidth, 290, 'the manager reopens at the width the user left it');
   });
 
-  it('a window that never changed a shared terminal pref does not overwrite a sibling\'s change', () => {
+  it('a project window never writes the shared terminal prefs, even after changing them in its chrome', () => {
     freshUserData('owner-terminal-shared');
     const manager = createHost({ owner: { kind: 'unassigned' } });
-    const hub = createHost({ owner: { kind: 'web' } });
+    const projectWindow = createHost({ owner: PROJECT_A });
 
-    // The hub's renderer echoes its whole (unchanged) set: nothing it holds is a change.
-    hub.applyTerminalTabPrefsFromUser({ projectOrder: [], collapsedCategories: [] });
+    // The project window's renderer echoes its whole (unchanged) set: nothing it holds is a change.
+    projectWindow.applyTerminalTabPrefsFromUser({ projectOrder: [], collapsedCategories: [] });
     manager.applyTerminalTabPrefsFromUser({ projectOrder: ['proj-b', 'proj-a'], collapsedCategories: ['project:proj-b'] });
     manager.persistSync();
-    hub.persistSync();
+    projectWindow.persistSync();
 
     let saved = readSavedTabsFile();
-    assert.deepEqual(saved.terminalProjectOrder, ['proj-b', 'proj-a'], 'the hub\'s boot-time copy clobbered the manager\'s order');
+    assert.deepEqual(saved.terminalProjectOrder, ['proj-b', 'proj-a'], 'the project window\'s boot-time copy clobbered the manager\'s order');
     assert.deepEqual(saved.terminalCollapsedCategories, ['project:proj-b']);
 
-    // A real change in the hub is the hub's to write.
-    hub.applyTerminalTabPrefsFromUser({ projectOrder: ['proj-a'] });
-    hub.persistSync();
+    // A change in the project window still leaves the document-level keys to the manager.
+    projectWindow.applyTerminalTabPrefsFromUser({ projectOrder: ['proj-a'] });
+    projectWindow.persistSync();
     saved = readSavedTabsFile();
-    assert.deepEqual(saved.terminalProjectOrder, ['proj-a']);
-    assert.deepEqual(saved.terminalCollapsedCategories, ['project:proj-b'], 'an untouched key keeps the sibling\'s value');
+    assert.deepEqual(saved.terminalProjectOrder, ['proj-b', 'proj-a']);
+    assert.deepEqual(saved.terminalCollapsedCategories, ['project:proj-b']);
   });
 
   it('does not write an automation surface into the saved strip', () => {
@@ -625,9 +628,9 @@ describe('saved tabs: one record per owner', () => {
   });
 
   it('skips all disk work when the projection is unchanged, still writes on change or missing file', () => {
-    // The hub host, not a project owner: document-pref writers are web/unassigned
-    // windows now — a `project:` host is the detached case this suite's gate covers.
-    const host = createHost({ owner: { kind: 'web' }, tabs: [['tab-a', {}]], activeTabId: 'tab-a' });
+    // The Terminal Manager host, not a project owner: it is the only window that writes
+    // document-level prefs, which this test changes below.
+    const host = createHost({ owner: { kind: 'unassigned' }, tabs: [['tab-a', {}]], activeTabId: 'tab-a' });
 
     let reads = 0;
     let writes = 0;
@@ -645,7 +648,7 @@ describe('saved tabs: one record per owner', () => {
     // First persist lands the projection.
     host.persistSync();
     assert.equal(writes, 1);
-    const firstRecord = readSavedTabsFile().owners.web;
+    const firstRecord = readSavedTabsFile().owners[UNASSIGNED];
 
     // Triggering persist again with identical projected state does no disk work:
     // no merge read, no document write, no rename — this is the broadcast-driven
@@ -654,7 +657,7 @@ describe('saved tabs: one record per owner', () => {
     host.persistSync();
     assert.equal(reads, 1, 'only the first persist reads; an unchanged projection must not re-read the file');
     assert.equal(writes, 1, 'an unchanged projection must not rewrite the file');
-    assert.deepEqual(readSavedTabsFile().owners.web, firstRecord);
+    assert.deepEqual(readSavedTabsFile().owners[UNASSIGNED], firstRecord);
 
     // A real state change still persists.
     host.mutedSites.add('example.test');

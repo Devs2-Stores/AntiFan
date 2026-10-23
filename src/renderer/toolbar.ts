@@ -67,7 +67,7 @@ interface AntiFanTab {
   splitMobilePresetId?: string;
   splitFocusedPane?: 'desktop' | 'mobile';
   splitError?: string;
-  /** Web-hub scope stamp: absent means shared — the tab renders under every project. */
+  /** The project whose window minted this tab. */
   projectId?: string;
 }
 interface ThemeQaState { status: 'idle' | 'running' | 'pass' | 'fail' | 'error'; issueCount: number; reportArtifactId?: string; report?: Record<string, unknown>; error?: string; updatedAt: number; }
@@ -89,11 +89,9 @@ interface ToolbarPhoneStatus {
  * address a tab id nobody reported.
  */
 interface ProjectWindowIdentity {
-  owner: { kind: 'project'; projectId: string } | { kind: 'web' } | { kind: 'unassigned' };
+  owner: { kind: 'project'; projectId: string } | { kind: 'unassigned' };
   title: string;
   pathLabel?: string;
-  /** The project a 'web' hub presents; the strip filters to it only when this is a definite id. */
-  activeProjectId?: string | null;
 }
 
 interface ProjectTabSearchRow {
@@ -114,14 +112,6 @@ type ProjectTabActivationResult =
   | { status: 'UNAVAILABLE'; tabId: string; reasonCode: string; reason: string };
 type ProjectOpenResult =
   | { status: 'OPENED' | 'FOCUSED' | 'CANCELLED'; projectId?: string }
-  | { status: 'FAILED'; projectId?: string; reason: string };
-
-type ProjectDetachResult =
-  | { status: 'DETACHED' | 'FOCUSED'; projectId: string }
-  | { status: 'FAILED'; projectId?: string; reason: string };
-
-type ProjectReattachResult =
-  | { status: 'REATTACHED'; projectId: string }
   | { status: 'FAILED'; projectId?: string; reason: string };
 
 /** Payload shape of a successful THEME_CHECKLIST_LOAD invoke. */
@@ -262,9 +252,6 @@ interface AntiFanToolbarApi {
     requestId: string;
     choice: { kind: 'project'; projectId: string } | { kind: 'folder' } | { kind: 'cancelled' };
   }) => Promise<unknown>;
-  /** Detach the presented project into its own shell, or bring a detached shell home. */
-  detachProject?: (request: { projectId: string }) => Promise<ProjectDetachResult>;
-  reattachProject?: (request: { projectId: string }) => Promise<ProjectReattachResult>;
   /**
    * Reasons Main refused a close or quit, pushed for display only. The payload arrives
    * unvalidated like every other cross-process message, so it is typed `unknown` here and
@@ -1592,10 +1579,6 @@ function openThemeQaSummary() {
 }
 
 let currentTabs: AntiFanTab[] = [];
-// The web hub's presented project when Main has reported one; null renders the
-// whole strip (fail-open: an absent or retracted identity never hides tabs).
-// Set by renderProjectWindowIdentity from the identity broadcast, read by renderTabs.
-let stripProjectScope: string | null = null;
 let currentBookmarks: Array<{ id: string; title: string; url: string }> = [];
 let activeTabId: string = '';
 let isInspecting = false;
@@ -3183,10 +3166,7 @@ let lastAppliedForwardDisabled: boolean | null = null;
 let lastAppliedAgentControlled: boolean | null = null;
 
 function computeTabsSignature(tabs: AntiFanTab[], activeId: string): string {
-  // The scope itself is part of the signature: a project switch that keeps the same
-  // shared tab active would otherwise produce an identical signature and the strip
-  // would keep showing the previous project's rows.
-  let sig = `${stripProjectScope ?? ''}:${activeId}:${tabs.length}`;
+  let sig = `${activeId}:${tabs.length}`;
   for (let i = 0; i < tabs.length; i++) {
     const t = tabs[i];
     if (!t) continue;
@@ -3242,28 +3222,11 @@ function cacheTabRefs(tabEl: HTMLElement): TabElementRefs {
   return refs;
 }
 
-/**
- * The tabs the strip renders: the presented project's own rows plus shared
- * (unstamped) ones when the web identity carries a definite scope, every row
- * otherwise. renderTabs paints it and the pushState signature compares on it,
- * so the two must read the same set — the filter lives exactly once.
- */
-function visibleStripTabs(): AntiFanTab[] {
-  return stripProjectScope
-    ? currentTabs.filter((tab) => !tab.projectId || tab.projectId === stripProjectScope)
-    : currentTabs;
-}
-
 function renderTabs() {
   if (!tabList) return;
-  // The web hub presents one project at a time: only its tabs plus the shared
-  // (unstamped) ones render. Filtering is a strip concern — `currentTabs` still
-  // holds the full inventory for the url/active lookups elsewhere. Fail-open:
-  // with no definite scope every tab renders.
-  const visibleTabs = visibleStripTabs();
-  lastTabsSignature = computeTabsSignature(visibleTabs, activeTabId);
+  lastTabsSignature = computeTabsSignature(currentTabs, activeTabId);
 
-  const currentTabIds = new Set(visibleTabs.map((t) => t.id));
+  const currentTabIds = new Set(currentTabs.map((t) => t.id));
   
   // 1. Remove closed tabs
   Array.from(tabList.children).forEach((child) => {
@@ -3282,7 +3245,7 @@ function renderTabs() {
   }
 
   // 2. Update or insert tabs
-  visibleTabs.forEach((tab, index) => {
+  currentTabs.forEach((tab, index) => {
     // The condition below guarantees an element: every current tab is either already in
     // the map or created and appended in this iteration. The assertion keeps the type
     // the previous per-tab `querySelector(...) as HTMLElement` gave its closures.
@@ -5313,8 +5276,7 @@ async function initToolbar() {
       // is carrying no identity news and must not blank a chip that is already correct,
       // while an explicit `projectWindow: null` retracts it.
       if ('projectWindow' in s) renderProjectWindowIdentity(s.projectWindow);
-      const stripTabs = visibleStripTabs();
-      const newTabsSig = computeTabsSignature(stripTabs, activeTabId);
+      const newTabsSig = computeTabsSignature(currentTabs, activeTabId);
       if (newTabsSig !== lastTabsSignature) {
         renderTabs();
       }
@@ -5860,9 +5822,6 @@ function parseProjectWindowIdentity(source: unknown): ProjectWindowIdentity | nu
   let parsedOwner: ProjectWindowIdentity['owner'];
   if (owner.kind === 'project' && typeof owner.projectId === 'string' && owner.projectId) {
     parsedOwner = { kind: 'project', projectId: owner.projectId };
-  } else if (owner.kind === 'web') {
-    // The web hub presents one project at a time and is where switching happens.
-    parsedOwner = { kind: 'web' };
   } else if (owner.kind === 'unassigned') {
     parsedOwner = { kind: 'unassigned' };
   } else {
@@ -5872,15 +5831,12 @@ function parseProjectWindowIdentity(source: unknown): ProjectWindowIdentity | nu
     owner: parsedOwner,
     title: typeof source.title === 'string' ? source.title : '',
     pathLabel: typeof source.pathLabel === 'string' ? source.pathLabel : undefined,
-    // A definite non-empty string is the strip's scope; null/absent means no filter.
-    activeProjectId: typeof source.activeProjectId === 'string' && source.activeProjectId ? source.activeProjectId : null,
   };
 }
 
 /**
- * The identity the last state broadcast described. Detach/reattach menu items and the
- * chip popover both read it: a detached `project:` shell reattaches, a hub presenting a
- * project detaches it.
+ * The identity the last state broadcast described; the chip popover reads it for its
+ * title and path.
  */
 let lastProjectIdentity: ProjectWindowIdentity | null = null;
 
@@ -5891,21 +5847,12 @@ let lastProjectIdentity: ProjectWindowIdentity | null = null;
 function renderProjectWindowIdentity(source: unknown) {
   const identity = parseProjectWindowIdentity(source);
   lastProjectIdentity = identity;
-  // The strip scope follows the identity's own definite answer (H6): a web hub
-  // presenting a project filters to its tabs plus shared ones; a retraction or a
-  // shell that is not the hub renders everything rather than hiding tabs behind a
-  // stale scope.
-  stripProjectScope = identity && identity.owner.kind === 'web' && identity.activeProjectId
-    ? identity.activeProjectId
-    : null;
-  // The chip is the only project label: the tab strip scopes its tabs, the chip names the scope.
+  // The chip is the only project label: it names the project this window belongs to.
   const chip = document.getElementById('projectIdentityChip');
   const nameEl = document.getElementById('projectIdentityName');
   if (!chip || !nameEl) return;
-  const showsProject = Boolean(identity && identity.owner.kind !== 'unassigned' && identity.title
-    && (identity.owner.kind === 'project' || identity.activeProjectId));
+  const showsProject = Boolean(identity && identity.owner.kind === 'project' && identity.title);
   chip.style.display = showsProject ? 'inline-flex' : 'none';
-  chip.classList.toggle('is-detached', identity?.owner.kind === 'project');
   if (identity && showsProject) {
     nameEl.textContent = identity.title;
     chip.title = identity.pathLabel ? `${identity.title} — ${identity.pathLabel}` : identity.title;
@@ -5914,43 +5861,19 @@ function renderProjectWindowIdentity(source: unknown) {
     chip.removeAttribute('title');
     closeProjectChipMenu();
   }
-  syncProjectMenuItems();
+  syncProjectChipMenu();
 }
 
-/** The project id this chrome may detach/reattach, or null when neither applies. */
-function projectActionTarget(): string | null {
-  const identity = lastProjectIdentity;
-  if (!identity) return null;
-  if (identity.owner.kind === 'project') return identity.owner.projectId;
-  if (identity.owner.kind === 'web' && identity.activeProjectId) return identity.activeProjectId;
-  return null;
-}
-
-/** Reflect the identity into the ⋮ menu rows and the chip popover's content. */
-function syncProjectMenuItems(): void {
-  const detached = lastProjectIdentity?.owner.kind === 'project';
-  const hasTarget = projectActionTarget() !== null;
-  const detachItem = document.getElementById('menuItemDetachProject');
-  const reattachItem = document.getElementById('menuItemReattachProject');
-  const divider = document.getElementById('menuProjectDivider');
-  if (detachItem) detachItem.style.display = !detached && hasTarget ? '' : 'none';
-  if (reattachItem) reattachItem.style.display = detached ? '' : 'none';
-  if (divider) divider.style.display = hasTarget ? '' : 'none';
-  const badge = document.getElementById('projectChipBadge');
+/** Reflect the identity into the chip popover's content. */
+function syncProjectChipMenu(): void {
   const title = document.getElementById('projectChipTitle');
   const path = document.getElementById('projectChipPath');
-  const moveLabel = document.getElementById('menuProjectMoveLabel');
-  if (badge) {
-    badge.textContent = detached ? 'DETACHED' : 'HUB';
-    badge.classList.toggle('detached', detached);
-  }
   if (title) title.textContent = lastProjectIdentity?.title || '';
   if (path) {
     const label = lastProjectIdentity?.pathLabel || '';
     path.style.display = label ? '' : 'none';
     path.textContent = label;
   }
-  if (moveLabel) moveLabel.textContent = detached ? 'Gắn lại vào Web Hub' : 'Tách ra cửa sổ riêng';
 }
 
 /** Validate one inventory row. A row without an addressable id is dropped, not guessed. */
@@ -6360,17 +6283,15 @@ projectPickerOverlay?.addEventListener('click', (event) => {
 });
 tabSearchClose?.addEventListener('click', () => closeTabSearch(true));
 // ---------------------------------------------------------------------------
-// Project chip menu — detach/reattach and project switching. The native menubar
-// is retired on win32/linux (FocusManager crash), so this chip popover plus the
-// ⋮ rows are the discoverable surface the File menu used to provide.
+// Project chip menu — names this window's project and switches projects by opening
+// that project's own window. The native menubar is retired on win32/linux
+// (FocusManager crash), so this chip popover is the discoverable surface the File
+// menu used to provide.
 // ---------------------------------------------------------------------------
 const projectIdentityChip = document.getElementById('projectIdentityChip') as HTMLElement | null;
 const projectChipMenu = document.getElementById('projectChipMenu') as HTMLElement | null;
 const projectChipWrap = document.getElementById('projectIdentityWrap') as HTMLElement | null;
-const menuProjectMove = document.getElementById('menuProjectMove') as HTMLButtonElement | null;
 const menuProjectOpenOther = document.getElementById('menuProjectOpenOther') as HTMLButtonElement | null;
-const menuItemDetachProject = document.getElementById('menuItemDetachProject') as HTMLElement | null;
-const menuItemReattachProject = document.getElementById('menuItemReattachProject') as HTMLElement | null;
 
 function openProjectChipMenu(): void {
   if (!projectChipMenu || !projectIdentityChip) return;
@@ -6382,7 +6303,7 @@ function openProjectChipMenu(): void {
   projectChipMenu.style.display = 'flex';
   projectIdentityChip.setAttribute('aria-expanded', 'true');
   acquireOverlay('project-chip');
-  syncProjectMenuItems();
+  syncProjectChipMenu();
 }
 
 function closeProjectChipMenu(): void {
@@ -6390,36 +6311,6 @@ function closeProjectChipMenu(): void {
   if (projectChipMenu.style.display !== 'none') releaseOverlay('project-chip');
   projectChipMenu.style.display = 'none';
   projectIdentityChip?.setAttribute('aria-expanded', 'false');
-}
-
-function projectMoveReasonText(reason: string | undefined): string {
-  if (reason === 'NOT_DETACHED') return 'Dự án không đang tách';
-  if (reason === 'CLOSE_REFUSED') return 'Một tab đang chặn đóng cửa sổ (xem thông báo)';
-  if (reason === 'REATTACH_IN_PROGRESS') return 'Đang gắn lại…';
-  if (reason === 'DETACH_REFUSED') return 'Có tab từ chối chuyển sang cửa sổ riêng';
-  return reason || 'không rõ nguyên nhân';
-}
-
-async function runProjectMove(): Promise<void> {
-  const projectId = projectActionTarget();
-  if (!projectId) { showToolbarToast('⚠️ Không xác định được dự án của cửa sổ này'); return; }
-  closeProjectChipMenu();
-  const detached = lastProjectIdentity?.owner.kind === 'project';
-  try {
-    if (detached) {
-      const result = await getApi()?.reattachProject?.({ projectId });
-      // Success closes this very window — nothing else to paint.
-      if (result && result.status === 'FAILED') showToolbarToast(`⚠️ Không gắn lại được: ${projectMoveReasonText(result.reason)}`);
-    } else {
-      const result = await getApi()?.detachProject?.({ projectId });
-      if (!result) { showToolbarToast('⚠️ Preload thiếu detachProject'); return; }
-      if (result.status === 'DETACHED') showToolbarToast('✅ Đã tách dự án ra cửa sổ riêng');
-      else if (result.status === 'FOCUSED') showToolbarToast('Dự án đã có cửa sổ riêng — đang hiển thị');
-      else if (result.status === 'FAILED') showToolbarToast(`⚠️ Không tách được: ${projectMoveReasonText(result.reason)}`);
-    }
-  } catch (err) {
-    showToolbarToast(`⚠️ ${err instanceof Error ? err.message : String(err)}`);
-  }
 }
 
 projectIdentityChip?.addEventListener('click', (e) => {
@@ -6443,20 +6334,9 @@ projectChipMenu?.addEventListener('keydown', (e) => {
     items[(idx + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length]?.focus();
   }
 });
-menuProjectMove?.addEventListener('click', () => { void runProjectMove(); });
 menuProjectOpenOther?.addEventListener('click', () => {
   closeProjectChipMenu();
   void getApi()?.openProject?.();
-});
-menuItemDetachProject?.addEventListener('click', (e) => {
-  e.stopPropagation();
-  closeAppMenu();
-  void runProjectMove();
-});
-menuItemReattachProject?.addEventListener('click', (e) => {
-  e.stopPropagation();
-  closeAppMenu();
-  void runProjectMove();
 });
 document.addEventListener('click', (e) => {
   if (projectChipMenu?.style.display === 'flex' && projectChipWrap && !projectChipWrap.contains(e.target as Node)) {

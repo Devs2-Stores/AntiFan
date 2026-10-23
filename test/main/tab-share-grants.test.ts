@@ -595,7 +595,7 @@ describe('NativeTabHost share gesture', () => {
 
   function makeHost(options: { owner?: Record<string, unknown>; tabs: Record<string, TabRow>; capsules?: CapsuleRow[] }): NativeTabHost {
     const host = Object.create(NativeTabHost.prototype) as unknown as Record<string, unknown>;
-    host.shell = { owner: options.owner ?? { kind: 'web' } };
+    host.shell = { owner: options.owner ?? { kind: 'unassigned' } };
     host.tabs = new Map(Object.entries(options.tabs));
     host.capsuleManager = { list: () => options.capsules ?? [] };
     host.sessionTabPools = new Map();

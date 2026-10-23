@@ -240,15 +240,14 @@ describe('Project picker', () => {
   });
 });
 
-describe('Web hub project scope', () => {
-  const webIdentity = (activeProjectId: string | null, title = 'Tổng hợp') => ({
-    owner: { kind: 'web' },
+describe('Project window strip', () => {
+  const projectIdentity = (projectId: string, title = 'Acme') => ({
+    owner: { kind: 'project', projectId },
     title,
-    pathLabel: 'E:\\Work\\projects\\tong-hop',
-    activeProjectId,
+    pathLabel: 'E:\\Work\\projects\\acme',
   });
 
-  test('only the presented project\'s tabs and shared (unstamped) tabs render', async () => {
+  test('a project window renders every tab it holds, whatever the tab stamps say', async () => {
     const tabs = [
       { id: 'a1', title: 'A1', url: 'https://a1/', projectId: 'p1' },
       { id: 'b1', title: 'B1', url: 'https://b1/', projectId: 'p2' },
@@ -257,27 +256,12 @@ describe('Web hub project scope', () => {
     const { doc, stub } = await loadToolbarWithTabs(tabs, 'a1');
     const tabList = doc.getElementById('tabList')!;
 
-    // A web hub identity scopes the strip to p1: p1's tab + the shared one.
-    stub.pushState({ tabs, activeTabId: 'a1', projectWindow: webIdentity('p1') });
+    stub.pushState({ tabs, activeTabId: 'a1', projectWindow: projectIdentity('p1') });
     await flush();
     assert.deepStrictEqual(
       Array.from(tabList.children).map((el) => el.getAttribute('data-tab-id')).sort(),
-      ['a1', 'free'],
-      'the strip shows the presented project and its shared tabs only',
+      ['a1', 'b1', 'free'],
+      'the strip is never narrowed by a project identity',
     );
-
-    // The project switch repaints the strip: b1 in, a1 out, shared stays.
-    stub.pushState({ tabs, activeTabId: 'b1', projectWindow: webIdentity('p2', 'Shop') });
-    await flush();
-    assert.deepStrictEqual(
-      Array.from(tabList.children).map((el) => el.getAttribute('data-tab-id')).sort(),
-      ['b1', 'free'],
-      'switching the presented project re-filters the strip',
-    );
-
-    // Identity without a definite project (null) fails open: every tab renders.
-    stub.pushState({ tabs, activeTabId: 'a1', projectWindow: webIdentity(null, 'AntiFan Browser') });
-    await flush();
-    assert.strictEqual(tabList.children.length, 3, 'no scope renders the whole inventory');
   });
 });

@@ -1,7 +1,7 @@
 /**
  * AntiFan Browser Desktop — Project Window Manager
  *
- * Maps a stable window owner (a project, the web hub or Unassigned) to exactly one live
+ * Maps a stable window owner (a project or Unassigned) to exactly one live
  * ProjectWindowShell.
  *
  * It is a directory and an admission point — not a second tab authority. Tab identity, tab

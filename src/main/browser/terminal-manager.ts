@@ -7,7 +7,7 @@ import { EventEmitter } from 'events';
 import { performance } from 'node:perf_hooks';
 import { isBenchmarkEnabled, recordBenchmark } from '../benchmark/telemetry';
 import { StorageLocations } from '../config/storage-locations';
-import { TerminalWaitInput, TerminalWaitResult, CapabilityError, isBootProjectId } from '../../shared/control-plane-contracts';
+import { TerminalWaitInput, TerminalWaitResult, CapabilityError, CONTROL_PLANE_DEFAULT_PROJECT_ID } from '../../shared/control-plane-contracts';
 import { TerminalDeltaResult, TerminalJournalEntry, TerminalAckPayload, TerminalSyncViewResult, TerminalSleepResult, TerminalRoleMeta } from '../../shared/contracts';
 import { ownerKey } from './window-owner';
 import { PtyWorkerHost } from './pty-worker-host';
@@ -1046,17 +1046,19 @@ export class TerminalManager extends EventEmitter {
   }
 
   /**
-   * A persisted `project:<bootId>` owner key is a stamp an earlier build minted while the
-   * hub presented its own boot sentinel ("Tổng hợp"). No window owns that project, so the
-   * control plane would measure the row as a foreign-project terminal and refuse every
-   * target it names. The hub's own key is what the mint produces today; restore it as such.
+   * A persisted owner key of the retired `web` hub, or `project:<id>` of the control plane's
+   * default lease project, names no window: the hub no longer exists and the default lease is
+   * not a tenant. The row loses that stamp and reads as unattributed, so project adoption
+   * decides where it lives instead of the control plane measuring it as a foreign terminal.
    */
   private sanitizeRestoredOwnerKeys(sessions: unknown[]): SavedSession[] {
     for (const item of sessions) {
       if (!item || typeof item !== 'object') continue;
       const row = item as { ownerKey?: unknown };
-      if (typeof row.ownerKey !== 'string' || !row.ownerKey.startsWith('project:')) continue;
-      if (isBootProjectId(row.ownerKey.slice('project:'.length))) row.ownerKey = 'web';
+      if (typeof row.ownerKey !== 'string') continue;
+      if (row.ownerKey === 'web' || row.ownerKey === `project:${CONTROL_PLANE_DEFAULT_PROJECT_ID}`) {
+        delete row.ownerKey;
+      }
     }
     return sessions as SavedSession[];
   }

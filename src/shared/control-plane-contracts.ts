@@ -10,24 +10,14 @@ export const SESSION_FORMAT_VERSION = 1;
 export * from './theme-task-context';
 
 /**
- * The placeholder identity the hub boots under when no `ANTIFAN_PROJECT_ID` is set
- * ("Tổng hợp"). It is a bootstrap sentinel, not a tenant: it never detaches into its
- * own window, never persists as a detached owner, and never mints terminal-origin
- * authority. Shared so Main, the tab host and the terminal manager agree on one value.
+ * The control plane's process-level default lease: the project and workspace ids a runtime
+ * starts with before any project window names its own, and the ids it keeps when no
+ * `ANTIFAN_PROJECT_ID` / `ANTIFAN_WORKSPACE_ID` override is set. It is not a window and not a
+ * tenant: no project window opens for it, no terminal is attributed to it, and no picker lists it.
+ * Shared so Main and the terminal manager agree on one value.
  */
-export const DEFAULT_BOOT_PROJECT_ID = 'project-00000000-0000-4000-8000-000000000001';
-export const DEFAULT_BOOT_WORKSPACE_ID = 'workspace-00000000-0000-4000-8000-000000000001';
-export const DEFAULT_BOOT_PROJECT_OWNER_KEY = `project:${DEFAULT_BOOT_PROJECT_ID}`;
-
-/**
- * Whether `projectId` names the boot sentinel: the shared placeholder ("Tổng hợp",
- * DEFAULT_BOOT_PROJECT_ID). Real projects booted via ANTIFAN_PROJECT_ID are tenants
- * and own their mints, detach, and restore.
- */
-export function isBootProjectId(projectId: string | null | undefined): boolean {
-  if (typeof projectId !== 'string' || !projectId) return false;
-  return projectId === DEFAULT_BOOT_PROJECT_ID;
-}
+export const CONTROL_PLANE_DEFAULT_PROJECT_ID = 'project-00000000-0000-4000-8000-000000000001';
+export const CONTROL_PLANE_DEFAULT_WORKSPACE_ID = 'workspace-00000000-0000-4000-8000-000000000001';
 
 export type ControlPlaneEntity = 'project' | 'workspace' | 'chat' | 'run' | 'attempt' | 'tool' | 'artifact' | 'binding' | 'invocation' | 'event' | 'message' | 'request' | 'idempotency' | 'attachment' | 'runtime' | 'session';
 export type LifecycleState = 'open' | 'closed' | 'interrupted' | 'completed' | 'failed' | 'unknown';

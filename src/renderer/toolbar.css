@@ -4398,7 +4398,7 @@ body, html {
   word-break: break-word;
 }
 
-/* PROJECT IDENTITY CHIP: names the project the Web Hub is presenting. */
+/* PROJECT IDENTITY CHIP: names the project this window belongs to. */
 .project-identity-wrap {
   position: relative;
   flex: 0 0 auto;
@@ -4430,22 +4430,6 @@ body, html {
   border-color: rgba(56, 189, 248, 0.55);
   box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.15), 0 2px 10px rgba(56, 189, 248, 0.12);
   outline: none;
-}
-
-.project-identity-chip.is-detached {
-  background: rgba(251, 191, 36, 0.1);
-  border-color: rgba(251, 191, 36, 0.38);
-}
-
-.project-identity-chip.is-detached:hover,
-.project-identity-chip.is-detached:focus-visible {
-  background: rgba(251, 191, 36, 0.18);
-  border-color: rgba(251, 191, 36, 0.6);
-  box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.14), 0 2px 10px rgba(251, 191, 36, 0.12);
-}
-
-.project-identity-chip.is-detached .project-identity-dot {
-  background: #fbbf24;
 }
 
 .project-identity-dot {
@@ -4509,24 +4493,6 @@ body, html {
   text-overflow: ellipsis;
   white-space: nowrap;
   flex: 1;
-}
-
-.project-chip-menu-badge {
-  flex: 0 0 auto;
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  padding: 2px 7px;
-  border-radius: 999px;
-  color: #38bdf8;
-  background: rgba(56, 189, 248, 0.14);
-  border: 1px solid rgba(56, 189, 248, 0.3);
-}
-
-.project-chip-menu-badge.detached {
-  color: #fbbf24;
-  background: rgba(251, 191, 36, 0.13);
-  border-color: rgba(251, 191, 36, 0.35);
 }
 
 .project-chip-menu-path {

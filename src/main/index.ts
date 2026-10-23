@@ -4,6 +4,7 @@
  */
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
 import { fileURLToPath } from 'node:url';
 import { app, BrowserWindow, Menu, ipcMain, protocol, session, nativeTheme, webContents, crashReporter, dialog, powerMonitor, type IpcMainInvokeEvent, type OpenDialogOptions } from 'electron';
 
@@ -45,7 +46,9 @@ import {
   type ProjectOpenChoice,
   type ProjectOpenDialogSpec,
 } from './project/project-open-picker';
-import { NativeTabHost, collectTabSearchInventory, activateTabSearchResult, isUnhostedTerminalWindow, purgeSavedTabsFileForProject, foldDetachedOwnerRecord, listDetachedProjectOwnerRecords, normalizeSavedTabsDocument, savedTabsFilePath, savedTabsOwnerIsDetached, type FoldDetachedOwnerResult, type TabSearchInventoryRow, type TabSearchActivationFailure } from './browser/native-tab-host';
+import { NativeTabHost, collectTabSearchInventory, type SavedTabsDocument, activateTabSearchResult, isUnhostedTerminalWindow, purgeSavedTabsFileForProject, readSavedTabsDocument, writeSavedTabsDocument, savedTabsFilePath, type TabSearchInventoryRow, type TabSearchActivationFailure } from './browser/native-tab-host';
+import { PROJECT_WINDOWS_SAVED_TABS_VERSION, backupSavedTabsBeforeMigration, migrateSavedTabsToProjectWindows } from './browser/saved-tabs-migration';
+import { createTerminalProjectAdopter } from './project/terminal-project-adopter';
 import { singleInstanceLockExitCode } from './browser/single-instance-lock';
 import { markWindowClosed, markWindowOpen, openWindowLedgerPath, readOpenWindowLedger, retainOpenWindows } from './browser/open-window-ledger';
 import { closeAuxiliaryWindow } from './browser/auxiliary-close';
@@ -111,15 +114,13 @@ import { CockpitPort } from './tools/cockpit-port';
 import { CapabilityTransportAdapter } from './tools/capability-transport';
 import { DeviceManager } from './device/device-manager';
 import { IosDeviceAdapter } from './device/ios-device-adapter';
-import { validateControlPlaneId, makeControlPlaneId, CapabilityError, DEFAULT_BOOT_PROJECT_ID, DEFAULT_BOOT_WORKSPACE_ID, isBootProjectId, type ProjectRecord } from '../shared/control-plane-contracts';
+import { validateControlPlaneId, makeControlPlaneId, CapabilityError, CONTROL_PLANE_DEFAULT_PROJECT_ID, CONTROL_PLANE_DEFAULT_WORKSPACE_ID, type ProjectRecord } from '../shared/control-plane-contracts';
 import {
   PROJECT_WINDOW_CHANNELS,
   type ProjectOpenListCandidate,
   type ProjectOpenListResult,
   type ProjectStoredStatus,
   type ProjectOpenResult,
-  type ProjectDetachResult,
-  type ProjectReattachResult,
   type ProjectRemoveResult,
   type ProjectRenameResult,
   type ProjectAppearanceResult,
@@ -490,16 +491,13 @@ const tabAmbient = new TabAmbientAuthority({
   journal: recordLifecycleEvent,
 });
 
-/** Identity this process booted for, recorded when the bootstrap window opens. */
-let bootProjectIdValue: string | null = null;
 /**
- * The project the singleton 'web' hub currently presents, or null — the replacement for
- * "which project owns this window" now that project windows are retired. The answer is
- * read off the hub's live host (NativeTabHost.activeProject), not kept as parallel
- * state in Main, so it cannot drift from what the window actually shows.
+ * The registry's projects as a user knows them. The control plane's default lease is a lease
+ * identity the runtime registers so it has somewhere to stand before any project exists; it is
+ * not a project, owns no window and is never listed, offered, restored or adopted into.
  */
-function webHubActiveProjectId(): string | null {
-  return hostForOwnerKey('web')?.activeProject() ?? null;
+function listRegisteredProjects(): ProjectRecord[] {
+  return projectRegistry.listProjects().filter((project) => project.id !== CONTROL_PLANE_DEFAULT_PROJECT_ID);
 }
 /** This app's own surfaces: a launch URL pointing at one is not a page to restore. */
 const LOCAL_SURFACE_HOSTS = ['localhost:20128', 'localhost:20129', 'localhost:20130'];
@@ -607,9 +605,7 @@ function appIconPath(): string | undefined {
 function toWindowOwner(owner: ProjectWindowOwner): WindowOwner {
   return owner.kind === 'project'
     ? { kind: 'project', projectId: validateControlPlaneId(owner.projectId, 'project') }
-    : owner.kind === 'web'
-      ? { kind: 'web' }
-      : { kind: 'unassigned' };
+    : { kind: 'unassigned' };
 }
 
 /**
@@ -627,10 +623,6 @@ export function resolveWindowRecord(owner: WindowOwner): {
   projectId?: string;
   workspaceId?: string;
 } {
-  // The web hub is a singleton multi-project surface: it owns no workspace itself
-  // (the active project is a host concern, not a window identity), so its record is
-  // just the stable product title — the same treatment the Unassigned shell gets.
-  if (owner.kind === 'web') return { title: 'AntiFan Browser' };
   if (owner.kind !== 'project') return { title: ownerLabel(owner) };
 
   // Look for unambiguous matching capsule in capsule store
@@ -671,13 +663,6 @@ export function resolveWindowRecord(owner: WindowOwner): {
       if (proj?.name) title = proj.name;
     } catch {}
   }
-  // The built-in browsing window keeps its stable owner key and existing tabs.
-  // Only replace the generated label; explicit project/capsule names still win.
-  if (owner.projectId === DEFAULT_BOOT_PROJECT_ID
-    && (title === owner.projectId || title === `Project-${owner.projectId}`)) {
-    title = 'Tổng hợp';
-  }
-
   // Preference order for workspaceId: explicit capsule workspaceId wins, then registry workspaceId
   const workspaceId = capsule?.workspaceId || registryWorkspaceId;
 
@@ -712,7 +697,8 @@ function isListedProjectId(projectId: string): boolean {
 }
 
 export function isKnownProjectId(projectId: string): boolean {
-  if (projectId === bootProjectIdValue) return true;
+  // The control plane's default lease is not a project (see `listRegisteredProjects`).
+  if (projectId === CONTROL_PLANE_DEFAULT_PROJECT_ID) return false;
   // Branch A: Registry open (project exists in shared ProjectRegistry and state is 'open')
   try {
     const project = projectRegistry.getProject(projectId);
@@ -722,8 +708,6 @@ export function isKnownProjectId(projectId: string): boolean {
   // evidence the synchronizer registers from, so an incomplete record (a persisted 'explicit'
   // marker with no workspace id) cannot authorize an open the registry knows nothing about.
   if (uniqueValidatedClaim(capsuleManager?.list() ?? [], projectId)) return true;
-  // Project windows are retired: "a window open for it" is now "the web hub is showing it".
-  if (projectId === webHubActiveProjectId()) return true;
   return liveProjectShells().some((shell) => shell.owner.kind === 'project' && shell.owner.projectId === projectId);
 }
 
@@ -752,20 +736,17 @@ async function openTerminalLinkInOwner(ownerKeyValue: string, url: string): Prom
   let host = hostForOwnerKey(ownerKeyValue);
   if (!host) {
     const parsedOwner = parseOwnerKey(ownerKeyValue);
-    // Project windows are retired: a session stamped `project:X` (and the hub's own
-    // 'web' key) belongs to the single web hub, which activates that project before
-    // the link opens. 'unassigned' keeps its own Terminal Manager shell.
-    const shellOwner: WindowOwner | null = parsedOwner.kind === 'project' || parsedOwner.kind === 'web'
-      ? { kind: 'web' }
+    // A session stamped `project:X` opens in that project's own window, reopened when it is
+    // closed; 'unassigned' keeps its own Terminal Manager shell. Any other key names no window.
+    const shellOwner: WindowOwner | null = parsedOwner.kind === 'project'
+      ? { kind: 'project', projectId: parsedOwner.projectId }
       : parsedOwner.kind === 'unassigned'
         ? { kind: 'unassigned' }
         : null;
     if (!shellOwner) return false;
-    if (parsedOwner.kind === 'project' && !isKnownProjectId(parsedOwner.projectId)) return false;
+    if (shellOwner.kind === 'project' && !isKnownProjectId(shellOwner.projectId)) return false;
     assertApplicationAdmitsWork(closeReservations, 'Open terminal link owner');
-    host = (await ensureProjectWindow(shellOwner, 'user', {
-      ...(parsedOwner.kind === 'project' ? { activateProjectId: parsedOwner.projectId } : {}),
-    })).host;
+    host = (await ensureProjectWindow(shellOwner, 'user')).host;
   }
   return Boolean(host.createTab(url));
 }
@@ -1188,9 +1169,9 @@ function withHostMembers(surface: CloseSurface): CloseSurface {
     ...surface,
     visibleMemberIds: () => hostForOwnerKey(surface.key)?.visibleMemberTabIds() ?? surface.visibleMemberIds(),
   };
-  // Detached-lifecycle parking: only `project:` owner records carry foldable rows, so
-  // only their surfaces arm the snapshot. The hook throws when the host is gone —
-  // an unparked project close would lose its rows, so the attempt must refuse.
+  // Parking: only `project:` windows persist rows to reopen with, so only their surfaces arm
+  // the snapshot. The hook throws when the host is gone — an unparked project close would
+  // lose its rows, so the attempt must refuse.
   if (surface.key.startsWith('project:')) {
     wrapped.parkTabsForClose = () => {
       const live = hostForOwnerKey(surface.key);
@@ -1619,6 +1600,7 @@ function revealOffScreenShells(origin: string): void {
  */
 function handleShellClosed(shell: ProjectWindowShell): void {
   if (bootstrapShell === shell) bootstrapShell = null;
+  repointBridgeAnchor(shell);
   projectWindows?.notifyShellGone(shell.owner);
   // Only a close the user made while the application is running ends the window's place in
   // the next boot. A quit closes every shell with the phase already past 'open' (or the
@@ -1722,9 +1704,53 @@ function updateOpenWindowLedger(action: string, update: (filePath: string) => vo
 }
 
 /**
- * The ONLY path that creates a browser shell — the singleton 'web' hub or the
- * 'unassigned' Terminal Manager. Project owners are normalised to the 'web' shell
- * (see the routing below); `kind:'project'` windows are never admitted anymore.
+ * Test-only seams for `ensureProjectWindow`: `node --test` never runs `createWindow` (the
+ * Electron stub never resolves `app.whenReady`), so the manager, the placement manager, the
+ * capsule store and the host constructor stay null/unreachable. These let a harness stand
+ * the same directories up the real wiring would — module-local, unreachable from any IPC
+ * surface.
+ */
+let projectWindowHostFactoryForTesting: ((shell: ProjectWindowShell) => NativeTabHost) | null = null;
+export function setProjectWindowHostFactoryForTesting(factory: ((shell: ProjectWindowShell) => NativeTabHost) | null): void {
+  projectWindowHostFactoryForTesting = factory;
+}
+export function setProjectWindowManagerForTesting(manager: ProjectWindowManager | null): void {
+  projectWindows = manager;
+}
+export function setWindowStateManagerForTesting(manager: WindowStateManager | null): void {
+  windowStateManager = manager;
+}
+export function setCapsuleManagerForTesting(manager: WorkspaceCapsuleManager | null): void {
+  capsuleManager = manager;
+}
+/** The OS session-end latch is one-way in production; a harness that emits `session-end` resets it. */
+export function resetOsSessionEndingForTesting(): void {
+  osSessionEnding = false;
+}
+
+/**
+ * The window whose host the bridge answers on when a request names no window. It is the
+ * first window created and, once that one closes, the next live one (see
+ * `repointBridgeAnchor`), so the bridge never keeps serving through a disposed host.
+ */
+let bridgeAnchorShell: ProjectWindowShell | null = null;
+
+function repointBridgeAnchor(closed: ProjectWindowShell): void {
+  if (bridgeAnchorShell !== closed) return;
+  bridgeAnchorShell = null;
+  const candidates = liveProjectShells().filter((shell) => shell !== closed && !shell.window.isDestroyed() && tabAuthorities.hostForShell(shell));
+  const next = candidates.find((shell) => shell.owner.kind === 'project') ?? candidates[0];
+  const nextHost = next ? tabAuthorities.hostForShell(next) : undefined;
+  if (next && nextHost) {
+    bridgeAnchorShell = next;
+    bridgeServer?.setTabHost(nextHost);
+  }
+}
+
+/**
+ * The ONLY path that creates a browser shell: one window per project (`project:<id>`) plus the
+ * shared Terminal Manager (`unassigned`). A project owner always gets its own window; there is
+ * no shared window that presents one project at a time.
  *
  * The startup bootstrap and 'antifan:project:open' both come through here, so a
  * window opened later is wired exactly like the first one: its own NativeTabHost
@@ -1740,34 +1766,29 @@ function updateOpenWindowLedger(action: string, update: (filePath: string) => vo
 async function ensureProjectWindow(
   owner: WindowOwner,
   intent: OpenIntent,
-  options?: { onFirstPresented?: () => void; activateProjectId?: string },
+  options?: { onFirstPresented?: () => void },
 ): Promise<ProjectWindowRuntime> {
   const manager = projectWindows;
   if (!manager) throw new Error('The project window manager is not up yet');
+  const key = ownerKey(owner);
 
-  // Phương án A: project windows are retired. Any caller still naming a project
-  // owner is routed to the single 'web' hub shell, and the project becomes the
-  // hub's active project instead of a window identity. `activateProjectId` lets a
-  // caller that already holds the 'web' owner say which project the hub is for.
-  const requestedProjectId = owner.kind === 'project' ? owner.projectId : undefined;
-  const activateProjectId = options?.activateProjectId ?? requestedProjectId;
-  const shellOwner: WindowOwner = owner.kind === 'project' ? { kind: 'web' } : owner;
-
-  if (activateProjectId !== undefined && capsuleManager) {
-    synchronizeCapsulesWithRegistry(capsuleManager, projectRegistry, StorageLocations.getControlPlaneDir());
+  if (owner.kind === 'project') {
+    // New work: a committed quit has already counted every window it intends to end.
+    // A join below is not new work, so only the creation path is gated.
+    if (!liveShellFor(key)) assertApplicationAdmitsWork(closeReservations, `project window '${key}'`);
+    // The capsule->registry evidence is synced BEFORE a shell is minted so a capsule-only
+    // project is registered by the time its window resolves its own record.
+    if (capsuleManager) {
+      synchronizeCapsulesWithRegistry(capsuleManager, projectRegistry, StorageLocations.getControlPlaneDir());
+    }
   }
 
-  const shell = await manager.ensureWindow(shellOwner, intent);
+  const shell = await manager.ensureWindow(owner, intent);
   // A join — a duplicate open, or a second caller racing the first — already owns its
   // host. Only the creation path wires one, and it does so with no await between the
   // check and the registration, so two callers cannot both build a host for one shell.
   const existingHost = tabAuthorities.hostForShell(shell);
-  if (existingHost) {
-    // Joining the hub still switches which project it is showing: the window is
-    // shared, the active project is not.
-    if (activateProjectId) activateWebHubProject(existingHost, activateProjectId);
-    return { shell, host: existingHost, created: false };
-  }
+  if (existingHost) return { shell, host: existingHost, created: false };
 
   // A window the user asked for must be shown; the manager only presents a shell it joins, and
   // construction never presents, so a creation with no presenter would leave the window alive,
@@ -1778,205 +1799,44 @@ async function ensureProjectWindow(
     presentShellOnFirstPaint(shell, options?.onFirstPresented, intent === 'restore' ? 'unfocused' : 'focused');
   }
 
-  const host = new NativeTabHost(shell, capsuleManager || undefined);
+  const host = projectWindowHostFactoryForTesting?.(shell) ?? new NativeTabHost(shell, capsuleManager || undefined);
   // The reservation table, before the host can restore or create a single page: a tab
   // created inside an async close window would otherwise exist for exactly as long as it
   // takes the attempt to destroy its window.
   host.setCloseAdmission(closeReservations);
   host.setOpenTerminalManagerHandler(() => { void openSharedTerminalManagerWindow(); });
   tabAuthorities.register(shell, host);
-  // Every host's detached-shell liveness answers come from the directory — the hub's
-  // assign-project row exception consults it before it may move a `project:` row.
-  host.setDetachedShellProbe((id) => {
-    const candidate = liveProjectShells().find((shell) => shell.owner.kind === 'project' && shell.owner.projectId === id);
-    return candidate !== undefined && !candidate.window.isDestroyed();
-  });
   recordBenchmark({ surface: 'startup', name: 'tabHostCtor' });
-  // The hub's active project — identity, workspace affiliation and initial
-  // workspace seeding — is established before any tab is restored, so restored
-  // or minted tabs never see the hub under a different (or no) project. A
-  // detached-mode project is the exception: `activateWebHubProject` would fire
-  // the detached-shell recreation FOCUSED mid-boot (spending the ≤1 focus
-  // budget on the wrong window, before the boot leg's unfocused restore can
-  // run) and then throw — a fatal failure for `createWindow` when the BOOT
-  // project itself is marked detached. Skipping here leaves the hub unscoped
-  // and lets the boot leg own the restore, unfocused.
-  if (activateProjectId) {
-    const activatesDetached = !reattachInProgress.has(activateProjectId)
-      && (liveProjectShells().some((s) => s.owner.kind === 'project' && s.owner.projectId === activateProjectId)
-        || savedTabsOwnerIsDetached(savedTabsFilePath(), activateProjectId));
-    if (activatesDetached) {
-      recordLifecycleEvent('boot.hub-activation-skipped-detached', { projectId: activateProjectId });
-    } else {
-      activateWebHubProject(host, activateProjectId);
-    }
-  }
 
-  windowStateManager?.manage(shell.window, ownerKey(shell.owner));
+  // A project window's terminals run in its own verified workspace, established before any
+  // tab is restored so restored or minted tabs never see the window under no project.
+  if (owner.kind === 'project') applyProjectWorkspace(host, owner);
+
+  windowStateManager?.manage(shell.window, key);
   attachShellLifecycle(shell);
   // Restore this owner's tabs immediately so pages start loading and the layout is
   // established. Saved tabs are owner-scoped, so a new window can never inherit another
-  // window's pages; the launch URL is consumed once for the same reason — it belongs to the
-  // window this process launched for, not to every window opened afterwards.
-  host.restoreTabs(consumeLaunchUrlArgument());
+  // window's pages; the launch URL is consumed once, by a window that can host a page.
+  host.restoreTabs(owner.kind === 'project' ? consumeLaunchUrlArgument() : undefined);
   recordBenchmark({ surface: 'startup', name: 'tabsRestored' });
   attachSharedServices(host);
-  // The bridge answers unattributed requests from the hub's host. A hub reopened after a
-  // close is a new host, and the one the bridge was built with is disposed.
-  if (ownerKey(shell.owner) === 'web') bridgeServer?.setTabHost(host);
+  // The bridge answers requests that name no window from one fallback host; the first
+  // window created is it until that window closes.
+  if (!bridgeAnchorShell || bridgeAnchorShell.window.isDestroyed()) {
+    bridgeAnchorShell = shell;
+    bridgeServer?.setTabHost(host);
+  }
+  recordLifecycleEvent('project-window.created', { owner: key });
   return { shell, host, created: true };
 }
 
 /**
- * Point the web hub at one project: the host's active-project state, its terminal
- * workspace affiliation, and the initial-workspace seeding a project window used to
- * do for itself. A project with no verified workspace clears the affiliation rather
- * than inheriting the previous project's — a hub's terminals never belong to another
- * project's directory.
+ * Point a project window at its own verified record: the terminal workspace affiliation and
+ * the initial-workspace seeding. A project with no verified workspace clears the affiliation
+ * rather than inheriting another's, and a refused set is cleared too — otherwise terminals
+ * minted in this window would run in a directory that is not its project's.
  */
-function activateWebHubProject(host: NativeTabHost, projectId: string): void {
-  // The seams a scoped hub needs before any project work runs: the descriptor
-  // resolver the identity and the restore-path validation read, and the delegate a
-  // user-plane activation of a foreign-stamped tab reports back through — this
-  // same path, so a flip and a picked switch are the one authority. Idempotent,
-  // so the boot call and every later flip re-assert it.
-  host.setWebHubProjectDescriptorResolver((id) => {
-    if (!isKnownProjectId(id)) return undefined;
-    const descriptor = resolveWindowRecord({ kind: 'project', projectId: id });
-    return { title: descriptor.title, ...(descriptor.pathLabel ? { pathLabel: descriptor.pathLabel } : {}) };
-  });
-  host.setForeignProjectActivatedHandler((id) => { activateWebHubProject(host, id); });
-  // Exclusivity, enforced at the funnel: `openProjectWindow` hoists the detached check
-  // over the web route, and the detach path itself never calls this — but every OTHER
-  // way a project can be presented (restored capsule activation, annotation routing,
-  // `antifan:project:open` still points at the hub while detached) funnels through
-  // here. A `project:<id>` scope cannot be presented by the hub while that owner is
-  // detached: a live shell gets the focus, a dead-but-marked one is recreated through
-  // the same detach path the menu drives.
-  const detachedShell = liveProjectShells().find((s) => s.owner.kind === 'project' && s.owner.projectId === projectId);
-  // The reattach latch extends this exclusivity, never replaces it: a project MID-
-  // reattach is still marked on disk until the fold lands, but recreating its shell
-  // here would resurrect the window the reattach is closing. The latch routes the
-  // request to the hub path instead.
-  const detachedMode = !reattachInProgress.has(projectId)
-    && (detachedShell !== undefined || savedTabsOwnerIsDetached(savedTabsFilePath(), projectId));
-  if (detachedMode) {
-    void ensureDetachedProjectShell(projectId, 'user')
-      .then(({ shell }) => focusShellWindow(shell))
-      .catch((err) => console.warn('[antifan] detached-shell presentation refused:', err));
-    throw new CapabilityError(
-      'TRANSACTION_CONFLICT',
-      `Project '${projectId}' is presented by its detached window`,
-      { projectId },
-    );
-  }
-  const record = resolveWindowRecord({ kind: 'project', projectId });
-  if (record.workspacePath) {
-    // This window's terminals belong to the active project's verified workspace.
-    // The host refuses a path it cannot verify and keeps the PREVIOUS association — so a
-    // refused set must be followed by an explicit clear, otherwise terminals minted under
-    // the new project run in the old project's directory with its provenance stamp.
-    if (!host.setWindowWorkspaceAffiliation({
-      workspacePath: record.workspacePath,
-      ...(record.capsuleId ? { capsuleId: record.capsuleId } : {}),
-    })) {
-      host.setWindowWorkspaceAffiliation(null);
-    }
-  } else {
-    host.setWindowWorkspaceAffiliation(null);
-  }
-  const targetWorkspaceId = record.workspaceId || projectRegistry.listWorkspaces(projectId)[0]?.id || makeControlPlaneId('workspace');
-  const targetWorkspaceRoot = record.workspacePath || process.cwd();
-  projectRegistry.ensureInitialWorkspace(
-    projectId,
-    targetWorkspaceId,
-    targetWorkspaceRoot,
-    StorageLocations.getControlPlaneDir(),
-  );
-  // The project scope lands last: setActiveProject repoints the presented tab to the
-  // remembered/most-recent/newly-minted tab under the verified affiliation and pushes
-  // the identity broadcast that carries the new scope to the chrome.
-  host.setActiveProject(projectId);
-}
-
-/** Focus a shell's window, unminimizing it first — the shared "user asked to see this" tail. */
-function focusShellWindow(shell: ProjectWindowShell): void {
-  if (shell.window.isDestroyed()) return;
-  if (shell.window.isMinimized()) shell.window.restore();
-  shell.window.show();
-  shell.window.focus();
-}
-
-/**
- * The detached-side of the per-owner wiring template — the same shell creation and
- * host wiring `ensureProjectWindow` runs, minus every hub-scoped step: no
- * `activateWebHubProject` (a detached window has no presented scope — its owner key IS
- * the project), and `restoreTabs` reads the `project:<id>` owner record the detach
- * marker protects from the web fold. Existing live shells are joined, not recreated.
- */
-async function ensureDetachedProjectShell(
-  projectId: string,
-  intent: OpenIntent,
-  options?: { onFirstPresented?: () => void },
-): Promise<{ shell: ProjectWindowShell; host: NativeTabHost; created: boolean }> {
-  const owner: WindowOwner = { kind: 'project', projectId };
-  const key = ownerKey(owner);
-  // The window directory is authoritative for "does this window exist" — no marker
-  // file is consulted while a live shell can be focused instead.
-  const existing = liveProjectShells().find((shell) => ownerKey(shell.owner) === key);
-  if (existing && !existing.window.isDestroyed()) {
-    const host = tabAuthorities.hostForShell(existing);
-    if (!host) {
-      throw new CapabilityError(
-        'RESOURCE_FAILURE',
-        `Detached shell for project '${projectId}' exists without a host`,
-        { projectId },
-      );
-    }
-    // A 'restore' intent joining a live shell still surfaces the window — a hidden
-    // or minimized detached shell must not stay invisible to the boot leg — but
-    // never steals focus for it.
-    if (intent === 'restore') presentShellUnfocused(existing);
-    return { shell: existing, host, created: false };
-  }
-
-  // A project mid-reattach may still carry its persisted marker — and a shell caught
-  // mid-close is a join above — but creating a NEW detached shell now would
-  // resurrect the window the reattach is dismantling. Refuse the creation arm only.
-  if (reattachInProgress.has(projectId)) {
-    throw new CapabilityError(
-      'TRANSACTION_CONFLICT',
-      `Project '${projectId}' is reattaching; its detached shell is not recreatable`,
-      { projectId },
-    );
-  }
-
-  assertApplicationAdmitsWork(closeReservations, `detached project window '${key}'`);
-  // The boot leg's validity check leans on the same capsule→registry evidence the
-  // hub's open path relies on: sync affiliations into the registry BEFORE a shell
-  // is minted so a capsule-only project registers here, exactly as
-  // `ensureProjectWindow` does above its own creation. Reused, never duplicated.
-  if (capsuleManager) {
-    synchronizeCapsulesWithRegistry(capsuleManager, projectRegistry, StorageLocations.getControlPlaneDir());
-  }
-  const manager = projectWindows;
-  if (!manager) throw new Error('The project window manager is not up yet');
-  const shell = await manager.ensureWindow(owner, intent);
-  if (intent === 'user' || intent === 'restore') {
-    presentShellOnFirstPaint(shell, options?.onFirstPresented, intent === 'restore' ? 'unfocused' : 'focused');
-  }
-  const host = detachedShellHostFactoryForTesting?.(shell) ?? new NativeTabHost(shell, capsuleManager || undefined);
-  host.setCloseAdmission(closeReservations);
-  host.setOpenTerminalManagerHandler(() => { void openSharedTerminalManagerWindow(); });
-  host.setDetachedShellProbe((id) => {
-    const candidate = liveProjectShells().find((s) => s.owner.kind === 'project' && s.owner.projectId === id);
-    return candidate !== undefined && !candidate.window.isDestroyed();
-  });
-  tabAuthorities.register(shell, host);
-
-  // The same per-owner wiring `ensureProjectWindow` runs for the hub, pointed at this
-  // project's own verified record — a detached window's terminals run in its project's
-  // directory, never a shared scope. A refused set is cleared, not silently kept.
+function applyProjectWorkspace(host: NativeTabHost, owner: { kind: 'project'; projectId: string }): void {
   const record = resolveWindowRecord(owner);
   if (record.workspacePath) {
     if (!host.setWindowWorkspaceAffiliation({
@@ -1988,50 +1848,26 @@ async function ensureDetachedProjectShell(
   } else {
     host.setWindowWorkspaceAffiliation(null);
   }
-  const targetWorkspaceId = record.workspaceId || projectRegistry.listWorkspaces(projectId)[0]?.id || makeControlPlaneId('workspace');
+  const targetWorkspaceId = record.workspaceId || projectRegistry.listWorkspaces(owner.projectId)[0]?.id || makeControlPlaneId('workspace');
   const targetWorkspaceRoot = record.workspacePath || process.cwd();
-  projectRegistry.ensureInitialWorkspace(projectId, targetWorkspaceId, targetWorkspaceRoot, StorageLocations.getControlPlaneDir());
-
-  windowStateManager?.manage(shell.window, key);
-  attachShellLifecycle(shell);
-  host.restoreTabs(undefined);
-  attachSharedServices(host);
-  recordLifecycleEvent('detached-shell.created', { projectId });
-  return { shell, host, created: true };
+  projectRegistry.ensureInitialWorkspace(owner.projectId, targetWorkspaceId, targetWorkspaceRoot, StorageLocations.getControlPlaneDir());
 }
 
-/** Per-shell boot-restore latency budget, in milliseconds. */
-const DETACHED_RESTORE_BUDGET_MS = 500;
-
-/**
- * Whether a marked `detached:true` record may resurrect a shell for `projectId`.
- *
- * The predicate is deliberately NARROWER than `isListedProjectId` (which the
- * appearance controls use — a record still stored after `closeProject` is
- * legitimately listed there) and narrower than `isKnownProjectId` (whose
- * `bootProjectIdValue` arm answers true unconditionally). A detached window is
- * restored only for a project the registry currently holds OPEN, or for one a
- * single validated capsule claims — the same evidence `synchronizeCapsulesWithRegistry`
- * registers from. Neither a `state === 'closed'` registry record nor a dead
- * boot-id slot can authorize a window; such records are left on disk for purge.
- */
-export function detachedRestoreAdmitsProject(projectId: string): boolean {
-  // The boot sentinel is admitted into the registry as `open` on every boot, so the
-  // registry arm alone would resurrect a persisted boot-project record as a second
-  // hub window. It is never a tenant; refuse before consulting either arm.
-  if (isBootProjectId(projectId)) return false;
-  try {
-    if (projectRegistry.getProject(projectId).state === 'open') return true;
-  } catch {
-    // Absent or malformed id: the capsule arm below is the remaining evidence.
-  }
-  return uniqueValidatedClaim(capsuleManager?.list() ?? [], projectId) !== undefined;
+/** Focus a shell's window, unminimizing it first — the shared "user asked to see this" tail. */
+function focusShellWindow(shell: ProjectWindowShell): void {
+  if (shell.window.isDestroyed()) return;
+  if (shell.window.isMinimized()) shell.window.restore();
+  shell.window.show();
+  shell.window.focus();
 }
 
-/** The per-record verdict a boot restore lands on, for tests and the journal. */
-export interface DetachedRestoreOutcome {
+/** Per-window boot-restore latency budget, in milliseconds. */
+const PROJECT_WINDOW_RESTORE_BUDGET_MS = 500;
+
+/** The per-project verdict a boot restore lands on, for tests and the journal. */
+export interface ProjectWindowRestoreOutcome {
   projectId: string;
-  status: 'restored' | 'skipped' | 'refused' | 'failed';
+  status: 'restored' | 'skipped' | 'failed';
   created?: boolean;
   durationMs?: number;
   overBudget?: boolean;
@@ -2040,158 +1876,60 @@ export interface DetachedRestoreOutcome {
 }
 
 /**
- * Live terminals the detached daemon kept across a GUI restart may still carry the
- * `project:<bootId>` stamp an earlier build minted while the hub showed "Tổng hợp".
- * The daemon owns those rows, so the on-read sanitization in TerminalManager never
- * sees them; re-home each one onto the hub's own key through the ordinary transfer
- * seam (sync in-process, async over the daemon wire), keeping its workspace capsule.
- * A refusal for one row (closed, disposed) is journaled and never blocks the boot.
+ * The project windows to bring up at boot, in order: `ANTIFAN_PROJECT_ID` first when the
+ * environment names a project Main knows (that is what the variable means now — the project
+ * whose window opens first; it never selects another project's window and an unknown id only
+ * changes the control plane's lease), then the windows open at the last exit. Ids Main no
+ * longer knows are left out: a window is never resurrected for a project nothing describes.
  */
-async function rehomeBootProjectTerminals(terminal: TerminalManager): Promise<void> {
-  let summaries: unknown[];
-  try {
-    summaries = terminal.listSessions();
-  } catch (err) {
-    recordLifecycleEvent('terminal-boot-rehome.failed', { detail: redactCredentials(String(err)) });
-    return;
-  }
-  if (!Array.isArray(summaries)) return;
-  let moved = 0;
-  let refused = 0;
-  for (const summary of summaries) {
-    if (!summary || typeof summary !== 'object' || !('id' in summary)) continue;
-    const sessionId = summary.id;
-    if (typeof sessionId !== 'string' || !sessionId) continue;
-    const current = terminal.sessionOwnerKey(sessionId);
-    if (typeof current !== 'string' || !current.startsWith('project:')) continue;
-    if (!isBootProjectId(current.slice('project:'.length))) continue;
-    try {
-      const transferred = await Promise.resolve(terminal.transferSessionOwner(sessionId, 'web', terminal.sessionCapsuleId(sessionId)));
-      if (transferred) moved += 1; else refused += 1;
-    } catch (err) {
-      refused += 1;
-      recordLifecycleEvent('terminal-boot-rehome.failed', { sessionId, detail: redactCredentials(String(err)) });
-    }
-  }
-  if (moved > 0 || refused > 0) {
-    recordLifecycleEvent('terminal-boot-rehome.done', { moved, refused });
-  }
+export function bootProjectWindowIds(openAtLastExit: readonly string[], requestedProjectId: string | undefined): string[] {
+  const ids: string[] = [];
+  const add = (projectId: string | undefined): void => {
+    if (!projectId || ids.includes(projectId)) return;
+    if (!isKnownProjectId(projectId)) return;
+    ids.push(projectId);
+  };
+  if (process.env.ANTIFAN_PROJECT_ID) add(requestedProjectId);
+  for (const projectId of openAtLastExit) add(projectId);
+  return ids;
 }
 
 /**
- * A persisted `project:<bootId>` owner record is a zombie: the boot sentinel is the hub
- * itself, so a record under that key only exists because an earlier build let "Tổng hợp"
- * detach. Folding it back into `owners.web` (tabs and terminal affinities, hub copies
- * win on duplicate ids) keeps the user's tabs and ends the detach mode on disk; the
- * live ingest + persist right after is what stops the hub's next sync from rebuilding
- * `owners.web` from stale memory and erasing the fold. No-op when no record exists.
+ * The boot leg that reopens project windows. Per project, in order and sequentially, with
+ * the 'restore' intent: `showInactive` presentation, zero focus steals from this leg. One
+ * project's failure is caught, journaled and the loop continues: a corrupt or refusing
+ * record must not starve the windows behind it.
  */
-async function foldPersistedBootProjectRecord(): Promise<void> {
-  const bootIds = [DEFAULT_BOOT_PROJECT_ID];
-  for (const bootId of bootIds) {
-    let folded: FoldDetachedOwnerResult;
-    try {
-      folded = await foldDetachedOwnerRecord(savedTabsFilePath(), ownerKey({ kind: 'project', projectId: bootId }));
-    } catch (err) {
-      recordLifecycleEvent('detached-restore.boot-fold-failed', { projectId: bootId, detail: redactCredentials(String(err)) });
-      continue;
-    }
-    if (!folded.folded) continue;
-    const hubHost = hostForOwnerKey('web');
-    let minted = 0;
-    if (hubHost) {
-      minted = hubHost.ingestPersistedOwnerRows(folded.tabs, { terminalAffinities: folded.terminalAffinities }).minted.length;
-      hubHost.persistSync();
-    }
-    recordLifecycleEvent('detached-restore.boot-folded', { projectId: bootId, tabs: folded.tabs.length, minted });
-  }
-}
-
-/**
- * The boot leg that resurrects detached `project:<id>` shells. Runs once per
- * boot, AFTER the hub's restore — the hub owns the saved-tabs fold write
- * (synchronous inside `restoreTabs`), so enumerating marked records at this
- * point can never see a torn document.
- *
- * Per record, in order and sequentially: a window the user closed before the last
- * exit stays closed (the open-window ledger, when it exists, is the evidence — the
- * `detached` marker alone survives an ordinary close by design), the reattach latch
- * and the marker are re-read at ensure time (a stale snapshot must not resurrect a
- * record a concurrent reattach already folded), the registry/capsule predicate gates
- * dead ids, then `ensureDetachedProjectShell` with the 'restore' intent —
- * `showInactive` presentation, zero focus steals from this leg. One record's
- * failure is caught, journaled and the loop continues: a corrupt or refusing
- * record must not starve the records behind it.
- *
- * `openAtLastExit` is the ledger snapshot; `null` (never written, unreadable) keeps
- * the pre-ledger behaviour of restoring every marked record.
- */
-export async function restoreDetachedProjectShells(
-  openAtLastExit: ReadonlySet<string> | null = null,
-): Promise<DetachedRestoreOutcome[]> {
-  const outcomes: DetachedRestoreOutcome[] = [];
-  await foldPersistedBootProjectRecord();
-  let marked: string[];
-  try {
-    marked = listDetachedProjectOwnerRecords(savedTabsFilePath());
-  } catch (err) {
-    // An enumeration failure must never fail the boot: nothing is restored, the
-    // record stays on disk exactly as written, and the skip is journaled.
-    recordLifecycleEvent('detached-restore.failed', { detail: redactCredentials(String(err)) });
-    return outcomes;
-  }
-  for (const markedKey of marked) {
-    const parsed = parseOwnerKey(markedKey);
-    if (parsed.kind !== 'project') continue; // enumeration contract: unreachable, fail closed
-    const projectId = parsed.projectId;
-    if (openAtLastExit && !openAtLastExit.has(markedKey)) {
-      outcomes.push({ projectId, status: 'skipped', reason: 'closed-before-exit' });
-      continue;
-    }
-    if (reattachInProgress.has(projectId)) {
-      outcomes.push({ projectId, status: 'skipped', reason: 'reattach-in-progress' });
-      continue;
-    }
-    if (!savedTabsOwnerIsDetached(savedTabsFilePath(), projectId)) {
-      outcomes.push({ projectId, status: 'skipped', reason: 'marker-cleared' });
-      continue;
-    }
-    if (!detachedRestoreAdmitsProject(projectId)) {
-      recordLifecycleEvent('detached-restore.refused', { projectId });
-      outcomes.push({ projectId, status: 'refused' });
+export async function restoreProjectWindows(projectIds: readonly string[]): Promise<ProjectWindowRestoreOutcome[]> {
+  const outcomes: ProjectWindowRestoreOutcome[] = [];
+  for (const projectId of projectIds) {
+    if (!isKnownProjectId(projectId)) {
+      recordLifecycleEvent('project-window-restore.skipped', { projectId });
+      outcomes.push({ projectId, status: 'skipped', reason: 'unknown-project' });
       continue;
     }
     const startedAt = performance.now();
     try {
-      const { created } = await ensureDetachedProjectShell(projectId, 'restore');
+      const { created } = await ensureProjectWindow({ kind: 'project', projectId }, 'restore');
       const durationMs = Math.round(performance.now() - startedAt);
-      const overBudget = durationMs > DETACHED_RESTORE_BUDGET_MS;
+      const overBudget = durationMs > PROJECT_WINDOW_RESTORE_BUDGET_MS;
       if (overBudget) {
-        console.warn(`[antifan] detached shell restore for '${projectId}' took ${durationMs}ms (budget ${DETACHED_RESTORE_BUDGET_MS}ms)`);
+        console.warn(`[antifan] project window restore for '${projectId}' took ${durationMs}ms (budget ${PROJECT_WINDOW_RESTORE_BUDGET_MS}ms)`);
       }
-      recordLifecycleEvent('detached-restore.shell', { projectId, created, durationMs, overBudget });
+      recordLifecycleEvent('project-window-restore.shell', { projectId, created, durationMs, overBudget });
       outcomes.push({ projectId, status: 'restored', created, durationMs, overBudget });
     } catch (err) {
       const durationMs = Math.round(performance.now() - startedAt);
       const detail = redactCredentials(String(err));
-      recordLifecycleEvent('detached-restore.failed', { projectId, durationMs, detail });
+      recordLifecycleEvent('project-window-restore.failed', { projectId, durationMs, detail });
       outcomes.push({ projectId, status: 'failed', durationMs, detail });
     }
-  }
-  if (marked.length > 0) {
-    recordLifecycleEvent('detached-restore.done', {
-      marked: marked.length,
-      restored: outcomes.filter((o) => o.status === 'restored').length,
-      refused: outcomes.filter((o) => o.status === 'refused').length,
-      failed: outcomes.filter((o) => o.status === 'failed').length,
-      skipped: outcomes.filter((o) => o.status === 'skipped').length,
-    });
   }
   return outcomes;
 }
 
 /**
- * The boot leg that brings the shared Terminal Manager back when it was open at the last exit.
+ * The boot leg that brings the shared Terminal Manager back when it was open at the last exit
  * `openAtLastExit` is the ledger snapshot (`null` when it was never written or is unreadable,
  * which restores nothing: there is no evidence it was open). Returns whether `open` ran.
  */
@@ -2204,398 +1942,151 @@ export async function restoreTerminalManagerIfOpenAtLastExit(
   return true;
 }
 
-/**
- * Test-only seams for `ensureDetachedProjectShell`: `node --test` never runs
- * `createWindow` (the Electron stub never resolves `app.whenReady`), so the
- * manager, the placement manager, the capsule store and the host constructor
- * stay null/unreachable. These let a harness stand the same directories up the
- * real wiring would — module-local, unreachable from any IPC surface.
- */
-let detachedShellHostFactoryForTesting: ((shell: ProjectWindowShell) => NativeTabHost) | null = null;
-export function setDetachedShellHostFactoryForTesting(factory: ((shell: ProjectWindowShell) => NativeTabHost) | null): void {
-  detachedShellHostFactoryForTesting = factory;
-}
-export function setProjectWindowManagerForTesting(manager: ProjectWindowManager | null): void {
-  projectWindows = manager;
-}
-export function setWindowStateManagerForTesting(manager: WindowStateManager | null): void {
-  windowStateManager = manager;
-}
-export function setCapsuleManagerForTesting(manager: WorkspaceCapsuleManager | null): void {
-  capsuleManager = manager;
-}
-export function setBootProjectIdForTesting(projectId: string | null): void {
-  bootProjectIdValue = projectId;
-}
-/** The OS session-end latch is one-way in production; a harness that emits `session-end` resets it. */
-export function resetOsSessionEndingForTesting(): void {
-  osSessionEnding = false;
+/** What the boot's saved-tabs migration decided, for the journal and for tests. */
+export interface SavedTabsMigrationBootOutcome {
+  /** Project windows to reopen at startup, in order. */
+  openProjectIds: string[];
+  migrated: boolean;
+  persisted: boolean;
+  backupPath: string | null;
+  unplacedTabIds: string[];
 }
 
 /**
- * Move the hub's live `projectId`-stamped tabs into a detached host. Ordering is the
- * contract's own: rows are serialized, the hub's workspace affiliation is nulled
- * BEFORE its presented scope is nulled (a scope under a foreign affiliation would
- * mint terminals in the wrong directory between the two clears), then the tabs are
- * closed in the source and re-homed in the target — so a tab the user is inside is
- * never invisible in both windows at once. A refused close leaves that tab in the
- * hub and the transfer reports it; rows whose close ran are re-homed.
+ * Move `saved-tabs.json` from the shared-window layout to one record per project window, once,
+ * before any window restores its own record. The document is backed up before its first
+ * rewrite and is rewritten only when every tab has a home: with unplaced tabs the old file is
+ * kept as it is, the ids are journaled loudly, and the next boot tries again. The Terminal
+ * Manager window hosts no browser tabs, so it is never a home for a tab.
  */
-async function transferHubProjectTabs(
-  hubHost: NativeTabHost,
-  detachedHost: NativeTabHost,
-  projectId: string,
-): Promise<{ transferred: string[]; refused: string[] }> {
-  const serialized = hubHost.serializeProjectTabsForTransfer(projectId);
-  // Affiliation precedes scope: between the two clears the hub must never carry the
-  // old project's workspace while reporting no scope (or vice-versa — a minted tab in
-  // that window would stamp the wrong directory). BOTH are gated on the hub actually
-  // presenting this project: detaching X's stray stamped tabs while the hub presents
-  // Y must not null Y's workspace affiliation under it.
-  if (hubHost.activeProject() === projectId) {
-    hubHost.setWindowWorkspaceAffiliation(null);
-    try {
-      hubHost.setActiveProject(null);
-    } catch (err) {
-      console.warn('[antifan] clearing detached hub project scope failed:', err);
-    }
-  }
-  const { closed } = await hubHost.closeTabsForProject(projectId);
-  const closedIds = new Set(closed);
-  const arrivedRows = serialized.tabs.filter((row) => {
-    const rowId = typeof row?.id === 'string' ? row.id : undefined;
-    return rowId === undefined || closedIds.has(rowId);
-  });
-  const refused = serialized.tabs
-    .map((row) => (typeof row?.id === 'string' ? row.id : undefined))
-    .filter((rowId): rowId is string => rowId !== undefined && !closedIds.has(rowId));
-  detachedHost.ingestTransferredTabRows(arrivedRows, {
-    terminalAffinities: serialized.terminalAffinities,
-    ...(serialized.activeSourceTabId ? { activeSourceTabId: serialized.activeSourceTabId } : {}),
-  });
-  return { transferred: arrivedRows.map((row) => String(row.id ?? '')), refused };
-}
-
-/**
- * The detach entrypoint — the ONLY path that creates or joins a `project:<id>` shell.
- * Exclusivity is enforced here (a live detached shell is focused and joined, never a
- * second window), and the hub's live tabs move to the detached shell before the
- * hub's affiliation and scope are nulled — the window that still owns the user is
- * never left presenting a project it no longer hosts.
- */
-async function detachProject(payload: unknown, parent?: Electron.BrowserWindow | null): Promise<ProjectDetachResult> {
-  const raw = payload && typeof payload === 'object' && 'projectId' in payload && typeof payload.projectId === 'string'
-    ? payload.projectId.trim()
-    : '';
-  if (!raw) return { status: 'FAILED', reason: 'PROJECT_UNAVAILABLE' };
-  if (isBootProjectId(raw)) {
-    return { status: 'FAILED', projectId: raw, reason: 'BOOT_PROJECT_NOT_DETACHABLE' };
-  }
-  if (!isListedProjectId(raw)) {
-    return { status: 'FAILED', projectId: raw, reason: 'PROJECT_UNAVAILABLE' };
-  }
-  let projectId: string;
+export async function runSavedTabsMigrationAtBoot(): Promise<SavedTabsMigrationBootOutcome> {
+  const filePath = savedTabsFilePath();
+  const openWindowKeys = readOpenWindowLedger(openWindowLedgerPath(filePath));
+  const knownProjectIds = new Set(
+    listRegisteredProjects().filter((project) => project.state === 'open').map((project) => project.id),
+  );
+  const options = { knownProjectIds, unassignedHostsTabs: false, openWindowKeys };
+  const unmigrated = (openProjectIds: string[]): SavedTabsMigrationBootOutcome => (
+    { openProjectIds, migrated: false, persisted: false, backupPath: null, unplacedTabIds: [] }
+  );
   try {
-    projectId = validateControlPlaneId(raw, 'project');
-  } catch {
-    return { status: 'FAILED', projectId: raw, reason: 'INVALID_PROJECT_ID' };
-  }
-  const existingShell = liveProjectShells().find((shell) => shell.owner.kind === 'project' && shell.owner.projectId === projectId);
-  if (existingShell && !existingShell.window.isDestroyed()) {
-    focusShellWindow(existingShell);
-    recordLifecycleEvent('project-detach.focused', { projectId });
-    return { status: 'FOCUSED', projectId };
-  }
-  // A reattach owns this project's routing right now: a shell caught mid-close is
-  // focused above, but a re-detach must never race the fold by recreating one.
-  if (reattachInProgress.has(projectId)) {
-    return { status: 'FAILED', projectId, reason: 'REATTACH_IN_PROGRESS' };
-  }
-  try {
-    const { shell, host: detachedHost, created } = await ensureDetachedProjectShell(projectId, 'user');
-    const hubHost = hostForOwnerKey('web');
-    if (hubHost) {
-      const result = await transferHubProjectTabs(hubHost, detachedHost, projectId);
-      if (result.refused.length > 0) {
-        // Rollback for a fresh, empty shell: the detach just minted a `project:<id>`
-        // window AND stamped its persisted record `detached`, but nothing moved —
-        // leaving it would wedge the project in detached mode without a single tab
-        // to show for it (the marker alone keeps it out of the hub, today and at
-        // every boot). `reattachProject` owns the entire reverse path: it parks
-        // and closes the shell through the coordinator, folds the record back into
-        // `owners.web`, and clears the marker — the same unit the explicit menu
-        // action runs, so the rollback cannot leave a second convention behind.
-        // A shell that DID receive tabs keeps them (honest partial detach below),
-        // and a pre-existing shell the call only joined is never closed on its
-        // user's behalf.
-        if (created && result.transferred.length === 0) {
-          const rollback = await reattachProject({ projectId });
-          recordLifecycleEvent('project-detach.refused-rollback', {
-            projectId,
-            refused: result.refused.length,
-            rollbackStatus: rollback.status,
-          });
-          return { status: 'FAILED', projectId, reason: 'DETACH_REFUSED' };
-        }
-        // Complete detach, honest partial: the project DID detach (the shell and its
-        // transferred tabs stay), so the tabs that refused to leave are cleared of
-        // their stamp — live, unscoped and VISIBLE on the hub — instead of remaining
-        // stamped rows the restore read-filter would hide under the marked record.
-        // The refusal is still the typed answer the caller gets.
-        const cleared = hubHost.clearTabProjectStamp(result.refused);
-        if (cleared.length > 0) {
-          try {
-            await hubHost.persistTabsAsync();
-          } catch (err) {
-            console.warn('[antifan] persisting cleared detach stamps failed:', err);
-          }
-        }
-        recordLifecycleEvent('project-detach.refused', { projectId, refused: result.refused.length, unscoped: cleared.length });
-        return { status: 'FAILED', projectId, reason: 'DETACH_REFUSED' };
-      }
-    }
-    focusShellWindow(shell);
-    recordLifecycleEvent('project-detach', { projectId, created });
-    broadcastProjectInventoryChanged();
-    return created ? { status: 'DETACHED', projectId } : { status: 'FOCUSED', projectId };
-  } catch (err) {
-    recordLifecycleEvent('project-detach.failed', { projectId, detail: redactCredentials(String(err)) });
-    return { status: 'FAILED', projectId, reason: 'CAPABILITY_FAILED' };
-  }
-}
-
-/**
- * Projects whose reattach is in flight. Set before the close attempt begins and
- * cleared only when the whole sequence — close, fold, ingest, hub persist — has
- * settled, so it covers the entire span where the persisted marker still says
- * "detached" but a detached shell must never be recreated. The phase-01
- * exclusivity gates consult it: a marked project MID-reattach routes to the
- * hub/focus path, never back through `ensureDetachedProjectShell`.
- */
-const reattachInProgress = new Set<string>();
-
-/**
- * Test-only driver for the detached shell's coordinated close. `node --test` runs
- * have no `projectWindows` close-surface directory, so the real coordinator can
- * never reach a testing shell; this seam lets a harness drive the same settle —
- * the driver's resolved `CloseReport` stands in for the attempt's `handle.settled`,
- * which production resolves only after the dying host's `dispose()` has run its
- * synchronous `persistSync`. Module-local, unreachable from any IPC surface.
- */
-let detachedShellCloseDriverForTesting: ((shell: ProjectWindowShell, force?: boolean) => Promise<CloseReport>) | null = null;
-export function setDetachedShellCloseDriverForTesting(
-  driver: ((shell: ProjectWindowShell, force?: boolean) => Promise<CloseReport>) | null,
-): void {
-  detachedShellCloseDriverForTesting = driver;
-}
-
-
-/**
- * Close a detached `project:<id>` shell through the close coordinator and await the
- * attempt's settle. `attemptClose` resolves `handle.settled`, which the coordinator
- * fulfils only after `closeSelf` has reported 'closed' — and the shell's own
- * `closed` listener ordering (Main's `handleShellClosed` is registered before the
- * attempt's observer) means `dispose()` and its synchronous `persistSync` have
- * already run. Awaiting this promise IS awaiting the final write; nothing may fold
- * before it resolves. `force` swaps the request for `forceClose` — the same
- * coordinator surface the confirmed destructive close uses — only after the user
- * explicitly authorized it.
- */
-function closeDetachedShellForLifecycle(shell: ProjectWindowShell, force = false): Promise<CloseReport> {
-  const driver = detachedShellCloseDriverForTesting;
-  if (driver) return driver(shell, force);
-  const key = ownerKey(shell.owner);
-  return force ? closeCoordinator.forceClose(key) : closeCoordinator.attemptClose(key, 'user');
-}
-/**
- * Test seam for the reattach refusal's destructive-confirmation dialog. Production
- * falls through to the real `dialog.showMessageBox`; a probe answers without one.
- * Mirrors `forceCloseConfirmationForProbe` — confirmation seams are module-local
- * and unreachable from any IPC surface.
- */
-let reattachForceConfirmationForTesting:
-  | ((shell: { ownerKey: string; title: string }) => Promise<boolean>)
-  | null = null;
-export function setReattachForceConfirmationForTesting(
-  probe: ((shell: { ownerKey: string; title: string }) => Promise<boolean>) | null,
-): void {
-  reattachForceConfirmationForTesting = probe;
-}
-
-/**
- * Ask the user whether a refused reattach may close the detached shell forcibly.
- * Default-deny: cancel/Escape answers 'keep detached' and a destroyed or throwing
- * dialog surface does the same — a force close is only ever an explicit 'yes'.
- */
-async function confirmForceReattach(shell: ProjectWindowShell): Promise<boolean> {
-  if (reattachForceConfirmationForTesting) {
-    return reattachForceConfirmationForTesting({ ownerKey: ownerKey(shell.owner), title: shell.title });
-  }
-  try {
-    const { response } = await dialog.showMessageBox(shell.window, {
-      type: 'warning',
-      title: 'Không thể gắn lại project?',
-      message: `Cửa sổ project "${shell.title}" từ chối đóng để gắn lại vào cửa sổ chính.`,
-      detail: 'Một trang đang veto đóng (dữ liệu chưa lưu) hoặc cửa sổ đang bận. Bắt buộc đóng sẽ hủy các thay đổi chưa lưu trong cửa sổ này.',
-      buttons: ['Giữ cửa sổ riêng', 'Bắt buộc gắn lại'],
-      defaultId: 0,
-      cancelId: 0,
-      noLink: true,
-    });
-    return response === 1;
-  } catch (err) {
-    console.warn('[antifan] reattach force-confirmation failed; keeping the detached shell:', err);
-    return false;
-  }
-}
-
-
-/**
- * The explicit reattach — the ONLY path that folds a `project:<id>` owner record.
- * Ordinary close and quit never reach it: they leave the record marked for the
- * next boot's restore.
- *
- * ARM A (shell live): the shell is closed through the coordinator; only a settled
- * `disposition === 'closed'` may continue — the report arrives post-`persistSync`,
- * so the record the fold deletes can no longer be re-written by the dying host.
- * ARM B (marked, no live shell): nothing to close; the fold runs directly.
- *
- * Fold → ingest → hub persist is ONE unbroken unit: after the fold's atomic write,
- * the hub's in-memory record is updated and `persistSync` forced without awaiting
- * anything else, because any interleaved hub write would rebuild `owners.web`
- * from stale memory and erase the just-folded rows. The post-persist re-read
- * asserts both halves of the landing: the record is absent AND every minted tab
- * id is present.
- */
-async function reattachProject(payload: unknown): Promise<ProjectReattachResult> {
-  const raw = payload && typeof payload === 'object' && 'projectId' in payload && typeof payload.projectId === 'string'
-    ? payload.projectId.trim()
-    : '';
-  if (!raw) return { status: 'FAILED', reason: 'PROJECT_UNAVAILABLE' };
-  if (!isListedProjectId(raw)) {
-    return { status: 'FAILED', projectId: raw, reason: 'PROJECT_UNAVAILABLE' };
-  }
-  let projectId: string;
-  try {
-    projectId = validateControlPlaneId(raw, 'project');
-  } catch {
-    return { status: 'FAILED', projectId: raw, reason: 'INVALID_PROJECT_ID' };
-  }
-  const detachedOwnerKey = ownerKey({ kind: 'project', projectId });
-  const detachedShell = liveShellFor(detachedOwnerKey);
-  const liveDetachedShell = detachedShell && !detachedShell.window.isDestroyed() ? detachedShell : undefined;
-  const markedDetached = savedTabsOwnerIsDetached(savedTabsFilePath(), projectId);
-  if (!liveDetachedShell && !markedDetached) {
-    return { status: 'FAILED', projectId, reason: 'NOT_DETACHED' };
-  }
-  if (reattachInProgress.has(projectId)) {
-    return { status: 'FAILED', projectId, reason: 'REATTACH_IN_PROGRESS' };
-  }
-  reattachInProgress.add(projectId);
-  try {
-    if (liveDetachedShell) {
-      // A hub is ensured BEFORE the close, never after: when the detached shell is
-      // the last browser shell, its `closed` handler would otherwise start an
-      // application quit inside the awaited close — after which creating the hub
-      // would mint a window a committed quit never counted. The hub is not
-      // presented and its scope is untouched here; rows land below.
-      if (!liveShellFor('web')) {
-        await ensureProjectWindow({ kind: 'web' }, 'agent');
-      }
-      const report = await closeDetachedShellForLifecycle(liveDetachedShell);
-      recordCloseReport(report);
-      if (report.disposition !== 'closed') {
-        // Veto or uncertainty: the record stays marked and nothing may fold. But a
-        // permanent beforeunload veto (a dirty editor) would otherwise wedge the
-        // project in detached mode forever — reattach is the user's own window
-        // lifecycle action, so the refusal is surfaced WITH an explicit force
-        // escape. Only a confirmed 'yes' authorizes forceClose; every other
-        // answer leaves the exact pre-refusal state.
-        if (liveDetachedShell.window.isDestroyed()) {
-          // Racing a native teardown: refuse without offering a force on a dead window.
-          recordLifecycleEvent('project-reattach.refused', { projectId, haltedBy: 'unknown-outcome' });
-          return { status: 'FAILED', projectId, reason: 'CLOSE_REFUSED' };
-        }
-        const forceAuthorized = await confirmForceReattach(liveDetachedShell);
-        if (!forceAuthorized) {
-          recordLifecycleEvent('project-reattach.refused', { projectId, haltedBy: report.haltedBy ?? 'retained' });
-          return { status: 'FAILED', projectId, reason: 'CLOSE_REFUSED' };
-        }
-        const forcedReport = await closeDetachedShellForLifecycle(liveDetachedShell, true);
-        recordCloseReport(forcedReport);
-        if (forcedReport.disposition !== 'closed' && forcedReport.surface?.outcome !== 'closed') {
-          recordLifecycleEvent('project-reattach.refused', {
-            projectId,
-            haltedBy: forcedReport.haltedBy ?? 'retained',
-            forced: true,
-          });
-          return { status: 'FAILED', projectId, reason: 'CLOSE_REFUSED' };
-        }
-        recordLifecycleEvent('project-reattach.forced-close', { projectId, haltedBy: report.haltedBy ?? 'retained' });
-      }
-    }
-
-    const folded = await foldDetachedOwnerRecord(savedTabsFilePath(), detachedOwnerKey);
-    if (!folded.folded) {
-      // The shell closed but left no record behind: the detach mode is ended either
-      // way (the marker dies with the shell), so this is a successful no-op fold.
-      recordLifecycleEvent('project-reattach.empty-fold', { projectId });
-      broadcastProjectInventoryChanged();
-      return { status: 'REATTACHED', projectId };
-    }
-
-    // The unit closes here: no await may sit between the fold's write and this
-    // persist — an interleaved hub write would rebuild owners.web from stale
-    // memory and erase the folded rows.
-    const hubHost = hostForOwnerKey('web');
-    let mintedIds: string[] = [];
-    if (hubHost) {
-      const ingested = hubHost.ingestPersistedOwnerRows(folded.tabs, {
-        terminalAffinities: folded.terminalAffinities,
-      });
-      mintedIds = ingested.minted;
-      hubHost.persistSync();
-
-      const verifyData = (() => {
-        try {
-          const rawFile = fs.readFileSync(savedTabsFilePath(), 'utf8');
-          const parsed: unknown = JSON.parse(rawFile);
-          return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-            ? parsed as Record<string, unknown>
-            : null;
-        } catch {
-          return null;
-        }
-      })();
-      const verifyOwners = verifyData ? normalizeSavedTabsDocument(verifyData).document.owners : null;
-      const landed = new Set(
-        (verifyOwners?.['web']?.tabs ?? [])
-          .map((tab) => (tab && typeof tab === 'object' ? (tab as Record<string, unknown>).id : undefined))
-          .filter((id): id is string => typeof id === 'string'),
+    const document = readSavedTabsDocument(filePath);
+    if (!document) {
+      // Nothing on disk to move; the ledger still says which windows were open.
+      const none = migrateSavedTabsToProjectWindows(
+        { version: PROJECT_WINDOWS_SAVED_TABS_VERSION, owners: {}, updatedAt: 0 } as unknown as SavedTabsDocument,
+        options,
       );
-      const settled = verifyOwners !== null
-        && !(detachedOwnerKey in verifyOwners)
-        && mintedIds.every((id) => landed.has(id));
-      if (!settled) {
-        recordLifecycleEvent('project-reattach.failed', {
-          projectId,
-          detail: 'post-fold verification failed: record present or minted rows absent',
-        });
-        return { status: 'FAILED', projectId, reason: 'SETTLE_INCOMPLETE' };
-      }
+      return unmigrated(none.openProjectIds);
     }
-
-    const hubShell = liveShellFor('web');
-    if (hubShell && !hubShell.window.isDestroyed()) focusShellWindow(hubShell);
-    recordLifecycleEvent('project-reattach', { projectId, tabs: folded.tabs.length, minted: mintedIds.length });
-    broadcastProjectInventoryChanged();
-    return { status: 'REATTACHED', projectId };
+    const result = migrateSavedTabsToProjectWindows(document, options);
+    if (!result.migrated) return unmigrated(result.openProjectIds);
+    if (result.unplacedTabIds.length > 0) {
+      // The old file stays exactly as it is: a tab with no home is never dropped or hidden.
+      recordLifecycleEvent('saved-tabs-migration.blocked', { unplacedTabIds: result.unplacedTabIds });
+      console.error(`[antifan] saved-tabs migration BLOCKED: ${result.unplacedTabIds.length} tab(s) have no project window to live in: ${result.unplacedTabIds.join(', ')}`);
+      return { ...unmigrated(result.openProjectIds), migrated: true, unplacedTabIds: result.unplacedTabIds };
+    }
+    const backupPath = backupSavedTabsBeforeMigration(filePath);
+    await writeSavedTabsDocument(filePath, result.doc);
+    recordLifecycleEvent('saved-tabs-migration.done', {
+      movedTabs: result.movedTabs.length,
+      openProjects: result.openProjectIds.length,
+      backup: backupPath ?? '',
+    });
+    return { openProjectIds: result.openProjectIds, migrated: true, persisted: true, backupPath, unplacedTabIds: [] };
   } catch (err) {
-    recordLifecycleEvent('project-reattach.failed', { projectId, detail: redactCredentials(String(err)) });
-    return { status: 'FAILED', projectId, reason: 'CAPABILITY_FAILED' };
-  } finally {
-    reattachInProgress.delete(projectId);
+    // A failing migration never fails the boot: nothing is rewritten, the windows restore
+    // from the records they already have, and the next boot tries again.
+    recordLifecycleEvent('saved-tabs-migration.failed', { detail: redactCredentials(String(err)) });
+    console.error('[antifan] saved-tabs migration failed:', err);
+    const ledgerProjects = Array.from(openWindowKeys ?? [])
+      .filter((key) => key.startsWith('project:'))
+      .map((key) => key.slice('project:'.length));
+    return unmigrated(ledgerProjects);
   }
+}
+
+/**
+ * Live terminals the detached daemon kept across a GUI restart may still carry the owner key
+ * of the retired shared window (`web`) or of the placeholder project the control plane's
+ * default lease used to be. Neither names a window any more. Each such row loses the stamp:
+ * it is re-homed onto the Terminal Manager's own key, which no project claims, and project
+ * adoption then decides where it lives from its folder. The daemon owns those rows, so the
+ * on-read sanitization in TerminalManager never sees them. A refusal for one row (closed,
+ * disposed) is journaled and never blocks the boot.
+ */
+async function releaseRetiredHubTerminals(terminal: TerminalManager): Promise<void> {
+  let summaries: unknown[];
+  try {
+    summaries = terminal.listSessions();
+  } catch (err) {
+    recordLifecycleEvent('terminal-retired-hub.failed', { detail: redactCredentials(String(err)) });
+    return;
+  }
+  if (!Array.isArray(summaries)) return;
+  const retired = new Set(['web', `project:${CONTROL_PLANE_DEFAULT_PROJECT_ID}`]);
+  let released = 0;
+  let refused = 0;
+  for (const summary of summaries) {
+    if (!summary || typeof summary !== 'object' || !('id' in summary)) continue;
+    const sessionId = summary.id;
+    if (typeof sessionId !== 'string' || !sessionId) continue;
+    const current = terminal.sessionOwnerKey(sessionId);
+    if (typeof current !== 'string' || !retired.has(current)) continue;
+    try {
+      const transferred = await Promise.resolve(
+        terminal.transferSessionOwner(sessionId, ownerKey({ kind: 'unassigned' }), terminal.sessionCapsuleId(sessionId)),
+      );
+      if (transferred) released += 1; else refused += 1;
+    } catch (err) {
+      refused += 1;
+      recordLifecycleEvent('terminal-retired-hub.failed', { sessionId, detail: redactCredentials(String(err)) });
+    }
+  }
+  if (released > 0 || refused > 0) {
+    recordLifecycleEvent('terminal-retired-hub.done', { released, refused });
+  }
+}
+
+/** The folder every project lives under; a terminal started here or above it is never turned into a project. */
+const TERMINAL_ADOPTION_WORK_ROOT = 'E:\\Work';
+
+/**
+ * The adopter the control plane calls for a terminal that no project claims: the project is
+ * decided from the folder the PTY was started in and stamped once on its owner key (see
+ * `createTerminalProjectAdopter`). A folder inside the work root that no project covers becomes
+ * a project of its own, through the same adoption rules the folder chooser uses.
+ */
+function createTerminalAdopter(terminal: TerminalManager): (terminalSessionId: string) => Promise<void> {
+  return createTerminalProjectAdopter({
+    sessionCwd: async (terminalSessionId) => {
+      const session = await Promise.resolve(terminal.getSession(terminalSessionId));
+      return session && typeof session === 'object' && 'cwd' in session && typeof session.cwd === 'string'
+        ? session.cwd
+        : undefined;
+    },
+    sessionOwnerKey: (terminalSessionId) => terminal.sessionOwnerKey(terminalSessionId),
+    knownProjects: () => listRegisteredProjects()
+      .filter((project) => project.state === 'open')
+      .map((project) => ({
+        projectId: project.id,
+        workspacePaths: projectRegistry.listWorkspaces(project.id).filter((w) => w.state === 'attached').map((w) => w.rootPath),
+      })),
+    projectForFolder: (folder) => {
+      const resolved = fs.realpathSync(folder);
+      if (!fs.statSync(resolved).isDirectory()) throw new Error('not a directory');
+      const outcome = projectIdForResolvedFolder(resolved);
+      if ('projectId' in outcome) return { projectId: outcome.projectId };
+      throw new Error(outcome.result.status === 'FAILED' ? outcome.result.reason : outcome.result.status);
+    },
+    capsuleIdForProject: (projectId) => resolveWindowRecord({ kind: 'project', projectId }).capsuleId,
+    stampOwner: (terminalSessionId, ownerKeyValue, capsuleId) =>
+      Promise.resolve(terminal.transferSessionOwner(terminalSessionId, ownerKeyValue, capsuleId)),
+    workRoot: TERMINAL_ADOPTION_WORK_ROOT,
+    homeDir: os.homedir(),
+    journal: recordLifecycleEvent,
+  });
 }
 
 /**
@@ -2619,69 +2110,42 @@ export interface BridgeMintResolverDeps {
   /** The project a live capsule belongs to, or undefined when the capsule claims none. */
   capsuleProjectId(capsuleId: string): string | undefined;
   /**
-   * Whether the project is in detached mode — a live `project:<id>` shell, a
-   * `detached:true` persisted record a dead shell left behind, or a reattach in
-   * flight. A project in this mode owns a mint's routing: it lands on the
-   * detached host or it refuses — the hub is never the answer.
+   * Reopens a project's window without taking focus and returns its host. `null` when the
+   * project is not one Main knows or admission refuses it; may throw when the window cannot
+   * be built. A window that is already live answers with its own host.
    */
-  projectDetached(projectId: string): boolean;
+  ensureProjectHost(projectId: string): Promise<NativeTabHost | null>;
   /**
-   * Whether `projectId` is the project this process booted for. The boot project is
-   * the hub's own default and no capsule ever claims it, so a terminal stamped with
-   * it has no capsule evidence by construction.
+   * The host a request answers on when it names no terminal and no project: the one window
+   * that can be named without guessing. Throws a typed `TARGET_REQUIRED` when several
+   * windows could answer, so a mint never lands in whichever window was created first.
    */
-  isBootProject(projectId: string): boolean;
-  /**
-   * The hub host — the default window for claims nobody detached: project-owned
-   * terminals still route through it (the hub presents that project), and
-   * web/unassigned keys and unclaimed mints land on it. The hub may be closed while
-   * sibling windows keep the process running; this reopens it rather than answering
-   * with the host that window disposed. Read only on a path that lands on the hub, so
-   * a refused or elsewhere-routed mint never reopens it.
-   */
-  ensureHubHost(): Promise<NativeTabHost>;
-  /**
-   * Reopens the detached shell of a project that is marked detached but has no live window,
-   * without taking focus, and returns its host. `null` when the project must stay closed (a
-   * reattach in flight, or the registry/capsule admission refuses it). Optional: a resolver
-   * built without it refuses a windowless detached project exactly as before.
-   */
-  restoreDetachedShell?(projectId: string): Promise<NativeTabHost | null>;
-  /** True while `projectId` is mid-reattach; names the refusal when the restore answers `null`. */
-  reattachInProgress?(projectId: string): boolean;
+  ambientHost(): NativeTabHost;
 }
 
-type DetachedRestoreRefusal =
-  | { readonly attempted: false }
-  | { readonly attempted: true; readonly reason: 'reattach-in-progress' | 'not-admitted' | 'restore-failed'; readonly cause?: string };
+type ProjectHostReopen =
+  | { readonly host: NativeTabHost }
+  | { readonly failure: 'not-admitted' | 'restore-failed'; readonly cause?: string };
 
 /**
- * One restore attempt for a detached-but-windowless project. Never throws: a failing restore
- * is a refusal reason, not a different error class for the agent to decode.
+ * One reopen attempt for a project whose window is gone. Never throws: a failing reopen is a
+ * refusal reason, not a different error class for the agent to decode.
  */
-async function restoreDetachedShellOnce(
-  deps: BridgeMintResolverDeps,
-  projectId: string,
-): Promise<{ readonly host: NativeTabHost } | DetachedRestoreRefusal> {
-  if (!deps.restoreDetachedShell) return { attempted: false };
+async function reopenProjectHostOnce(deps: BridgeMintResolverDeps, projectId: string): Promise<ProjectHostReopen> {
   try {
-    const host = await deps.restoreDetachedShell(projectId);
-    if (host) return { host };
-    return { attempted: true, reason: deps.reattachInProgress?.(projectId) ? 'reattach-in-progress' : 'not-admitted' };
+    const host = await deps.ensureProjectHost(projectId);
+    return host ? { host } : { failure: 'not-admitted' };
   } catch (err) {
-    return { attempted: true, reason: 'restore-failed', cause: err instanceof Error ? err.message : String(err) };
+    return { failure: 'restore-failed', cause: err instanceof Error ? err.message : String(err) };
   }
 }
 
-/** The `details` a refusal carries when a restore was attempted and did not produce a host. */
-function restoreFailureDetails(failure: DetachedRestoreRefusal): Record<string, string> {
-  if (!failure.attempted) return {};
-  const recovery = failure.reason === 'reattach-in-progress'
-    ? 'Đợi reattach của project này hoàn tất rồi gọi lại.'
-    : 'Mở lại project này từ Project Picker rồi gọi lại.';
+/** The `details` a refusal carries when a reopen was attempted and did not produce a host. */
+function reopenFailureDetails(failure: ProjectHostReopen | undefined): Record<string, string> {
+  if (!failure || 'host' in failure) return {};
   return {
-    reason: failure.reason,
-    recovery,
+    reason: failure.failure,
+    recovery: 'Mở lại project này từ Project Picker rồi gọi lại.',
     ...(failure.cause ? { cause: failure.cause } : {}),
   };
 }
@@ -2692,24 +2156,21 @@ function restoreFailureDetails(failure: DetachedRestoreRefusal): Record<string, 
  *
  * - `boundTabId` names a live tab → that tab's own host and capsule (rebinds and
  *   attributed provisions stay with the tab they name, on whichever window owns
- *   it — a detached shell included).
+ *   it).
  * - `terminalSessionId` → the terminal's owner key decides the host. A
- *   `project:<id>`-owned session routes to the project's live detached shell
- *   when one exists, to the hub when the project was never detached, and REFUSES
- *   (`TERMINAL_SCOPE_UNRESOLVED`) when the project is detached-but-windowless
- *   and cannot be reopened: a windowless detached project is first reopened once
- *   through `restoreDetachedShell` (unfocused; refused while a reattach runs or
- *   when admission fails, with `details.reason` and `details.recovery`). Minting
- *   onto the hub would re-home a tab under the wrong window identity and
- *   double-present the project. Malformed owner keys and project claims with no
- *   owning window refuse rather than borrowing the ambient window — the incident
- *   anchor that landed in another project's window and died with it.
- * - `projectId` → the validated claim mints on the live detached shell (reopened
- *   once when windowless), refuses typed when it cannot be reopened, and otherwise
- *   lands on the hub pinned to the project's capsule.
- * - No claim → the hub, unpinned; a closed hub is reopened off-screen first.
- * - A `boundTabId` that is gone, with no other claim → `undefined`: reopening the
- *   hub would only host the bridge's TAB_NOT_FOUND refusal.
+ *   `project:<id>`-owned session routes to that project's window, reopened once
+ *   (unfocused) when it is closed, and REFUSES (`TERMINAL_SCOPE_UNRESOLVED`)
+ *   when the window cannot be reopened (`details.reason` and `details.recovery`
+ *   say why). Malformed owner keys and project claims with no owning window refuse
+ *   rather than borrowing the ambient window — the incident anchor that landed in
+ *   another project's window and died with it. A terminal that names no project
+ *   (an agent-held one) answers on the ambient window.
+ * - `projectId` → the validated claim mints on that project's window (reopened once
+ *   when closed) and refuses typed when it cannot be reopened.
+ * - No claim → the ambient window, which refuses `TARGET_REQUIRED` when it is
+ *   ambiguous.
+ * - A `boundTabId` that is gone, with no other claim → `undefined`: reopening a
+ *   window would only host the bridge's TAB_NOT_FOUND refusal.
  */
 export function createBridgeMintHostResolver(deps: BridgeMintResolverDeps): BridgeMintHostResolver {
   return async (opts) => {
@@ -2738,80 +2199,55 @@ export function createBridgeMintHostResolver(deps: BridgeMintResolverDeps): Brid
       if (!capsuleId && claimedProjectId) {
         capsuleId = deps.projectCapsuleId(claimedProjectId);
       }
-      const claimedDetached = claimedProjectId !== undefined && deps.projectDetached(claimedProjectId);
-      let host: NativeTabHost | undefined;
-      if (ownerKeyValue) {
-        // The owner key resolves its own window first — a `project:` key names the
-        // detached shell when one is live, the hub's 'web' key names the hub, and
-        // 'unassigned'/'agent' keys name their shells or nothing. A project claim
-        // with no live owner window may fall back to the hub ONLY when the project
-        // was never detached: the hub presents it there. A detached project with no
-        // live shell is refused below, never re-homed.
-        host = deps.hostForOwnerKey(ownerKeyValue)
-          ?? (projectClaim && !claimedDetached ? await deps.ensureHubHost() : null)
-          ?? undefined;
-      }
-      // A detached project whose shell is gone while one of its terminals is alive and asking
-      // for a tab: reopen that shell (unfocused) once instead of refusing a request the project
-      // itself made. Admission and reattach gating live in the dependency, never here.
-      let restoreFailure: DetachedRestoreRefusal | undefined;
-      if (projectClaim && !host && claimedDetached && claimedProjectId) {
-        const restored = await restoreDetachedShellOnce(deps, claimedProjectId);
-        if ('host' in restored) host = restored.host;
-        else restoreFailure = restored;
+      // Only a project claim names a window to mint on: the Terminal Manager hosts no
+      // browser tabs, and an agent-held terminal's key names no window at all.
+      let host: NativeTabHost | undefined = claimedProjectId && ownerKeyValue ? deps.hostForOwnerKey(ownerKeyValue) ?? undefined : undefined;
+      // A project whose window is gone while one of its terminals is alive and asking for a
+      // tab: reopen that window (unfocused) once instead of refusing a request the project
+      // itself made. Admission lives in the dependency, never here.
+      let reopen: ProjectHostReopen | undefined;
+      if (!host && claimedProjectId) {
+        reopen = await reopenProjectHostOnce(deps, claimedProjectId);
+        if ('host' in reopen) host = reopen.host;
       }
       if (projectClaim && !host) {
         // Fail closed: minting into a host the claim does not own is exactly how the
         // incident anchor landed in another project's window and died with it.
-        const refusal = claimedDetached
-          ? `Terminal '${opts.terminalSessionId}' is claimed by project '${claimedProjectId}', whose window is detached ` +
-            '(marked or mid-reattach) but not live — refusing to mint its agent tab into the hub window.'
-          : `Terminal '${opts.terminalSessionId}' is claimed by a project, but no window owns that claim; ` +
-            'refusing to mint its agent tab into the ambient window.';
         throw new CapabilityError(
           'TERMINAL_SCOPE_UNRESOLVED',
-          `TERMINAL_SCOPE_UNRESOLVED: ${refusal}`,
+          `TERMINAL_SCOPE_UNRESOLVED: Terminal '${opts.terminalSessionId}' is claimed by a project, but no window owns that claim; ` +
+            'refusing to mint its agent tab into the ambient window.',
           {
             terminalSessionId: opts.terminalSessionId,
             ownerKey: ownerKeyValue,
             ...(claimedProjectId ? { projectId: claimedProjectId } : {}),
-            ...(restoreFailure ? restoreFailureDetails(restoreFailure) : {}),
+            ...reopenFailureDetails(reopen),
           },
         );
       }
       // The stamp follows the claim the tab is pinned under: the terminal's own project
-      // when it names one, else the project its capsule belongs to. Leaving it to the
-      // host would stamp the hub's currently presented project instead.
+      // when it names one, else the project its capsule belongs to.
       const mintProjectId = claimedProjectId ?? (capsuleId ? deps.capsuleProjectId(capsuleId) : undefined);
       const projectStamp = mintProjectId ? { projectId: mintProjectId } : {};
-      if (claimedProjectId && !capsuleId && !claimedDetached && deps.isBootProject(claimedProjectId)) {
-        return { host: host ?? await deps.ensureHubHost(), capsuleId, unpinnedBootProject: true, ...projectStamp };
-      }
-      return { host: host ?? await deps.ensureHubHost(), capsuleId, ...projectStamp };
+      return { host: host ?? deps.ambientHost(), capsuleId, ...projectStamp };
     }
     if (opts.projectId) {
-      // Only a validated claim may pin a capsule; unknown/ambiguous projects mint
-      // unpinned on the hub rather than borrowing whichever capsule is active. A
-      // detached project's fresh provision lands on its own shell — or refuses
-      // while the project is detached-but-windowless; minting on the hub would
-      // present a tab under the window that no longer owns the project.
+      // Only a validated claim may pin a capsule; the project's own window is the only
+      // window its tab may land on.
       const assignment = deps.projectCapsuleId(opts.projectId);
-      const detachedHost = deps.hostForOwnerKey(ownerKey({ kind: 'project', projectId: opts.projectId }));
-      if (detachedHost) return { host: detachedHost, capsuleId: assignment, projectId: opts.projectId };
-      if (deps.projectDetached(opts.projectId)) {
-        const restored = await restoreDetachedShellOnce(deps, opts.projectId);
-        if ('host' in restored) return { host: restored.host, capsuleId: assignment, projectId: opts.projectId };
-        throw new CapabilityError(
-          'TERMINAL_SCOPE_UNRESOLVED',
-          `TERMINAL_SCOPE_UNRESOLVED: Project '${opts.projectId}' is detached but owns no live window; ` +
-            'refusing to mint an agent tab into the hub window.',
-          { projectId: opts.projectId, ...restoreFailureDetails(restored) },
-        );
-      }
-      return { host: await deps.ensureHubHost(), capsuleId: assignment, ...(assignment ? { projectId: opts.projectId } : {}) };
+      const projectHost = deps.hostForOwnerKey(ownerKey({ kind: 'project', projectId: opts.projectId }));
+      if (projectHost) return { host: projectHost, capsuleId: assignment, projectId: opts.projectId };
+      const reopen = await reopenProjectHostOnce(deps, opts.projectId);
+      if ('host' in reopen) return { host: reopen.host, capsuleId: assignment, projectId: opts.projectId };
+      throw new CapabilityError(
+        'TERMINAL_SCOPE_UNRESOLVED',
+        `TERMINAL_SCOPE_UNRESOLVED: Project '${opts.projectId}' owns no live window and none could be opened; ` +
+          'refusing to mint an agent tab into another window.',
+        { projectId: opts.projectId, ...reopenFailureDetails(reopen) },
+      );
     }
     if (opts.boundTabId) return undefined;
-    return { host: await deps.ensureHubHost() };
+    return { host: deps.ambientHost() };
   };
 }
 
@@ -2834,14 +2270,6 @@ function applicationMenuOptions(): ApplicationMenuOptions {
     openProjectPicker: (window) => { void openProjectWindow({}, window); },
     // The manager window has no chrome entry by design, so the menu is its only door.
     openSharedTerminalManager: () => { void openSharedTerminalManagerWindow(); },
-    // The detach click is project-scoped by the focused window's own host — the same
-    // resolution every other menu command uses — so the payload reaches the one
-    // detach entrypoint exactly as the chrome route's does.
-    detachProject: (projectId, window) => { void detachProject({ projectId }, window); },
-    // Reattach is keyed by the CLICKED window's owner — a detached window's host has
-    // no active project to scope the click by, so the menu resolves the project id
-    // from `windowOwnerKey` and the same entrypoint runs it.
-    reattachProject: (projectId, _window) => { void reattachProject({ projectId }); },
   };
 }
 
@@ -3029,16 +2457,14 @@ function activationFailureCode(reason: TabSearchActivationFailure, tabId: string
  * refused by the open below and a button that cannot work is worse than no button.
  */
 function projectOpenCandidates(): ProjectOpenCandidate[] {
-  // No project windows remain: "a project a window owns" is now "the project the web
-  // hub is showing" (the shared Terminal Manager owns nothing).
+  // A project is offered when the registry holds it open or one of its windows is live. The
+  // control plane's default lease is neither a window nor a project and is never offered.
   const liveProjectIds = liveProjectShells()
     .map((shell) => (shell.owner.kind === 'project' ? shell.owner.projectId : ''))
     .filter((projectId) => projectId.length > 0);
-  const hubActive = webHubActiveProjectId();
-  if (hubActive) liveProjectIds.push(hubActive);
   return collectProjectOpenCandidates({
-    registryProjects: projectRegistry.listProjects(),
-    knownProjectIds: bootProjectIdValue ? [bootProjectIdValue, ...liveProjectIds] : liveProjectIds,
+    registryProjects: listRegisteredProjects(),
+    knownProjectIds: liveProjectIds,
     describe: (projectId) => {
       const record = resolveWindowRecord({ kind: 'project', projectId });
       return { title: record.title, ...(record.pathLabel ? { pathLabel: record.pathLabel } : {}) };
@@ -3143,28 +2569,19 @@ export function projectStoredStatuses(): ProjectStoredStatus[] {
       .map((shell) => (shell.owner.kind === 'project' ? shell.owner.projectId : ''))
       .filter((projectId) => projectId.length > 0),
   );
-  const registryProjects = projectRegistry.listProjects();
+  const registryProjects = listRegisteredProjects();
   const allWorkspaces = projectRegistry.listAllWorkspaces();
   // A closed record is a project the user removed: every action on it answers
   // UNKNOWN_PROJECT, so listing it would paint a section nothing can act on.
   const ids = new Set<string>(registryProjects.filter((project) => project.state === 'open').map((project) => project.id));
   for (const id of liveWindowProjectIds) ids.add(id);
-  if (bootProjectIdValue) ids.add(bootProjectIdValue);
   const liveSessionProjectIds = new Set<string>();
   const registeredProjects = new Map(registryProjects.map((project) => [project.id, project]));
-  // LIVE rule under the web hub: a project is live when a terminal session belongs to
-  // it (the `projectTerminalSessions` leg) OR a tab in the web hub carries that
-  // projectId — the hub shows every project's tabs, so the second leg is what keeps a
-  // session-less project LIVE while it is being browsed.
-  const webHost = hostForOwnerKey('web');
-  // Third leg: the project the hub is presenting is live even when none of its tabs carry
-  // the stamp — presenting IS being browsed, so the record the user is looking at can
-  // never be DEAD/STALE.
-  const presentedId = webHubActiveProjectId();
-  if (presentedId) liveSessionProjectIds.add(presentedId);
+  // A project is live when a terminal session belongs to it (the `projectTerminalSessions`
+  // leg) or its own window is open (`liveWindowProjectIds`, handed to the reconciler below).
   const stored = Array.from(ids).map((id) => {
     const record = resolveWindowRecord({ kind: 'project', projectId: id });
-    if (projectTerminalSessions(id).open.length > 0 || (webHost?.tabsForProject(id).length ?? 0) > 0) {
+    if (projectTerminalSessions(id).open.length > 0) {
       liveSessionProjectIds.add(id);
     }
     // A closed project detaches its workspace, so the record's path may be blank; the
@@ -3219,12 +2636,8 @@ function broadcastProjectInventoryChanged(): void {
  */
 export function projectOpenListFor(sender: Electron.WebContents | undefined): ProjectOpenListResult {
   const shell = shellForPickerContents(sender);
-  // The web hub is shared: "current" is the project it is showing, not an owner kind.
-  const currentProjectId = shell && shell.owner.kind === 'project'
-    ? shell.owner.projectId
-    : shell && shell.owner.kind === 'web'
-      ? (webHubActiveProjectId() ?? '')
-      : '';
+  // "Current" is the project the asking window is the window of.
+  const currentProjectId = shell && shell.owner.kind === 'project' ? shell.owner.projectId : '';
   return {
     candidates: projectOpenCandidates().map((candidate) => {
       const record = resolveWindowRecord({ kind: 'project', projectId: candidate.projectId });
@@ -3428,19 +2841,17 @@ export async function removeProjectEntry(payload: unknown): Promise<ProjectRemov
     return { status: 'CONFIRM_REQUIRED', projectId: validatedId, liveSessions: sessions.live.length };
   }
 
-  // Detached arm FIRST, ordered before any purge: a live `project:<id>` shell is
-  // closed through the coordinator and only a settled 'closed' disposition may
-  // continue — the report lands post-dispose, i.e. after the dying host's final
-  // synchronous persistSync re-wrote its owner record. Purging before that write
-  // completes would let the record be re-added after the file was cleaned. A veto
-  // or a failed close refuses the whole removal: the record stays marked, the
-  // shell stays alive, and no fold or purge runs.
-  const detachedOwnerKey = ownerKey({ kind: 'project', projectId: validatedId });
-  const detachedShell = liveShellFor(detachedOwnerKey);
-  if (detachedShell && !detachedShell.window.isDestroyed()) {
+  // The project's own window goes first, before any purge: it is closed through the
+  // coordinator and only a settled 'closed' disposition may continue — the report lands
+  // post-dispose, i.e. after the dying host's final synchronous persistSync re-wrote its
+  // owner record. Purging before that write completes would let the record be re-added
+  // after the file was cleaned. A veto or a failed close refuses the whole removal: the
+  // shell stays alive and no purge runs.
+  const projectShell = liveShellFor(ownerKey({ kind: 'project', projectId: validatedId }));
+  if (projectShell && !projectShell.window.isDestroyed()) {
     let report: CloseReport;
     try {
-      report = await closeDetachedShellForLifecycle(detachedShell);
+      report = await closeCoordinator.attemptClose(ownerKey(projectShell.owner), 'user');
     } catch (err) {
       recordLifecycleEvent('project-remove.failed', { projectId: validatedId, detail: String(err) });
       return { status: 'FAILED', projectId: validatedId, reason: redactCredentials(String(err)) };
@@ -3451,64 +2862,15 @@ export async function removeProjectEntry(payload: unknown): Promise<ProjectRemov
         projectId: validatedId,
         haltedBy: report.haltedBy ?? 'retained',
       });
-      return { status: 'CLOSE_REFUSED', projectId: validatedId, reason: 'detached window close refused' };
+      return { status: 'CLOSE_REFUSED', projectId: validatedId, reason: 'project window close refused' };
     }
   }
 
-  // A detached `project:` shell — when one existed — is already gone above. The
-  // project's web-resident tabs live in the shared 'web' hub and close individually
-  // through closePage — the same unload-aware path a shell close uses — so a
-  // vetoing page of this project refuses the removal while every other project's
-  // tabs stay put.
-  const webHub = hostForOwnerKey('web');
-  // If the removed project is the one the hub presents, drop the pointer BEFORE closing its
-  // tabs: closing the presented tab repoints presentation, and with the pointer still set it
-  // would mint a fresh tab stamped with the project being removed. Every failure below puts
-  // the pointer back, so a refused or failed removal leaves the hub exactly as it was.
-  const wasActive = Boolean(webHub) && webHubActiveProjectId() === validatedId;
-  const savedAffiliation = wasActive && webHub ? webHub.getWindowWorkspaceAffiliation() : null;
-  if (wasActive && webHub) {
-    webHub.setWindowWorkspaceAffiliation(null);
-    webHub.setActiveProject(null);
-  }
-  const restoreActive = () => {
-    if (!wasActive || !webHub) return;
-    webHub.setWindowWorkspaceAffiliation(savedAffiliation);
-    webHub.setActiveProject(validatedId);
-  };
-  if (webHub) {
-    let tabClose: { closed: string[]; vetoed: string[] };
-    try {
-      tabClose = await webHub.closeTabsForProject(validatedId);
-    } catch (err) {
-      restoreActive();
-      recordLifecycleEvent('project-remove.failed', { projectId: validatedId, detail: String(err) });
-      return { status: 'FAILED', projectId: validatedId, reason: redactCredentials(String(err)) };
-    }
-    if (tabClose.vetoed.length > 0) {
-      restoreActive();
-      recordLifecycleEvent('project-remove.refused', {
-        projectId: validatedId,
-        haltedBy: 'tab-unload',
-      });
-      return { status: 'CLOSE_REFUSED', projectId: validatedId, reason: `${tabClose.vetoed.length} tab(s) refused to close` };
-    }
-  }
-
-  // Live close above is not enough: rows stamped with this projectId persist under
-  // `owners.web` in saved-tabs.json and would resurrect a removed project on the next
-  // boot. A live 'web' shell whose host cannot be resolved is fail-closed — its tabs
-  // may still be open, so their persisted rows must survive. With no web window at all
-  // nothing can be live, and the file purge runs host-free through the same
-  // read-modify-write the hub's own host method delegates to.
-  if (!webHub && liveShellFor(ownerKey({ kind: 'web' }))) {
-    recordLifecycleEvent('project-remove.failed', { projectId: validatedId, detail: 'web window live but its host is unresolvable' });
-    return { status: 'FAILED', projectId: validatedId, reason: 'WEB_HUB_UNAVAILABLE' };
-  }
+  // The window's persisted record leaves with the project, or the next boot would resurrect
+  // its tabs: the purge is a host-free read-modify-write of the saved-tabs file.
   try {
     await purgeSavedTabsFileForProject(savedTabsFilePath(), validatedId);
   } catch (err) {
-    restoreActive();
     recordLifecycleEvent('project-remove.failed', { projectId: validatedId, detail: String(err) });
     return { status: 'FAILED', projectId: validatedId, reason: redactCredentials(String(err)) };
   }
@@ -3526,11 +2888,9 @@ export async function removeProjectEntry(payload: unknown): Promise<ProjectRemov
   }
 
   // The appearance belongs to the list entry. It must still be durable for the removal to
-  // count: a failure here is reported, never swallowed. The hub's active project/affiliation
-  // is restored like every other failure path — tabs and sessions are already closed, so a
-  // retry repairs registry state but the user keeps their scope either way.
+  // count: a failure here is reported, never swallowed. Tabs and sessions are already
+  // closed, so a retry repairs registry state.
   if (!projectRegistry.forgetProjectAppearance(validatedId)) {
-    restoreActive();
     recordLifecycleEvent('project-remove.appearance-failed', { projectId: validatedId });
     return { status: 'FAILED', projectId: validatedId, reason: 'APPEARANCE_NOT_CLEARED' };
   }
@@ -3709,14 +3069,14 @@ async function pickProjectToOpen(parent: BrowserWindow | null): Promise<ProjectO
 async function resolveProjectFromFolder(
   parent: BrowserWindow | null,
 ): Promise<{ projectId: string } | { result: ProjectOpenResult }> {
-  // The chooser opens where the user already works when Main knows the boot project's workspace;
-  // without one it is omitted, which leaves the platform's own last-used directory in charge.
-  const bootProjectId = bootProjectIdValue;
+  // The chooser opens where the user already works when the asking window is a project's own;
+  // otherwise it is omitted, which leaves the platform's own last-used directory in charge.
+  const askingShell = shellForBrowserWindow(parent);
   // Normalised: the Windows chooser drops a forward-slash `defaultPath` without a word.
-  const bootWorkspacePath = bootProjectId
-    ? resolveWindowRecord({ kind: 'project', projectId: bootProjectId }).workspacePath
+  const askingWorkspacePath = askingShell?.owner.kind === 'project'
+    ? resolveWindowRecord(askingShell.owner).workspacePath
     : undefined;
-  const defaultPath = bootWorkspacePath ? path.normalize(bootWorkspacePath) : undefined;
+  const defaultPath = askingWorkspacePath ? path.normalize(askingWorkspacePath) : undefined;
   const options: OpenDialogOptions = {
     properties: ['openDirectory', 'createDirectory'],
     title: 'Chọn thư mục dự án',
@@ -3960,28 +3320,9 @@ async function openProjectWindow(payload: unknown, parent?: BrowserWindow | null
     // teardown. Raised inside the try so the refusal is the same FAILED envelope every
     // other refusal uses, not a rejected invoke.
     assertApplicationAdmitsWork(closeReservations, 'Open project window');
-    // Detached mode runs first: a `project:<id>` owner that is detached — by a live
-    // detached shell or by the persisted marker a dead window left behind — can never
-    // be presented by the hub. The open goes through the same detach path the menu
-    // drives: a live shell is focused, a marked-but-dead one is recreated on demand.
-    const detachedShell = liveProjectShells().find((s) => s.owner.kind === 'project' && s.owner.projectId === projectId);
-    // The reattach latch extends this exclusivity, never replaces it: a project MID-
-    // reattach is still marked on disk until the fold lands, but recreating its shell
-    // here would resurrect the window the reattach is closing. The latch routes the
-    // request to the hub path instead.
-    const detachedMode = !reattachInProgress.has(projectId)
-      && (detachedShell !== undefined || savedTabsOwnerIsDetached(savedTabsFilePath(), projectId));
-    if (detachedMode) {
-      const { shell, created } = await ensureDetachedProjectShell(projectId, 'user');
-      focusShellWindow(shell);
-      recordLifecycleEvent('project-open.detached', { projectId, created });
-      broadcastProjectInventoryChanged();
-      return created ? { status: 'OPENED', projectId } : { status: 'FOCUSED', projectId };
-    }
-    // Phương án A: opening a project never creates a project window. The singleton
-    // 'web' hub is ensured and the project becomes its active project; OPENED means
-    // the hub shell was just created, FOCUSED means the user joined a live hub.
-    const { created } = await ensureProjectWindow({ kind: 'web' }, 'user', { activateProjectId: projectId });
+    // Opening a project opens (or focuses) that project's own window; OPENED means the window
+    // was just created, FOCUSED means the user joined the one already live.
+    const { created } = await ensureProjectWindow({ kind: 'project', projectId }, 'user');
     recordLifecycleEvent('project-open', { projectId, created });
     // A folder pick may just have created or adopted the project: every manager lists it now.
     broadcastProjectInventoryChanged();
@@ -4004,11 +3345,9 @@ async function openSpaceWindow(
   if (opened.status !== 'OPENED' && opened.status !== 'FOCUSED') {
     return { ok: false, message: opened.status === 'FAILED' ? opened.reason : 'Project window was not opened' };
   }
-  // The opened project lives in the shared web hub, never in a `project:` window, so the
-  // project-scoped key resolves nothing directly — route to the hub host while keeping
-  // the project owner key in the result for the downstream contract that reads it.
+  // The opened project lives in its own window: its owner key resolves that window's host.
   const key = ownerKey({ kind: 'project', projectId: opened.projectId });
-  const host = hostForOwnerKey(key) ?? hostForOwnerKey('web');
+  const host = hostForOwnerKey(key);
   if (!host) return { ok: false, message: 'The project window closed before its Space could open' };
   return { ok: true, host, ownerKey: key };
 }
@@ -4137,25 +3476,6 @@ export const PROJECT_WINDOW_ROUTES: readonly IpcRoute[] = [
     run: (_target, _event, args) => setProjectAppearanceEntry(args[0]),
   },
   {
-    channel: PROJECT_WINDOW_CHANNELS.PROJECT_DETACH,
-    // Toolbar + sidebar only — the surfaces a user hand reaches the action through.
-    // `PROJECT_OPEN_ROUTE_SURFACES` also names `terminalPopout`, which can never drive
-    // a project detach.
-    surface: ['toolbar', 'sidebar'],
-    kind: 'handle',
-    run: (_target, event, args) => detachProject(args[0], senderWindowFor(event)),
-  },
-  {
-    channel: PROJECT_WINDOW_CHANNELS.PROJECT_REATTACH,
-    // Same reachability rule as detach — a user-hand surface only. The action is
-    // live while the detached shell is (the detached window's own chrome can drive
-    // it); gating on shell state would make the affordance unreachable exactly
-    // where it is needed.
-    surface: ['toolbar', 'sidebar'],
-    kind: 'handle',
-    run: (_target, _event, args) => reattachProject(args[0]),
-  },
-  {
     channel: PROJECT_WINDOW_CHANNELS.PROJECT_REMOVE_ANSWER,
     surface: PROJECT_OPEN_ROUTE_SURFACES,
     kind: 'handle',
@@ -4196,13 +3516,11 @@ let powerResurfaceRegistered = false;
 async function createWindow(): Promise<void> {
   windowStateManager = new WindowStateManager(StorageLocations.getConfigDir(), 1360, 880);
 
-  // The project identity this build boots for. It keys the control plane and every
-  // owner-keyed record, so it is resolved (and validated) once, before any window is
-  // admitted. The boot shell itself is the singleton 'web' hub — project windows are
-  // retired — with `projectId` as the hub's active project at first paint.
-  const projectId = validateControlPlaneId(process.env.ANTIFAN_PROJECT_ID || DEFAULT_BOOT_PROJECT_ID, 'project');
-  bootProjectIdValue = projectId;
-  const owner: WindowOwner = { kind: 'web' };
+  // The control plane's default lease identity. It keys the control plane before any window is
+  // admitted and is resolved (and validated) once. `ANTIFAN_PROJECT_ID`, when it names a project
+  // Main knows, is also that project's window to open first at startup; it never selects a window
+  // other than that project's own, and an unknown id changes the lease only.
+  const projectId = validateControlPlaneId(process.env.ANTIFAN_PROJECT_ID || CONTROL_PLANE_DEFAULT_PROJECT_ID, 'project');
 
   projectWindows = new ProjectWindowManager({
     // Labels come from Main's validated records, never from a renderer or a page:
@@ -4325,14 +3643,15 @@ async function createWindow(): Promise<void> {
   // Canonical single TerminalManager / DaemonTerminalProxy instance shared across
   // UI IPC, Bridge, NativeTabHost, control-plane capabilities, and theme transactions.
   const terminalManager = TerminalManager.getInstance();
-  await rehomeBootProjectTerminals(terminalManager);
+  await releaseRetiredHubTerminals(terminalManager);
+  const adoptTerminalProject = createTerminalAdopter(terminalManager);
 
   // One `data` listener for the whole process: the router owns the
   // sessionId→host map and hands each chunk to the windows that present it,
   // replacing the per-host listener+filter fan-out.
   TerminalOutputRouter.getInstance().attach(terminalManager as unknown as EventEmitter);
 
-  const workspaceId = validateControlPlaneId(process.env.ANTIFAN_WORKSPACE_ID || DEFAULT_BOOT_WORKSPACE_ID, 'workspace');
+  const workspaceId = validateControlPlaneId(process.env.ANTIFAN_WORKSPACE_ID || CONTROL_PLANE_DEFAULT_WORKSPACE_ID, 'workspace');
   /**
    * Measured affiliation of a tab: the capsule it was created under, read off the live host rather
    * than the capsule ledger (which holds entries no runtime path writes). Shared by the control
@@ -4419,12 +3738,17 @@ async function createWindow(): Promise<void> {
     // A bound tab that provably belongs to another project than the attachment is refused with
     // POLICY_DENIED, so the runtime gates on the same measured affiliation the browser port uses.
     resolveTabAffiliation: measuredTabAffiliation,
+    // A terminal with no project is given one once, from the folder its shell runs in, before
+    // the control plane measures it; see `adoptTerminalProject`.
+    adoptTerminalProject,
   });
 
   // Synchronize capsule affiliations into the shared ProjectRegistry before opening any window
   if (capsuleManager) {
     synchronizeCapsulesWithRegistry(capsuleManager, projectRegistry, StorageLocations.getControlPlaneDir());
   }
+  // Saved tabs move to their project windows once, before any window restores its own record.
+  const openProjectIdsAtBoot = (await runSavedTabsMigrationAtBoot()).openProjectIds;
   runStateService = new RunStateService({
     runsDir: path.join(StorageLocations.getRuntimeDir(), 'runs'),
     lookupSession: (terminalSessionId) => {
@@ -4495,12 +3819,13 @@ async function createWindow(): Promise<void> {
   // window is also presented by it (see `presentShellOnFirstPaint`), so the user sees chrome as
   // soon as the renderer paints instead of waiting for the ~4s ledger/attachments replay — and
   // the measurement of that moment is armed with the presentation itself, never by a second
-  // presenter racing it for the same window.
-  const { shell, host: bootstrapHost } = await ensureProjectWindow(owner, 'user', {
-    // The boot project is the hub's active project from its first paint: the call
-    // inside the factory sets `setActiveProject` plus the workspace affiliation and
-    // seeding, before any tab is restored.
-    activateProjectId: projectId,
+  // presenter racing it for the same window. It is the first project window that was open at
+  // the last exit, or the Terminal Manager when none was.
+  const bootProjectIds = bootProjectWindowIds(openProjectIdsAtBoot, projectId);
+  const bootOwner: WindowOwner = bootProjectIds[0]
+    ? { kind: 'project', projectId: bootProjectIds[0] }
+    : { kind: 'unassigned' };
+  const { shell, host: bootstrapHost } = await ensureProjectWindow(bootOwner, 'user', {
     onFirstPresented: () => {
       recordBenchmark({ surface: 'startup', name: 'firstVisible' });
       recordProcessMetrics('afterFirstVisible');
@@ -4538,17 +3863,12 @@ async function createWindow(): Promise<void> {
   // window. Later windows get both from the same helper (see `attachSharedServices`).
   attachSharedServices(bootstrapHost);
 
-  // Boot restore, after the hub's own restore+fold write has completed and the
-  // control plane is attached: every marked `detached:true` `project:<id>`
-  // record whose project still validates gets its shell back, sequentially and
-  // unfocused ('restore' intent — zero focus steals from this leg). Records a
-  // dead project owns are refused and left on disk for purge; hosts restored
-  // here still receive the browser-port gate through the `hosts()` re-attach
-  // pass below.
-  // The open-window ledger as the last process left it: detached shells the user closed
-  // stay closed, and a Terminal Manager that was open comes back.
+  // Project windows that were open at the last exit come back after the control plane is
+  // attached, sequentially and unfocused ('restore' intent: zero focus steals from this leg).
+  // The first one was already opened above as the startup window. The open-window ledger as
+  // the last process left it also decides whether the Terminal Manager comes back.
   const openAtLastExit = readOpenWindowLedger(openWindowLedgerPath(savedTabsFilePath()));
-  await restoreDetachedProjectShells(openAtLastExit);
+  await restoreProjectWindows(bootProjectIds.slice(bootOwner.kind === 'project' ? 1 : 0));
   await restoreTerminalManagerIfOpenAtLastExit(openAtLastExit, (intent) => openSharedTerminalManagerWindow(intent));
 
   // One reservation table for both seams, installed before either can serve a request:
@@ -4920,14 +4240,19 @@ async function createWindow(): Promise<void> {
         // automation tab, never the user's active foreground tab. This prevents any
         // MCP/CLI session bootstrapping without an explicit target from latching onto
         // and hijacking the user's working tab.
-        // The hub that answers is the live one: a hub closed while siblings kept the process
-        // running is reopened as a new host, and the boot-time one is disposed with no tabs.
-        const hubHost = hostForOwnerKey('web') ?? host;
-        const automationTarget = hubHost.getAutomationTarget() as
+        // No window is "the" window. An unbound authority is pinned to an automation tab only
+        // while exactly one project window is live; with several the call has to name its window
+        // (startSession / rebind), and with none there is nothing to pin.
+        const projectHosts = liveProjectShells()
+          .filter((candidate) => candidate.owner.kind === 'project')
+          .map((candidate) => tabAuthorities.hostForShell(candidate))
+          .filter((candidateHost): candidateHost is NativeTabHost => candidateHost !== undefined);
+        const soleHost = projectHosts.length === 1 ? projectHosts[0] : undefined;
+        const automationTarget = soleHost?.getAutomationTarget() as
           | { tabId: string; url?: string; documentGeneration?: number }
           | undefined;
         const targetTabId = automationTarget?.tabId;
-        if (!targetTabId) {
+        if (!soleHost || !targetTabId) {
           // Unbound authority: no ambient fallback. Agent sessions must explicitly
           // provision a target via antifan.cli.startSession, which creates a dedicated
           // background agent tab. Return undefined so unbound tools fail-closed instead
@@ -4945,8 +4270,8 @@ async function createWindow(): Promise<void> {
             tabId: targetTabId,
             browserEpoch: 1,
             documentGeneration:
-              typeof hubHost.getDocumentGeneration === 'function'
-                ? hubHost.getDocumentGeneration(targetTabId)
+              typeof soleHost.getDocumentGeneration === 'function'
+                ? soleHost.getDocumentGeneration(targetTabId)
                 : 1,
             url: automationTarget?.url,
           },
@@ -4960,10 +4285,9 @@ async function createWindow(): Promise<void> {
     bridgeServer.setCloseAdmission(closeReservations);
     // Mint routing: a terminal's agent anchor must be created on the window that owns
     // the terminal and stamped with the terminal's own capsule — never the bootstrap
-    // host or the process-wide ambient capsule. Detached `project:<id>` claims route
-    // to the project's own shell while it lives and REFUSE (typed, never hub) while
-    // the project is detached-but-windowless — a marked dead record or an in-flight
-    // reattach means the hub does not own this project. See `createBridgeMintHostResolver`.
+    // host or the process-wide ambient capsule. A `project:<id>` claim routes to the
+    // project's own window, reopened without being raised when it is closed, and is
+    // refused (typed) when no window can own it. See `createBridgeMintHostResolver`.
     bridgeServer.setMintHostResolver(createBridgeMintHostResolver({
       hostForTab: (tabId) => tabAuthorities.hostForTab(tabId) ?? null,
       hostForOwnerKey: (ownerKeyValue) => hostForOwnerKey(ownerKeyValue),
@@ -4972,26 +4296,13 @@ async function createWindow(): Promise<void> {
       capsuleExists: (capsuleId) => capsuleManager?.list().some((c) => c.id === capsuleId) === true,
       projectCapsuleId: (projectId) => resolveProjectAssignment(projectId)?.capsuleId,
       capsuleProjectId: (capsuleId) => capsuleManager?.list().find((c) => c.id === capsuleId)?.projectId || undefined,
-      projectDetached: (projectId) => reattachInProgress.has(projectId)
-        || liveProjectShells().some((s) => s.owner.kind === 'project' && s.owner.projectId === projectId)
-        || savedTabsOwnerIsDetached(savedTabsFilePath(), projectId),
-      reattachInProgress: (projectId) => reattachInProgress.has(projectId),
-      restoreDetachedShell: async (projectId) => {
-        if (reattachInProgress.has(projectId) || !detachedRestoreAdmitsProject(projectId)) return null;
-        const { host } = await ensureDetachedProjectShell(projectId, 'restore');
-        recordLifecycleEvent('detached-shell.restored-on-demand', { projectId });
+      ensureProjectHost: async (projectId) => {
+        if (!isKnownProjectId(projectId)) return null;
+        const { host, created } = await ensureProjectWindow({ kind: 'project', projectId }, 'agent');
+        if (created) recordLifecycleEvent('project-window.reopened-off-screen', { projectId, reason: 'agent-mint' });
         return host;
       },
-      isBootProject: (projectId) => projectId === bootProjectIdValue,
-      ensureHubHost: async () => {
-        const live = hostForOwnerKey('web');
-        if (live) return live;
-        // The hub was closed while sibling windows kept the process running. Agent intent
-        // reopens it without raising it; the next user open presents it.
-        const { host, created } = await ensureProjectWindow({ kind: 'web' }, 'agent');
-        if (created) recordLifecycleEvent('hub.reopened-off-screen', { reason: 'agent-mint' });
-        return host;
-      },
+      ambientHost: () => ambientHostOrThrow(),
     }));
     // Direct-RPC tab ops (switch/close/getDOM/capture/evalJS/navigate/reload/goBack/
     // goForward) act on the window's host that owns the resolved tab — not the
@@ -5388,22 +4699,6 @@ export const projectWindowAuthority = {
   async ensureProjectWindow(owner: ProjectWindowOwner, intent: OpenIntent): Promise<ProjectWindowProbeEntry> {
     const { shell } = await ensureProjectWindow(toWindowOwner(owner), intent);
     return describeShellForProbe(shell);
-  },
-  /**
-   * Drive a project detach through the one entrypoint the menu and IPC route share —
-   * the same exclusivity, transfer and marker semantics a user hand triggers. Probes
-   * call this instead of reproducing the join/create arms.
-   */
-  async detachProject(projectId: string): Promise<ProjectDetachResult> {
-    return detachProject({ projectId }, null);
-  },
-  /**
-   * Drive a reattach through the one entrypoint the menu and IPC route share —
-   * the same close-coordinator ordering, fold, ingest and latch semantics a user
-   * hand triggers.
-   */
-  async reattachProject(projectId: string): Promise<ProjectReattachResult> {
-    return reattachProject({ projectId });
   },
   /**
    * Ask a window to close the way a user does — a native close request. The shell

@@ -58,12 +58,6 @@ function applyShellScope(source) {
     shellScope.projectId = owner.projectId;
     shellScope.title = typeof identity.title === 'string' ? identity.title : '';
     shellScope.pathLabel = typeof identity.pathLabel === 'string' ? identity.pathLabel : '';
-  } else if (owner && owner.kind === 'web') {
-    // The web hub is a described shell of its own: never Unassigned (which is the Terminal
-    // Manager that shows every project). Its title is the project it currently presents.
-    shellScope.ownerKind = 'web';
-    shellScope.title = typeof identity.title === 'string' ? identity.title : '';
-    shellScope.pathLabel = typeof identity.pathLabel === 'string' ? identity.pathLabel : '';
   } else if (owner && owner.kind === 'unassigned') {
     shellScope.ownerKind = 'unassigned';
     shellScope.title = typeof identity.title === 'string' ? identity.title : '';
@@ -2289,8 +2283,7 @@ function setupTerminalClipboard(targetTerm) {
       return false;
     }
 
-    // Alt+Shift+D / Ctrl+\: Toggle terminal split. Ctrl+Shift+D is the application's
-    // detach/reattach-project chord and never reaches the page (`dispatchApplicationMenuShortcut`).
+    // Alt+Shift+D / Ctrl+\: Toggle terminal split.
     if ((e.altKey && e.shiftKey && !e.ctrlKey && !e.metaKey && (e.key === 'd' || e.key === 'D')) ||
         ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key === '\\')) {
       e.preventDefault();
@@ -7546,7 +7539,7 @@ function ensureCategoryHeader(group) {
     if (isDerivedGroup) {
       // Indicators only: star and colour are read-outs of the project's appearance. Writing
       // them, like every other project action, lives in the header's right-click menu - except
-      // switching to the project's Web Hub, the one action used often enough to sit inline.
+      // opening the project's own window, the one action used often enough to sit inline.
       const projectStar = document.createElement('span');
       projectStar.className = 'terminal-tab-project-star';
       projectStar.setAttribute('data-role', 'project-star');
@@ -7568,13 +7561,13 @@ function ensureCategoryHeader(group) {
       projectOpen.className = 'terminal-tab-project-open';
       projectOpen.setAttribute('data-role', 'project-open');
       projectOpen.textContent = '↗';
-      projectOpen.title = 'Chuyển sang Web Hub của dự án này';
-      projectOpen.setAttribute('aria-label', 'Chuyển sang Web Hub của dự án này');
+      projectOpen.title = 'Mở cửa sổ của dự án này';
+      projectOpen.setAttribute('aria-label', 'Mở cửa sổ của dự án này');
       // `stopPropagation` so the switch never also collapses the section underneath it.
       projectOpen.addEventListener('click', (e) => {
         e.stopPropagation();
         const projectId = header.getAttribute('data-project-id') || '';
-        if (projectId) openProjectWebHub(projectId);
+        if (projectId) openProjectWindow(projectId);
       });
       header.append(projectColor, projectStar, projectOpen);
     }
@@ -7933,8 +7926,8 @@ async function removeProjectFromMenu(projectId, name) {
   }
 }
 
-/** Present one project in the Web Hub; a refusal is reported, never swallowed. */
-function openProjectWebHub(projectId) {
+/** Open or focus one project's own window; a refusal is reported, never swallowed. */
+function openProjectWindow(projectId) {
   return Promise.resolve(api.openProject(projectId)).then((result) => {
     if (result && result.status === 'FAILED') {
       showTerminalNotice(`Không mở được dự án: ${projectOpenFailureText(result.reason)}`);
@@ -8014,7 +8007,7 @@ function showProjectHeaderMenu(e, header) {
     if (colorInput) items.push({ label: 'Đổi màu dự án…', run: () => colorInput.click() });
   }
   if (projectId && isSharedManagerShell() && typeof api?.openProject === 'function') {
-    items.push({ label: 'Mở dự án này (Web Hub)', run: () => openProjectWebHub(projectId) });
+    items.push({ label: 'Mở dự án này', run: () => openProjectWindow(projectId) });
   }
   if (typeof api?.removeProject === 'function') {
     const removable = removeViaFolder ? folderProjectIds : (projectId ? [projectId] : []);
