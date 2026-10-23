@@ -176,4 +176,46 @@ describe('Renderer terminal tab-strip layout', () => {
 
     assert.strictEqual(countCalls(harness, 'setTerminalTabPrefs'), 4, 'each keyboard step persists');
   });
+
+  it('reveals the active tab when it becomes active, and never moves a scroll the user left', async () => {
+    const harness = loadStandalone({
+      initialState: { terminalTabPrefs: { layout: 'sidebar', sidebarWidth: 220 } },
+    });
+    await flush();
+    const strip = harness.tabsRoot as unknown as { scrollTop: number; getBoundingClientRect: () => unknown };
+    strip.scrollTop = 0;
+    strip.getBoundingClientRect = () => ({ width: 220, height: 400, top: 100, bottom: 500, left: 0, right: 220 });
+    harness.setSessions([
+      { id: 'a', name: 'a', state: 'running' },
+      { id: 'b', name: 'b', state: 'running' },
+    ]);
+    // Draw the wraps with nothing active yet, so the first reveal is the measured one below.
+    harness.setActiveId('');
+    harness.renderTabs();
+    const placeWrap = (id: string, top: number): void => {
+      const wrap = harness.tabsRoot.querySelector(`.terminal-tab-wrap[data-session-id="${id}"]`) as unknown as { getBoundingClientRect: () => unknown };
+      assert.ok(wrap, `wrap ${id}`);
+      wrap.getBoundingClientRect = () => ({ width: 200, height: 30, top, bottom: top + 30, left: 0, right: 200 });
+    };
+
+    // The active tab sits below the strip: activating it scrolls it in.
+    placeWrap('a', 600);
+    harness.setActiveId('a');
+    harness.renderTabs();
+    assert.strictEqual(strip.scrollTop, 140, 'the newly active tab is revealed (630 - 500 + 10)');
+
+    // The user scrolls the active tab out above the strip and folds a section further down:
+    // the re-render keeps the position instead of jumping back to the active tab.
+    strip.scrollTop = 900;
+    placeWrap('a', -300);
+    harness.read<(key: string) => void>('toggleCategoryCollapsed')('some-section');
+    harness.renderTabs();
+    assert.strictEqual(strip.scrollTop, 900, 'a fold or broadcast re-render never moves the strip');
+
+    // Activating another clipped tab reveals it again.
+    placeWrap('b', -60);
+    harness.setActiveId('b');
+    harness.renderTabs();
+    assert.strictEqual(strip.scrollTop, 900 - 160 - 10, 'the next activation reveals its tab (-60 - 100 - 10)');
+  });
 });

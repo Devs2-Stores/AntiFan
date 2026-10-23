@@ -8773,6 +8773,13 @@ function reorderTabChildren(ordered) {
   }
 }
 
+/**
+ * The strip layout and active tab the last reveal scrolled for. A render scrolls the active
+ * tab into view only when one of them changed: folding a section, a session broadcast or any
+ * other re-render keeps the scroll position the user left the strip at.
+ */
+let revealedActiveKey = '';
+
 function renderTabs() {
   const currentWraps = new Map();
   tabsEl.querySelectorAll('.terminal-tab-wrap').forEach((el) => {
@@ -8953,16 +8960,20 @@ function renderTabs() {
   }
   reorderTabChildren(ordered);
 
-  // Directly scroll tabs bar if active tab is clipped (no window-level scrolling).
+  // Directly scroll tabs bar if the newly active tab is clipped (no window-level scrolling).
   // The axis follows the tab-strip layout: the horizontal strip scrolls on X, the
   // sidebar scrolls on Y. Mutating `scrollLeft` while the sidebar is active is a
   // silent no-op, which would leave the active tab clipped out of view. Computed
   // from rects rather than `scrollIntoView` so a tab activation can never scroll
   // an ancestor outside the strip.
-  if (activeId) {
+  const revealKey = activeId ? `${terminalTabLayout}|${activeId}` : '';
+  if (revealKey && revealKey !== revealedActiveKey) {
     const activeWrap = tabsEl.querySelector(`.terminal-tab-wrap[data-session-id="${activeId}"]`);
-    if (activeWrap && tabsEl) {
-      const tabRect = activeWrap.getBoundingClientRect();
+    const tabRect = activeWrap ? activeWrap.getBoundingClientRect() : null;
+    // A wrap with no box (its section is folded) has nothing to reveal yet; the first render
+    // that lays it out does.
+    if (tabRect && (tabRect.width > 0 || tabRect.height > 0)) {
+      revealedActiveKey = revealKey;
       const containerRect = tabsEl.getBoundingClientRect();
       if (terminalTabLayout === 'sidebar') {
         if (tabRect.top < containerRect.top) {
