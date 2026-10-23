@@ -824,10 +824,9 @@ function sameKeySet(a, b) {
  * Stable partition of the manager's sections (in place). Headerless sections (the catch-all
  * for rows no folder or project names) lead, so their rows can never read as part of the
  * section drawn above them. Every awake section follows, in the user's order, lifted out of
- * its parent-folder block: it is drawn with no block header above it and no block fold over
- * it. Then the sleeping sections with no parent (a folder or capsule fallback, a project
- * whose path is unknown), then the parent-folder blocks ordered by their parent key, each
- * holding only its sleeping projects.
+ * its block: it is drawn with no block header above it and no block fold over it. Then the
+ * parent-folder blocks ordered by their parent key, each holding only its sleeping sections,
+ * and last the `KHÁC` block of the sleeping sections no parent folder holds.
  */
 function promoteAwakeProjects(groups) {
   const awake = awakeProjectKeys(groups);
@@ -839,7 +838,6 @@ function promoteAwakeProjects(groups) {
   }
   const headerless = [];
   const promoted = [];
-  const unparented = [];
   const blocks = new Map();
   for (const g of groups) {
     if (!isDerivedGroupKey(g.key)) {
@@ -847,27 +845,27 @@ function promoteAwakeProjects(groups) {
     } else if (promotedProjectKeys.has(g.key)) {
       g.promoted = true;
       promoted.push(g);
-    } else if (g.kind === 'project' && g.parentKey) {
+    } else {
       const block = blocks.get(g.parentKey);
       if (block) block.push(g);
       else blocks.set(g.parentKey, [g]);
-    } else {
-      unparented.push(g);
     }
   }
-  const arranged = headerless.concat(promoted, unparented);
-  for (const parentKey of Array.from(blocks.keys()).sort()) arranged.push(...blocks.get(parentKey));
+  const parentKeys = Array.from(blocks.keys()).filter((key) => key !== OTHER_PARENT_KEY).sort();
+  if (blocks.has(OTHER_PARENT_KEY)) parentKeys.push(OTHER_PARENT_KEY);
+  const arranged = headerless.concat(promoted);
+  for (const parentKey of parentKeys) arranged.push(...blocks.get(parentKey));
   groups.splice(0, groups.length, ...arranged);
   // Only project sections are reorderable, so Alt+Arrow steps among those alone.
   displayedProjectKeys = groups.map((g) => g.key).filter((key) => isProjectGroupKey(key));
 }
 
 /**
- * The parent-folder block a section is drawn under, or '' for none. An awake section is
- * lifted above every block, so it is drawn under none even though its folder has a parent.
+ * The block a section is drawn under, or '' for none. An awake section is lifted above every
+ * block, so it is drawn under none even though it has one.
  */
 function drawnParentKeyOf(group) {
-  return group.kind === 'project' && group.parentKey && group.promoted !== true ? group.parentKey : '';
+  return group.parentKey && group.promoted !== true ? group.parentKey : '';
 }
 
 /** Parent-folder info of every section drawn under a block, in drawn order, for the block headers. */
@@ -887,18 +885,15 @@ function buildParentInfo(groups) {
 }
 
 /**
- * Mark where the user's own order resumes: the first drawn sleeping derived section after
- * the awake ones. All awake sections lead the list, so there is at most one such place.
- * When that section opens a parent-folder block the rule goes on the block header
- * (`parentBoundary`), which is the first thing drawn there; otherwise on the section itself.
+ * Mark where the user's own order resumes: the block header of the first drawn sleeping
+ * section after the awake ones. All awake sections lead the list and every sleeping section
+ * sits in a block, so there is at most one such place and it is always a block header.
  */
 function markPromotionBoundaries(visibleGroups) {
   const derived = visibleGroups.filter((g) => isDerivedGroupKey(g.key));
   if (!derived.some((g) => g.promoted === true)) return;
   const firstRest = derived.find((g) => g.promoted !== true);
-  if (!firstRest) return;
-  if (drawnParentKeyOf(firstRest)) firstRest.parentBoundary = true;
-  else firstRest.promotionBoundary = true;
+  if (firstRest && drawnParentKeyOf(firstRest)) firstRest.parentBoundary = true;
 }
 
 /** Apply a promotion change that was held while the pointer was over the sidebar. */
@@ -1325,8 +1320,16 @@ const PARENT_GROUP_PREFIX = 'parent:';
 /** The workspace root parent labels are written relative to; the root itself reads as its last segment. */
 const PARENT_LABEL_ROOT = 'E:\\Work';
 const PARENT_LABEL_SEPARATOR = ' › ';
+/**
+ * The block drawn last, holding every section no parent folder holds: a project whose folder
+ * is unknown, and the folder or capsule fallback of rows no project claims. A real block key
+ * is a lower-cased path (`x:\…`, `\\…` or `/…`), never `*`, so the two cannot alias.
+ */
+const OTHER_PARENT_KEY = `${PARENT_GROUP_PREFIX}*`;
+const OTHER_PARENT_LABEL = 'KHÁC';
+const OTHER_PARENT_TITLE = 'Dự án chưa rõ thư mục, và terminal chưa thuộc dự án nào';
 
-/** Project section key -> parent block key, as of the last grouping; absent for an unplaced project. */
+/** Manager section key -> the block it belongs to, as of the last grouping. */
 const projectParentByKey = new Map();
 
 /**
@@ -1365,22 +1368,24 @@ function parentGroupLabel(path) {
 }
 
 /**
- * Stamp every project section of the manager with its parent block. The project's own
- * workspace folder (Main's inventory) wins over the folder of whichever row created the
- * section: a row may sit in a sub-folder of the workspace. A project with no known folder
- * gets no parent and keeps the plain section placement.
+ * Stamp every section of the manager with its block. A project's own workspace folder (Main's
+ * inventory) wins over the folder of whichever row created the section: a row may sit in a
+ * sub-folder of the workspace. A project with no known folder, and the folder or capsule
+ * fallback of rows no project claims, belong to the trailing `KHÁC` block, so no section is
+ * ever drawn outside a labelled block.
  */
 function assignParentFolders(groups) {
   projectParentByKey.clear();
   if (!isSharedManagerShell()) return;
   for (const g of groups) {
-    if (g.kind !== 'project') continue;
-    const info = parentFolderInfo(projectWorkspacePaths.get(g.projectId) || g.folderPath);
-    if (!info) continue;
-    g.parentKey = info.key;
-    g.parentPath = info.path;
-    g.parentLabel = info.label;
-    projectParentByKey.set(g.key, info.key);
+    if (!isDerivedGroupKey(g.key)) continue;
+    const info = g.kind === 'project'
+      ? parentFolderInfo(projectWorkspacePaths.get(g.projectId) || g.folderPath)
+      : null;
+    g.parentKey = info ? info.key : OTHER_PARENT_KEY;
+    g.parentPath = info ? info.path : '';
+    g.parentLabel = info ? info.label : OTHER_PARENT_LABEL;
+    projectParentByKey.set(g.key, g.parentKey);
   }
 }
 
@@ -7665,7 +7670,6 @@ function ensureCategoryHeader(group) {
   header.classList.toggle('is-folder-group', isFolderLikeGroup(group));
   header.classList.toggle('is-project-group', group.kind === 'project');
   header.classList.toggle('is-awake-promoted', group.promoted === true);
-  header.classList.toggle('is-promotion-boundary', group.promotionBoundary === true);
   header.setAttribute('data-group-kind', group.kind === 'capsule' || group.kind === 'folder' || group.kind === 'project' ? group.kind : 'category');
   // A project section is only ordered among the sections of its own parent block.
   if (group.parentKey) header.setAttribute('data-parent-key', group.parentKey);
@@ -7784,10 +7788,12 @@ function ensureParentHeader(info) {
   };
   setText('.terminal-tab-parent-label', info.label);
   setText('.terminal-tab-parent-names', info.names.length <= 3 ? info.names.join(' · ') : '');
-  setText('.terminal-tab-parent-count', `${info.names.length} dự án`);
+  // `KHÁC` may also hold the folder sections of rows no project claims, so it counts entries.
+  const isOther = info.key === OTHER_PARENT_KEY;
+  setText('.terminal-tab-parent-count', `${info.names.length} ${isOther ? 'mục' : 'dự án'}`);
   header.setAttribute('data-parent-path', info.path);
   header.setAttribute('data-project-count', String(info.names.length));
-  header.title = info.path;
+  header.title = isOther ? OTHER_PARENT_TITLE : info.path;
   header.setAttribute('aria-expanded', isGroupCollapsed(info.key) ? 'false' : 'true');
   return header;
 }

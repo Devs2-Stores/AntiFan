@@ -13,7 +13,8 @@
  *   3. A project is only ordered among the projects of its own block.
  *   4. An awake project is lifted above every block, out of its own, and drops back into its
  *      block when it sleeps.
- *   5. A row that names no project keeps its fallback section and joins no block.
+ *   5. A section no parent folder holds (a project of unknown folder, the fallback section of
+ *      rows no project claims) is filed in the trailing `KHÁC` block, never drawn loose.
  */
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
@@ -49,6 +50,7 @@ const DEFAULT_WORKSPACES: Record<string, string> = { p1: WORKSPACES.p1!, p2: WOR
 
 const APPS = 'parent:e:\\work\\apps';
 const THEMES = 'parent:e:\\work\\themes\\f1genz';
+const OTHER = 'parent:*';
 
 async function loadManager(
   workspaces: Record<string, string> = DEFAULT_WORKSPACES,
@@ -172,20 +174,46 @@ describe('hub parent-folder blocks', () => {
     assert.deepStrictEqual(parentHeaders(harness).map((h) => h.getAttribute('data-parent-key')), [APPS]);
   });
 
-  it('keeps rows that name no project in their fallback section, outside every block', async () => {
+  it('files rows that name no project in their fallback section under the trailing KHÁC block', async () => {
     const harness = await loadManager();
-    const loose = { id: 'l', name: 'l', state: 'running', ownerKey: 'agent:tab-9', folderKey: 'e:\\work\\loose', folderLabel: 'loose', folderPath: 'E:\\Work\\loose' };
+    const loose = { id: 'l', name: 'l', state: 'exited', ownerKey: 'agent:tab-9', folderKey: 'e:\\work\\loose', folderLabel: 'loose', folderPath: 'E:\\Work\\loose' };
     seed(harness, [row('a', 'p1'), loose], 'a');
 
     const folder = harness.tabsRoot.querySelector('.terminal-tab-category-header[data-group-kind="folder"]');
     assert.ok(folder, 'the fallback folder section is still drawn');
-    assert.strictEqual(folder.getAttribute('data-parent-key'), null, 'it belongs to no block');
+    assert.strictEqual(folder.getAttribute('data-parent-key'), OTHER);
     assert.strictEqual(
       parentHeaders(harness).some((h) => h.getAttribute('data-parent-key') === 'parent:e:\\work'),
       false,
-      'no block is minted for it',
+      'no block is minted from the row folder of a project-less row',
     );
+    assert.strictEqual(drawnHeaders(harness).at(-2), OTHER, 'KHÁC is the last block');
     assert.strictEqual(wrapOf(harness, 'l')?.classList.contains('is-category-collapsed'), false);
+  });
+
+  it('never strands a project of unknown folder between the awake sections and the blocks', async () => {
+    const harness = await loadManager({ ...DEFAULT_WORKSPACES, hub: '' });
+    seed(harness, [
+      row('a', 'p1', 'sleeping'), row('b', 'p2', 'sleeping'),
+      row('c', 'p3', 'running'), row('d', 'p4', 'sleeping'),
+      { id: 'h', name: 'h', state: 'exited', ownerKey: 'project:hub' },
+    ], 'c');
+    assert.deepStrictEqual(drawnHeaders(harness), [
+      'project:p3',
+      APPS, 'project:p1', 'project:p2',
+      THEMES, 'project:p4',
+      OTHER, 'project:hub',
+    ]);
+    const other = parentHeaders(harness).find((h) => h.getAttribute('data-parent-key') === OTHER)!;
+    assert.strictEqual(other.querySelector('.terminal-tab-parent-label')?.textContent, 'KHÁC');
+    assert.strictEqual(other.querySelector('.terminal-tab-parent-count')?.textContent, '1 mục');
+    assert.ok(other.title, 'the block explains what it holds');
+    const apps = parentHeaders(harness).find((h) => h.getAttribute('data-parent-key') === APPS)!;
+    assert.strictEqual(apps.classList.contains('is-promotion-boundary'), true, 'the rule sits on the first block after the awake sections');
+
+    other.dispatch('click');
+    await flush();
+    assert.strictEqual(projectHeader(harness, 'hub').classList.contains('is-parent-collapsed'), true, 'KHÁC folds like any block');
   });
 
   describe('collapse', () => {
