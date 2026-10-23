@@ -2,7 +2,7 @@
  * AntiFan Terminal Split Hydration & Remount Deterministic Regression Probe
  *
  * Verifies post-fix invariants in real Electron Chromium runtime:
- * Path 1: Remount with empty/stale splitBuffer authoritatively pulls getFullBuffer from backend and renders
+ * Path 1: Remount with empty/stale snapshot authoritatively pulls getFullBuffer from backend and renders
  * Path 2: Same-ID newer snapshot broadcast triggers in-place re-hydration and clean replacement without duplicate append
  * Path 3: Real IPC split creation race: initial chunks arriving during await reach the split pane and never build a pooled pane for the split
  */
@@ -154,8 +154,10 @@ app.whenReady().then(async () => {
       mountSplit('split-probe-1', '', 0);
       await new Promise(r => setTimeout(r, 400));
       
+      const pane = splitPanes.get('split-probe-1');
+      const splitTerm = pane ? pane.term : null;
       const lines = splitTerm ? splitTerm.buffer.active.length : -1;
-      const lastSeq = splitSessionState.lastRenderedSeq;
+      const lastSeq = pane ? pane.lastRenderedSeq : -1;
       const cursorY = splitTerm ? splitTerm.buffer.active.cursorY : -1;
       const cursorX = splitTerm ? splitTerm.buffer.active.cursorX : -1;
       const text = splitTerm ? splitTerm.buffer.active.getLine(0)?.translateToString().trim() : '';
@@ -185,10 +187,10 @@ app.whenReady().then(async () => {
     
     const check2Initial = await win.webContents.executeJavaScript(`(async () => {
       // Unmount first, then mount the split against a backend that has not advanced yet
-      unmountSplit();
+      unmountAllSplits();
       mountSplit('split-probe-2', '', 0);
       await new Promise(r => setTimeout(r, 300));
-      return { initialSeq: splitSessionState.lastRenderedSeq };
+      return { initialSeq: splitPanes.get('split-probe-2').lastRenderedSeq };
     })()`);
 
     // A real session-state payload is derived from Main's transcript, so the backend
@@ -201,7 +203,8 @@ app.whenReady().then(async () => {
         mountSplit('split-probe-2', 'LATER-SESSION-BUFFER\\r\\n', 2);
         await new Promise(r => setTimeout(r, 400));
         
-        const seqAfterSessionArrival = splitSessionState.lastRenderedSeq;
+        const splitTerm = splitPanes.get('split-probe-2').term;
+        const seqAfterSessionArrival = splitPanes.get('split-probe-2').lastRenderedSeq;
         let fullText = '';
         if (splitTerm && splitTerm.buffer && splitTerm.buffer.active) {
           const b = splitTerm.buffer.active;
@@ -240,14 +243,14 @@ app.whenReady().then(async () => {
     // -------------------------------------------------------------
     console.log('[PROBE] Executing Check 3: Real IPC Split Creation Misrouting Probe...');
     await win.webContents.executeJavaScript(`(async () => {
-      unmountSplit();
+      unmountAllSplits();
     })()`);
     // Click real UI button #btnSplitTerminal which invokes api.splitTerminal
     const check3Result = await win.webContents.executeJavaScript(`(async () => {
       const btn = document.getElementById('btnSplitTerminal') || document.getElementById('btnSplitVertical');
       if (!btn) throw new Error('Split button #btnSplitTerminal not found in DOM');
       if (btn.disabled) throw new Error('Split button #btnSplitTerminal is disabled');
-      if (!activeId) throw new Error('activeId is empty, split action cannot proceed — ' + JSON.stringify({ sessions: sessions.length, ids: sessions.map((s) => s.id).slice(0, 4), initialPushReceived, splitId, poolSize: terminalPool.size }));
+      if (!activeId) throw new Error('activeId is empty, split action cannot proceed — ' + JSON.stringify({ sessions: sessions.length, ids: sessions.map((s) => s.id).slice(0, 4), initialPushReceived, splitPanes: Array.from(splitPanes.keys()), poolSize: terminalPool.size }));
       
       let phantomObservedDuringRace = false;
       const poller = setInterval(() => {
@@ -262,10 +265,12 @@ app.whenReady().then(async () => {
         // Wait dynamically until splitId is mounted, rendered to sequence 1, and hydration epoch settles
         const startTime = Date.now();
         while (Date.now() - startTime < 1500) {
-          if (splitId === 'split-race-test' && splitSessionState.lastRenderedSeq === 1 && splitSessionState.activeHydratingEpoch === null) break;
+          const racePane = splitPanes.get('split-race-test');
+          if (racePane && racePane.lastRenderedSeq === 1 && racePane.activeHydratingEpoch === null) break;
           await new Promise(r => setTimeout(r, 20));
         }
-        if (splitId !== 'split-race-test' || splitSessionState.lastRenderedSeq !== 1 || splitSessionState.activeHydratingEpoch !== null) {
+        const settledPane = splitPanes.get('split-race-test');
+        if (!settledPane || settledPane.lastRenderedSeq !== 1 || settledPane.activeHydratingEpoch !== null) {
           throw new Error('Timed out waiting for split creation and hydration to settle');
         }
       } finally {
@@ -273,6 +278,8 @@ app.whenReady().then(async () => {
       }
 
       const phantomNeverPooled = !terminalPool.has('split-race-test');
+      const racePane = splitPanes.get('split-race-test');
+      const splitTerm = racePane ? racePane.term : null;
       let splitText = '';
       if (splitTerm && splitTerm.buffer && splitTerm.buffer.active) {
         const b = splitTerm.buffer.active;
@@ -281,7 +288,7 @@ app.whenReady().then(async () => {
           if (l) splitText += l.translateToString(true) + String.fromCharCode(10);
         }
       }
-      const splitSeq = splitSessionState.lastRenderedSeq;
+      const splitSeq = racePane ? racePane.lastRenderedSeq : -1;
 
       return {
         phantomObservedDuringRace,
@@ -305,17 +312,18 @@ app.whenReady().then(async () => {
     console.log('[PROBE] Executing Check 4: Real Renderer Null Chunk Retry Resilience...');
     const check4Result = await win.webContents.executeJavaScript(`(async () => {
       try {
-        splitSessionState.liveQueue = [{ seq: 10, generation: 1, data: 'NULL-CHUNK-RETRY-TEST\\r\\n' }];
-        splitSessionState.lastRenderedSeq = 5;
-        // Invoke actual renderer function with null chunk (as done by setTimeout retry on line 797)
-        await handleSequenceGap(splitSessionState, null, true);
+        const pane = splitPanes.get('split-race-test');
+        pane.liveQueue = [{ seq: 10, generation: 1, data: 'NULL-CHUNK-RETRY-TEST\\r\\n' }];
+        pane.lastRenderedSeq = 5;
+        // Invoke actual renderer function with null chunk (as done by setTimeout retry in handleSequenceGap)
+        await handleSequenceGap(pane, null, true);
         return {
           ok: true,
-          gapCount: splitSessionState.gapCount,
-          isFetchingDelta: splitSessionState.isFetchingDelta,
-          lastRenderedSeq: splitSessionState.lastRenderedSeq,
-          queueLength: splitSessionState.liveQueue.length,
-          syncState: splitSessionState.syncState,
+          gapCount: pane.gapCount,
+          isFetchingDelta: pane.isFetchingDelta,
+          lastRenderedSeq: pane.lastRenderedSeq,
+          queueLength: pane.liveQueue.length,
+          syncState: pane.syncState,
         };
       } catch (err) {
         return {
@@ -337,6 +345,8 @@ app.whenReady().then(async () => {
 
     const check4LiveResult = await win.webContents.executeJavaScript(`(() => {
       let liveTextFound = false;
+      const pane = splitPanes.get('split-race-test');
+      const splitTerm = pane ? pane.term : null;
       if (splitTerm && splitTerm.buffer && splitTerm.buffer.active) {
         const b = splitTerm.buffer.active;
         for (let i = 0; i < b.length; i++) {
@@ -348,7 +358,7 @@ app.whenReady().then(async () => {
         }
       }
       return {
-        lastSeq: splitSessionState.lastRenderedSeq,
+        lastSeq: pane.lastRenderedSeq,
         liveTextFound,
       };
     })()`);

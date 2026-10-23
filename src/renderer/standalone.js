@@ -742,6 +742,9 @@ const MIN_TERMINAL_ROWS = 8;
 const MIN_SPLIT_TERMINAL_ROWS = 4;
 const DEFAULT_MAIN_SPLIT_RATIO = 0.8;
 const SPLIT_TERMINAL_FRACTION = 0.2;
+const MIN_SPLIT_TERMINAL_COLS = 20;
+// Narrowest a split pane may be dragged to: its header and a usable grid stay visible.
+const MIN_SPLIT_PANE_WIDTH = 200;
 
 // ---------------------------------------------------------------------------
 // Sleep / wake and tab categories (phase 5).
@@ -1717,6 +1720,7 @@ function releaseTerminalPane(id, item) {
   try { item.paneEl.remove(); } catch {}
   rawTerminalPool.delete(id);
   sessionSplitRatios.delete(id);
+  sessionSplitPaneWidths.delete(id);
 }
 
 // Keystrokes that triggered a wake are buffered until the fresh PTY has a pane,
@@ -1762,7 +1766,7 @@ function flushDeferredWakeInput() {
   if (deferredWakeInput.size === 0) return;
   for (const [sessionId, text] of Array.from(deferredWakeInput.entries())) {
     if (isSessionSleeping(sessionId)) continue;
-    const shownBySplit = sessionId === splitId && Boolean(splitTerm);
+    const shownBySplit = splitPanes.has(sessionId);
     if (!shownBySplit && !rawTerminalPool.has(sessionId)) continue;
     deferredWakeInput.delete(sessionId);
     api?.sendTerminalInputTo?.(sessionId, text);
@@ -2164,7 +2168,7 @@ function setupTerminalClipboard(targetTerm) {
     // Alt+Down / Ctrl+Alt+Down: Focus Split Pane (if split is open)
     if ((e.altKey && (e.key === 'ArrowDown' || e.key === 'Down')) ||
         ((e.ctrlKey || e.metaKey) && e.altKey && (e.key === 'ArrowDown' || e.key === 'Down'))) {
-      if (splitEnabled && splitTerm) {
+      if (isSplitMounted()) {
         e.preventDefault();
         e.stopPropagation();
         focusSplitPane();
@@ -2209,7 +2213,7 @@ const terminalPool = {
       const s = sessions.find((x) => x.id === id);
       // A sleeping session has no PTY: materializing an xterm here would undo
       // the entire zero-cost guarantee, so this chokepoint refuses. A split session
-      // is drawn only by the lower pane (splitTerm); a pooled pane for it would fit
+      // is drawn only by its pane in the lower row; a pooled pane for it would fit
       // to the main pane and resize the split PTY to the main pane's height.
       // Callers already tolerate `undefined`.
       if (s && s.state !== 'sleeping' && !s.splitOf) {
@@ -2248,26 +2252,26 @@ window.__antifanTerminalHealth = function getTerminalHealthSnapshot() {
       recoveryQueueChunks: (item.liveQueue || []).length,
       health: item.syncState === 'READY' ? 'SYNCED' : (item.syncState || 'SYNCED'),
       authority: {
-        inputOwner: id === activeId && !splitEnabled,
-        geometryOwner: id === activeId && !splitEnabled,
+        inputOwner: id === activeId && !isSplitMounted(),
+        geometryOwner: id === activeId && !isSplitMounted(),
       },
     });
   }
-  if (splitEnabled && splitId) {
-    const s = Array.isArray(sessions) ? sessions.find((x) => x.id === splitId) : null;
+  for (const pane of splitPanes.values()) {
+    const s = Array.isArray(sessions) ? sessions.find((x) => x.id === pane.id) : null;
     views.push({
-      sessionId: splitId,
+      sessionId: pane.id,
       generation: s?.sessionGeneration || 0,
-      lastRenderedSeq: splitSessionState.lastRenderedSeq || 0,
-      lastAckedSeq: splitSessionState.lastAckedSeq || splitSessionState.lastRenderedSeq || 0,
-      gapCount: splitSessionState.gapCount || 0,
-      resyncCount: splitSessionState.resyncCount || 0,
-      degradedCount: splitSessionState.degradedCount || 0,
-      recoveryQueueBytes: (splitSessionState.liveQueue || []).reduce((acc, c) => acc + (c.data ? c.data.length : 0), 0),
-      recoveryQueueChunks: (splitSessionState.liveQueue || []).length,
-      health: splitSessionState.syncState === 'READY' ? 'SYNCED' : (splitSessionState.syncState || 'SYNCED'),
+      lastRenderedSeq: pane.lastRenderedSeq || 0,
+      lastAckedSeq: pane.lastAckedSeq || pane.lastRenderedSeq || 0,
+      gapCount: pane.gapCount || 0,
+      resyncCount: pane.resyncCount || 0,
+      degradedCount: pane.degradedCount || 0,
+      recoveryQueueBytes: (pane.liveQueue || []).reduce((acc, c) => acc + (c.data ? c.data.length : 0), 0),
+      recoveryQueueChunks: (pane.liveQueue || []).length,
+      health: pane.syncState === 'READY' ? 'SYNCED' : (pane.syncState || 'SYNCED'),
       authority: {
-        inputOwner: document.getElementById('terminal-split')?.classList.contains('focused-pane') || false,
+        inputOwner: Boolean(splitRowEl?.classList.contains('focused-pane')) && splitFocusedId === pane.id,
         geometryOwner: true,
       },
     });
@@ -2278,30 +2282,54 @@ window.__antifanTerminalHealth = function getTerminalHealthSnapshot() {
     views,
   };
 };
-let splitEnabled = false;
-let splitId = '';
-let splitTerm = null;
-let splitFitAddon = null;
-let splitWebglAddon = null;
-let splitWebLinksAddon = null;
-let splitFileLinksProvider = null;
-let splitWriteTarget = null;
-let isSplitUserScrolledUp = false;
-let isSplitProgrammaticScroll = false;
 let resizeDebounceTimer = null;
 const sessionSplitRatios = new Map();
 
-function focusSplitPane() {
-  const lower = document.getElementById('terminal-split');
-  if (lower) lower.classList.add('focused-pane');
+// The lower region of the active base session: one pane per split, left to right in the
+// base row's `splitSessionIds` order. Each pane owns its terminal, hydration epoch, write
+// target and scroll flags, shaped like a pool item so the chunk state machine drives it
+// unchanged. Keyed by split session id.
+const splitPanes = new Map();
+let splitPaneOrder = [];
+// The base session the lower row belongs to, and the pane that last held focus.
+let splitBaseId = '';
+let splitFocusedId = '';
+let splitRowEl = null;
+let splitDividerEl = null;
+// base session id -> (split session id -> width fraction); fractions of present panes sum to 1.
+const sessionSplitPaneWidths = new Map();
+
+// The badge a role earns on a tab and on a split pane header.
+const SESSION_ROLE_BADGES = {
+  sync: { text: 'sync', title: 'Watcher đồng bộ theme: không tự ngủ' },
+  agent: { text: 'agent', title: 'Terminal do agent điều khiển' },
+};
+
+function sessionRoleBadge(role) {
+  return SESSION_ROLE_BADGES[role] || null;
+}
+
+function isSplitMounted() {
+  return splitPanes.size > 0;
+}
+
+/** Focus a split pane: the given one, else the one last interacted with, else the newest. */
+function focusSplitPane(paneId) {
+  const target = splitPanes.get(paneId)
+    || splitPanes.get(splitFocusedId)
+    || splitPanes.get(splitPaneOrder[splitPaneOrder.length - 1]);
+  if (!splitRowEl || !target) return;
+  splitFocusedId = target.id;
+  splitRowEl.classList.add('focused-pane');
+  for (const pane of splitPanes.values()) pane.paneEl.classList.toggle('is-focused', pane === target);
   mainPane.classList.remove('focused-pane');
   document.querySelectorAll('.terminal-session-pane').forEach((p) => p.classList.remove('focused-pane'));
-  try { splitTerm?.focus(); } catch {}
+  try { target.term.focus(); } catch {}
 }
 
 function focusMainPane() {
-  const lower = document.getElementById('terminal-split');
-  if (lower) lower.classList.remove('focused-pane');
+  if (splitRowEl) splitRowEl.classList.remove('focused-pane');
+  for (const pane of splitPanes.values()) pane.paneEl.classList.remove('is-focused');
   mainPane.classList.add('focused-pane');
   // A sleeping active tab has no pane; its read-only preview is the focus target
   // so the next keystroke is the wake gesture.
@@ -2397,7 +2425,7 @@ function hideDegradedBanner(viewState) {
 }
 
 async function forceResyncPane(viewState, sessionId) {
-  const paneIsSplit = viewState === splitSessionState;
+  const paneIsSplit = viewState.isSplitPane === true;
   // Invalidate gap-retry timers and in-flight delta fetches at entry, not after
   // the awaited write: a retry that fires mid-fetch would otherwise commit stale
   // deltas onto the new snapshot before the epoch moved. Mark the resync active
@@ -2419,12 +2447,12 @@ async function forceResyncPane(viewState, sessionId) {
     // Same pre-reset ordering as atomicHydratePane: cancel the dispatcher's
     // queued writes before the snapshot owns the buffer.
     try {
-      const target = paneIsSplit ? splitWriteTarget : viewState.writeTarget;
+      const target = viewState.writeTarget;
       if (target && window.globalTerminalWriteDispatcher) {
         window.globalTerminalWriteDispatcher.cancel(target);
       }
     } catch {}
-    const term = paneIsSplit ? splitTerm : viewState.term;
+    const term = viewState.term;
     if (term) {
       term.reset();
       await writeTermAsync(term, bufText);
@@ -2449,25 +2477,9 @@ async function forceResyncPane(viewState, sessionId) {
   }
 }
 
-const splitSessionState = {
-  id: '',
-  lastRenderedSeq: 0,
-  sessionGeneration: 0,
-  hydrationEpoch: 0,
-  activeHydratingEpoch: null,
-  liveQueue: [],
-  syncState: 'READY',
-  isFetchingDelta: false,
-  pendingWriteAckSeq: 0,
-  lastAckedSeq: 0,
-  gapCount: 0,
-  resyncCount: 0,
-  degradedCount: 0,
-};
-
 function writeChunk(viewState, chunkData, isSplit) {
   if (isSplit) {
-    writeToSplitPane(chunkData);
+    writeToSplitPane(viewState, chunkData);
   } else {
     writeToTerminalPane(viewState, chunkData);
   }
@@ -2496,11 +2508,7 @@ async function processIncomingChunk(viewState, chunk, isSplit) {
       viewState.syncState = 'READY';
       viewState.liveQueue = [];
       try {
-        if (isSplit) {
-          if (splitTerm) splitTerm.reset();
-        } else if (viewState.term) {
-          viewState.term.reset();
-        }
+        viewState.term?.reset();
       } catch {}
       hideDegradedBanner(viewState);
     } else {
@@ -2605,7 +2613,7 @@ async function handleSequenceGap(viewState, chunk, isSplit) {
     viewState.liveQueue.length >= MAX_RECOVERY_QUEUE_CHUNKS
   ) {
     viewState.liveQueue = [];
-    degradePane(viewState, viewState.id || (isSplit ? splitId : activeId));
+    degradePane(viewState, viewState.id || activeId);
     return;
   }
 
@@ -2619,7 +2627,7 @@ async function handleSequenceGap(viewState, chunk, isSplit) {
   viewState.isFetchingDelta = true;
   viewState.syncState = 'GAPPED';
 
-  const targetSessionId = viewState.id || (isSplit ? splitId : activeId);
+  const targetSessionId = viewState.id || activeId;
   const fromSeq = viewState.lastRenderedSeq + 1;
   const fetchEpoch = viewState.hydrationEpoch;
 
@@ -2708,7 +2716,7 @@ async function handleSequenceGap(viewState, chunk, isSplit) {
         if (viewState.gapRetries > MAX_GAP_RECOVERY_TRIES) {
           // Bounded failure, not a silent stall: mark the pane degraded with
           // its queue intact so an authoritative resync still owns recovery.
-          degradePane(viewState, viewState.id || (isSplit ? splitId : activeId));
+          degradePane(viewState, viewState.id || activeId);
           return;
         }
         const scheduledEpoch = viewState.hydrationEpoch;
@@ -2897,56 +2905,55 @@ async function atomicHydratePane(item, sessionId, providedSnapshot, providedSeq)
   }
 }
 
-async function atomicHydrateSplitPane(splitSessionId, providedSnapshot, providedSeq) {
-  if (!splitTerm || !splitSessionId) return;
-  splitSessionState.id = splitSessionId;
-  splitSessionState.hydrationEpoch += 1;
-  const currentEpoch = splitSessionState.hydrationEpoch;
-  splitSessionState.activeHydratingEpoch = currentEpoch;
+async function atomicHydrateSplitPane(pane, providedSnapshot, providedSeq) {
+  if (!pane || !pane.term || pane.released) return;
+  const sessionId = pane.id;
+  pane.hydrationEpoch += 1;
+  const currentEpoch = pane.hydrationEpoch;
+  pane.activeHydratingEpoch = currentEpoch;
 
   try {
-    const { snapshot, snapshotSeq, authoritative } = await resolveHydrationSnapshot(splitSessionId, providedSnapshot, providedSeq);
+    const { snapshot, snapshotSeq, authoritative } = await resolveHydrationSnapshot(sessionId, providedSnapshot, providedSeq);
 
-    if (splitSessionState.hydrationEpoch !== currentEpoch) return;
+    if (pane.released || pane.hydrationEpoch !== currentEpoch) return;
 
-    if (!authoritative && paneHasRenderedContent(splitTerm)) {
+    if (!authoritative && paneHasRenderedContent(pane.term)) {
       // Same rule as the main pane: a preview tail cannot replace existing
       // scrollback. Keep buffer, lastRenderedSeq and liveQueue for the next
       // authoritative sync; the pane stays readable instead of collapsing to
       // a few preview lines.
-      degradePane(splitSessionState, splitSessionId);
+      degradePane(pane, sessionId);
       return;
     }
 
     try {
-      if (splitWriteTarget && window.globalTerminalWriteDispatcher) {
-        window.globalTerminalWriteDispatcher.cancel(splitWriteTarget);
+      if (pane.writeTarget && window.globalTerminalWriteDispatcher) {
+        window.globalTerminalWriteDispatcher.cancel(pane.writeTarget);
       }
     } catch {}
 
-    // Ensure split terminal is sized to its container before resetting and writing snapshot
+    // Ensure the pane's terminal is sized to its host before resetting and writing the snapshot
     try {
-      const propose = splitFitAddon?.proposeDimensions?.();
-      const splitHost = document.getElementById('terminal-split-host');
-      if (propose && propose.cols >= MIN_TERMINAL_COLS && propose.rows >= MIN_TERMINAL_ROWS && splitHost && splitHost.clientWidth > 100) {
-        if (splitTerm.cols !== propose.cols || splitTerm.rows !== propose.rows) {
-          splitTerm.resize(propose.cols, propose.rows);
-          api?.resizeTerminalTo(splitSessionId, propose.cols, propose.rows);
+      const propose = pane.fit?.proposeDimensions?.();
+      if (propose && propose.cols >= MIN_SPLIT_TERMINAL_COLS && propose.rows >= MIN_SPLIT_TERMINAL_ROWS && pane.hostEl.clientWidth > 100) {
+        if (pane.term.cols !== propose.cols || pane.term.rows !== propose.rows) {
+          pane.term.resize(propose.cols, propose.rows);
+          api?.resizeTerminalTo(sessionId, propose.cols, propose.rows);
         }
       }
     } catch {}
 
-    splitTerm.reset();
+    pane.term.reset();
     if (snapshot && snapshot.length > 0) {
-      await writeTermAsync(splitTerm, snapshot);
+      await writeTermAsync(pane.term, snapshot);
     }
-    splitSessionState.lastRenderedSeq = snapshotSeq || 0;
+    pane.lastRenderedSeq = snapshotSeq || 0;
 
-    while (splitSessionState.liveQueue.length > 0) {
-      if (splitSessionState.hydrationEpoch !== currentEpoch) return;
-      const batch = splitSessionState.liveQueue.splice(0, splitSessionState.liveQueue.length);
+    while (pane.liveQueue.length > 0) {
+      if (pane.released || pane.hydrationEpoch !== currentEpoch) return;
+      const batch = pane.liveQueue.splice(0, pane.liveQueue.length);
       const pending = batch
-        .filter((entry) => entry.epoch === currentEpoch && chunkEndSeq(entry) > splitSessionState.lastRenderedSeq)
+        .filter((entry) => entry.epoch === currentEpoch && chunkEndSeq(entry) > pane.lastRenderedSeq)
         .sort((a, b) => chunkStartSeq(a) - chunkStartSeq(b));
 
       // Same contiguous-run collapse as the main pane replay.
@@ -2954,8 +2961,8 @@ async function atomicHydrateSplitPane(splitSessionId, providedSnapshot, provided
       let runEnd = 0;
       const flushRun = async () => {
         if (!runData) return;
-        await writeTermAsync(splitTerm, runData);
-        splitSessionState.lastRenderedSeq = runEnd;
+        await writeTermAsync(pane.term, runData);
+        pane.lastRenderedSeq = runEnd;
         runData = '';
       };
       for (const entry of pending) {
@@ -2971,17 +2978,17 @@ async function atomicHydrateSplitPane(splitSessionId, providedSnapshot, provided
     }
 
     // Same as the main pane: a completed authoritative hydrate ends any degraded episode.
-    splitSessionState.syncState = 'READY';
-    splitSessionState.gapRetries = 0;
-    hideDegradedBanner(splitSessionState);
+    pane.syncState = 'READY';
+    pane.gapRetries = 0;
+    hideDegradedBanner(pane);
 
-    if (!splitTerm || splitSessionState.hydrationEpoch !== currentEpoch) return;
-    if (!isSplitUserScrolledUp && viewportAtBottom(splitTerm)) {
-      splitTerm.scrollToBottom();
+    if (pane.released || pane.hydrationEpoch !== currentEpoch) return;
+    if (!pane.isUserScrolledUp && viewportAtBottom(pane.term)) {
+      pane.term.scrollToBottom();
     }
   } finally {
-    if (splitSessionState.hydrationEpoch === currentEpoch) {
-      splitSessionState.activeHydratingEpoch = null;
+    if (pane.hydrationEpoch === currentEpoch) {
+      pane.activeHydratingEpoch = null;
     }
   }
 }
@@ -3763,45 +3770,37 @@ function getWriteTargetFor(item) {
   return item.writeTarget;
 }
 
-function writeToSplitPane(chunk) {
-  if (!splitTerm || !chunk) return;
+function writeToSplitPane(pane, chunk) {
+  if (!pane || pane.released || !pane.term || !chunk) return;
+  const afterPaint = () => {
+    benchRecordPaint(pane.id);
+    if (!pane.isUserScrolledUp && viewportAtBottom(pane.term)) {
+      pane.term.scrollToBottom();
+    }
+    if (pane.pendingWriteAckSeq > 0) {
+      scheduleCoalescedAck(pane.id, pane.sessionGeneration || 0, pane.pendingWriteAckSeq);
+      pane.lastAckedSeq = pane.pendingWriteAckSeq;
+    }
+  };
   const dispatcher = window.globalTerminalWriteDispatcher;
   if (dispatcher) {
-    if (!splitWriteTarget || splitWriteTarget.term !== splitTerm) {
-      splitWriteTarget = dispatcher.createTarget(splitTerm, () => {
-        benchRecordPaint(splitId);
-        if (!isSplitUserScrolledUp && viewportAtBottom(splitTerm)) {
-          splitTerm.scrollToBottom();
-        }
-        if (splitSessionState.pendingWriteAckSeq > 0) {
-          scheduleCoalescedAck(splitId, splitSessionState.sessionGeneration || 0, splitSessionState.pendingWriteAckSeq);
-          splitSessionState.lastAckedSeq = splitSessionState.pendingWriteAckSeq;
-        }
-      });
+    if (!pane.writeTarget || pane.writeTarget.term !== pane.term) {
+      pane.writeTarget = dispatcher.createTarget(pane.term, afterPaint);
     }
     try {
-      __terminalBench?.record('T2', { sessionId: splitId });
-      dispatcher.queueWrite(splitWriteTarget, chunk);
+      __terminalBench?.record('T2', { sessionId: pane.id });
+      dispatcher.queueWrite(pane.writeTarget, chunk);
       return;
     } catch {}
   }
   try {
-    splitTerm.write(chunk, () => {
-      benchRecordPaint(splitId);
-      if (!isSplitUserScrolledUp && viewportAtBottom(splitTerm)) {
-        splitTerm.scrollToBottom();
-      }
-      if (splitSessionState.pendingWriteAckSeq > 0) {
-        scheduleCoalescedAck(splitId, splitSessionState.sessionGeneration || 0, splitSessionState.pendingWriteAckSeq);
-        splitSessionState.lastAckedSeq = splitSessionState.pendingWriteAckSeq;
-      }
-    });
+    pane.term.write(chunk, afterPaint);
   } catch {
     try {
-      splitTerm.write(chunk);
-      if (splitSessionState.pendingWriteAckSeq > 0) {
-        scheduleCoalescedAck(splitId, splitSessionState.sessionGeneration || 0, splitSessionState.pendingWriteAckSeq);
-        splitSessionState.lastAckedSeq = splitSessionState.pendingWriteAckSeq;
+      pane.term.write(chunk);
+      if (pane.pendingWriteAckSeq > 0) {
+        scheduleCoalescedAck(pane.id, pane.sessionGeneration || 0, pane.pendingWriteAckSeq);
+        pane.lastAckedSeq = pane.pendingWriteAckSeq;
       }
     } catch {}
   }
@@ -4411,8 +4410,7 @@ function getSplitGeometry() {
 }
 
 function applySplitRatio(ratio, resizePty = true) {
-  const lower = document.getElementById('terminal-split');
-  if (lower && splitEnabled) {
+  if (splitRowEl && isSplitMounted()) {
     const geo = getSplitGeometry();
     if (geo.usable <= 0) return;
     const usable = geo.usable;
@@ -4426,10 +4424,10 @@ function applySplitRatio(ratio, resizePty = true) {
     mainPane.style.minHeight = '0px';
     mainPane.style.maxHeight = `${clampedMain}px`;
 
-    lower.style.flex = `0 0 ${clampedLower}px`;
-    lower.style.height = `${clampedLower}px`;
-    lower.style.minHeight = '0px';
-    lower.style.maxHeight = `${clampedLower}px`;
+    splitRowEl.style.flex = `0 0 ${clampedLower}px`;
+    splitRowEl.style.height = `${clampedLower}px`;
+    splitRowEl.style.minHeight = '0px';
+    splitRowEl.style.maxHeight = `${clampedLower}px`;
   } else {
     mainPane.style.flex = '1 1 100%';
     mainPane.style.minHeight = '0';
@@ -4452,126 +4450,357 @@ function applySplitRatio(ratio, resizePty = true) {
         item.term.refresh(0, item.term.rows - 1);
       } catch {}
     }
-    if (splitFitAddon && splitTerm) {
-      try {
-        const splitPropose = splitFitAddon.proposeDimensions();
-        if (splitPropose && splitPropose.cols >= MIN_TERMINAL_COLS && splitPropose.rows >= MIN_SPLIT_TERMINAL_ROWS) {
-          if (splitTerm.cols !== splitPropose.cols || splitTerm.rows !== splitPropose.rows) {
-            splitTerm.resize(splitPropose.cols, splitPropose.rows);
-            if (resizePty && splitId) {
-              api?.resizeTerminalTo(splitId, splitPropose.cols, splitPropose.rows);
-            }
-          }
-        }
-        splitTerm.refresh(0, splitTerm.rows - 1);
-      } catch {}
-    }
+    fitSplitPanes({ resizePty, alwaysRefresh: true });
   });
 }
 
-function unmountSplit() {
+/** Fit one split pane to its host with its own FitAddon; true when its grid changed. */
+function fitSplitPane(pane, resizePty) {
+  if (!pane || pane.released) return false;
+  try {
+    const propose = pane.fit.proposeDimensions();
+    if (!propose || propose.cols < MIN_SPLIT_TERMINAL_COLS || propose.rows < MIN_SPLIT_TERMINAL_ROWS) return false;
+    if (pane.term.cols === propose.cols && pane.term.rows === propose.rows) return false;
+    pane.term.resize(propose.cols, propose.rows);
+    if (resizePty) api?.resizeTerminalTo(pane.id, propose.cols, propose.rows);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function fitSplitPanes({ resizePty = true, alwaysRefresh = false } = {}) {
+  for (const pane of splitPanes.values()) {
+    const resized = fitSplitPane(pane, resizePty);
+    if (resized || alwaysRefresh) {
+      try { pane.term.refresh(0, pane.term.rows - 1); } catch {}
+    }
+  }
+}
+
+/**
+ * The width fraction of each pane of the base, left to right. A pane with no stored width takes
+ * the average of the others (equal widths when none is stored) and the fractions of the panes on
+ * screen always sum to 1. The stored map is rewritten only when every stored pane is on screen:
+ * while a row is still being mounted pane by pane (or restored after another base), the widths of
+ * the panes not mounted yet are kept as they were, so the row comes back as the user left it.
+ */
+function splitPaneWeights() {
+  let stored = sessionSplitPaneWidths.get(splitBaseId);
+  if (!stored) {
+    stored = new Map();
+    sessionSplitPaneWidths.set(splitBaseId, stored);
+  }
+  const known = splitPaneOrder.filter((id) => stored.has(id)).map((id) => stored.get(id));
+  const fallback = known.length > 0 ? known.reduce((sum, w) => sum + w, 0) / known.length : 1;
+  const raw = splitPaneOrder.map((id) => stored.get(id) ?? fallback);
+  const total = raw.reduce((sum, w) => sum + w, 0);
+  const shown = new Map(splitPaneOrder.map((id, index) => [id, raw[index] / total]));
+  if (Array.from(stored.keys()).every((id) => shown.has(id))) {
+    stored.clear();
+    shown.forEach((w, id) => stored.set(id, w));
+  }
+  return shown;
+}
+
+function applySplitPaneWidths() {
+  if (splitPaneOrder.length === 0) return;
+  const weights = splitPaneWeights();
+  for (const id of splitPaneOrder) {
+    const w = weights.get(id);
+    splitPanes.get(id).paneEl.style.flex = `${w} 1 0px`;
+  }
+}
+
+/** The draggable vertical divider between two adjacent panes, reused while the pair is unchanged. */
+function splitDividerBetween(leftId, rightId) {
+  for (const child of splitRowEl.children) {
+    if (child.getAttribute('data-left-id') === leftId && child.getAttribute('data-right-id') === rightId) return child;
+  }
+  const divider = document.createElement('div');
+  divider.className = 'terminal-split-vdivider';
+  divider.setAttribute('data-left-id', leftId);
+  divider.setAttribute('data-right-id', rightId);
+  divider.addEventListener('pointerdown', (e) => beginSplitPaneDrag(divider, e));
+  return divider;
+}
+
+/** Make the row's children exactly pane, divider, pane, … in `splitPaneOrder`, moving only what is out of place. */
+function layoutSplitRow() {
+  if (!splitRowEl) return;
+  const desired = [];
+  splitPaneOrder.forEach((id, index) => {
+    if (index > 0) desired.push(splitDividerBetween(splitPaneOrder[index - 1], id));
+    desired.push(splitPanes.get(id).paneEl);
+  });
+  for (const child of Array.from(splitRowEl.children)) {
+    if (!desired.includes(child)) child.remove();
+  }
+  desired.forEach((node, index) => {
+    const current = splitRowEl.children[index];
+    if (current !== node) splitRowEl.insertBefore(node, current || null);
+  });
+}
+
+function layoutSplitRegion() {
+  layoutSplitRow();
+  applySplitPaneWidths();
+  applySplitRatio(sessionSplitRatios.get(splitBaseId) ?? DEFAULT_MAIN_SPLIT_RATIO);
+}
+
+let splitPaneDrag = null;
+let splitPaneDragRafId = null;
+
+function beginSplitPaneDrag(divider, e) {
+  const leftId = divider.getAttribute('data-left-id');
+  const rightId = divider.getAttribute('data-right-id');
+  if (!splitPanes.has(leftId) || !splitPanes.has(rightId)) return;
+  splitPaneDrag = { divider, leftId, rightId };
+  divider.classList.add('dragging');
+  try {
+    divider.setPointerCapture(e.pointerId);
+  } catch {}
+  document.body.style.cursor = 'col-resize';
+  document.body.style.userSelect = 'none';
+  // xterm hosts swallow pointer events; without this the drag stops at the first pane edge.
+  for (const pane of splitPanes.values()) pane.paneEl.style.pointerEvents = 'none';
+}
+
+function moveSplitPaneDrag(e) {
+  const drag = splitPaneDrag;
+  if (!drag) return;
+  const left = splitPanes.get(drag.leftId);
+  const right = splitPanes.get(drag.rightId);
+  if (!left || !right) {
+    endSplitPaneDrag();
+    return;
+  }
+  const leftRect = left.paneEl.getBoundingClientRect();
+  const rightRect = right.paneEl.getBoundingClientRect();
+  const dividerWidth = drag.divider.offsetWidth || 0;
+  const paneTotal = (rightRect.right - leftRect.left) - dividerWidth;
+  if (!(paneTotal > 0)) return;
+  const min = Math.min(MIN_SPLIT_PANE_WIDTH, paneTotal / 2);
+  const leftPx = Math.max(min, Math.min(paneTotal - min, e.clientX - leftRect.left - dividerWidth / 2));
+  // Only the dragged pair trades width; every other pane keeps its fraction.
+  splitPaneWeights();
+  const weights = sessionSplitPaneWidths.get(splitBaseId);
+  const pair = weights.get(drag.leftId) + weights.get(drag.rightId);
+  const leftWeight = pair * (leftPx / paneTotal);
+  weights.set(drag.leftId, leftWeight);
+  weights.set(drag.rightId, pair - leftWeight);
+  applySplitPaneWidths();
+  if (!splitPaneDragRafId) {
+    splitPaneDragRafId = requestAnimationFrame(() => {
+      splitPaneDragRafId = null;
+      fitSplitPanes({ resizePty: false });
+    });
+  }
+}
+
+function endSplitPaneDrag() {
+  const drag = splitPaneDrag;
+  if (!drag) return;
+  splitPaneDrag = null;
+  drag.divider.classList.remove('dragging');
+  document.body.style.cursor = '';
+  document.body.style.userSelect = '';
+  for (const pane of splitPanes.values()) pane.paneEl.style.pointerEvents = '';
+  if (splitPaneDragRafId) {
+    cancelAnimationFrame(splitPaneDragRafId);
+    splitPaneDragRafId = null;
+  }
+  fitSplitPanes({ resizePty: true, alwaysRefresh: true });
+}
+
+/** Repaint a pane header from the session row: label and role badge follow renames and role changes. */
+function refreshSplitPaneHeader(pane) {
+  const row = findSession(pane.id);
+  pane.role = row && typeof row.role === 'string' ? row.role : '';
+  pane.labelEl.textContent = (row && (row.displayLabel || row.name)) || 'Terminal (Split)';
+  const badge = sessionRoleBadge(pane.role);
+  if (badge) {
+    pane.badgeEl.className = `split-pane-role-badge role-${pane.role}`;
+    pane.badgeEl.textContent = badge.text;
+    pane.badgeEl.title = badge.title;
+    pane.badgeEl.style.display = '';
+  } else {
+    pane.badgeEl.textContent = '';
+    pane.badgeEl.title = '';
+    pane.badgeEl.style.display = 'none';
+  }
+  pane.closeBtn.title = pane.role === 'sync'
+    ? 'Đóng terminal đồng bộ (dừng watcher)'
+    : 'Đóng Terminal chia đôi (Unsplit / Close)';
+}
+
+/**
+ * The manual (role-less) split of a base: the one the toggle button creates and closes. The session
+ * rows are authoritative; a pane mounted before its row arrives is manual until the row says otherwise.
+ */
+function manualSplitIdOf(baseId) {
+  if (!baseId) return '';
+  const manualRows = splitRowsOf(baseId).filter((row) => !row.role);
+  if (manualRows.length > 0) return manualRows[manualRows.length - 1].id;
+  if (splitBaseId !== baseId) return '';
+  return splitPaneOrder.find((id) => !findSession(id)) || '';
+}
+
+function updateSplitButton() {
+  if (!splitButton) return;
+  splitButton.classList.toggle('active', isSplitMounted());
+  splitButton.title = manualSplitIdOf(activeId)
+    ? 'Tắt chia đôi terminal (Unsplit)'
+    : 'Chia đôi màn hình terminal (Split Right)';
+}
+
+/** The splits of a base session in `splitSessionIds` order; rows its base row does not list yet follow. */
+function splitRowsOf(baseId) {
+  const base = findSession(baseId);
+  const byId = new Map(sessions.filter((s) => s.splitOf === baseId).map((s) => [s.id, s]));
+  const ordered = [];
+  for (const id of (base && Array.isArray(base.splitSessionIds) ? base.splitSessionIds : [])) {
+    const row = byId.get(id);
+    if (!row) continue;
+    ordered.push(row);
+    byId.delete(id);
+  }
+  return ordered.concat(Array.from(byId.values()));
+}
+
+/** Dispose everything a pane owns. Bumping the epoch retires a hydration still in flight. */
+function removeSplitPane(pane) {
+  pane.released = true;
+  pane.hydrationEpoch += 1;
+  pane.activeHydratingEpoch = null;
+  pane.liveQueue = [];
+  pane.lastRenderedSeq = 0;
+  pane.syncState = 'READY';
+  pane.isFetchingDelta = false;
+  pane.pendingWriteAckSeq = 0;
+  pane.lastAckedSeq = 0;
+  try {
+    if (pane.writeTarget && window.globalTerminalWriteDispatcher) window.globalTerminalWriteDispatcher.cancel(pane.writeTarget);
+  } catch {}
+  pane.writeTarget = null;
+  try { pane.webLinksAddon?.dispose(); } catch {}
+  try { pane.fileLinksProvider?.dispose(); } catch {}
+  try { pane.webglAddon?.dispose(); } catch {}
+  try { pane.fit?.dispose?.(); } catch {}
+  try { pane.term.dispose(); } catch {}
+  try { pane.paneEl.remove(); } catch {}
+  splitPanes.delete(pane.id);
+  splitPaneOrder = splitPaneOrder.filter((id) => id !== pane.id);
+  if (splitFocusedId === pane.id) splitFocusedId = '';
+}
+
+/** Remove the lower row and its divider and give the main pane the whole canvas back. */
+function tearDownSplitRegion() {
   if (splitting) {
     splitting = false;
-    const dividerEl = document.getElementById('terminal-divider');
-    dividerEl?.classList.remove('dragging');
+    splitDividerEl?.classList.remove('dragging');
     document.body.style.cursor = '';
     document.body.style.userSelect = '';
     mainPane.style.pointerEvents = '';
-    const lowerEl = document.getElementById('terminal-split');
-    if (lowerEl) lowerEl.style.pointerEvents = '';
     if (splitRafId) {
       cancelAnimationFrame(splitRafId);
       splitRafId = null;
     }
   }
-  try { if (splitWriteTarget && window.globalTerminalWriteDispatcher) window.globalTerminalWriteDispatcher.cancel(splitWriteTarget); } catch {}
-  splitWriteTarget = null;
-  isSplitUserScrolledUp = false;
-  isSplitProgrammaticScroll = false;
-  splitSessionState.id = '';
-  // Same contract as releaseTerminalPane: an in-flight hydration re-reads this epoch after every
-  // await, so bumping it here is what stops a closed split's continuation from touching splitTerm.
-  splitSessionState.hydrationEpoch += 1;
-  splitSessionState.activeHydratingEpoch = null;
-  splitSessionState.liveQueue = [];
-  splitSessionState.lastRenderedSeq = 0;
-  splitSessionState.syncState = 'READY';
-  splitSessionState.isFetchingDelta = false;
-  splitSessionState.pendingWriteAckSeq = 0;
-  splitSessionState.lastAckedSeq = 0;
-  try { splitWebLinksAddon?.dispose(); } catch {}
-  try { splitFileLinksProvider?.dispose(); } catch {}
-  splitFileLinksProvider = null;
-  splitWebLinksAddon = null;
-  try { splitWebglAddon?.dispose(); } catch {}
-  splitWebglAddon = null;
-  try { splitFitAddon?.dispose?.(); } catch {}
-  splitFitAddon = null;
-  try { splitTerm?.dispose(); } catch {}
-  splitTerm = null;
-  splitId = '';
-  splitEnabled = false;
-  const lower = document.getElementById('terminal-split');
-  const divider = document.getElementById('terminal-divider');
-  lower?.remove();
-  divider?.remove();
+  endSplitPaneDrag();
+  splitRowEl?.remove();
+  splitDividerEl?.remove();
+  splitRowEl = null;
+  splitDividerEl = null;
+  splitBaseId = '';
+  splitFocusedId = '';
   container.classList.remove('split');
   mainPane.style.flex = '1 1 100%';
   mainPane.style.height = '';
   mainPane.style.minHeight = '0';
   mainPane.style.maxHeight = '';
-  if (splitButton) {
-    splitButton.classList.remove('active');
-    splitButton.title = 'Chia đôi màn hình terminal (Split Right)';
-  }
   scheduleFitTerminal(60);
 }
-function mountSplit(sessionId, snapshot = undefined, snapshotSeq = undefined) {
+
+/** Unmount one split pane; the other panes of the row stay mounted. */
+function unmountSplit(sessionId) {
+  const pane = splitPanes.get(sessionId);
+  if (!pane) return;
+  // The split itself is gone, so its width goes with it; leaving a base keeps every width.
+  sessionSplitPaneWidths.get(splitBaseId)?.delete(sessionId);
+  removeSplitPane(pane);
+  if (splitPanes.size === 0) tearDownSplitRegion();
+  else layoutSplitRegion();
+  updateSplitButton();
+}
+
+function unmountAllSplits() {
+  for (const pane of Array.from(splitPanes.values())) removeSplitPane(pane);
+  tearDownSplitRegion();
+  updateSplitButton();
+}
+
+function ensureSplitRegion() {
+  if (splitRowEl) return;
+  container.classList.add('split');
+  splitRowEl = document.createElement('div');
+  splitRowEl.id = 'terminal-split';
+  splitDividerEl = document.createElement('div');
+  splitDividerEl.id = 'terminal-divider';
+  container.append(mainPane, splitDividerEl, splitRowEl);
+}
+
+/**
+ * Mount one split session as a pane of the lower row, appended after the panes already there.
+ * Mounting a pane that exists only re-hydrates it when the snapshot is newer than what it rendered.
+ * `focus` moves keyboard focus into the pane; a push-driven mount never steals focus.
+ */
+function mountSplit(sessionId, snapshot = undefined, snapshotSeq = undefined, focus = false) {
   if (!sessionId) return;
-  if (splitId === sessionId && splitTerm) {
-    if (typeof snapshotSeq === 'number' && snapshotSeq > splitSessionState.lastRenderedSeq) {
-      atomicHydrateSplitPane(sessionId, snapshot, snapshotSeq);
+  const existing = splitPanes.get(sessionId);
+  if (existing) {
+    if (typeof snapshotSeq === 'number' && snapshotSeq > existing.lastRenderedSeq) {
+      void atomicHydrateSplitPane(existing, snapshot, snapshotSeq);
     }
+    if (focus) requestAnimationFrame(() => focusSplitPane(sessionId));
     return;
   }
-  unmountSplit();
-  splitId = sessionId;
-  splitEnabled = true;
-  isSplitUserScrolledUp = false;
-  isSplitProgrammaticScroll = false;
-  container.classList.add('split');
-  const lower = document.createElement('div');
-  lower.id = 'terminal-split';
+  const baseId = findSession(sessionId)?.splitOf || activeId;
+  if (splitBaseId && splitBaseId !== baseId) unmountAllSplits();
+  splitBaseId = baseId;
+  ensureSplitRegion();
 
-  // Header with close split button
-  const splitHeader = document.createElement('div');
-  splitHeader.className = 'split-pane-header';
-  splitHeader.innerHTML = `
-    <div class="split-pane-title">
-      <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="4 5 8 8 4 11"/><line x1="9" y1="11" x2="13" y2="11"/></svg>
-      <span>Terminal (Split)</span>
-    </div>
-    <button class="split-pane-close-btn" id="btnCloseSplitPane" title="Đóng Terminal chia đôi (Unsplit / Close)">✕</button>
-  `;
+  const paneEl = document.createElement('div');
+  paneEl.className = 'terminal-split-pane';
+  paneEl.setAttribute('data-session-id', sessionId);
 
-  const splitHost = document.createElement('div');
-  splitHost.id = 'terminal-split-host';
-
-  lower.append(splitHeader, splitHost);
-
-  const divider = document.createElement('div');
-  divider.id = 'terminal-divider';
-  container.append(mainPane, divider, lower);
+  const headerEl = document.createElement('div');
+  headerEl.className = 'split-pane-header';
+  const titleEl = document.createElement('div');
+  titleEl.className = 'split-pane-title';
+  const iconEl = document.createElement('span');
+  iconEl.className = 'split-pane-icon';
+  iconEl.innerHTML = '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="4 5 8 8 4 11"/><line x1="9" y1="11" x2="13" y2="11"/></svg>';
+  const labelEl = document.createElement('span');
+  labelEl.className = 'split-pane-label';
+  const badgeEl = document.createElement('span');
+  badgeEl.className = 'split-pane-role-badge';
+  titleEl.append(iconEl, labelEl, badgeEl);
+  const closeBtn = document.createElement('button');
+  closeBtn.type = 'button';
+  closeBtn.className = 'split-pane-close-btn';
+  closeBtn.textContent = '✕';
+  headerEl.append(titleEl, closeBtn);
+  const hostEl = document.createElement('div');
+  hostEl.className = 'terminal-split-pane-host';
+  paneEl.append(headerEl, hostEl);
 
   // The main pane may itself be a sleeping session (its split sibling outlives
   // the parent's sleep). Never materialize a pane for it here.
   const mainItem = isSessionSleeping(activeId) ? null : terminalPool.get(activeId);
-  const targetCols = (mainItem && mainItem.term && mainItem.term.cols) || 120;
-  const targetRows = getInitialSplitRows(mainItem?.term);
-
-  splitTerm = new Terminal({
-    cols: targetCols,
-    rows: targetRows,
+  const term = new Terminal({
+    cols: (mainItem && mainItem.term && mainItem.term.cols) || 120,
+    rows: getInitialSplitRows(mainItem?.term),
     cursorBlink: true,
     convertEol: false,
     fontFamily: 'Cascadia Mono, Consolas, monospace',
@@ -4581,69 +4810,149 @@ function mountSplit(sessionId, snapshot = undefined, snapshotSeq = undefined) {
     smoothScrollDuration: 0,
     theme: { background: '#070b11', foreground: '#dbe7f5', cursor: '#63b3ff' },
   });
-  splitFitAddon = new FitAddon.FitAddon();
-  splitTerm.loadAddon(splitFitAddon);
-  splitTerm.open(splitHost);
-  splitWebglAddon = attachWebglAddon(splitTerm, (lost) => {
-    if (splitWebglAddon === lost) splitWebglAddon = null;
+  const fit = new FitAddon.FitAddon();
+  term.loadAddon(fit);
+  const pane = {
+    id: sessionId,
+    isSplitPane: true,
+    role: '',
+    paneEl,
+    labelEl,
+    badgeEl,
+    closeBtn,
+    hostEl,
+    term,
+    fit,
+    webglAddon: null,
+    webLinksAddon: null,
+    fileLinksProvider: null,
+    writeTarget: null,
+    released: false,
+    isUserScrolledUp: false,
+    isProgrammaticScroll: false,
+    lastRenderedSeq: 0,
+    sessionGeneration: 0,
+    hydrationEpoch: 0,
+    activeHydratingEpoch: null,
+    liveQueue: [],
+    syncState: 'READY',
+    isFetchingDelta: false,
+    pendingWriteAckSeq: 0,
+    lastAckedSeq: 0,
+    gapCount: 0,
+    resyncCount: 0,
+    degradedCount: 0,
+  };
+  splitPanes.set(sessionId, pane);
+  splitPaneOrder.push(sessionId);
+  layoutSplitRow();
+  term.open(hostEl);
+  pane.webglAddon = attachWebglAddon(term, (lost) => {
+    if (pane.webglAddon === lost) pane.webglAddon = null;
   });
-  splitWebLinksAddon = attachWebLinksAddon(splitTerm, () => splitId);
-  splitFileLinksProvider = attachFileLinksProvider(splitTerm, () => splitId);
-  setupTerminalClipboard(splitTerm);
+  pane.webLinksAddon = attachWebLinksAddon(term, () => sessionId);
+  pane.fileLinksProvider = attachFileLinksProvider(term, () => sessionId);
+  setupTerminalClipboard(term);
 
-  splitTerm.onData((data) => {
-    if (!splitId) return;
-    const act = sessionActivity.get(splitId);
+  term.onData((data) => {
+    const act = sessionActivity.get(sessionId);
     if (act && act.isWaiting) {
       act.isWaiting = false;
-      updateTabActivityUi(splitId);
+      updateTabActivityUi(sessionId);
     }
-    // A session can fall asleep while still mounted in the split pane; a keystroke
+    // A session can fall asleep while still mounted in a split pane; a keystroke
     // is then a wake request rather than input to a released PTY. The awake path
     // keeps its direct forward.
-    if (isSessionSleeping(splitId)) {
-      wakeSleepingSession(splitId, data);
+    if (isSessionSleeping(sessionId)) {
+      wakeSleepingSession(sessionId, data);
       return;
     }
-    api?.sendTerminalInputTo(splitId, data);
+    api?.sendTerminalInputTo(sessionId, data);
   });
 
-  splitTerm.onScroll(() => {
-    if (isSplitProgrammaticScroll) return;
-    if (splitTerm?.buffer?.active) {
-      isSplitUserScrolledUp = !viewportAtBottom(splitTerm);
+  term.onScroll(() => {
+    if (pane.released || pane.isProgrammaticScroll) return;
+    if (term.buffer?.active) {
+      pane.isUserScrolledUp = !viewportAtBottom(term);
     }
   });
 
-  lower.addEventListener('focusin', () => {
-    focusSplitPane();
-  });
-  splitHost.addEventListener('click', () => {
-    focusSplitPane();
-  });
-  applySplitRatio(sessionSplitRatios.get(activeId) ?? DEFAULT_MAIN_SPLIT_RATIO);
-  atomicHydrateSplitPane(sessionId, snapshot, snapshotSeq);
-  if (splitButton) {
-    splitButton.classList.add('active');
-    splitButton.title = 'Tắt chia đôi terminal (Unsplit)';
-  }
-
-  requestAnimationFrame(() => {
-    try {
-      fitCurrentTerminal();
-      focusSplitPane();
-    } catch {}
-  });
-
-  // Hook close split button
-  splitHeader.querySelector('#btnCloseSplitPane')?.addEventListener('click', async (e) => {
+  paneEl.addEventListener('focusin', () => focusSplitPane(sessionId));
+  hostEl.addEventListener('click', () => focusSplitPane(sessionId));
+  closeBtn.addEventListener('click', (e) => {
     e.stopPropagation();
-    if (api) {
-      // Close the split this lower pane is mounting, not the parent's first one.
-      await api.unsplitTerminal?.(sessionId);
-    }
-    unmountSplit();
+    void closeSplitPane(pane);
   });
+
+  refreshSplitPaneHeader(pane);
+  if (focus || !splitPanes.has(splitFocusedId)) splitFocusedId = sessionId;
+  layoutSplitRegion();
+  void atomicHydrateSplitPane(pane, snapshot, snapshotSeq);
+  updateSplitButton();
+  if (focus) requestAnimationFrame(() => focusSplitPane(sessionId));
+}
+
+/**
+ * Close one pane from its header. Closing a sync pane kills the theme watcher it hosts, so that one
+ * asks first. Main closes exactly this split; the pane unmounts as soon as the call returns.
+ */
+async function closeSplitPane(pane) {
+  if (!api) return;
+  const role = findSession(pane.id)?.role || pane.role;
+  if (role === 'sync' && !window.confirm('Đóng terminal đồng bộ này sẽ dừng watcher. Tiếp tục?')) return;
+  await api.unsplitTerminal?.(pane.id);
+  unmountSplit(pane.id);
+}
+
+/**
+ * Make the lower row show exactly the splits of the active base session, in `splitSessionIds`
+ * order: panes for new splits are mounted, panes whose split vanished are unmounted, and the
+ * surviving panes stay mounted (never re-created).
+ */
+function reconcileSplitPanes() {
+  const rows = activeId && findSession(activeId) ? splitRowsOf(activeId) : [];
+  const wanted = new Set(rows.map((row) => row.id));
+  // Leaving a base retires its whole row at once: removing the panes one by one would re-weight
+  // (and so forget) the widths of a base that is merely not on screen.
+  if (splitBaseId && splitBaseId !== activeId) unmountAllSplits();
+  for (const id of Array.from(splitPaneOrder)) {
+    if (!wanted.has(id)) unmountSplit(id);
+  }
+  // A split that vanished while its base was off screen leaves a stale width behind.
+  const storedWidths = activeId && findSession(activeId) ? sessionSplitPaneWidths.get(activeId) : undefined;
+  if (storedWidths) {
+    for (const id of Array.from(storedWidths.keys())) {
+      if (!wanted.has(id)) storedWidths.delete(id);
+    }
+  }
+  for (const row of rows) {
+    mountSplit(row.id, row.buffer, row.snapshotThroughSeq || 0);
+  }
+  const order = rows.map((row) => row.id);
+  if (order.length > 0 && order.join('\n') !== splitPaneOrder.join('\n')) {
+    splitPaneOrder = order;
+    layoutSplitRegion();
+  }
+  for (const pane of splitPanes.values()) refreshSplitPaneHeader(pane);
+  updateSplitButton();
+}
+
+/**
+ * The toggle behind the split button and the tab context menu: close the base's manual split when it
+ * has one (sync panes stay), otherwise create it. Main closes exactly the manual split it is handed.
+ */
+async function toggleManualSplit(baseId) {
+  const manualId = manualSplitIdOf(baseId);
+  if (manualId) {
+    await api.unsplitTerminal?.(manualId);
+    unmountSplit(manualId);
+    return;
+  }
+  const mainItem = isSessionSleeping(baseId) ? null : terminalPool.get(baseId);
+  const targetCols = (mainItem && mainItem.term && mainItem.term.cols) || 120;
+  const targetRows = getInitialSplitRows(mainItem?.term);
+  const newSplitId = await api.splitTerminal(baseId, { cols: targetCols, rows: targetRows });
+  if (newSplitId && activeId === baseId) mountSplit(newSplitId, undefined, undefined, true);
 }
 
 // Split Toggle Button
@@ -4658,17 +4967,7 @@ if (splitButton) {
     }
     splitButton.disabled = true;
     try {
-      if (splitEnabled) {
-        // Toggle off split
-        await api.unsplitTerminal?.(activeId);
-        unmountSplit();
-        return;
-      }
-      const mainItem = terminalPool.get(activeId);
-      const targetCols = (mainItem && mainItem.term && mainItem.term.cols) || 120;
-      const targetRows = getInitialSplitRows(mainItem?.term);
-      const newSplitId = await api.splitTerminal(activeId, { cols: targetCols, rows: targetRows });
-      if (newSplitId) mountSplit(newSplitId);
+      await toggleManualSplit(activeId);
     } catch (err) {
       console.error('[Terminal] Split toggle failed:', err);
     } finally {
@@ -5874,7 +6173,7 @@ function showContextMenu(e, sessionId) {
   if (!contextMenu) return;
 
   const targetSession = sessions.find((item) => item.id === sessionId);
-  const isTargetSplit = Boolean(targetSession?.splitSessionId);
+  const isTargetSplit = Boolean(manualSplitIdOf(sessionId));
   const isTargetItselfSplit = Boolean(targetSession?.splitOf);
   const splitItem = contextMenu.querySelector('.context-item[data-action="split"]');
   if (splitItem) {
@@ -6030,18 +6329,8 @@ contextMenu?.querySelectorAll('.context-item').forEach((item) => {
       // A split is closed the way a tab is closed (✕ / "Đóng tab này"): splitting a
       // split is not an operation this menu can mean.
       if (targetSession?.splitOf) return;
-      const isTargetSplit = Boolean(targetSession?.splitSessionId);
       activateTabLocally(targetId);
-      if (!isTargetSplit) {
-        const mainItem = terminalPool.get(targetId);
-        const targetCols = (mainItem && mainItem.term && mainItem.term.cols) || 120;
-        const targetRows = getInitialSplitRows(mainItem?.term);
-        const newSplitId = await api.splitTerminal(targetId, { cols: targetCols, rows: targetRows });
-        if (newSplitId && activeId === targetId) mountSplit(newSplitId);
-      } else {
-        await api.unsplitTerminal?.(targetId);
-        if (activeId === targetId) unmountSplit();
-      }
+      await toggleManualSplit(targetId);
     } else if (action === 'new') {
       void createTerminal();
     } else if (action === 'sleep') {
@@ -6417,8 +6706,9 @@ function applyRunCardToWrap(wrap, sessionId) {
       if (btn) {
         syncBadge = document.createElement('span');
         syncBadge.className = 'terminal-tab-sync-badge';
-        syncBadge.textContent = 'sync';
-        syncBadge.title = 'Watcher đồng bộ theme: không tự ngủ';
+        const roleBadge = sessionRoleBadge('sync');
+        syncBadge.textContent = roleBadge.text;
+        syncBadge.title = roleBadge.title;
         btn.appendChild(syncBadge);
       }
     }
@@ -6826,17 +7116,10 @@ function ensureTerminalTabWrap(s, currentWraps) {
       if (wrap.classList.contains('renaming')) return;
       if (s.id !== activeId) {
         activateTabLocally(s.id);
-        // A split is shown where a split lives: in the lower pane of the parent it
-        // belongs to, because the main process keeps the active session base-scoped and
-        // resolves a split to its parent.
-        const targetSession = sessions.find((item) => item.id === s.id) || s;
-        if (targetSession.splitOf) {
-          mountSplit(targetSession.id, targetSession.buffer, targetSession.snapshotThroughSeq || 0);
-        } else if (targetSession.splitSessionId) {
-          mountSplit(targetSession.splitSessionId, targetSession.splitBuffer, targetSession.splitSnapshotThroughSeq || 0);
-        } else {
-          unmountSplit();
-        }
+        // A split is a pane of the lower row of the tab that owns it, because the main
+        // process keeps the active session base-scoped and resolves a split to its
+        // parent: selecting any tab mounts that base's whole row, or none.
+        reconcileSplitPanes();
         fitCurrentTerminal();
       }
       focusMainPane();
@@ -8344,36 +8627,9 @@ function renderTabs() {
 let initialPushReceived = false;
 api?.onTerminalSession((state) => {
   initialPushReceived = true;
-  const prevActiveId = activeId;
   sessions = state.sessions || [];
   activeId = state.activeSessionId || activeId;
-  const activeSession = sessions.find((s) => s.id === activeId);
-  const switchedTabs = prevActiveId !== activeId;
-  // `splitSessionId` names only the first split a parent owns, so a split the user
-  // opened by its own tab stays mounted under its parent; its entry carries that
-  // split's tail, where the parent's `splitBuffer` only describes the first.
-  const mountedSplitSurvives = Boolean(activeSession) && Boolean(splitId) && Boolean(splitTerm)
-    && sessions.some((s) => s.id === splitId && s.splitOf === activeSession.id);
-  const splitToMount = activeSession?.splitSessionId
-    ? (mountedSplitSurvives ? splitId : activeSession.splitSessionId)
-    : '';
-  if (splitToMount) {
-    const splitEntry = sessions.find((s) => s.id === splitToMount);
-    const isFirstSplit = splitToMount === activeSession.splitSessionId;
-    if (switchedTabs && splitId === splitToMount && splitTerm) {
-      // Same split survives a tab switch: re-hydrate from the authoritative
-      // transcript (getFullBuffer) rather than trusting the cached splitBuffer.
-      atomicHydrateSplitPane(splitId);
-    } else {
-      mountSplit(
-        splitToMount,
-        splitEntry ? splitEntry.buffer : (isFirstSplit ? activeSession.splitBuffer : undefined),
-        splitEntry?.snapshotThroughSeq || (isFirstSplit ? (activeSession.splitSnapshotThroughSeq || 0) : 0),
-      );
-    }
-  } else {
-    unmountSplit();
-  }
+  reconcileSplitPanes();
   renderTabs();
   syncTerminalPool(sessions, activeId, state.snapshot, state.snapshotThroughSeq || 0);
   // The pane for a woken session exists only after the pool sync above, so the
@@ -8400,10 +8656,11 @@ function handleIncomingTerminalChunk({ sessionId, data, seq, generation, fromSeq
   // updateTabActivityUi keeps the 💤 presentation for sleeping sessions.
   notifySessionActivity(sessionId, data);
 
-  if (sessionId === splitId && splitTerm) {
-    // The split pane mounts outside the tab pool and carries no .active class —
+  const splitPane = splitPanes.get(sessionId);
+  if (splitPane) {
+    // A split pane mounts outside the tab pool and carries no .active class —
     // it is always visible while mounted, so it must keep receiving writes.
-    processIncomingChunk(splitSessionState, chunk, true);
+    processIncomingChunk(splitPane, chunk, true);
     return;
   }
 
@@ -8567,22 +8824,7 @@ function fitCurrentTerminal() {
       }
     }
   }
-  if (splitEnabled && splitFitAddon && splitTerm && splitId) {
-    try {
-      let splitDidResize = false;
-      const splitPropose = splitFitAddon.proposeDimensions();
-      if (splitPropose && splitPropose.cols >= MIN_TERMINAL_COLS && splitPropose.rows >= MIN_SPLIT_TERMINAL_ROWS) {
-        if (splitTerm.cols !== splitPropose.cols || splitTerm.rows !== splitPropose.rows) {
-          splitTerm.resize(splitPropose.cols, splitPropose.rows);
-          api?.resizeTerminalTo(splitId, splitPropose.cols, splitPropose.rows);
-          splitDidResize = true;
-        }
-      }
-      if (splitDidResize) {
-        splitTerm.refresh(0, splitTerm.rows - 1);
-      }
-    } catch {}
-  }
+  fitSplitPanes();
 }
 if (window.ResizeObserver) {
   globalResizeObserver = new ResizeObserver(() => {
@@ -8684,7 +8926,7 @@ window.addEventListener('keydown', (e) => {
   // Alt+Down / Ctrl+Alt+Down: Focus Split Pane
   if ((e.altKey && (e.key === 'ArrowDown' || e.key === 'Down')) ||
       ((e.ctrlKey || e.metaKey) && e.altKey && (e.key === 'ArrowDown' || e.key === 'Down'))) {
-    if (splitEnabled) {
+    if (isSplitMounted()) {
       e.preventDefault();
       focusSplitPane();
     }
@@ -8761,13 +9003,12 @@ window.addEventListener('pointerdown', (e) => {
     document.body.style.cursor = 'row-resize';
     document.body.style.userSelect = 'none';
     mainPane.style.pointerEvents = 'none';
-    const lower = document.getElementById('terminal-split');
-    if (lower) lower.style.pointerEvents = 'none';
+    if (splitRowEl) splitRowEl.style.pointerEvents = 'none';
   }
 });
 
 window.addEventListener('pointermove', (e) => {
-  if (!splitting || !splitEnabled) return;
+  if (!splitting || !isSplitMounted()) return;
   const geo = getSplitGeometry();
   if (geo.usable <= 0) return;
 
@@ -8799,8 +9040,7 @@ const stopSplitting = (e) => {
     document.body.style.cursor = '';
     document.body.style.userSelect = '';
     mainPane.style.pointerEvents = '';
-    const lower = document.getElementById('terminal-split');
-    if (lower) lower.style.pointerEvents = '';
+    if (splitRowEl) splitRowEl.style.pointerEvents = '';
     if (splitRafId) {
       cancelAnimationFrame(splitRafId);
       splitRafId = null;
@@ -8811,3 +9051,8 @@ const stopSplitting = (e) => {
 
 window.addEventListener('pointerup', stopSplitting);
 window.addEventListener('pointercancel', stopSplitting);
+
+// Horizontal resize between adjacent split panes (the dividers bind pointerdown themselves).
+window.addEventListener('pointermove', moveSplitPaneDrag);
+window.addEventListener('pointerup', endSplitPaneDrag);
+window.addEventListener('pointercancel', endSplitPaneDrag);

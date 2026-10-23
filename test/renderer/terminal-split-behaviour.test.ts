@@ -63,8 +63,8 @@ describe('Renderer split-pane behaviour', () => {
 
   beforeEach(() => {
     splitCalls = [];
-    harness.assign('splitEnabled = false; splitId = ""; splitTerm = null; activeId = "s1";');
-    harness.assign('unmountSplit();');
+    harness.assign('sessions = []; activeId = "s1";');
+    harness.unmountAllSplits();
     harness.api.splitTerminal = async (sessionId, target) => {
       splitCalls.push({ sessionId, geometry: target });
       return `${sessionId}-split`;
@@ -88,12 +88,12 @@ describe('Renderer split-pane behaviour', () => {
   });
 
   it('delivers the wake keystroke buffered for a mounted sleeping split after it wakes', async () => {
-    // The split pane lives in splitTerm outside the terminal pool, so a
+    // A split pane lives in `splitPanes` outside the terminal pool, so a
     // flush gated on pool membership would strand the user's keystroke forever.
     harness.emitSession({
       activeSessionId: 's1',
       sessions: [
-        { id: 's1', name: 'Base', state: 'sleeping', splitSessionId: 'sp', buffer: 'base-tail' },
+        { id: 's1', name: 'Base', state: 'sleeping', splitSessionIds: ['sp'], buffer: 'base-tail' },
         { id: 'sp', name: 'Split', state: 'sleeping', splitOf: 's1', buffer: 'split-tail' },
       ],
       snapshot: '',
@@ -113,7 +113,7 @@ describe('Renderer split-pane behaviour', () => {
     harness.emitSession({
       activeSessionId: 's1',
       sessions: [
-        { id: 's1', name: 'Base', state: 'running', splitSessionId: 'sp', buffer: 'base-tail' },
+        { id: 's1', name: 'Base', state: 'running', splitSessionIds: ['sp'], buffer: 'base-tail' },
         { id: 'sp', name: 'Split', state: 'running', splitOf: 's1', buffer: 'split-tail' },
       ],
       snapshot: '',
@@ -132,7 +132,7 @@ describe('Renderer split-pane behaviour', () => {
 
   it('clamps the pane minimum on tiny and oversized viewports', () => {
     for (const containerHeight of [20, 100, 400, 1600]) {
-      harness.assign('unmountSplit();');
+      harness.unmountAllSplits();
       mountSplitFor('s1', containerHeight);
       const geo = geometry();
       const mainHeight = px(harness.mainPane.style.height);
@@ -211,7 +211,13 @@ describe('Renderer split-pane behaviour', () => {
     splitItem.appendChild(label);
     harness.contextMenu.appendChild(splitItem);
 
-    harness.assign('sessions = [{ id: "s1", splitSessionId: "s1-split" }, { id: "s2" }];');
+    harness.assign(`sessions = [
+      { id: "s1", splitSessionIds: ["s1-split"] },
+      { id: "s1-split", splitOf: "s1" },
+      { id: "s2" },
+      { id: "s3", splitSessionIds: ["s3-sync"] },
+      { id: "s3-sync", splitOf: "s3", role: "sync" },
+    ];`);
     const menuEvent = { clientX: 10, clientY: 10, preventDefault: () => {}, stopPropagation: () => {} };
 
     harness.showContextMenu({ ...menuEvent, key: '' }, 's1');
@@ -221,6 +227,9 @@ describe('Renderer split-pane behaviour', () => {
     harness.showContextMenu({ ...menuEvent, key: '' }, 's2');
     assert.strictEqual(label.textContent, 'Chia đôi tab (Split)');
     assert.match(splitItem.title, /Chia đôi màn hình terminal/);
+
+    harness.showContextMenu({ ...menuEvent, key: '' }, 's3');
+    assert.strictEqual(label.textContent, 'Chia đôi tab (Split)', 'a base holding only a sync pane still offers a manual split');
   });
 
   it('opens a clicked terminal link through the owning-window route and states the refusal', async () => {
@@ -349,7 +358,7 @@ describe('Renderer split-pane behaviour', () => {
     assert.strictEqual(splitPane().classList.contains('focused-pane'), false);
     assert.strictEqual(harness.mainPane.classList.contains('focused-pane'), true);
 
-    harness.assign('unmountSplit();');
+    harness.unmountAllSplits();
     assert.strictEqual(harness.container.classList.contains('split'), false);
     assert.strictEqual(harness.splitButton.classList.contains('active'), false);
     assert.match(harness.splitButton.title, /Chia đôi màn hình terminal/);
@@ -377,13 +386,13 @@ describe('Renderer split-pane behaviour', () => {
     FakeFitAddon.prototype.proposeDimensions = function proposeDimensions(this: FakeFitAddon) {
       const owner = fitOwners.get(this);
       const host = owner ? hosts.get(owner) : undefined;
-      return host?.id === 'terminal-split-host' ? { ...SPLIT } : { ...MAIN };
+      return host?.className.includes('terminal-split-pane-host') ? { ...SPLIT } : { ...MAIN };
     };
     try {
       const state = {
         activeSessionId: 'base',
         sessions: [
-          { id: 'base', name: 'Base', state: 'running', splitSessionId: 'base-pane', buffer: 'PS> ' },
+          { id: 'base', name: 'Base', state: 'running', splitSessionIds: ['base-pane'], buffer: 'PS> ' },
           // A freshly split shell has no transcript yet.
           { id: 'base-pane', name: 'Split', state: 'running', splitOf: 'base', buffer: '' },
         ],

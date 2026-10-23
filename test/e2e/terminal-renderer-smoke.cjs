@@ -146,8 +146,7 @@ app.whenReady().then(async () => {
     const splitId = `split-${parentId}`;
     const parentSession = mockSessions.find((s) => s.id === parentId);
     if (parentSession) {
-      parentSession.splitSessionId = splitId;
-      parentSession.splitBuffer = '';
+      parentSession.splitSessionIds = [...(parentSession.splitSessionIds || []).filter((id) => id !== splitId), splitId];
     }
     const splitSession = {
       id: splitId,
@@ -164,15 +163,18 @@ app.whenReady().then(async () => {
     return splitId;
   });
 
-  ipcMain.handle('antifan:terminal:unsplit-session', (_e, parentId) => {
-    const parentSession = mockSessions.find((s) => s.id === parentId);
-    if (parentSession) {
-      const splitId = parentSession.splitSessionId;
-      parentSession.splitSessionId = undefined;
-      parentSession.splitBuffer = undefined;
-      const idx = mockSessions.findIndex((s) => s.id === splitId);
-      if (idx !== -1) mockSessions.splice(idx, 1);
-    }
+  // Closes the split named by id, or the parent's most recent split when given a parent id.
+  ipcMain.handle('antifan:terminal:unsplit-session', (_e, idOrParentId) => {
+    const direct = mockSessions.find((s) => s.id === idOrParentId && s.splitOf);
+    const parentSession = direct
+      ? mockSessions.find((s) => s.id === direct.splitOf)
+      : mockSessions.find((s) => s.id === idOrParentId);
+    if (!parentSession) return false;
+    const splitId = direct ? direct.id : (parentSession.splitSessionIds || []).slice(-1)[0];
+    if (!splitId) return false;
+    parentSession.splitSessionIds = (parentSession.splitSessionIds || []).filter((id) => id !== splitId);
+    const idx = mockSessions.findIndex((s) => s.id === splitId);
+    if (idx !== -1) mockSessions.splice(idx, 1);
     broadcastSessionState();
     return true;
   });
@@ -708,8 +710,8 @@ app.whenReady().then(async () => {
         }
 
         // Close split pane via close button
-        const closeBtn = document.getElementById('btnCloseSplitPane');
-        if (!closeBtn) throw new Error('Close split button #btnCloseSplitPane not found');
+        const closeBtn = document.querySelector('#terminal-split .split-pane-close-btn');
+        if (!closeBtn) throw new Error('Close split button .split-pane-close-btn not found');
         closeBtn.click();
         await sleep(200);
 
@@ -739,7 +741,7 @@ app.whenReady().then(async () => {
         }
 
         // Test Alt+Up to focus main pane
-        const splitHostEl = document.getElementById('terminal-split-host');
+        const splitHostEl = document.querySelector('#terminal-split .terminal-split-pane-host');
         const splitTextarea = splitHostEl?.querySelector('textarea');
         if (splitTextarea) {
           splitTextarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', altKey: true, bubbles: true, cancelable: true }));

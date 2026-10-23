@@ -1092,52 +1092,64 @@ button {
 }
 
 .terminal-session-pane .xterm,
-#terminal-split-host .xterm {
+.terminal-split-pane-host .xterm {
   height: 100%;
   padding: 0;
 }
 
 .terminal-session-pane .xterm-viewport,
-#terminal-split-host .xterm-viewport {
+.terminal-split-pane-host .xterm-viewport {
   overflow-y: auto !important;
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
 }
 
 .terminal-session-pane .xterm-viewport::-webkit-scrollbar,
-#terminal-split-host .xterm-viewport::-webkit-scrollbar {
+.terminal-split-pane-host .xterm-viewport::-webkit-scrollbar {
   width: 8px;
 }
 
 .terminal-session-pane .xterm-viewport::-webkit-scrollbar-track,
-#terminal-split-host .xterm-viewport::-webkit-scrollbar-track {
+.terminal-split-pane-host .xterm-viewport::-webkit-scrollbar-track {
   background: transparent;
 }
 
 .terminal-session-pane .xterm-viewport::-webkit-scrollbar-thumb,
-#terminal-split-host .xterm-viewport::-webkit-scrollbar-thumb {
+.terminal-split-pane-host .xterm-viewport::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.18);
   border-radius: 4px;
   border: 1px solid rgba(0, 0, 0, 0.3);
 }
 
 .terminal-session-pane .xterm-viewport::-webkit-scrollbar-thumb:hover,
-#terminal-split-host .xterm-viewport::-webkit-scrollbar-thumb:hover {
+.terminal-split-pane-host .xterm-viewport::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.35);
 }
+/* The lower region: one pane per split side by side, a vertical divider between neighbours. */
 #terminal-split {
   min-height: 0;
   overflow: hidden;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   position: relative;
   width: 100%;
   flex: 1 1 0px;
 }
 
-#terminal-split-host {
+.terminal-split-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  position: relative;
+  overflow: hidden;
+}
+
+.terminal-split-pane-host {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   overflow: hidden;
   position: relative;
   width: 100%;
@@ -1146,6 +1158,7 @@ button {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 6px;
   padding: 2px 6px;
   background: rgba(255, 255, 255, 0.04);
   border-radius: 4px;
@@ -1154,9 +1167,13 @@ button {
   color: #94a3b8;
   border: 1px solid rgba(255, 255, 255, 0.06);
   flex-shrink: 0;
+  min-width: 0;
 }
 
 #terminal-split.focused-pane .split-pane-header {
+  border-color: rgba(56, 189, 248, 0.18);
+}
+#terminal-split.focused-pane .terminal-split-pane.is-focused .split-pane-header {
   background: rgba(56, 189, 248, 0.12);
   border-color: rgba(56, 189, 248, 0.35);
 }
@@ -1169,11 +1186,46 @@ button {
   display: flex;
   align-items: center;
   gap: 5px;
+  min-width: 0;
   font-weight: 600;
   color: #38bdf8;
 }
 
+.split-pane-icon {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+}
+
+.split-pane-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Same palette as the tab badges (.terminal-tab-sync-badge). */
+.split-pane-role-badge {
+  flex: 0 0 auto;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.split-pane-role-badge.role-sync {
+  color: #c4b5fd;
+  background: rgba(139, 92, 246, 0.18);
+}
+
+.split-pane-role-badge.role-agent {
+  color: #7dd3fc;
+  background: rgba(56, 189, 248, 0.16);
+}
+
 .split-pane-close-btn {
+  flex: 0 0 auto;
   background: transparent;
   border: none;
   color: #94a3b8;
@@ -1228,6 +1280,45 @@ button {
 
 #terminal-divider:hover::after,
 #terminal-divider.dragging::after {
+  background: #38bdf8;
+}
+
+.terminal-split-vdivider {
+  flex: 0 0 7px;
+  width: 7px;
+  cursor: col-resize;
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
+  background: #0d1522;
+  transition: background 0.12s ease;
+  user-select: none;
+  touch-action: none;
+  margin: 0 2px;
+  border-radius: 3px;
+  position: relative;
+  z-index: 10;
+  flex-shrink: 0;
+}
+
+.terminal-split-vdivider::after {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 2px;
+  height: 32px;
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 1px;
+}
+
+.terminal-split-vdivider:hover,
+.terminal-split-vdivider.dragging {
+  background: #1b3552;
+}
+
+.terminal-split-vdivider:hover::after,
+.terminal-split-vdivider.dragging::after {
   background: #38bdf8;
 }
 

@@ -619,8 +619,13 @@ export interface StandaloneHarness {
   terminalSessionListeners: Array<(state: unknown) => void>;
   getSplitGeometry: () => SplitGeometry;
   applySplitRatio: (ratio?: number, resizePty?: boolean) => void;
-  mountSplit: (sessionId: string, snapshot?: string, snapshotSeq?: number) => void;
-  unmountSplit: () => void;
+  mountSplit: (sessionId: string, snapshot?: string, snapshotSeq?: number, focus?: boolean) => void;
+  unmountSplit: (sessionId: string) => void;
+  unmountAllSplits: () => void;
+  reconcileSplitPanes: () => void;
+  /** Answer every `window.confirm` from now on, recording the question it was asked. */
+  setConfirmAnswer: (answer: boolean) => void;
+  confirmMessages: string[];
   showContextMenu: (event: KeyEventLike & { clientX: number; clientY: number }, sessionId: string) => void;
   maxQueueBytes: number;
   maxQueueChunks: number;
@@ -814,7 +819,13 @@ export function loadStandalone(options: {
   const windowPointerListeners: Array<{ type: string; listener: (event: KeyEventLike) => boolean | void }> = [];
   const terminals: FakeTerminal[] = [];
   const webLinksHandlers: Array<(event: unknown, uri: string) => void> = [];
+  const confirmMessages: string[] = [];
+  let confirmAnswer = true;
   const windowStub: Record<string, unknown> = {
+    confirm: (message: string) => {
+      confirmMessages.push(String(message));
+      return confirmAnswer;
+    },
     document: documentStub,
     location: { search: options.popout ? '?mode=popout' : '', href: 'file:///standalone.html', origin: 'file://' },
     innerWidth: 1440,
@@ -1047,6 +1058,12 @@ export function loadStandalone(options: {
     applySplitRatio: read<StandaloneHarness['applySplitRatio']>('applySplitRatio'),
     mountSplit: read<StandaloneHarness['mountSplit']>('mountSplit'),
     unmountSplit: read<StandaloneHarness['unmountSplit']>('unmountSplit'),
+    unmountAllSplits: read<StandaloneHarness['unmountAllSplits']>('unmountAllSplits'),
+    reconcileSplitPanes: read<StandaloneHarness['reconcileSplitPanes']>('reconcileSplitPanes'),
+    setConfirmAnswer: (answer: boolean) => {
+      confirmAnswer = answer;
+    },
+    confirmMessages,
     showContextMenu: read<StandaloneHarness['showContextMenu']>('showContextMenu'),
     maxQueueBytes: read<number>('MAX_RECOVERY_QUEUE_BYTES'),
     maxQueueChunks: read<number>('MAX_RECOVERY_QUEUE_CHUNKS'),
