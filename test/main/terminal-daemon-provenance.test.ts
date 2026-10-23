@@ -62,7 +62,7 @@ describe('Terminal Daemon Provenance & Async Seam Invariants (RC2)', () => {
                 data: {
                   activeSessionId: 'term-1',
                   sessions: [{ id: 'term-1', state: 'running', cwd: 'E:/Work/default', capsuleId: 'capsule-default' }],
-                  splitSessionId: '',
+                  splitSessionIds: [],
                   snapshot: '',
                   snapshotThroughSeq: 0,
                 },

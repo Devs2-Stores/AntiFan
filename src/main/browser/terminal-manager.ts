@@ -581,9 +581,11 @@ export interface SessionSummary {
   snapshotThroughSeq?: number;
   /** Names the parent when this entry is a split pane, and is absent on base sessions. */
   splitOf?: string;
-  splitSessionId?: string;
-  splitBuffer?: string;
-  splitSnapshotThroughSeq?: number;
+  /**
+   * On a base entry: the ids of every split it owns, in creation order. Each split is also its
+   * own entry (own transcript, role and cwd), so a viewer never needs the parent to describe it.
+   */
+  splitSessionIds?: string[];
   bufferLength: number;
   sessionGeneration: number;
   state?: 'running' | 'exited' | 'closed' | 'sleeping';
@@ -885,7 +887,7 @@ export function workspaceTerminalProvenance(ownerKey: string, workspacePath: str
 export interface TerminalSessionStateProjection {
   activeSessionId: string;
   sessions: SessionSummary[];
-  splitSessionId?: string;
+  splitSessionIds?: string[];
   snapshot: string;
   snapshotThroughSeq: number;
 }
@@ -1493,6 +1495,7 @@ export class TerminalManager extends EventEmitter {
               s.capsuleId = item.capsuleId || this.currentCapsuleId;
               s.ownerKey = item.ownerKey;
               s.category = item.category ?? parent?.category;
+              this.restoreRoleMeta(s, item);
             } else {
               const s = this.reserveRestoredSession(item, item.cols, initialRows, MIN_SPLIT_TERMINAL_ROWS, item.splitOf, parent?.sessionGeneration);
               s.capsuleId = item.capsuleId || this.currentCapsuleId;
@@ -1665,7 +1668,6 @@ export class TerminalManager extends EventEmitter {
    * the setters themselves could have produced survive; anything else restores as "no role".
    */
   private restoreRoleMeta(s: Session, item: SavedSession): void {
-    if (item.splitOf) return;
     const meta = sanitizeRoleMeta(item);
     s.role = meta.role;
     s.idlePolicy = meta.idlePolicy;
@@ -1765,6 +1767,10 @@ export class TerminalManager extends EventEmitter {
     live.capsuleId = reserved.capsuleId;
     live.ownerKey = reserved.ownerKey;
     live.category = reserved.category;
+    // The reserved record carries the restored role; the spawned one must not lose it.
+    live.role = reserved.role;
+    live.idlePolicy = reserved.idlePolicy;
+    live.spaceTerminalId = reserved.spaceTerminalId;
     live.lastSeq = reserved.lastSeq || 0;
     if (reserved.chunks && reserved.chunks.length > 0) {
       live.chunks = [...reserved.chunks];
@@ -2101,6 +2107,7 @@ export class TerminalManager extends EventEmitter {
             s.capsuleId = item.capsuleId || this.effectiveCreationCapsuleId;
             s.ownerKey = item.ownerKey;
             s.category = item.category ?? parent?.category;
+            this.restoreRoleMeta(s, item);
           } else {
             this.reserveRestoredSession(item, item.cols, initialRows, MIN_SPLIT_TERMINAL_ROWS, item.splitOf, parent?.sessionGeneration);
           }
@@ -2417,8 +2424,7 @@ export class TerminalManager extends EventEmitter {
   public async kill(): Promise<void> {
     const s = this.sessions.get(this.activeSessionId);
     if (s) {
-      const split = [...this.sessions.values()].find(x => x.splitOf === s.id);
-      if (split) {
+      for (const split of [...this.sessions.values()].filter(x => x.splitOf === s.id)) {
         await this.safelyKillSession(split);
         this.sessions.delete(split.id);
         this.sessionGenerations.delete(split.id);
@@ -2470,8 +2476,7 @@ export class TerminalManager extends EventEmitter {
         this.activeSessionId = id;
       }
     }
-    const split = [...this.sessions.values()].find(x => x.splitOf === id);
-    if (split) {
+    for (const split of [...this.sessions.values()].filter(x => x.splitOf === id)) {
       await this.safelyKillSession(split);
       this.sessions.delete(split.id);
       this.emit('session-closed', { id: split.id, generation: split.sessionGeneration });
@@ -2551,7 +2556,23 @@ export class TerminalManager extends EventEmitter {
     return id;
   }
 
-  public createSplitSession(parentId: string, cwd?: string, initialCols?: number, initialRows?: number): string {
+  /**
+   * A split the user made by hand: no Space entry owns it and it is not a watcher. This is the
+   * only kind the split toggle may reuse or remove; a Space pane and a sync pane are closed by
+   * naming them.
+   */
+  private static isManualSplit(s: Session): boolean {
+    return !s.spaceTerminalId && s.role !== 'sync';
+  }
+
+  /**
+   * Mint (or reuse) a split pane under `parentId`. A parent may own several splits. With a
+   * `spaceTerminalId` the pane is the manifest entry's: an existing pane of this parent with the
+   * same id is reused (and woken) instead of duplicated. Without one the call is the split
+   * toggle's: it reuses the parent's manual split when there is one and adds the first otherwise.
+   * The pane owns the role, idle policy and label it is minted with.
+   */
+  public createSplitSession(parentId: string, cwd?: string, initialCols?: number, initialRows?: number, meta?: TerminalRoleMeta & { name?: unknown }): string {
     const parentRecord = this.sessions.get(parentId);
     if (!parentRecord || parentRecord.disposed || parentRecord.splitOf) return '';
     // Splitting genuinely needs two live shells: route a sleeping parent through
@@ -2560,7 +2581,11 @@ export class TerminalManager extends EventEmitter {
     const parent = parentRecord.state === 'sleeping'
       ? (this.wakeSession(parentId) ? (this.sessions.get(parentId) || parentRecord) : parentRecord)
       : (this.ensureSessionPty(parentId) || parentRecord);
-    const existing = [...this.sessions.values()].find(x => x.splitOf === parentId);
+    const clean = sanitizeRoleMeta(meta || {});
+    const siblings = [...this.sessions.values()].filter(x => x.splitOf === parentId);
+    const existing = clean.spaceTerminalId
+      ? siblings.find(x => x.spaceTerminalId === clean.spaceTerminalId)
+      : siblings.find(x => TerminalManager.isManualSplit(x));
     if (existing) {
       // The sidebar may hide a sleeping split, so the split toggle is also its
       // explicit wake path. Reuse the existing pane instead of creating a second
@@ -2578,19 +2603,30 @@ export class TerminalManager extends EventEmitter {
     splitSession.capsuleId = parent.capsuleId || this.currentCapsuleId;
     splitSession.ownerKey = parent.ownerKey || this.effectiveCreationOwnerKey;
     splitSession.category = parent.category;
+    splitSession.role = clean.role;
+    splitSession.idlePolicy = clean.idlePolicy;
+    splitSession.spaceTerminalId = clean.spaceTerminalId;
+    const label = typeof meta?.name === 'string' ? meta.name.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim().slice(0, 80) : '';
+    if (label) splitSession.name = label;
     this.persist();
     this.emitSession();
     this.emit('session-created', { id, parentId, generation: splitSession.sessionGeneration });
     return id;
   }
 
+  /**
+   * Close one split. A split id closes exactly that pane. A parent id closes the parent's most
+   * recently created manual split and never a Space or sync pane, so the split toggle cannot kill
+   * a watcher; it reports `false` when the parent has no manual split.
+   */
   public async closeSplitSession(parentIdOrSplitId: string): Promise<boolean> {
-    let split = [...this.sessions.values()].find(x => x.splitOf === parentIdOrSplitId);
-    if (!split) {
-      const direct = this.sessions.get(parentIdOrSplitId);
-      if (direct && direct.splitOf) {
-        split = direct;
-      }
+    const direct = this.sessions.get(parentIdOrSplitId);
+    let split: Session | undefined;
+    if (direct && direct.splitOf) {
+      split = direct;
+    } else {
+      const manual = [...this.sessions.values()].filter(x => x.splitOf === parentIdOrSplitId && TerminalManager.isManualSplit(x));
+      split = manual[manual.length - 1];
     }
     if (!split) return false;
     await this.safelyKillSession(split);
@@ -2766,21 +2802,20 @@ export class TerminalManager extends EventEmitter {
   }
 
   /**
-   * Set (or clear, with `role: undefined`) what a tab is for. A `sync` role always carries
+   * Set (or clear, with `role: undefined`) what a terminal is for. A `sync` role always carries
    * `idlePolicy: 'never'`, so marking a shell as a watcher is what protects it from sleep. The
-   * metadata lives on the base session; a pane id addresses its tab.
+   * metadata belongs to the addressed record itself: a split pane owns its own role, so a sync
+   * watcher in a lower pane is not the parent tab's watcher and the parent's role is untouched.
    */
   public setSessionRole(id: string, meta: { role?: unknown; idlePolicy?: unknown; spaceTerminalId?: unknown }): boolean {
-    const direct = this.sessions.get(id);
-    if (!direct || direct.disposed) return false;
-    const baseId = direct.splitOf || id;
-    const s = this.sessions.get(baseId) || direct;
+    const s = this.sessions.get(id);
+    if (!s || s.disposed) return false;
     const clean = sanitizeRoleMeta(meta);
     s.role = clean.role;
     s.idlePolicy = clean.idlePolicy;
     s.spaceTerminalId = clean.spaceTerminalId;
-    this.dirtySessionIds.add(baseId);
-    this.schedulePersist(baseId);
+    this.dirtySessionIds.add(id);
+    this.schedulePersist(id);
     this.emitSession();
     return true;
   }
@@ -2821,8 +2856,8 @@ export class TerminalManager extends EventEmitter {
    *
    * A split is an independent terminal (own id, own transcript, own activity), so it is
    * projected as its own entry — the tab strip keys panes by id and would otherwise show
-   * a split as part of its parent. Base entries keep `splitSessionId`/`splitBuffer`
-   * carrying the first split, which is what the lower-pane plumbing asks for by name.
+   * a split as part of its parent. Base entries list their splits in `splitSessionIds`, in
+   * creation order.
    */
   public listSessions(paged = true): SessionSummary[] {
     const all = [...this.sessions.values()];
@@ -2867,12 +2902,9 @@ export class TerminalManager extends EventEmitter {
       const summaries: SessionSummary[] = [];
       for (const s of baseSessions) {
         const splits = splitsByParent.get(s.id) || [];
-        const first = splits[0];
         summaries.push({
           ...summarize(s, s.id === this.activeSessionId, this.composeTranscript(s)),
-          splitSessionId: first?.id,
-          splitBuffer: first ? this.composeTranscript(first) : '',
-          splitSnapshotThroughSeq: first ? (first.lastSeq || 0) : 0,
+          ...(splits.length > 0 ? { splitSessionIds: splits.map((split) => split.id) } : {}),
         });
         for (const split of splits) {
           summaries.push(summarize(split, false, this.composeTranscript(split)));
@@ -2890,14 +2922,11 @@ export class TerminalManager extends EventEmitter {
     for (const s of baseSessions) {
       const isActive = s.id === this.activeSessionId;
       const splits = splitsByParent.get(s.id) || [];
-      const first = splits[0];
       const baseSlotBudget = isActive ? activeBudget : bgBudget;
 
       summaries.push({
         ...summarize(s, isActive, safeSliceTailJsonBounded(this.transcriptTail(s, baseSlotBudget), baseSlotBudget)),
-        splitSessionId: first?.id,
-        splitBuffer: first ? safeSliceTailJsonBounded(this.transcriptTail(first, bgBudget), bgBudget) : '',
-        splitSnapshotThroughSeq: first ? (first.lastSeq || 0) : 0,
+        ...(splits.length > 0 ? { splitSessionIds: splits.map((split) => split.id) } : {}),
       });
       // Each split carries its own transcript, so a sibling split can never be rendered
       // in another split's place.
@@ -3269,7 +3298,7 @@ export class TerminalManager extends EventEmitter {
     return {
       activeSessionId: this.activeSessionId,
       sessions: sessionsList,
-      splitSessionId: activeSummary?.splitSessionId,
+      splitSessionIds: activeSummary?.splitSessionIds,
       snapshot: activeSummary?.buffer || (s ? safeSliceTailJsonBounded(this.transcriptTail(s, ACTIVE_SNAPSHOT_BUDGET_BYTES), ACTIVE_SNAPSHOT_BUDGET_BYTES) : ''),
       snapshotThroughSeq: s ? (s.lastSeq || 0) : 0,
     };

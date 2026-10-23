@@ -4,6 +4,7 @@ import type { SpaceOpenResult } from '../../shared/contracts';
 import {
   readSpaceManifest,
   resolveSpaceTabPath,
+  resolveSpaceTerminalCwd,
   type SpaceManifest,
   type SpaceTabSpec,
   type SpaceTerminalSpec,
@@ -22,6 +23,8 @@ export interface SpaceSessionView {
   cwd?: string;
   state?: string;
   spaceTerminalId?: string;
+  /** Set on a split pane: the base session it belongs to. */
+  splitOf?: string;
 }
 
 /**
@@ -36,13 +39,19 @@ export interface SpaceOpenDeps {
   recordConfirmed(key: string, hash: string): void;
   openWindow(realFolder: string): Promise<{ ok: true; window: SpaceWindow } | { ok: false; message: string }>;
   sessions(): SpaceSessionView[];
-  /** Mint one shell in the folder stamped with the declared role; resolves the new session id. */
-  mint(realFolder: string, capsuleId: string, spec: SpaceTerminalSpec): Promise<string | null>;
+  /** Mint one base shell in `directory` stamped with the declared role; resolves the new session id. */
+  mint(directory: string, capsuleId: string, spec: SpaceTerminalSpec): Promise<string | null>;
   /**
-   * The live sync watcher that already pushes to the same remote as a `sync` terminal minted in
-   * this folder, or undefined. Opening a Space never acknowledges a duplicate on the user's behalf.
+   * Mint one split pane under `parentSessionId`, starting in `directory`, owning the declared
+   * role, idle policy and label; resolves the new split's session id.
    */
-  findSyncDuplicate(realFolder: string, capsuleId: string): { id: string; label: string } | undefined;
+  mintSplit(directory: string, capsuleId: string, parentSessionId: string, spec: SpaceTerminalSpec): Promise<string | null>;
+  /**
+   * The live sync watcher (a base shell or a split pane) that already pushes to the same remote as
+   * a `sync` terminal minted in `directory`, or undefined. Opening a Space never acknowledges a
+   * duplicate on the user's behalf.
+   */
+  findSyncDuplicate(directory: string, capsuleId: string): { id: string; label: string } | undefined;
   typeCommand(sessionId: string, text: string): Promise<unknown> | unknown;
   /** Wake a sleeping session (a fresh shell in the same cwd); false when it could not be woken. */
   wake(sessionId: string): Promise<boolean> | boolean;
@@ -164,23 +173,52 @@ async function applyManifest(
   let terminalsReused = 0;
   let terminalsWoken = 0;
   const syncDuplicates: Array<{ spaceTerminalId: string; duplicate: { id: string; label: string } }> = [];
+  // Every declared directory is resolved before anything is minted: a terminal never starts
+  // somewhere else than it declared, and a bad entry must not leave half a Space open.
+  const directories = new Map<string, string>();
   for (const spec of manifest.terminals) {
+    if (!spec.cwd) {
+      directories.set(spec.id, realFolder);
+      continue;
+    }
+    const resolved = resolveSpaceTerminalCwd(realFolder, spec.cwd);
+    if (!resolved) {
+      return { ok: false, reason: 'CREATE_FAILED', message: `Terminal '${spec.id}': cwd '${spec.cwd}' is not an existing folder inside this project` };
+    }
+    directories.set(spec.id, resolved);
+  }
+  // What was running when the open started. A parent's wake cascades to its splits, so a split
+  // that is already awake by its own turn was still asleep when the open began and still owes
+  // its command.
+  const before = deps.sessions();
+  const sessionIdBySpecId = new Map<string, string>();
+  // Bases first: a split needs its parent's session id before it can be minted or matched.
+  const ordered = [...manifest.terminals.filter((t) => !t.splitOf), ...manifest.terminals.filter((t) => t.splitOf)];
+  for (const spec of ordered) {
     try {
       deps.admit();
-      const live = deps.sessions().find(
+      const directory = directories.get(spec.id) as string;
+      const directoryKey = deps.folderKey(directory);
+      const parentSessionId = spec.splitOf ? sessionIdBySpecId.get(spec.splitOf) : undefined;
+      if (spec.splitOf && !parentSessionId) {
+        return { ok: false, reason: 'CREATE_FAILED', message: `Terminal '${spec.id}' is a split of '${spec.splitOf}', which was not opened` };
+      }
+      const live = before.find(
         (s) =>
           s.spaceTerminalId === spec.id &&
           (s.state === 'running' || s.state === 'sleeping') &&
           typeof s.cwd === 'string' &&
-          deps.folderKey(s.cwd) === key,
+          deps.folderKey(s.cwd) === directoryKey &&
+          (spec.splitOf ? s.splitOf === parentSessionId : !s.splitOf),
       );
       if (live) {
+        sessionIdBySpecId.set(spec.id, live.id);
         terminalsReused += 1;
         if (live.state === 'sleeping') {
           // Reuse must deliver the declared work: a sleeping shell is woken (a fresh shell in the
           // same cwd) and gets its command, else the Space would report a terminal that does nothing.
-          const woke = await deps.wake(live.id);
-          if (woke === false) {
+          const current = deps.sessions().find((s) => s.id === live.id);
+          if (current?.state === 'sleeping' && (await deps.wake(live.id)) === false) {
             return { ok: false, reason: 'CREATE_FAILED', message: `Terminal '${spec.id}' is sleeping and could not be woken` };
           }
           terminalsWoken += 1;
@@ -190,15 +228,19 @@ async function applyManifest(
         }
         continue;
       }
+      const mintOne = (): Promise<string | null> =>
+        parentSessionId
+          ? deps.mintSplit(directory, window.capsuleId, parentSessionId, spec)
+          : deps.mint(directory, window.capsuleId, spec);
       let id: string | null;
       if (spec.role === 'sync') {
         // The duplicate lookup and the mint are one critical section across ALL folders: two
         // folders bound to one remote must not both see "no watcher yet" and each mint one.
         const outcome = await withSyncMintLock(
           async (): Promise<{ duplicate: { id: string; label: string } } | { id: string | null }> => {
-            const duplicate = deps.findSyncDuplicate(realFolder, window.capsuleId);
+            const duplicate = deps.findSyncDuplicate(directory, window.capsuleId);
             if (duplicate) return { duplicate };
-            return { id: await deps.mint(realFolder, window.capsuleId, spec) };
+            return { id: await mintOne() };
           },
         );
         if ('duplicate' in outcome) {
@@ -208,9 +250,10 @@ async function applyManifest(
         }
         id = outcome.id;
       } else {
-        id = await deps.mint(realFolder, window.capsuleId, spec);
+        id = await mintOne();
       }
       if (!id) return { ok: false, reason: 'CREATE_FAILED', message: `Terminal '${spec.id}' minted no session` };
+      sessionIdBySpecId.set(spec.id, id);
       terminalsOpened += 1;
       if (spec.command && (await deps.typeCommand(id, `${spec.command}\r`)) === false) {
         // Daemon-mode writeTo maps an RPC failure to false: the terminal exists, its command does not.

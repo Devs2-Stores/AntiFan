@@ -91,19 +91,19 @@ describe('Terminal Split Hardened 10-Round Verification Suite', () => {
     const p1 = tm.createSession();
     const split1 = tm.createSplitSession(p1);
     assert.ok(split1);
-    assert.strictEqual(tm.listSessions().find(s => s.id === p1)?.splitSessionId, split1);
+    assert.deepStrictEqual(tm.listSessions().find(s => s.id === p1)?.splitSessionIds, [split1]);
 
     // Close by splitId directly
     const resSplit = await tm.closeSplitSession(split1);
     assert.strictEqual(resSplit, true);
-    assert.strictEqual(tm.listSessions().find(s => s.id === p1)?.splitSessionId, undefined);
+    assert.strictEqual(tm.listSessions().find(s => s.id === p1)?.splitSessionIds, undefined);
 
     // Recreate and close by parentId
     const split2 = tm.createSplitSession(p1);
     assert.ok(split2);
     const resParent = await tm.closeSplitSession(p1);
     assert.strictEqual(resParent, true);
-    assert.strictEqual(tm.listSessions().find(s => s.id === p1)?.splitSessionId, undefined);
+    assert.strictEqual(tm.listSessions().find(s => s.id === p1)?.splitSessionIds, undefined);
 
     await tm.closeSession(p1);
   });
@@ -203,18 +203,18 @@ describe('Terminal Split Hardened 10-Round Verification Suite', () => {
 
     // Tab A is split, Tab B is not
     let list = tm.listSessions();
-    assert.strictEqual(list.find(s => s.id === tabA)?.splitSessionId, splitA);
-    assert.strictEqual(list.find(s => s.id === tabB)?.splitSessionId, undefined);
+    assert.deepStrictEqual(list.find(s => s.id === tabA)?.splitSessionIds, [splitA]);
+    assert.strictEqual(list.find(s => s.id === tabB)?.splitSessionIds, undefined);
 
     // Switch to Tab B
     tm.switchSession(tabB);
     assert.strictEqual(tm.getActiveSessionId(), tabB);
-    assert.strictEqual(tm.getSessionState().splitSessionId, undefined);
+    assert.strictEqual(tm.getSessionState().splitSessionIds, undefined);
 
     // Switch back to Tab A
     tm.switchSession(tabA);
     assert.strictEqual(tm.getActiveSessionId(), tabA);
-    assert.strictEqual(tm.getSessionState().splitSessionId, splitA);
+    assert.deepStrictEqual(tm.getSessionState().splitSessionIds, [splitA]);
 
     await tm.closeSession(tabA);
     await tm.closeSession(tabB);
@@ -314,8 +314,7 @@ describe('Terminal Split Hardened 10-Round Verification Suite', () => {
     const entryA = list.find((s) => s.id === splitA);
     const entryB = list.find((s) => s.id === splitB);
 
-    assert.strictEqual(baseEntry?.splitSessionId, splitA);
-    assert.match(baseEntry?.splitBuffer || '', /SPLIT_A_OUTPUT/);
+    assert.deepStrictEqual(baseEntry?.splitSessionIds, [splitA, splitB], 'the base entry lists every split in creation order');
     assert.ok(entryA && entryB, 'both splits of the parent must be listed');
     assert.strictEqual(entryA!.splitOf, parent);
     assert.strictEqual(entryB!.splitOf, parent);

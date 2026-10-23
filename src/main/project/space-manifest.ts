@@ -21,6 +21,10 @@ export interface SpaceTerminalSpec {
   command?: string;
   role: SpaceTerminalRole;
   idlePolicy: TerminalIdlePolicy;
+  /** Folder-relative directory the shell starts in. Absent: the folder itself. */
+  cwd?: string;
+  /** Id of the base terminal this one is a split pane of (rendered beside its siblings below it). */
+  splitOf?: string;
 }
 
 export type SpaceTabSpec =
@@ -71,12 +75,13 @@ function optionalText(
 }
 
 /**
- * A folder-relative tab path, checked by spelling only: absolute paths, drive letters, UNC and
- * device paths, and any `..` segment are refused so the path cannot name anything outside the
- * folder no matter what the folder later contains. The filesystem half of the containment check
- * (a link inside the folder pointing out of it) is `resolveSpaceTabPath`.
+ * A folder-relative path (a tab file, a terminal's working directory), checked by spelling only:
+ * absolute paths, drive letters, UNC and device paths, and any `..` segment are refused so the
+ * path cannot name anything outside the folder no matter what the folder later contains. The
+ * filesystem half of the containment check (a link inside the folder pointing out of it) is
+ * `resolveSpaceTabPath`.
  */
-function relativeTabPath(value: unknown, at: string, errors: SpaceManifestError[]): string | undefined {
+function relativeFolderPath(value: unknown, at: string, errors: SpaceManifestError[]): string | undefined {
   if (typeof value !== 'string' || !value.trim() || value.length > 260 || CONTROL_CHARS.test(value)) {
     errors.push({ path: at, message: 'must be a non-empty folder-relative path' });
     return undefined;
@@ -147,6 +152,8 @@ export function parseSpaceManifest(buffer: Buffer): SpaceManifestParse {
     errors.push({ path: 'terminals', message: `must be an array of at most ${MAX_TERMINALS} entries` });
   } else {
     const seen = new Set<string>();
+    // Every well-formed `splitOf` is checked once all ids are known, so order in the file is free.
+    const splitRefs: Array<{ at: string; id: string; target: string }> = [];
     rawTerminals.forEach((entry, index) => {
       const at = `terminals[${index}]`;
       if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
@@ -161,6 +168,16 @@ export function parseSpaceManifest(buffer: Buffer): SpaceManifestParse {
       else seen.add(id);
       const label = optionalText(t.label, `${at}.label`, errors) ?? id;
       const command = optionalText(t.command, `${at}.command`, errors, MAX_COMMAND_CHARS);
+      const cwd = t.cwd === undefined ? undefined : relativeFolderPath(t.cwd, `${at}.cwd`, errors);
+      let splitOf: string | undefined;
+      if (t.splitOf !== undefined) {
+        if (typeof t.splitOf === 'string' && ID_PATTERN.test(t.splitOf)) {
+          splitOf = t.splitOf;
+          if (id) splitRefs.push({ at: `${at}.splitOf`, id, target: splitOf });
+        } else {
+          errors.push({ path: `${at}.splitOf`, message: 'must be the id of another terminal' });
+        }
+      }
       const role = t.role ?? 'shell';
       if (typeof role !== 'string' || !Object.hasOwn(TERMINAL_ROLES, role)) {
         errors.push({ path: `${at}.role`, message: 'must be agent, sync or shell' });
@@ -177,11 +194,24 @@ export function parseSpaceManifest(buffer: Buffer): SpaceManifestParse {
           id,
           label,
           ...(command ? { command } : {}),
+          ...(cwd ? { cwd } : {}),
+          ...(splitOf ? { splitOf } : {}),
           role: role as SpaceTerminalRole,
           idlePolicy: policy as TerminalIdlePolicy,
         });
       }
     });
+    const declaredSplitOf = new Map(splitRefs.map((ref) => [ref.id, ref.target]));
+    for (const ref of splitRefs) {
+      if (ref.target === ref.id) {
+        errors.push({ path: ref.at, message: 'a terminal cannot be a split of itself' });
+      } else if (!seen.has(ref.target)) {
+        errors.push({ path: ref.at, message: `unknown terminal '${ref.target}'` });
+      } else if (declaredSplitOf.has(ref.target)) {
+        // A split of a split would need a pane inside a pane; the parent must be a base terminal.
+        errors.push({ path: ref.at, message: `'${ref.target}' is itself a split and cannot own splits` });
+      }
+    }
   }
 
   const tabs: SpaceTabSpec[] = [];
@@ -205,7 +235,7 @@ export function parseSpaceManifest(buffer: Buffer): SpaceManifestParse {
         const url = webUrl(t.url, `${at}.url`, errors);
         if (url && errors.length === before) tabs.push({ kind: 'url', url });
       } else {
-        const rel = relativeTabPath(t.path, `${at}.path`, errors);
+        const rel = relativeFolderPath(t.path, `${at}.path`, errors);
         if (rel && errors.length === before) tabs.push({ kind: 'path', path: rel });
       }
     });
@@ -266,11 +296,38 @@ export function resolveSpaceTabPath(realFolder: string, relative: string): strin
   return resolved;
 }
 
+/**
+ * The absolute directory a terminal's `cwd` names, or undefined when it does not exist, is not a
+ * directory, or resolves (through a link) outside `realFolder`. Unlike a tab file, a terminal
+ * never starts in a directory that is missing: the command typed into it would run somewhere else.
+ */
+export function resolveSpaceTerminalCwd(realFolder: string, relative: string): string | undefined {
+  const resolved = resolveSpaceTabPath(realFolder, relative);
+  if (!resolved) return undefined;
+  try {
+    return fs.statSync(resolved).isDirectory() ? resolved : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Single-line, bounded text the parser will accept, or undefined when nothing usable remains. */
 function cleanText(value: string | undefined): string | undefined {
   if (typeof value !== 'string') return undefined;
   const text = value.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim().slice(0, MAX_TEXT_CHARS);
   return text || undefined;
+}
+
+export interface SpaceTemplateTerminal {
+  /** Caller's handle for a base shell, so splits can name it in `splitOfKey`. Not written to the manifest. */
+  key?: string;
+  label: string;
+  role?: string;
+  idlePolicy?: string;
+  /** Folder-relative directory the shell was started in, when it is not the folder itself. */
+  cwd?: string;
+  /** `key` of the base shell this one is a split pane of. */
+  splitOfKey?: string;
 }
 
 /**
@@ -280,22 +337,33 @@ function cleanText(value: string | undefined): string | undefined {
  */
 export function buildSpaceTemplate(
   name: string,
-  terminals: ReadonlyArray<{ label: string; role?: string; idlePolicy?: string }>,
+  terminals: ReadonlyArray<SpaceTemplateTerminal>,
   tabUrls: ReadonlyArray<{ url: string }>,
 ): SpaceManifest {
   const usedIds = new Set<string>();
+  const baseIdByKey = new Map<string, string>();
   const specs: SpaceTerminalSpec[] = [];
-  for (const t of terminals.slice(0, MAX_TERMINALS)) {
+  // Bases are emitted first, so a split's parent always has an id by the time the split is read.
+  const ordered = [...terminals.filter((t) => !t.splitOfKey), ...terminals.filter((t) => t.splitOfKey)];
+  for (const t of ordered.slice(0, MAX_TERMINALS)) {
+    // A split whose parent is not a base shell in this template (cut by the cap, or itself a
+    // split) cannot be expressed, so it is left out rather than emitted as a base.
+    const parentId = t.splitOfKey ? baseIdByKey.get(t.splitOfKey) : undefined;
+    if (t.splitOfKey && !parentId) continue;
     const base = t.label.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 24) || 'shell';
     let id = base;
     for (let n = 2; usedIds.has(id); n += 1) id = `${base}-${n}`;
     usedIds.add(id);
+    if (!t.splitOfKey && t.key) baseIdByKey.set(t.key, id);
     const role: SpaceTerminalRole = t.role === 'agent' || t.role === 'sync' ? t.role : 'shell';
+    const cwd = t.cwd ? relativeFolderPath(t.cwd, '', []) : undefined;
     specs.push({
       id,
       label: cleanText(t.label) || id,
       role,
       idlePolicy: role === 'sync' || t.idlePolicy === 'never' ? 'never' : 'manual',
+      ...(cwd ? { cwd } : {}),
+      ...(parentId ? { splitOf: parentId } : {}),
     });
   }
   const seen = new Set<string>();

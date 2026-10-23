@@ -4462,7 +4462,7 @@ export class BridgeServer {
       if (hasCompanion && data && typeof data === 'object') {
         const state = data as {
           sessions?: SessionSummary[];
-          splitSessionId?: string;
+          splitSessionIds?: string[];
         };
         const sessions = this.userPlaneSessions(Array.isArray(state.sessions) ? state.sessions : []);
         const activeId = this.visibleTerminalActiveId(sessions);
@@ -4471,7 +4471,7 @@ export class BridgeServer {
           ...state,
           sessions,
           activeSessionId: activeId,
-          splitSessionId: activeSummary?.splitSessionId,
+          splitSessionIds: activeSummary?.splitSessionIds,
           snapshot: activeSummary?.buffer || '',
           snapshotThroughSeq: activeSummary?.snapshotThroughSeq || 0,
         };

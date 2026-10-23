@@ -80,10 +80,14 @@ export interface HostNewSessionParams {
    * the legacy capsule/workspace-tag attribution so old clients keep today's visibility.
    */
   ownerKey?: string;
-  /** `role`, `idlePolicy`, `spaceTerminalId`: stamped at creation, never by a follow-up call. */
+  /**
+   * `role`, `idlePolicy`, `spaceTerminalId`: stamped at creation, never by a follow-up call. A split
+   * (`parentId` set) owns them too, and `name` is the label it is minted with.
+   */
   role?: string;
   idlePolicy?: string;
   spaceTerminalId?: string;
+  name?: string;
   parentId?: string;
   cols?: number;
   rows?: number;

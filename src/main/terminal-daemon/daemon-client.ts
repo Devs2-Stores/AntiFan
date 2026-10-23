@@ -320,7 +320,7 @@ export class DaemonTerminalProxy extends EventEmitter {
     this.client.onClose(() => this.scheduleReconnect());
   }
 
-  private _updateLocalCache(state: { sessions?: unknown[]; activeSessionId?: string; cwd?: string; splitSessionId?: string; snapshot?: string; snapshotThroughSeq?: number } | null | undefined): void {
+  private _updateLocalCache(state: { sessions?: unknown[]; activeSessionId?: string; cwd?: string; splitSessionIds?: string[]; snapshot?: string; snapshotThroughSeq?: number } | null | undefined): void {
     if (!state) return;
     if (Array.isArray(state.sessions)) {
       this.cachedSessions = state.sessions as Array<Record<string, unknown>>;
@@ -347,7 +347,7 @@ export class DaemonTerminalProxy extends EventEmitter {
     this.cachedSessionState = {
       activeSessionId: this.cachedActiveSessionId,
       sessions: this.cachedSessions,
-      splitSessionId: state.splitSessionId || (this.cachedSessionState as Record<string, unknown> | undefined)?.splitSessionId,
+      splitSessionIds: Array.isArray(state.splitSessionIds) ? state.splitSessionIds : (this.cachedSessionState as Record<string, unknown> | undefined)?.splitSessionIds,
       snapshot: typeof state.snapshot === 'string' ? state.snapshot : (typeof prevSnapshot === 'string' ? prevSnapshot : ''),
       snapshotThroughSeq: typeof state.snapshotThroughSeq === 'number' ? state.snapshotThroughSeq : (typeof prevSeq === 'number' ? prevSeq : 0),
     };
@@ -583,11 +583,23 @@ export class DaemonTerminalProxy extends EventEmitter {
     return r.sessionId;
   }
 
-  async createSplitSession(parentId: string, cwd?: string, cols?: number, rows?: number): Promise<string> {
+  async createSplitSession(
+    parentId: string,
+    cwd?: string,
+    cols?: number,
+    rows?: number,
+    meta?: TerminalRoleMeta & { name?: unknown },
+  ): Promise<string> {
     const payload: HostNewSessionParams = { parentId };
     if (typeof cwd === 'string' && cwd) payload.cwd = cwd;
     if (typeof cols === 'number') payload.cols = cols;
     if (typeof rows === 'number') payload.rows = rows;
+    if (meta) {
+      if (typeof meta.role === 'string') payload.role = meta.role;
+      if (typeof meta.idlePolicy === 'string') payload.idlePolicy = meta.idlePolicy;
+      if (typeof meta.spaceTerminalId === 'string') payload.spaceTerminalId = meta.spaceTerminalId;
+      if (typeof meta.name === 'string') payload.name = meta.name;
+    }
     const r = await this.client.call<HostNewSessionResult>(HOST_METHOD.newSession, payload);
     return r.sessionId;
   }
@@ -651,7 +663,7 @@ export class DaemonTerminalProxy extends EventEmitter {
     }
     const s = this.cachedSessionsById.get(sessionId);
     if (!s) return undefined;
-    const { buffer: _b, splitBuffer: _sb, ...scalars } = s;
+    const { buffer: _b, ...scalars } = s;
     return scalars;
   }
 

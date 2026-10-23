@@ -676,17 +676,155 @@ describe('Phase 5: Terminal sleep / wake lifecycle', () => {
     assert.deepStrictEqual(tm.sleepSession(id), { ok: false, reason: 'SLEEP_REFUSED_WATCHER' });
   });
 
-  it('(l) a never pane protects its tab; clearing the role makes it sleepable again', () => {
+  it('(l) a never pane protects its tab; clearing the pane role makes the tab sleepable again', () => {
     const id = tm.createSession('E:/Work/theme');
     const pane = tm.createSplitSession(id);
     assert.ok(pane, 'split must mint a pane');
     assert.strictEqual(tm.setSessionRole(pane, { idlePolicy: 'never' }), true);
-    assert.strictEqual(record(id).idlePolicy, 'never', 'role metadata lives on the base tab');
+    assert.strictEqual(record(pane).idlePolicy, 'never', 'the role metadata lives on the pane itself');
+    assert.strictEqual(record(id).idlePolicy, undefined, 'the parent tab carries nothing of its pane role');
     assert.deepStrictEqual(tm.sleepSession(pane), { ok: false, reason: 'SLEEP_REFUSED_WATCHER' });
     assert.deepStrictEqual(tm.sleepSession(id), { ok: false, reason: 'SLEEP_REFUSED_WATCHER' });
+    assert.strictEqual(record(id).state, 'running');
+    assert.strictEqual(record(pane).state, 'running');
 
-    assert.strictEqual(tm.setSessionRole(id, {}), true);
+    assert.strictEqual(tm.setSessionRole(pane, {}), true);
     assert.deepStrictEqual(tm.sleepSession(id), { ok: true });
+    assert.strictEqual(record(pane).state, 'sleeping', 'an unguarded pane still sleeps with its parent');
+  });
+
+  describe('splits own their role', () => {
+    // Splits start in their own directory, and a directory that does not exist falls back to
+    // the process cwd, so the project layout is made for real.
+    let projectDir = '';
+    let haravanDir = '';
+    let sapoDir = '';
+    before(() => {
+      projectDir = fs.mkdtempSync(path.join(scratchDir, 'project-'));
+      haravanDir = path.join(projectDir, 'Haravan');
+      sapoDir = path.join(projectDir, 'Sapo');
+      fs.mkdirSync(haravanDir);
+      fs.mkdirSync(sapoDir);
+    });
+    const mintSyncSplit = (parent: string, spaceTerminalId: string, cwd: string, name: string): string => {
+      const split = tm.createSplitSession(parent, cwd, undefined, undefined, { role: 'sync', idlePolicy: 'manual', spaceTerminalId, name });
+      assert.ok(split, 'sync split must be minted');
+      return split;
+    };
+
+    it('a split minted with role meta carries it, its own cwd and its label; the parent is untouched', () => {
+      const base = tm.createSession(projectDir, undefined, undefined, { role: 'agent', idlePolicy: 'manual', spaceTerminalId: 'main' });
+      const split = mintSyncSplit(base, 'sync-sapo', sapoDir, 'Sapo sync');
+      assert.strictEqual(record(split).splitOf, base);
+      assert.strictEqual(record(split).role, 'sync');
+      assert.strictEqual(record(split).idlePolicy, 'never', 'a watcher can never be declared sleepable');
+      assert.strictEqual(record(split).spaceTerminalId, 'sync-sapo');
+      assert.strictEqual(record(split).name, 'Sapo sync');
+      assert.strictEqual(record(split).cwd, sapoDir);
+      assert.strictEqual(record(base).role, 'agent');
+      assert.strictEqual(record(base).spaceTerminalId, 'main');
+      const row = tm.listSessions().find((item) => item.id === split);
+      assert.deepStrictEqual([row?.role, row?.idlePolicy, row?.spaceTerminalId, row?.splitOf], ['sync', 'never', 'sync-sapo', base]);
+    });
+
+    it('setSessionRole on a split changes the split and never its parent', () => {
+      const base = tm.createSession(projectDir);
+      const split = tm.createSplitSession(base);
+      assert.strictEqual(tm.setSessionRole(split, { role: 'sync', spaceTerminalId: 'w' }), true);
+      assert.strictEqual(record(split).role, 'sync');
+      assert.strictEqual(record(split).spaceTerminalId, 'w');
+      assert.strictEqual(record(base).role, undefined);
+      assert.strictEqual(record(base).idlePolicy, undefined);
+      assert.strictEqual(record(base).spaceTerminalId, undefined);
+    });
+
+    it('lists every split of a base, in creation order, on the base entry', () => {
+      const base = tm.createSession(projectDir);
+      const a = mintSyncSplit(base, 'sync-haravan', haravanDir, 'Haravan sync');
+      const b = mintSyncSplit(base, 'sync-sapo', sapoDir, 'Sapo sync');
+      const entries = tm.listSessions();
+      assert.deepStrictEqual(entries.find((item) => item.id === base)?.splitSessionIds, [a, b]);
+      assert.deepStrictEqual(tm.getSessionState().splitSessionIds, [a, b]);
+    });
+
+    it('persists a split role with the split and restores it, guard included', () => {
+      const base = tm.createSession(projectDir, undefined, undefined, { role: 'agent', idlePolicy: 'manual', spaceTerminalId: 'main' });
+      const split = mintSyncSplit(base, 'sync-sapo', sapoDir, 'Sapo sync');
+      tm.persistSync();
+      const rows = readStateFile(stateFile).sessions;
+      const onDisk = rows.find((item) => item.id === split);
+      assert.deepStrictEqual(
+        [onDisk?.splitOf, onDisk?.role, onDisk?.idlePolicy, onDisk?.spaceTerminalId, onDisk?.cwd],
+        [base, 'sync', 'never', 'sync-sapo', sapoDir],
+      );
+      assert.strictEqual(rows.find((item) => item.id === base)?.role, 'agent');
+
+      internals.sessions.clear();
+      internals.sessionGenerations.clear();
+      internals.activeSessionId = '';
+      spawnedPtys.length = 0;
+      assert.strictEqual(tm.startTerminal(projectDir), true);
+      assert.strictEqual(record(split).role, 'sync');
+      assert.strictEqual(record(split).idlePolicy, 'never');
+      assert.strictEqual(record(split).spaceTerminalId, 'sync-sapo');
+      assert.strictEqual(record(base).role, 'agent');
+      assert.deepStrictEqual(tm.sleepSession(base), { ok: false, reason: 'SLEEP_REFUSED_WATCHER' }, 'the guard holds after a restart');
+    });
+
+    it('restores the role of a split whose base is not the active tab', () => {
+      const first = tm.createSession('E:/Work/one');
+      const second = tm.createSession('E:/Work/two');
+      const split = mintSyncSplit(first, 'w', 'E:/Work/one/Sapo', 'Sapo sync');
+      assert.ok(second);
+      tm.persistSync();
+      const file = readStateFile(stateFile);
+      file.activeSessionId = second;
+      fs.writeFileSync(stateFile, JSON.stringify(file));
+
+      internals.sessions.clear();
+      internals.sessionGenerations.clear();
+      internals.activeSessionId = '';
+      spawnedPtys.length = 0;
+      assert.strictEqual(tm.startTerminal('E:/Work/two'), true);
+      assert.strictEqual(record(split).role, 'sync');
+      assert.strictEqual(record(split).spaceTerminalId, 'w');
+      assert.deepStrictEqual(tm.sleepSession(first), { ok: false, reason: 'SLEEP_REFUSED_WATCHER' });
+    });
+
+    it('refuses to sleep the parent of a sync split and leaves the whole tab running', () => {
+      const base = tm.createSession(projectDir);
+      const haravan = mintSyncSplit(base, 'sync-haravan', haravanDir, 'Haravan sync');
+      const sapo = mintSyncSplit(base, 'sync-sapo', sapoDir, 'Sapo sync');
+      const ptys = spawnedPtys.slice();
+      assert.deepStrictEqual(tm.sleepSession(base), { ok: false, reason: 'SLEEP_REFUSED_WATCHER' });
+      assert.deepStrictEqual(tm.sleepSession(sapo), { ok: false, reason: 'SLEEP_REFUSED_WATCHER' });
+      for (const id of [base, haravan, sapo]) assert.strictEqual(record(id).state, 'running');
+      assert.ok(ptys.every((p) => !p.killed), 'no shell of the cascade was killed');
+      assert.strictEqual(spawnedPtys.length, ptys.length);
+    });
+
+    it('the split toggle neither reuses nor closes a sync split, and a split id still closes exactly that pane', async () => {
+      const base = tm.createSession(projectDir);
+      const sync = mintSyncSplit(base, 'sync-sapo', sapoDir, 'Sapo sync');
+      assert.strictEqual(await tm.closeSplitSession(base), false, 'a parent id has no manual split to close');
+      assert.strictEqual(record(sync).state, 'running');
+      const manual = tm.createSplitSession(base);
+      assert.notStrictEqual(manual, sync, 'the toggle mints its own pane instead of reusing the watcher');
+      assert.strictEqual(tm.createSplitSession(base), manual, 'a second toggle reuses the manual pane');
+      assert.strictEqual(await tm.closeSplitSession(base), true);
+      assert.strictEqual(internals.sessions.has(manual), false);
+      assert.strictEqual(record(sync).state, 'running', 'the watcher survived the toggle');
+      assert.strictEqual(await tm.closeSplitSession(sync), true, 'its own close button closes exactly that pane');
+      assert.strictEqual(internals.sessions.has(sync), false);
+    });
+
+    it('createSplitSession with a known spaceTerminalId reuses that pane instead of duplicating it', () => {
+      const base = tm.createSession(projectDir);
+      const first = mintSyncSplit(base, 'sync-sapo', sapoDir, 'Sapo sync');
+      const again = tm.createSplitSession(base, sapoDir, undefined, undefined, { role: 'sync', spaceTerminalId: 'sync-sapo' });
+      assert.strictEqual(again, first);
+      assert.strictEqual([...internals.sessions.values()].filter((s) => s.splitOf === base).length, 1);
+    });
   });
 
   it('(m) unknown role values from a hand-edited file restore as no role', () => {

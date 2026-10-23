@@ -318,16 +318,18 @@ function main(): void {
             const cwd = typeof p.cwd === 'string' && p.cwd ? p.cwd : undefined;
             const capsuleId = typeof p.capsuleId === 'string' && p.capsuleId ? p.capsuleId : undefined;
             const ownerKey = typeof p.ownerKey === 'string' && p.ownerKey ? p.ownerKey : undefined;
+            const roleMeta = p.role !== undefined || p.idlePolicy !== undefined || p.spaceTerminalId !== undefined
+              ? { role: p.role, idlePolicy: p.idlePolicy, spaceTerminalId: p.spaceTerminalId }
+              : undefined;
             const sessionId = typeof p.parentId === 'string' && p.parentId
-              ? tm.createSplitSession(p.parentId, cwd, Number(p.cols) || undefined, Number(p.rows) || undefined)
-              : tm.createSession(
+              ? tm.createSplitSession(
+                  p.parentId,
                   cwd,
-                  capsuleId,
-                  ownerKey,
-                  p.role !== undefined || p.idlePolicy !== undefined || p.spaceTerminalId !== undefined
-                    ? { role: p.role, idlePolicy: p.idlePolicy, spaceTerminalId: p.spaceTerminalId }
-                    : undefined,
-                );
+                  Number(p.cols) || undefined,
+                  Number(p.rows) || undefined,
+                  roleMeta || p.name !== undefined ? { ...roleMeta, name: p.name } : undefined,
+                )
+              : tm.createSession(cwd, capsuleId, ownerKey, roleMeta);
             respond(true, { sessionId, sessions: tm.listSessions(), activeSessionId: tm.getActiveSessionId() });
             break;
           }

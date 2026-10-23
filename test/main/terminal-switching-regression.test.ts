@@ -165,10 +165,10 @@ describe('Terminal Switching Regression & Viewport Integrity', () => {
     assert.match(jsContent, /scrollToLine/);
     // 5. Ensure tab scrolling does not use window-level scrollIntoView
     assert.doesNotMatch(jsContent, /scrollIntoView\(\s*\{\s*behavior:\s*'smooth'/);
-    // 6. Ensure split terminal attaches onData input forwarder and cleans up resources on unmount
-    assert.match(jsContent, /splitTerm\.onData\(/);
-    assert.match(jsContent, /api\?\.sendTerminalInputTo\(splitId,\s*data\)/);
-    assert.match(jsContent, /splitTerm\?\.dispose\(\)/);
+    // 6. Ensure every split pane attaches its own onData input forwarder and cleans up on unmount
+    assert.match(jsContent, /term\.onData\(\(data\) => \{/);
+    assert.match(jsContent, /api\?\.sendTerminalInputTo\(sessionId,\s*data\)/);
+    assert.match(jsContent, /pane\.term\.dispose\(\)/);
     // 7. Ensure convertEol is false so ConPTY redraws don't create phantom empty lines on cls
     assert.doesNotMatch(jsContent, /convertEol:\s*true/);
     assert.match(jsContent, /convertEol:\s*false/);
@@ -188,7 +188,7 @@ describe('Terminal Switching Regression & Viewport Integrity', () => {
     assert.match(jsContent, /SPLIT_TERMINAL_FRACTION\s*=\s*0\.2/);
     assert.match(jsContent, /MIN_SPLIT_TERMINAL_ROWS\s*=\s*4/);
     assert.match(jsContent, /MIN_TERMINAL_ROWS\s*=\s*8/);
-    assert.match(jsContent, /splitPropose\.rows\s*>=\s*MIN_SPLIT_TERMINAL_ROWS/);
+    assert.match(jsContent, /propose\.rows\s*>=\s*MIN_SPLIT_TERMINAL_ROWS/);
     // 11. Ensure standalone.js split shortcuts (Ctrl+Shift+D / Alt+Shift+D / Ctrl+\) and pane navigation (Alt+Up / Alt+Down)
     assert.match(jsContent, /e\.key === 'd' \|\| e\.key === 'D'/);
     assert.match(jsContent, /splitButton\?\.click\(\)/);
@@ -214,7 +214,7 @@ describe('Terminal Switching Regression & Viewport Integrity', () => {
     const p1 = tm.createSession();
     assert.ok(p1);
 
-    const sessionEvents: Array<Array<{ id: string; splitSessionId?: string; active: boolean }>> = [];
+    const sessionEvents: Array<Array<{ id: string; splitSessionIds?: string[]; active: boolean }>> = [];
     const onSession = (payload: any) => {
       const sessions = Array.isArray(payload) ? payload : (payload?.sessions || []);
       sessionEvents.push(sessions);
@@ -243,12 +243,12 @@ describe('Terminal Switching Regression & Viewport Integrity', () => {
       // Verify event was emitted for split creation
       const lastEventAfterCreate = sessionEvents[sessionEvents.length - 1];
       const parentInEvent = lastEventAfterCreate?.find((s) => s.id === p1);
-      assert.strictEqual(parentInEvent?.splitSessionId, split1);
+      assert.deepStrictEqual(parentInEvent?.splitSessionIds, [split1]);
 
       // 2. Verify listSessions reflects split relation
       let list = tm.listSessions();
       let parentEntry = list.find((s) => s.id === p1);
-      assert.strictEqual(parentEntry?.splitSessionId, split1);
+      assert.deepStrictEqual(parentEntry?.splitSessionIds, [split1]);
 
       // 3. Test resize applies to all sessions
       tm.resize(100, 30);
@@ -287,12 +287,12 @@ describe('Terminal Switching Regression & Viewport Integrity', () => {
       assert.strictEqual(closed, true);
       list = tm.listSessions();
       parentEntry = list.find((s) => s.id === p1);
-      assert.strictEqual(parentEntry?.splitSessionId, undefined);
+      assert.strictEqual(parentEntry?.splitSessionIds, undefined);
 
       // Verify event was emitted for split close
       const lastEventAfterClose = sessionEvents[sessionEvents.length - 1];
       const parentInCloseEvent = lastEventAfterClose?.find((s) => s.id === p1);
-      assert.strictEqual(parentInCloseEvent?.splitSessionId, undefined);
+      assert.strictEqual(parentInCloseEvent?.splitSessionIds, undefined);
 
       // Flush debounced persist timer deterministically to disk and verify file snapshot
       tm.persistSync();
@@ -305,12 +305,12 @@ describe('Terminal Switching Regression & Viewport Integrity', () => {
       assert.ok(split2);
       list = tm.listSessions();
       parentEntry = list.find((s) => s.id === p1);
-      assert.strictEqual(parentEntry?.splitSessionId, split2);
+      assert.deepStrictEqual(parentEntry?.splitSessionIds, [split2]);
 
       // Verify event was emitted for recreate
       const lastEventAfterRecreate = sessionEvents[sessionEvents.length - 1];
       const parentInRecreateEvent = lastEventAfterRecreate?.find((s) => s.id === p1);
-      assert.strictEqual(parentInRecreateEvent?.splitSessionId, split2);
+      assert.deepStrictEqual(parentInRecreateEvent?.splitSessionIds, [split2]);
     } finally {
       tm.off('session', onSession);
       // Cleanup
@@ -741,19 +741,19 @@ describe('Terminal Switching Regression & Viewport Integrity', () => {
 
     const sessionList = tm.listSessions();
     const parentSession = sessionList.find(s => s.id === s1);
-    assert.strictEqual(parentSession?.splitSessionId, splitId, 'Parent session must reference splitSessionId');
+    assert.deepStrictEqual(parentSession?.splitSessionIds, [splitId], 'Parent session must list its split in splitSessionIds');
 
     // Test closing split by split's own ID
     const closedBySplitId = await tm.closeSplitSession(splitId);
     assert.strictEqual(closedBySplitId, true, 'closeSplitSession by splitId must succeed');
-    assert.strictEqual(tm.listSessions().find(s => s.id === s1)?.splitSessionId, undefined);
+    assert.strictEqual(tm.listSessions().find(s => s.id === s1)?.splitSessionIds, undefined);
 
     // Re-create split and test closing by parent ID
     const splitId2 = tm.createSplitSession(s1);
     assert.ok(splitId2);
     const closedByParentId = await tm.closeSplitSession(s1);
     assert.strictEqual(closedByParentId, true, 'closeSplitSession by parentId must succeed');
-    assert.strictEqual(tm.listSessions().find(s => s.id === s1)?.splitSessionId, undefined);
+    assert.strictEqual(tm.listSessions().find(s => s.id === s1)?.splitSessionIds, undefined);
 
     // Verify createSplitSession rejects disposed parent
     await tm.closeSession(s1);

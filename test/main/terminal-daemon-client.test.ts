@@ -482,7 +482,7 @@ describe('DaemonTerminalProxy — workspace capsule scope', () => {
     proxy.cachedSessionState = {
       activeSessionId: 'session-b',
       sessions,
-      splitSessionId: undefined,
+      splitSessionIds: undefined,
       snapshot: 'b',
       snapshotThroughSeq: 4,
     };

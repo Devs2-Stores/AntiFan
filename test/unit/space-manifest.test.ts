@@ -7,6 +7,7 @@ import {
   parseSpaceManifest,
   readSpaceManifest,
   resolveSpaceTabPath,
+  resolveSpaceTerminalCwd,
   spaceManifestPath,
 } from '../../src/main/project/space-manifest';
 
@@ -124,5 +125,80 @@ describe('resolveSpaceTabPath', () => {
     fs.symlinkSync(outside, path.join(folder, 'escape'), 'junction');
     assert.equal(resolveSpaceTabPath(folder, 'escape/not-yet.html'), undefined);
     assert.equal(resolveSpaceTabPath(folder, 'escape/x.html'), undefined);
+  });
+});
+
+describe('terminal cwd and splitOf', () => {
+  const base = { id: 'main', label: 'Main', role: 'agent' };
+
+  it('accepts a project layout: two sync splits with their own folders under one base', () => {
+    const result = parse({
+      version: 1,
+      terminals: [
+        { ...base },
+        { id: 'sync-haravan', role: 'sync', cwd: 'Haravan', splitOf: 'main', command: 'hrv theme dev' },
+        { id: 'sync-sapo', role: 'sync', cwd: 'Sapo/', splitOf: 'main', command: 'sapo theme dev' },
+      ],
+    });
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.deepEqual(
+      result.manifest.terminals.map((t) => [t.id, t.cwd, t.splitOf]),
+      [['main', undefined, undefined], ['sync-haravan', 'Haravan', 'main'], ['sync-sapo', 'Sapo', 'main']],
+    );
+  });
+
+  it('accepts a split declared before its parent', () => {
+    assert.equal(parse({ version: 1, terminals: [{ id: 'w', splitOf: 'main' }, { ...base }] }).ok, true);
+  });
+
+  for (const bad of ['../outside', 'a/../../x', 'C:\\Windows', '/etc', '\\\\server\\share', 'NUL', 'x:stream', '.', '']) {
+    it(`refuses the cwd ${JSON.stringify(bad)} by spelling`, () => {
+      assert.deepEqual(errorPaths({ version: 1, terminals: [{ id: 'a', cwd: bad }] }), ['terminals[0].cwd']);
+    });
+  }
+
+  it('refuses a cwd that is not a string', () => {
+    assert.deepEqual(errorPaths({ version: 1, terminals: [{ id: 'a', cwd: 7 }] }), ['terminals[0].cwd']);
+  });
+
+  it('refuses a splitOf that names no terminal', () => {
+    assert.deepEqual(errorPaths({ version: 1, terminals: [{ ...base }, { id: 'w', splitOf: 'ghost' }] }), ['terminals[1].splitOf']);
+  });
+
+  it('refuses a terminal that is a split of itself', () => {
+    assert.deepEqual(errorPaths({ version: 1, terminals: [{ id: 'w', splitOf: 'w' }] }), ['terminals[0].splitOf']);
+  });
+
+  it('refuses a split of a split and a two-terminal cycle', () => {
+    assert.deepEqual(
+      errorPaths({ version: 1, terminals: [{ ...base }, { id: 'a', splitOf: 'main' }, { id: 'b', splitOf: 'a' }] }),
+      ['terminals[2].splitOf'],
+    );
+    const cycle = errorPaths({ version: 1, terminals: [{ id: 'a', splitOf: 'b' }, { id: 'b', splitOf: 'a' }] });
+    assert.deepEqual(cycle, ['terminals[0].splitOf', 'terminals[1].splitOf']);
+  });
+
+  it('refuses a malformed splitOf', () => {
+    assert.deepEqual(errorPaths({ version: 1, terminals: [{ ...base }, { id: 'w', splitOf: 'bad id!' }] }), ['terminals[1].splitOf']);
+    assert.deepEqual(errorPaths({ version: 1, terminals: [{ ...base }, { id: 'w', splitOf: 3 }] }), ['terminals[1].splitOf']);
+  });
+});
+
+describe('resolveSpaceTerminalCwd', () => {
+  it('resolves an existing directory and refuses a missing one, a file and a link out of the folder', () => {
+    const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-space-')));
+    const folder = path.join(root, 'project');
+    fs.mkdirSync(path.join(folder, 'Sapo'), { recursive: true });
+    fs.writeFileSync(path.join(folder, 'file.txt'), 'x');
+    assert.equal(resolveSpaceTerminalCwd(folder, 'Sapo'), path.join(folder, 'Sapo'));
+    assert.equal(resolveSpaceTerminalCwd(folder, 'Missing'), undefined);
+    assert.equal(resolveSpaceTerminalCwd(folder, 'file.txt'), undefined);
+    if (process.platform === 'win32') {
+      const outside = path.join(root, 'outside');
+      fs.mkdirSync(outside);
+      fs.symlinkSync(outside, path.join(folder, 'escape'), 'junction');
+      assert.equal(resolveSpaceTerminalCwd(folder, 'escape'), undefined);
+    }
   });
 });

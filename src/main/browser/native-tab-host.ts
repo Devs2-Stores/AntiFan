@@ -3977,27 +3977,27 @@ export class NativeTabHost extends EventEmitter {
       const sessions = manager.listSessions() as unknown as Array<Record<string, unknown>>;
       const target = sessions.find((item) => item.id === id);
       if (!target) return { ok: false, reason: 'NOT_FOUND' };
-      const baseId = typeof target.splitOf === 'string' ? target.splitOf : id;
       if (payload.role === 'sync') {
         const briefOf = (item: Record<string, unknown>) => {
           const capsuleId = typeof item.capsuleId === 'string' ? item.capsuleId : '';
           return capsuleId ? host.capsuleManager.get(capsuleId)?.brief : undefined;
         };
-        const base = sessions.find((item) => item.id === baseId) ?? target;
-        const identity = syncIdentity(String(base.cwd || ''), briefOf(base));
+        // The addressed terminal's own directory decides the remote it pushes to: a split pane
+        // owns its role and its cwd, so it is judged by neither its parent's folder nor role.
+        const identity = syncIdentity(String(target.cwd || ''), briefOf(target));
         const live = sessions
-          .filter((item) => item.role === 'sync' && item.state === 'running' && !item.splitOf)
+          .filter((item) => item.role === 'sync' && item.state === 'running')
           .map((item) => ({
             id: String(item.id),
             label: String(item.displayLabel || item.name || item.id),
             folder: String(item.cwd || ''),
             brief: briefOf(item),
           }));
-        const duplicate = findSyncDuplicate(identity, live, baseId);
+        const duplicate = findSyncDuplicate(identity, live, id);
         if (duplicate && payload.acknowledgeDuplicate !== true) {
           return { ok: false, reason: 'SYNC_DUPLICATE', duplicate: { id: duplicate.id, label: duplicate.label }, identityKind: identity.kind };
         }
-        const ok = await manager.setSessionRole(id, { role: 'sync', spaceTerminalId: base.spaceTerminalId });
+        const ok = await manager.setSessionRole(id, { role: 'sync', spaceTerminalId: target.spaceTerminalId });
         host.schedulePersist();
         return ok ? { ok: true, identityKind: identity.kind } : { ok: false, reason: 'NOT_FOUND' };
       }
@@ -4790,10 +4790,11 @@ export class NativeTabHost extends EventEmitter {
             cwd: s.cwd,
             state: s.state,
             spaceTerminalId: s.spaceTerminalId,
+            splitOf: s.splitOf,
           })),
-        mint: async (folderPath, capsuleId, spec) =>
+        mint: async (directory, capsuleId, spec) =>
           await host.admitThenRun<string | null>(TERMINAL_CHANNELS.SPACE_OPEN, { ownerKey: targetOwnerKey }, async () => {
-            const sessionId = await manager.createSession(folderPath, capsuleId, targetOwnerKey, {
+            const sessionId = await manager.createSession(directory, capsuleId, targetOwnerKey, {
               role: spec.role,
               idlePolicy: spec.idlePolicy,
               spaceTerminalId: spec.id,
@@ -4802,17 +4803,30 @@ export class NativeTabHost extends EventEmitter {
             await manager.renameSession(sessionId, spec.label);
             return sessionId;
           }),
-        findSyncDuplicate: (folderPath, capsuleId) => {
+        mintSplit: async (directory, _capsuleId, parentSessionId, spec) =>
+          await host.admitThenRun<string | null>(TERMINAL_CHANNELS.SPACE_OPEN, { ownerKey: targetOwnerKey }, async () => {
+            // The split inherits the parent's window owner and capsule inside the manager; the
+            // pane owns its role, idle policy, directory and label from the first persist.
+            const sessionId = await manager.createSplitSession(parentSessionId, directory, undefined, undefined, {
+              role: spec.role,
+              idlePolicy: spec.idlePolicy,
+              spaceTerminalId: spec.id,
+              name: spec.label,
+            });
+            return typeof sessionId === 'string' && sessionId ? sessionId : null;
+          }),
+        findSyncDuplicate: (directory, capsuleId) => {
           const briefOf = (id: string) => (id ? host.capsuleManager.get(id)?.brief : undefined);
+          // Splits count: a watcher in a lower pane pushes to its remote exactly like a base shell.
           const live = (manager.listSessions() as SessionSummary[])
-            .filter((s) => s.role === 'sync' && s.state === 'running' && !s.splitOf)
+            .filter((s) => s.role === 'sync' && s.state === 'running')
             .map((s) => ({
               id: s.id,
               label: String(s.displayLabel || s.name || s.id),
               folder: String(s.cwd || ''),
               brief: briefOf(typeof s.capsuleId === 'string' ? s.capsuleId : ''),
             }));
-          const duplicate = findSyncDuplicate(syncIdentity(folderPath, briefOf(capsuleId)), live);
+          const duplicate = findSyncDuplicate(syncIdentity(directory, briefOf(capsuleId)), live);
           return duplicate ? { id: duplicate.id, label: duplicate.label } : undefined;
         },
         typeCommand: (sessionId, text) => manager.writeTo(sessionId, text),
@@ -4846,9 +4860,25 @@ export class NativeTabHost extends EventEmitter {
         }
       }
       const key = canonicalFolderKey(realPath);
-      const terminals = (TerminalManager.getInstance().listSessions() as SessionSummary[])
-        .filter((s) => (s.state === 'running' || s.state === 'sleeping') && typeof s.cwd === 'string' && canonicalFolderKey(s.cwd) === key)
-        .map((s) => ({ label: s.name, role: s.role, idlePolicy: s.idlePolicy }));
+      const live = (TerminalManager.getInstance().listSessions() as SessionSummary[])
+        .filter((s) => s.state === 'running' || s.state === 'sleeping');
+      // A base shell belongs to the folder it started in; a split follows its parent and records
+      // its own cwd when it started in a subfolder (outside the project there is nothing to record).
+      const baseIds = new Set(live.filter((s) => !s.splitOf && typeof s.cwd === 'string' && canonicalFolderKey(s.cwd) === key).map((s) => s.id));
+      const terminals = live
+        .filter((s) => (s.splitOf ? baseIds.has(s.splitOf) : baseIds.has(s.id)))
+        .map((s) => {
+          const rel = typeof s.cwd === 'string' ? path.relative(realPath, s.cwd) : '';
+          const inside = rel !== '' && rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel);
+          return {
+            key: s.id,
+            label: s.name,
+            role: s.role,
+            idlePolicy: s.idlePolicy,
+            ...(s.splitOf && inside ? { cwd: rel } : {}),
+            ...(s.splitOf ? { splitOfKey: s.splitOf } : {}),
+          };
+        });
       // Tabs belong to a project window; the shared manager owns none, so it scaffolds terminals only.
       const tabs = isManager
         ? []
@@ -7587,13 +7617,13 @@ export class NativeTabHost extends EventEmitter {
     const ownChoice = remembered && sessions.some((session) => session.id === remembered) ? remembered : undefined;
     const activeSessionId = wanted ?? (sessions.some((session) => session.id === rawActive) ? rawActive : (ownChoice ?? sessions[0]?.id ?? ''));
     const transcriptKept = activeSessionId !== '' && activeSessionId === rawActive;
-    const splitSessionId = typeof projection.splitSessionId === 'string' && sessions.some((session) => session.id === projection.splitSessionId)
-      ? projection.splitSessionId
-      : undefined;
+    const visibleIds = new Set(sessions.map((session) => session.id));
+    const splitSessionIds = (Array.isArray(projection.splitSessionIds) ? projection.splitSessionIds : [])
+      .filter((id) => visibleIds.has(id));
     return {
       activeSessionId,
       sessions: this.stampAgentHold(this.stampFolderProjection(sessions)),
-      ...(splitSessionId ? { splitSessionId } : {}),
+      ...(splitSessionIds.length > 0 ? { splitSessionIds } : {}),
       snapshot: transcriptKept && typeof projection.snapshot === 'string' ? projection.snapshot : '',
       snapshotThroughSeq: transcriptKept && typeof projection.snapshotThroughSeq === 'number' ? projection.snapshotThroughSeq : 0,
     };
@@ -12283,7 +12313,7 @@ export class NativeTabHost extends EventEmitter {
 
   /**
    * Every live terminal session id, splits included. listSessions() may carry a
-   * split either as its own entry or only as the parent's splitSessionId, so
+   * split either as its own entry or only as the parent's splitSessionIds, so
    * both shapes are collected; getSession() is the liveness oracle for anything
    * beyond this list.
    */
@@ -12294,7 +12324,7 @@ export class NativeTabHost extends EventEmitter {
       ids.add(s.id);
       // A split is projected as its own entry by listSessions, so it is usually
       // already in the set; the base entry naming it again must not double it.
-      if (s.splitSessionId) ids.add(s.splitSessionId);
+      for (const splitId of s.splitSessionIds ?? []) ids.add(splitId);
     }
     return [...ids];
   }
@@ -12832,8 +12862,8 @@ export class NativeTabHost extends EventEmitter {
     if (projection.activeSessionId) ids.add(projection.activeSessionId);
     const active = (Array.isArray(projection.sessions) ? projection.sessions : [])
       .find((s) => s && s.id === projection.activeSessionId);
-    if (active?.splitSessionId) ids.add(active.splitSessionId);
-    if (projection.splitSessionId) ids.add(projection.splitSessionId);
+    for (const splitId of active?.splitSessionIds ?? []) ids.add(splitId);
+    for (const splitId of projection.splitSessionIds ?? []) ids.add(splitId);
     return ids;
   }
 

@@ -20,8 +20,10 @@ function folderWith(manifest: unknown, files: Record<string, string> = {}): stri
 function harness(confirmed = false) {
   const sessions: SpaceSessionView[] = [];
   const typed: Array<{ id: string; text: string }> = [];
+  const minted: Array<{ kind: 'base' | 'split'; specId: string; directory: string; parent?: string; role: string; idlePolicy: string }> = [];
   const tabs: string[] = [];
   const confirmedHashes = new Set<string>();
+  const state = { cascadeWake: false };
   let windowOpens = 0;
   let duplicate: { id: string; label: string } | undefined;
   let next = 0;
@@ -45,12 +47,22 @@ function harness(confirmed = false) {
         },
       };
     },
-    sessions: () => sessions,
-    mint: async (folder, _cap, spec) => {
+    // Snapshots, as the host's mapped list is: a wake later in the run must not rewrite what an
+    // earlier read saw.
+    sessions: () => sessions.map((s) => ({ ...s })),
+    mint: async (directory, _cap, spec) => {
       // A real mint yields to the event loop: this is what lets two concurrent opens interleave.
       await new Promise((r) => setImmediate(r));
       const id = `t${++next}`;
-      sessions.push({ id, cwd: folder, state: 'running', spaceTerminalId: spec.id });
+      sessions.push({ id, cwd: directory, state: 'running', spaceTerminalId: spec.id });
+      minted.push({ kind: 'base', specId: spec.id, directory, role: spec.role, idlePolicy: spec.idlePolicy });
+      return id;
+    },
+    mintSplit: async (directory, _cap, parent, spec) => {
+      await new Promise((r) => setImmediate(r));
+      const id = `t${++next}`;
+      sessions.push({ id, cwd: directory, state: 'running', spaceTerminalId: spec.id, splitOf: parent });
+      minted.push({ kind: 'split', specId: spec.id, directory, parent, role: spec.role, idlePolicy: spec.idlePolicy });
       return id;
     },
     findSyncDuplicate: () => duplicate,
@@ -59,10 +71,13 @@ function harness(confirmed = false) {
       const s = sessions.find((x) => x.id === id);
       if (!s) return false;
       s.state = 'running';
+      if (state.cascadeWake) {
+        for (const pane of sessions) if (pane.splitOf === id) pane.state = 'running';
+      }
       return true;
     },
   };
-  return { deps, sessions, typed, tabs, windowOpens: () => windowOpens, setDuplicate: (d: typeof duplicate) => void (duplicate = d) };
+  return { deps, sessions, typed, minted, state, tabs, windowOpens: () => windowOpens, setDuplicate: (d: typeof duplicate) => void (duplicate = d) };
 }
 
 const MANIFEST = {
@@ -185,6 +200,94 @@ describe('openSpace', () => {
     assert.equal(result.ok, true);
     assert.equal(h.sessions.find((s) => s.id === 'zz')?.state, 'running');
     assert.deepEqual(h.typed, [{ id: 'zz', text: 'omp\r' }]);
+  });
+
+  describe('splits and cwd', () => {
+    const LAYOUT = {
+      version: 1,
+      terminals: [
+        { id: 'main', label: 'Main', role: 'agent' },
+        { id: 'sync-haravan', label: 'Haravan sync', role: 'sync', cwd: 'Haravan', splitOf: 'main', command: 'hrv theme dev' },
+        { id: 'sync-sapo', label: 'Sapo sync', role: 'sync', cwd: 'Sapo', splitOf: 'main', command: 'sapo theme dev' },
+      ],
+    };
+    const withThemeFolders = (): string => folderWith(LAYOUT, { 'Haravan/layout/theme.liquid': 'x', 'Sapo/layouts/theme.bwt': 'x' });
+
+    it('mints the base first, then each split under it with its own folder, role and command', async () => {
+      const h = harness(true);
+      const folder = withThemeFolders();
+      const result = await openSpace(h.deps, folder, undefined);
+      assert.deepEqual(result, { ok: true, terminalsOpened: 3, terminalsReused: 0, tabsOpened: 0, tabsReused: 0 });
+      assert.deepEqual(h.minted.map((m) => m.kind), ['base', 'split', 'split']);
+      assert.deepEqual(h.minted.map((m) => m.specId), ['main', 'sync-haravan', 'sync-sapo']);
+      assert.deepEqual(h.minted.map((m) => m.directory), [folder, path.join(folder, 'Haravan'), path.join(folder, 'Sapo')]);
+      assert.deepEqual(h.minted.slice(1).map((m) => [m.parent, m.role, m.idlePolicy]), [['t1', 'sync', 'never'], ['t1', 'sync', 'never']]);
+      assert.deepEqual(h.typed, [{ id: 't2', text: 'hrv theme dev\r' }, { id: 't3', text: 'sapo theme dev\r' }]);
+    });
+
+    it('reopening reuses base and splits by spaceTerminalId and mints no extra pane', async () => {
+      const h = harness(true);
+      const folder = withThemeFolders();
+      await openSpace(h.deps, folder, undefined);
+      const again = await openSpace(h.deps, folder, undefined);
+      assert.deepEqual(again, { ok: true, terminalsOpened: 0, terminalsReused: 3, tabsOpened: 0, tabsReused: 0 });
+      assert.equal(h.sessions.length, 3);
+      assert.equal(h.typed.length, 2, 'running watchers are not retyped');
+    });
+
+    it('a sleeping parent wakes with its splits; the splits it woke still get their command', async () => {
+      const h = harness(true);
+      const folder = withThemeFolders();
+      await openSpace(h.deps, folder, undefined);
+      for (const s of h.sessions) s.state = 'sleeping';
+      h.typed.length = 0;
+      // Waking a parent cascades to its splits, exactly as the terminal manager does.
+      h.state.cascadeWake = true;
+      const result = await openSpace(h.deps, folder, undefined);
+      assert.equal(result.ok, true);
+      assert.deepEqual(h.sessions.map((s) => s.state), ['running', 'running', 'running']);
+      assert.deepEqual(h.typed, [{ id: 't2', text: 'hrv theme dev\r' }, { id: 't3', text: 'sapo theme dev\r' }]);
+      assert.equal((result as { terminalsWoken?: number }).terminalsWoken, 3);
+    });
+
+    it('does not mint a sync split when a live watcher already pushes to its remote, using the split own folder', async () => {
+      const h = harness(true);
+      const folder = withThemeFolders();
+      const askedAbout: string[] = [];
+      h.deps.findSyncDuplicate = (directory) => {
+        askedAbout.push(directory);
+        return directory.endsWith('Sapo') ? { id: 'elsewhere', label: 'other sapo watcher' } : undefined;
+      };
+      const result = await openSpace(h.deps, folder, undefined);
+      assert.equal(result.ok, true);
+      assert.deepEqual(askedAbout, [path.join(folder, 'Haravan'), path.join(folder, 'Sapo')]);
+      assert.deepEqual((result as { syncDuplicates?: unknown }).syncDuplicates, [
+        { spaceTerminalId: 'sync-sapo', duplicate: { id: 'elsewhere', label: 'other sapo watcher' } },
+      ]);
+      assert.deepEqual(h.sessions.map((s) => s.spaceTerminalId), ['main', 'sync-haravan']);
+    });
+
+    it('fails before minting anything when a declared cwd is missing, a file, or leaves the folder', async () => {
+      const h = harness(true);
+      const folder = folderWith(LAYOUT, { 'Haravan/layout/theme.liquid': 'x' });
+      const missing = await openSpace(h.deps, folder, undefined);
+      assert.equal(missing.ok, false);
+      assert.match(missing.ok ? '' : (missing as { message: string }).message, /cwd 'Sapo'/);
+      assert.equal(h.sessions.length, 0, 'nothing was minted');
+      const asFile = folderWith(LAYOUT, { Haravan: 'not a folder', 'Sapo/layouts/theme.bwt': 'x' });
+      assert.equal((await openSpace(h.deps, asFile, undefined)).ok, false);
+      assert.equal(h.sessions.length, 0);
+    });
+
+    it('a split whose parent was not opened because it is a sync duplicate fails instead of being minted loose', async () => {
+      const h = harness(true);
+      h.setDuplicate({ id: 'x', label: 'x' });
+      const folder = folderWith({ version: 1, terminals: [{ id: 'up', role: 'sync' }, { id: 'w', role: 'shell', splitOf: 'up' }] });
+      const result = await openSpace(h.deps, folder, undefined);
+      assert.equal(result.ok, false);
+      assert.match(result.ok ? '' : (result as { message: string }).message, /split of 'up'/);
+      assert.equal(h.minted.length, 0);
+    });
   });
 });
 
