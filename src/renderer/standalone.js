@@ -783,9 +783,11 @@ const idleGroupKeys = new Set();
 const expandedIdleGroups = new Set();
 /**
  * Manager-only derived ordering: a project section with at least one awake row is drawn
- * above the sleeping ones. It is a render-time partition only — `projectOrder` and
- * `categoryOrder` are never written — so a project that falls asleep drops back to the
- * slot the user gave it, and a drag still writes the user's own order.
+ * above the sleeping ones and above every parent-folder block, so the work in progress
+ * stays at the top of the list whichever folder it lives in. It is a render-time partition
+ * only — `projectOrder` and `categoryOrder` are never written — so a project that falls
+ * asleep drops back to the slot the user gave it inside its block, and a drag still writes
+ * the user's own order.
  * "Awake" is a running shell (session state), not the activity beacon: streaming/thinking
  * flip every few seconds, a state only on spawn, sleep, wake or exit, so the list stays put.
  * A slept or exited tab has no process, so it never holds a section up.
@@ -819,12 +821,13 @@ function sameKeySet(a, b) {
 }
 
 /**
- * Stable partition of the manager's sections (in place): awake sections first, but only
- * inside their own block. A project section belongs to its parent-folder block, so a block
- * never moves relative to another and an awake project cannot jump to another parent. The
- * sections with no parent (a folder or capsule fallback, a project whose path is unknown)
- * come first, in their own block with the same awake-first rule, and the parent-folder
- * blocks follow, ordered by their parent key.
+ * Stable partition of the manager's sections (in place). Headerless sections (the catch-all
+ * for rows no folder or project names) lead, so their rows can never read as part of the
+ * section drawn above them. Every awake section follows, in the user's order, lifted out of
+ * its parent-folder block: it is drawn with no block header above it and no block fold over
+ * it. Then the sleeping sections with no parent (a folder or capsule fallback, a project
+ * whose path is unknown), then the parent-folder blocks ordered by their parent key, each
+ * holding only its sleeping projects.
  */
 function promoteAwakeProjects(groups) {
   const awake = awakeProjectKeys(groups);
@@ -834,45 +837,49 @@ function promoteAwakeProjects(groups) {
     promotedProjectKeys = awake;
     promotionPending = false;
   }
-  const awakeFirst = (list) => {
-    const promoted = list.filter((g) => promotedProjectKeys.has(g.key));
-    for (const g of promoted) g.promoted = true;
-    return promoted.concat(list.filter((g) => !promotedProjectKeys.has(g.key)));
-  };
+  const headerless = [];
+  const promoted = [];
+  const unparented = [];
   const blocks = new Map();
-  const others = [];
   for (const g of groups) {
-    if (g.kind === 'project' && g.parentKey) {
+    if (!isDerivedGroupKey(g.key)) {
+      headerless.push(g);
+    } else if (promotedProjectKeys.has(g.key)) {
+      g.promoted = true;
+      promoted.push(g);
+    } else if (g.kind === 'project' && g.parentKey) {
       const block = blocks.get(g.parentKey);
       if (block) block.push(g);
       else blocks.set(g.parentKey, [g]);
     } else {
-      others.push(g);
+      unparented.push(g);
     }
   }
-  const slots = [];
-  const sections = [];
-  others.forEach((g, i) => {
-    if (isDerivedGroupKey(g.key)) { slots.push(i); sections.push(g); }
-  });
-  const orderedSections = awakeFirst(sections);
-  slots.forEach((slot, i) => { others[slot] = orderedSections[i]; });
-  const arranged = others.slice();
-  for (const parentKey of Array.from(blocks.keys()).sort()) arranged.push(...awakeFirst(blocks.get(parentKey)));
+  const arranged = headerless.concat(promoted, unparented);
+  for (const parentKey of Array.from(blocks.keys()).sort()) arranged.push(...blocks.get(parentKey));
   groups.splice(0, groups.length, ...arranged);
   // Only project sections are reorderable, so Alt+Arrow steps among those alone.
   displayedProjectKeys = groups.map((g) => g.key).filter((key) => isProjectGroupKey(key));
 }
 
-/** Parent-folder info of every project section, in drawn order, for the block headers. */
+/**
+ * The parent-folder block a section is drawn under, or '' for none. An awake section is
+ * lifted above every block, so it is drawn under none even though its folder has a parent.
+ */
+function drawnParentKeyOf(group) {
+  return group.kind === 'project' && group.parentKey && group.promoted !== true ? group.parentKey : '';
+}
+
+/** Parent-folder info of every section drawn under a block, in drawn order, for the block headers. */
 function buildParentInfo(groups) {
   const info = new Map();
   for (const g of groups) {
-    if (g.kind !== 'project' || !g.parentKey) continue;
-    let entry = info.get(g.parentKey);
+    const parentKey = drawnParentKeyOf(g);
+    if (!parentKey) continue;
+    let entry = info.get(parentKey);
     if (!entry) {
-      entry = { key: g.parentKey, label: g.parentLabel, path: g.parentPath, names: [] };
-      info.set(g.parentKey, entry);
+      entry = { key: parentKey, label: g.parentLabel, path: g.parentPath, names: [] };
+      info.set(parentKey, entry);
     }
     entry.names.push(g.displayLabel || g.label);
   }
@@ -880,24 +887,18 @@ function buildParentInfo(groups) {
 }
 
 /**
- * Mark where the user's own order resumes inside each block: the first sleeping derived
- * section of a block that holds at least one awake section. Blocks are the parent folders;
- * sections without a parent form one block of their own.
+ * Mark where the user's own order resumes: the first drawn sleeping derived section after
+ * the awake ones. All awake sections lead the list, so there is at most one such place.
+ * When that section opens a parent-folder block the rule goes on the block header
+ * (`parentBoundary`), which is the first thing drawn there; otherwise on the section itself.
  */
 function markPromotionBoundaries(visibleGroups) {
-  const blocks = new Map();
-  for (const g of visibleGroups) {
-    if (!isDerivedGroupKey(g.key)) continue;
-    const id = g.kind === 'project' && g.parentKey ? g.parentKey : '';
-    const block = blocks.get(id);
-    if (block) block.push(g);
-    else blocks.set(id, [g]);
-  }
-  for (const block of blocks.values()) {
-    if (!block.some((g) => g.promoted === true)) continue;
-    const firstRest = block.find((g) => g.promoted !== true);
-    if (firstRest) firstRest.promotionBoundary = true;
-  }
+  const derived = visibleGroups.filter((g) => isDerivedGroupKey(g.key));
+  if (!derived.some((g) => g.promoted === true)) return;
+  const firstRest = derived.find((g) => g.promoted !== true);
+  if (!firstRest) return;
+  if (drawnParentKeyOf(firstRest)) firstRest.parentBoundary = true;
+  else firstRest.promotionBoundary = true;
 }
 
 /** Apply a promotion change that was held while the pointer was over the sidebar. */
@@ -8886,7 +8887,9 @@ function renderTabs() {
       folderHeaderSessionIds.delete(key);
     }
   }
-  const liveParentKeys = new Set(visibleGroups.map((g) => g.parentKey).filter(Boolean));
+  // Exactly the blocks a header is drawn for below: an awake section is lifted out of its
+  // block, so a block whose every project is awake has no header to keep.
+  const liveParentKeys = new Set(visibleGroups.map(drawnParentKeyOf).filter(Boolean));
   for (const [key, header] of Array.from(parentHeaders.entries())) {
     if (!isSidebarLayout || !liveParentKeys.has(key)) {
       header.remove();
@@ -8901,9 +8904,11 @@ function renderTabs() {
   if (triageNode) ordered.push(triageNode);
   let lastParentKey = '';
   for (const group of visibleGroups) {
-    const parentKey = isSidebarLayout && group.kind === 'project' && group.parentKey ? group.parentKey : '';
+    const parentKey = isSidebarLayout ? drawnParentKeyOf(group) : '';
     if (parentKey && parentKey !== lastParentKey && parentInfo.has(parentKey)) {
-      ordered.push(ensureParentHeader(parentInfo.get(parentKey)));
+      const parentHeader = ensureParentHeader(parentInfo.get(parentKey));
+      parentHeader.classList.toggle('is-promotion-boundary', group.parentBoundary === true);
+      ordered.push(parentHeader);
     }
     lastParentKey = parentKey;
     const parentCollapsed = parentKey ? isGroupCollapsed(parentKey) : false;

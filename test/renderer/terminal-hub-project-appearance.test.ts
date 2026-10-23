@@ -244,8 +244,10 @@ describe('hub project appearance', () => {
       harness.renderTabs();
       assert.deepStrictEqual(shownOrder(harness), ['project:p3', 'project:p1', 'project:p2'], 'the awake section is drawn on top');
       assert.deepStrictEqual(storedOrder(harness), ['project:p1', 'project:p2', 'project:p3'], 'the user order is never rewritten');
-      const boundary = harness.tabsRoot.querySelector('.terminal-tab-category-header[data-category="project:p1"]');
-      assert.strictEqual(boundary?.classList.contains('is-promotion-boundary'), true, 'the first sleeping section carries the boundary rule');
+      // The sleeping sections sit in their parent-folder block (E:\Work); its header is the
+      // first thing drawn where the user's order resumes, so it carries the rule.
+      const boundary = harness.tabsRoot.querySelector('.terminal-tab-parent-header[data-parent-key="parent:e:\\work"]');
+      assert.strictEqual(boundary?.classList.contains('is-promotion-boundary'), true, 'the block where the sleeping sections resume carries the boundary rule');
       assert.strictEqual(lastArgs(harness, 'setTerminalTabPrefs'), undefined, 'promotion persists nothing');
 
       seed(harness, [row('a', 'p1', 'sleeping'), row('b', 'p2', 'sleeping'), row('c', 'p3', 'sleeping')], 'c');

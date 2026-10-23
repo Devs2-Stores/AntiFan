@@ -2795,6 +2795,13 @@ body.is-project-dragging .terminal-tab-category-header {
   color: #cbd5e1;
 }
 
+/* The first block after the awake sections carries the same dashed rule as a section would:
+   the awake projects above sit outside their blocks, and this is where the folders resume. */
+.standalone.tabs-sidebar .terminal-tab-parent-header.is-promotion-boundary {
+  border-top: 1px dashed rgba(148, 163, 184, 0.3);
+  padding-top: 6px;
+}
+
 .standalone.tabs-sidebar .terminal-tab-parent-header:focus-visible {
   outline: 2px solid rgba(56, 189, 248, 0.7);
   outline-offset: -2px;

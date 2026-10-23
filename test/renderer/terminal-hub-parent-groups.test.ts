@@ -11,7 +11,8 @@
  *   2. A block collapses with its projects, and the fold persists through the same
  *      `collapsedCategories` prefs as every other section.
  *   3. A project is only ordered among the projects of its own block.
- *   4. The awake-first promotion happens inside a block, never across blocks.
+ *   4. An awake project is lifted above every block, out of its own, and drops back into its
+ *      block when it sleeps.
  *   5. A row that names no project keeps its fallback section and joins no block.
  */
 import { describe, it } from 'node:test';
@@ -68,8 +69,12 @@ async function loadManager(
   return harness;
 }
 
-/** A row whose own folder is a sub-folder of the project workspace: the stored path decides. */
-const row = (id: string, project: string, state = 'running') => ({
+/**
+ * A row whose own folder is a sub-folder of the project workspace: the stored path decides.
+ * The default state is `exited` (no live shell): an awake section is lifted out of its block,
+ * which the promotion tests cover, so the block tests use rows that keep their place.
+ */
+const row = (id: string, project: string, state = 'exited') => ({
   id, name: id, state, ownerKey: `project:${project}`,
   folderKey: `${WORKSPACES[project]!.toLowerCase()}\\sub`, folderLabel: project,
   folderPath: `${WORKSPACES[project]}\\sub`,
@@ -162,7 +167,7 @@ describe('hub parent-folder blocks', () => {
   it('falls back to the folder of a project row when the inventory names no workspace', async () => {
     const harness = await loadManager({});
     seed(harness, [
-      { id: 'x', name: 'x', state: 'running', ownerKey: 'project:px', folderKey: 'e:\\work\\apps\\x', folderLabel: 'x', folderPath: 'E:\\Work\\apps\\x' },
+      { id: 'x', name: 'x', state: 'exited', ownerKey: 'project:px', folderKey: 'e:\\work\\apps\\x', folderLabel: 'x', folderPath: 'E:\\Work\\apps\\x' },
     ], 'x');
     assert.deepStrictEqual(parentHeaders(harness).map((h) => h.getAttribute('data-parent-key')), [APPS]);
   });
@@ -288,32 +293,45 @@ describe('hub parent-folder blocks', () => {
   });
 
   describe('awake promotion', () => {
-    const drawnProjects = (harness: StandaloneHarness): string[] =>
-      drawnHeaders(harness).filter((k) => k.startsWith('project:'));
-
-    it('promotes awake projects inside their own block only', async () => {
+    it('lifts an awake project above every block, out of its own block and its fold', async () => {
       const harness = await loadManager();
-      seed(harness, [
-        row('a', 'p1', 'sleeping'), row('b', 'p2', 'running'),
-        row('c', 'p3', 'sleeping'), row('d', 'p4', 'sleeping'),
-      ], 'b');
-      const blockOrder = () => parentHeaders(harness).map((h) => h.getAttribute('data-parent-key'));
-      assert.deepStrictEqual(blockOrder(), [APPS, THEMES]);
-      assert.deepStrictEqual(drawnProjects(harness), ['project:p2', 'project:p1', 'project:p3', 'project:p4']);
-      assert.strictEqual(projectHeader(harness, 'p2').classList.contains('is-awake-promoted'), true);
-      assert.strictEqual(projectHeader(harness, 'p1').classList.contains('is-promotion-boundary'), true, 'the dashed rule sits inside the block');
-      assert.strictEqual(projectHeader(harness, 'p3').classList.contains('is-promotion-boundary'), false, 'a block with nothing awake has no rule');
-
-      // An awake project in the later block does not lift it above the earlier block.
       seed(harness, [
         row('a', 'p1', 'sleeping'), row('b', 'p2', 'sleeping'),
         row('c', 'p3', 'sleeping'), row('d', 'p4', 'running'),
       ], 'd');
-      assert.deepStrictEqual(blockOrder(), [APPS, THEMES], 'blocks never jump around');
-      assert.deepStrictEqual(drawnProjects(harness), ['project:p1', 'project:p2', 'project:p4', 'project:p3']);
-      assert.strictEqual(projectHeader(harness, 'p1').classList.contains('is-promotion-boundary'), false);
-      assert.strictEqual(projectHeader(harness, 'p3').classList.contains('is-promotion-boundary'), true);
-      assert.strictEqual(projectHeader(harness, 'p1').classList.contains('is-awake-promoted'), false);
+      assert.deepStrictEqual(drawnHeaders(harness), [
+        'project:p4',
+        APPS, 'project:p1', 'project:p2',
+        THEMES, 'project:p3',
+      ], 'the awake project of the later block is drawn first, above the earlier block');
+      assert.strictEqual(projectHeader(harness, 'p4').classList.contains('is-awake-promoted'), true);
+      const header = (key: string): FakeElement => parentHeaders(harness).find((h) => h.getAttribute('data-parent-key') === key)!;
+      assert.strictEqual(header(APPS).classList.contains('is-promotion-boundary'), true, 'the rule sits where the blocks resume');
+      assert.strictEqual(header(THEMES).classList.contains('is-promotion-boundary'), false);
+      assert.strictEqual(projectHeader(harness, 'p1').classList.contains('is-promotion-boundary'), false, 'no second rule under the block header');
+      assert.strictEqual(header(THEMES).getAttribute('data-project-count'), '1', 'the block counts the projects drawn under it');
+
+      header(THEMES).dispatch('click');
+      await flush();
+      assert.strictEqual(projectHeader(harness, 'p3').classList.contains('is-parent-collapsed'), true);
+      assert.strictEqual(projectHeader(harness, 'p4').classList.contains('is-parent-collapsed'), false, 'folding its block never hides an awake project');
+      assert.strictEqual(wrapOf(harness, 'd')?.classList.contains('is-category-collapsed'), false);
+    });
+
+    it('draws no header for a block whose projects are all awake, and puts a project back when it sleeps', async () => {
+      const harness = await loadManager();
+      seed(harness, [
+        row('a', 'p1', 'sleeping'), row('b', 'p2', 'sleeping'),
+        row('c', 'p3', 'running'), row('d', 'p4', 'running'),
+      ], 'c');
+      assert.deepStrictEqual(drawnHeaders(harness), ['project:p3', 'project:p4', APPS, 'project:p1', 'project:p2']);
+
+      seed(harness, [
+        row('a', 'p1', 'sleeping'), row('b', 'p2', 'sleeping'),
+        row('c', 'p3', 'sleeping'), row('d', 'p4', 'sleeping'),
+      ], 'c');
+      assert.deepStrictEqual(drawnHeaders(harness), [APPS, 'project:p1', 'project:p2', THEMES, 'project:p3', 'project:p4']);
+      assert.strictEqual(parentHeaders(harness).some((h) => h.classList.contains('is-promotion-boundary')), false, 'nothing awake, no rule');
     });
   });
 });
