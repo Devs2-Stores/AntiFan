@@ -64,7 +64,9 @@ class FakeWebContents extends EventEmitter {
   public getURL(): string { return this.mainFrame.url || 'about:blank'; }
   public getTitle(): string { return ''; }
   public send(channel: string, ...args: unknown[]): void { this.sent.push({ channel, args }); }
-  public loadURL(url: string): Promise<void> { this.mainFrame.url = url; return Promise.resolve(); }
+  /** Every URL this WebContents was asked to navigate to, in order. */
+  public readonly loads: string[] = [];
+  public loadURL(url: string): Promise<void> { this.loads.push(url); this.mainFrame.url = url; return Promise.resolve(); }
   public loadFile(filePath: string): Promise<void> { this.mainFrame.url = pathToFileURL(filePath).href; return Promise.resolve(); }
   public setWindowOpenHandler(handler: (details: unknown) => unknown): void { this.windowOpenHandler = handler; }
   public setBackgroundThrottling(value: boolean): void { this.backgroundThrottling = value; }
@@ -581,5 +583,19 @@ describe('project window per-shell layout isolation', () => {
 
       aLease.release('raster-finished');
     });
+  });
+});
+
+describe('blank tab materialization', () => {
+  it('loads about:blank for a tab an automation caller mints and keeps a plane-less blank tab unloaded', () => {
+    const harness = createShellHarness(PROJECT_A, { x: 0, y: 0, width: 1440, height: 900 });
+    // A WebContents that never navigated has no renderer, so the first CDP call on an
+    // agent-minted tab would wait out its bound; every automation caller declares a plane.
+    const agentTabId = harness.host.createTab('about:blank', false, { plane: 'agent' });
+    const visibleMintTabId = harness.host.createTab('about:blank', true, { plane: 'user' });
+
+    assert.deepEqual(recordOf(harness.host, agentTabId).view.webContents.loads, ['about:blank'], 'an agent-plane blank tab is loaded for real');
+    assert.deepEqual(recordOf(harness.host, visibleMintTabId).view.webContents.loads, ['about:blank'], 'a user-plane mint is loaded for real too');
+    assert.deepEqual(recordOf(harness.host, harness.secondTabId).view.webContents.loads, [], 'a plane-less blank tab stays an unloaded stub');
   });
 });

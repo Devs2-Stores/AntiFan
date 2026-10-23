@@ -8500,7 +8500,11 @@ export class NativeTabHost extends EventEmitter {
       terminalSessionId?: string;
       devicePresetId?: string;
       mobile?: boolean;
-      /** Which plane the activation rides when `activate` is set; agent callers declare 'agent'. */
+      /**
+       * Which plane the activation rides when `activate` is set; agent callers declare 'agent'.
+       * Declaring a plane also marks an automation caller: its blank tab is loaded for real
+       * (see the initial-load branch), while a plane-less blank tab stays an unloaded stub.
+       */
       plane?: SwitchPlane;
       /**
        * The project stamp a project window mints the tab under. `undefined` resolves to
@@ -8710,6 +8714,18 @@ export class NativeTabHost extends EventEmitter {
           state.isLoading = false;
           this.broadcastState();
         });
+    } else if (options?.plane !== undefined) {
+      // An automation caller drives its blank tab over CDP at once, and a WebContents that
+      // never navigated has no renderer: Runtime.evaluate on it waits out its whole bound
+      // (measured on Electron 43.7.9: renderer pid 0 and a timeout, shown or hidden window
+      // alike; after loadURL('about:blank') the same call answers, even when it is sent
+      // before the load settles). A plane-less blank tab, such as a restore stub whose page
+      // loads on first activation, stays lazy and holds no renderer.
+      wc.loadURL('about:blank').catch((err: unknown) => {
+        // The caller's own first navigation aborts this load; that is the expected path.
+        const code = err && typeof err === 'object' && 'code' in err ? String(err.code) : '';
+        if (code !== 'ERR_ABORTED') console.warn(`[native-tab-host] Failed to load about:blank on tab ${id}:`, err);
+      });
     } else {
       state.isLoading = false;
     }
