@@ -1685,7 +1685,13 @@ function journalProjectShellClosedWithLiveTerminals(owner: WindowOwner): void {
  * shells are left rather than by which one happened to be created first.
  */
 function attachShellLifecycle(shell: ProjectWindowShell): void {
-  updateOpenWindowLedger('open', (filePath) => markWindowOpen(filePath, ownerKey(shell.owner)));
+  // A window enters the ledger the first time a person can see it, not when it is built: a
+  // window created for agent work is never presented, and a key written at construction made
+  // the next boot put that window on screen although nobody had opened it. Every presenter
+  // ends in `show`/`showInactive`, both of which emit `show`; construction is always hidden.
+  const markOpen = (): void => updateOpenWindowLedger('open', (filePath) => markWindowOpen(filePath, ownerKey(shell.owner)));
+  if (shell.window.isVisible()) markOpen();
+  else shell.window.once('show', markOpen);
   // Windows only: the OS is ending the session (logoff, restart, shutdown). The windows it
   // destroys next were open at exit, so their ledger keys must survive.
   shell.window.on('session-end', () => { osSessionEnding = true; });

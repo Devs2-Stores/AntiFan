@@ -1567,6 +1567,13 @@ async function runLifecycle() {
       expect(authority.browserShellCount() === 6, 'the ensure left ' + authority.browserShellCount() + ' windows');
       expect(observations.agentEnsure.callsForOtherWindows.length === 0, 'the ensure presented other windows: ' + JSON.stringify(observations.agentEnsure.callsForOtherWindows));
       expect(observations.agentEnsure.visibleAfterEnsure === false, 'the agent-opened window is visible');
+      // The ledger is what the next boot reopens, and the user closed this window in (16): a
+      // window nobody can see must not go back on it, or the boot would put it on screen.
+      const ledgerAfterEnsure = readJson(legacyEnvelope().ledger);
+      expect(
+        ledgerAfterEnsure && Array.isArray(ledgerAfterEnsure.owners) && ledgerAfterEnsure.owners.indexOf(keyOf(DELTA)) === -1,
+        'the ledger lists the agent-opened window: ' + JSON.stringify(ledgerAfterEnsure && ledgerAfterEnsure.owners),
+      );
       for (const other of after) {
         if (other.ownerKey === entry.ownerKey) continue;
         const previous = before.find(function (candidate) { return candidate.ownerKey === other.ownerKey; });
@@ -1593,6 +1600,11 @@ async function runLifecycle() {
     expect(opened.result && opened.result.status === 'FOCUSED', 'the user open returned ' + JSON.stringify(opened.result));
     expect(opened.entry.windowId === before.windowId, 'the user open created another window');
     expect(opened.entry.visible === true, 'the user open did not present the window');
+    // Presented now, so the next boot brings it back.
+    await waitFor(function () {
+      const parsed = readJson(legacyEnvelope().ledger);
+      return parsed && Array.isArray(parsed.owners) && parsed.owners.indexOf(keyOf(DELTA)) !== -1 ? parsed : false;
+    }, 'the ledger to list the window the user presented');
     expect(authority.browserShellCount() === 6, 'browserShellCount() was ' + authority.browserShellCount());
     expect(JSON.stringify(localTabUrls(hostOf(DELTA))) === JSON.stringify(deltaLocalUrlsBeforeClose), 'the presented window lost its tabs');
   });

@@ -7,9 +7,10 @@
  * boot that restored every record resurrected windows the user had closed. This ledger is
  * the window-level fact the boot restore reads instead.
  *
- * Main writes it while the process runs — a key is added when a shell is created and removed
- * only when the USER closes it (never by an application quit), so a killed process, a crash
- * and a committed quit all leave exactly the windows that were on screen. Writes are rare
+ * Main writes it while the process runs — a key is added the first time a shell is shown (a
+ * window created hidden for agent work never is, so it never comes back on screen at boot) and
+ * removed only when the USER closes it (never by an application quit), so a killed process, a
+ * crash and a committed quit all leave exactly the windows that were on screen. Writes are rare
  * (window open/close), synchronous and atomic (temp + rename).
  */
 import * as fs from 'fs';
