@@ -78,6 +78,7 @@
     "smoke:terminal": "node scripts/run-electron.cjs test/e2e/terminal-recovery-smoke.cjs && node scripts/run-electron.cjs test/e2e/terminal-renderer-smoke.cjs && node scripts/run-electron.cjs test/e2e/terminal-split-hydration-probe.cjs",
     "smoke:terminal-hub": "node scripts/run-electron.cjs test/e2e/terminal-hub-folders-smoke.cjs",
     "smoke:site-mute": "node scripts/run-electron.cjs test/e2e/site-mute-smoke.cjs",
+    "smoke:oauth-popup": "node scripts/run-electron.cjs test/e2e/oauth-popup-tab-smoke.cjs",
     "smoke:media-freeze": "node scripts/run-electron.cjs scripts/smoke-media-freeze.cjs",
     "test:terminal-transport": "node scripts/run-electron.cjs test/e2e/terminal-transport-sync.cjs",
     "test:terminal-rename": "node scripts/run-electron.cjs test/e2e/terminal-rename-space.test.cjs",

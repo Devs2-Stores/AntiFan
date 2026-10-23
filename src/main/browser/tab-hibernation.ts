@@ -82,6 +82,7 @@ export type HibernationRefusal =
   | 'audible'
   | 'loading'
   | 'agent-plane'
+  | 'oauth-popup'
   | 'automation-target'
   | 'mcp-bound'
   | 'cdp-bound'
@@ -108,6 +109,9 @@ export function shouldHibernate(
   if (state.isAudible === true) return { hibernate: false, reason: 'audible' };
   if (state.isLoading === true) return { hibernate: false, reason: 'loading' };
   if (state.ephemeral === true) return { hibernate: false, reason: 'agent-plane' };
+  // A popup's page is tied to its opener through window.opener; rebuilding the view on wake
+  // would load the URL into a fresh page with no opener, so the sign-in could never complete.
+  if (typeof state.popupOf === 'string' && state.popupOf) return { hibernate: false, reason: 'oauth-popup' };
   if (ctx.automationTabId && tab.id === ctx.automationTabId) {
     return { hibernate: false, reason: 'automation-target' };
   }

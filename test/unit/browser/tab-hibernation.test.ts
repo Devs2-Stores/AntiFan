@@ -71,6 +71,11 @@ describe('shouldHibernate policy', () => {
     assert.deepStrictEqual(d, { hibernate: false, reason: 'agent-plane' });
   });
 
+  it('refuses an OAuth popup tab, whose page is tied to its opener', () => {
+    const d = shouldHibernate(tab('tab-popup', { popupOf: 'tab-opener' }, 0), makeCtx());
+    assert.deepStrictEqual(d, { hibernate: false, reason: 'oauth-popup' });
+  });
+
   it('refuses the automation target tab', () => {
     const d = shouldHibernate(tab('tab-x', {}, 0), makeCtx({ automationTabId: 'tab-x' }));
     assert.deepStrictEqual(d, { hibernate: false, reason: 'automation-target' });

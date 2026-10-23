@@ -78,7 +78,7 @@ import { ownerKey, ownerLabel, type ProjectWindowShell, type WindowOwner, type C
 import { installChromeIpcOnce, type IpcRoute, type IpcEvent } from './ipc-router';
 
 import { HistoryManager } from './history-manager';
-import { OAuthPopupManager } from './oauth-popup-manager';
+import { OAuthPopupManager, type OAuthPopupWindowOptions } from './oauth-popup-manager';
 import { SemanticRefRegistry, makeTargetKey } from './semantic-ref-registry';
 import { settleWithinBound } from './target-operation-chain';
 import { TabAutomationHost } from './tab-automation-host';
@@ -8878,8 +8878,6 @@ export class NativeTabHost extends EventEmitter {
 
     wc.setWindowOpenHandler((details) => {
       return OAuthPopupManager.getInstance().handleWindowOpen(
-        wc,
-        this.shell.window,
         details,
         {
           onNewTabRequested: (url: string) => {
@@ -8930,7 +8928,8 @@ export class NativeTabHost extends EventEmitter {
                 }
               });
             }
-          }
+          },
+          createOAuthPopup: (windowOptions, url) => this.openOAuthPopupTab(id, windowOptions, url),
         }
       );
     });
@@ -8947,6 +8946,56 @@ export class NativeTabHost extends EventEmitter {
     this.setupGlobalShortcutsOnView(wc, id);
     this.setupContextMenu(wc, paneId);
     this.trackUserActivityOnView(wc);
+  }
+
+  /**
+   * Registers an OAuth popup as a regular tab of this host, marked `popupOf` its opener.
+   *
+   * Runs inside Electron's `createWindow` hook, i.e. synchronously under the opener's
+   * window.open call: `windowOptions.webContents` is the WebContents Chromium already created
+   * for the popup in the opener's browsing context, which is what gives the page its
+   * `window.opener` and the opener's exact Session (cookies, storage). Wrapping a freshly
+   * constructed WebContents instead leaves the opener waiting forever. Only the registration
+   * happens here; presentation (view attach, layout, focus) and the agent-pool adoption wait one
+   * turn for the same reason the ordinary window.open path defers its tab creation.
+   * A popup this host cannot register is wrapped, returned and torn down one turn later: the
+   * hook must hand Chromium a WebContents, and throwing from it is not an option.
+   */
+  private openOAuthPopupTab(
+    openerTabId: string,
+    windowOptions: OAuthPopupWindowOptions,
+    url: string
+  ): Electron.WebContents {
+    const popupContents = windowOptions.webContents;
+    if (!popupContents) {
+      throw new Error('OAuth popup request carried no WebContents to host');
+    }
+    const view = new WebContentsView({ webContents: popupContents, webPreferences: windowOptions.webPreferences });
+    const opener = this.tabs.get(openerTabId);
+    const openerState = opener?.state;
+    const capsuleId = opener ? this.getTabCapsuleId(openerTabId) : undefined;
+    const tabId = opener && !this.isDisposed
+      ? this.createTab(url, false, {
+        popup: { view, openerTabId },
+        ...(capsuleId ? { capsuleId } : {}),
+        ...(openerState?.partition ? { partition: openerState.partition } : {}),
+        ...(openerState?.userAgentMode ? { userAgentMode: openerState.userAgentMode } : {}),
+        // Same project as the opener; a shared opener mints a shared popup (explicit null).
+        projectId: opener.projectId ?? null,
+      })
+      : '';
+    if (!tabId) {
+      setImmediate(() => this.destroyOwnedWebContents(popupContents));
+      return popupContents;
+    }
+    setImmediate(() => {
+      if (this.isDisposed || !this.tabs.has(tabId)) return;
+      if (!this.adoptChildTab(openerTabId, tabId, undefined, 'native_window_open', openerTabId)) {
+        console.warn(`[native-tab-host] OAuth popup ${tabId} was not adopted into the agent pool of opener ${openerTabId}`);
+      }
+      this.switchTab(tabId, { plane: 'user' });
+    });
+    return popupContents;
   }
 
   public createTab(
@@ -8971,6 +9020,12 @@ export class NativeTabHost extends EventEmitter {
        * ephemeral records are never stamped.
        */
       projectId?: string | null;
+      /**
+       * OAuth popup registration: the view wraps the WebContents Chromium created for the
+       * popup inside the opener's browsing context, so the tab keeps `window.opener` and the
+       * opener's session. Chromium owns the first navigation and the caller presents the tab.
+       */
+      popup?: { view: WebContentsView; openerTabId: string };
     }
   ): string {
     if (this.isDisposed) return '';
@@ -9020,6 +9075,7 @@ export class NativeTabHost extends EventEmitter {
       });
     }
 
+    const popup = options?.popup;
     const userAgentMode: BrowserSessionUserAgentMode = options?.userAgentMode || 'clean';
     const isEphemeral = Boolean(options?.ephemeral);
     let partition: string;
@@ -9030,8 +9086,9 @@ export class NativeTabHost extends EventEmitter {
     } else {
       partition = this.getSharedProfilePartition(userAgentMode, isEphemeral);
     }
-    configureBrowserSessionPartition(partition, userAgentMode);
-    const view = new WebContentsView({
+    // A popup lives in its opener's already configured session, never a partition of its own.
+    if (!popup) configureBrowserSessionPartition(partition, userAgentMode);
+    const view = popup?.view ?? new WebContentsView({
       webPreferences: getSecureWebPreferences(partition),
     });
     // The view's own background is the canvas for whatever the page leaves unpainted, so
@@ -9061,6 +9118,7 @@ export class NativeTabHost extends EventEmitter {
       userAgentMode,
       partition,
       ephemeral: isEphemeral,
+      ...(popup ? { popupOf: popup.openerTabId } : {}),
     };
     this.setupTabWebContentsEvents(id, view, state, 'desktop');
 
@@ -9120,7 +9178,10 @@ export class NativeTabHost extends EventEmitter {
       }
     }
     const wc = view.webContents;
-    if (url.startsWith('view-source:')) {
+    if (popup) {
+      // Loading `url` here would replace the page that holds `window.opener`; the popup's
+      // first navigation was already requested by the opener's window.open.
+    } else if (url.startsWith('view-source:')) {
       const sourceTargetUrl = url.slice('view-source:'.length).trim();
       state.title = `view-source:${sourceTargetUrl}`;
       state.url = url;
@@ -9154,7 +9215,10 @@ export class NativeTabHost extends EventEmitter {
     } else {
       state.isLoading = false;
     }
-    if (activate && !isAgentTab) {
+    if (popup) {
+      // The opener's window.open is still waiting for its reply: presenting the tab (view
+      // attach, layout, focus) happens one turn later, from `openOAuthPopupTab`.
+    } else if (activate && !isAgentTab) {
       // A tab opened on explicit user intent (the + button, Ctrl+T, a window.open
       // the user clicked) may take focus; an agent caller declares 'agent' and
       // rides the deferral gate like every other agent-plane activation.
@@ -9704,7 +9768,12 @@ export class NativeTabHost extends EventEmitter {
         const stamp = typeof t.projectId === 'string' && t.projectId ? t.projectId : null;
         return stamp === null || stamp === scopedProject;
       });
-      if (userTabs.length > 0) {
+      // A closed popup hands the window back to the tab that opened it (the sign-in is over);
+      // an opener that is gone or outside the presented project falls through to the usual pick.
+      const openerTabId = target.state.popupOf;
+      if (openerTabId && userTabs.includes(openerTabId)) {
+        this.switchTab(openerTabId, { plane: 'user' });
+      } else if (userTabs.length > 0) {
         this.switchTab(userTabs[userTabs.length - 1]!, { plane: 'user' });
       } else if (reservedForClose || authorizedByAttempt) {
         // Repairing "the window is never empty" must not run inside an authorized close:
@@ -14596,6 +14665,9 @@ export class NativeTabHost extends EventEmitter {
       const tab = this.tabs.get(id);
       if (!tab) return null;
       if (tab.state.ephemeral === true) return null;
+      // A popup is bound to its opener's page through window.opener; reloaded alone after a
+      // restart it would be a stale sign-in page that can never hand its result back.
+      if (tab.state.popupOf) return null;
       // projectId lives on the record, not on AntiFanTab, so the sanitize/migrate
       // whitelist never sees it: merge it onto the serialized row here and read it back
       // verbatim in restoreTabs. Optional field — absent means "minted outside a project".
@@ -14630,7 +14702,7 @@ export class NativeTabHost extends EventEmitter {
         }
 
         const rawManaged = Array.from(entry.managedTabIds || [entry.tabId]);
-        const filteredManaged = rawManaged.filter((id) => !isAgentTabId(id));
+        const filteredManaged = rawManaged.filter((id) => !isAgentTabId(id) && !this.tabs.get(id)?.state.popupOf);
 
         if (filteredManaged.length === 0 && (!rawPrimaryTabId || isAgentTabId(rawPrimaryTabId))) {
           continue;
@@ -14647,7 +14719,7 @@ export class NativeTabHost extends EventEmitter {
     let persistedActiveTabId: string | undefined = this.activeTabId;
     if (persistedActiveTabId) {
       const activeTab = this.tabs.get(persistedActiveTabId);
-      if (!activeTab || activeTab.state.ephemeral === true) {
+      if (!activeTab || activeTab.state.ephemeral === true || activeTab.state.popupOf) {
         persistedActiveTabId = undefined;
       }
     }

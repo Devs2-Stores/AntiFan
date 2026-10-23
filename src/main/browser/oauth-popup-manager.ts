@@ -1,19 +1,36 @@
 /**
  * oauth-popup-manager.ts
  *
- * Smart OAuth Popup and Window-Open Interceptor for AntiFan Browser Desktop.
- * Manages Google Sign-in, GitHub OAuth, Shopify/Haravan logins via modal windows
- * sharing the parent tab session, and routes standard links to new browser tabs.
+ * OAuth classification and window-open policy for AntiFan Browser Desktop.
+ * A website-owned OAuth popup (Google sign-in, GitHub, Shopify/Haravan logins, ...)
+ * is built as a regular AntiFan tab through Electron's `createWindow` hook, so it keeps
+ * `window.opener`, shares the opener's Chromium session, and stays reachable by the same
+ * tab tooling as every other page. Standard links route to new browser tabs.
  */
-import { BrowserWindow, WebContents, HandlerDetails, WindowOpenHandlerResponse } from 'electron';
+import type { BrowserWindowConstructorOptions, HandlerDetails, WebContents, WindowOpenHandlerResponse } from 'electron';
 import { getSecureWebPreferences, isAllowedNavigation } from '../security/security-policy';
+
+/**
+ * The options Electron passes to a `createWindow` hook. `webContents` is the WebContents
+ * Chromium created for the popup; the declaration omits it, the runtime always supplies it.
+ */
+export interface OAuthPopupWindowOptions extends BrowserWindowConstructorOptions {
+  webContents?: WebContents;
+}
+
 export interface OAuthHandlerOptions {
   onNewTabRequested?: (url: string) => void;
+  /**
+   * Builds the tab that hosts an OAuth popup. `windowOptions.webContents` is the
+   * WebContents Chromium already created for the popup inside the opener's browsing
+   * context; the callback must wrap exactly that object and return it. Without this
+   * callback an OAuth `window.open` is denied: there is no native-window fallback.
+   */
+  createOAuthPopup?: (windowOptions: OAuthPopupWindowOptions, url: string) => WebContents;
 }
 
 export class OAuthPopupManager {
   private static instance: OAuthPopupManager;
-  private guardedWebContents = new WeakSet<WebContents>();
 
   public static getInstance(): OAuthPopupManager {
     if (!OAuthPopupManager.instance) {
@@ -71,94 +88,7 @@ export class OAuthPopupManager {
     return /(?:^|\/)(?:oauth\/callback|auth\/callback|oauth2\/callback|signin-google|signin-github|auth\/complete|auth\/success|login\/callback)(?:\/|$)/.test(pathname);
   }
 
-  public attachPopupGuards(
-    parentContents: WebContents,
-    parentWindow?: BrowserWindow,
-    options?: OAuthHandlerOptions
-  ): void {
-    if (!parentContents || typeof parentContents.on !== 'function') return;
-    if (this.guardedWebContents.has(parentContents)) return;
-    this.guardedWebContents.add(parentContents);
-
-    parentContents.on('did-create-window', (childWindow: BrowserWindow) => {
-      this.configureChildWindowGuards(childWindow, parentContents, parentWindow, options);
-    });
-  }
-
-  public configureChildWindowGuards(
-    childWindow: BrowserWindow,
-    parentContents: WebContents,
-    parentWindow?: BrowserWindow,
-    options?: OAuthHandlerOptions
-  ): void {
-    if (!childWindow) return;
-    if (typeof childWindow.isDestroyed === 'function' && childWindow.isDestroyed()) return;
-
-    const childContents = childWindow.webContents;
-    if (!childContents) return;
-    if (typeof childContents.isDestroyed === 'function' && childContents.isDestroyed()) return;
-
-    // Guard window.open calls originating from inside the popup to prevent popup-chain and foreground theft
-    if (typeof childContents.setWindowOpenHandler === 'function') {
-      childContents.setWindowOpenHandler((details: HandlerDetails) => {
-        const { url } = details;
-        if (!isAllowedNavigation(url)) {
-          return { action: 'deny' };
-        }
-
-        if (this.isOAuthUrl(url)) {
-          return {
-            action: 'allow',
-            overrideBrowserWindowOptions: {
-              width: 520,
-              height: 680,
-              parent: parentWindow || childWindow,
-              show: true,
-              backgroundColor: '#080c14',
-              title: 'Xác thực Đăng nhập',
-              webPreferences: {
-                ...getSecureWebPreferences(),
-                session: parentContents.session,
-              },
-            },
-          };
-        }
-
-        if (options?.onNewTabRequested && url.startsWith('http') && isAllowedNavigation(url)) {
-          options.onNewTabRequested(url);
-        }
-        return { action: 'deny' };
-      });
-    }
-
-    // Attach did-create-window to the child window too, guarding nested popups
-    this.attachPopupGuards(childContents, parentWindow || childWindow, options);
-
-    // Guard direct navigation and redirects within the OAuth window
-    if (typeof childContents.on === 'function') {
-      childContents.on('will-navigate', (event, navigationUrl: string) => {
-        if (!isAllowedNavigation(navigationUrl)) {
-          event.preventDefault();
-        }
-      });
-
-      childContents.on('will-redirect', (event, navigationUrl: string) => {
-        if (!isAllowedNavigation(navigationUrl)) {
-          event.preventDefault();
-        }
-      });
-    }
-  }
-
-  public handleWindowOpen(
-    parentContents: WebContents,
-    parentWindow: BrowserWindow,
-    details: HandlerDetails,
-    options?: OAuthHandlerOptions
-  ): WindowOpenHandlerResponse {
-    // Ensure parent contents has did-create-window listener attached to configure child guards
-    this.attachPopupGuards(parentContents, parentWindow, options);
-
+  public handleWindowOpen(details: HandlerDetails, options?: OAuthHandlerOptions): WindowOpenHandlerResponse {
     const { url } = details;
 
     // Fail-closed URL policy check: reject dangerous schemes (file:, javascript:, data:, etc.)
@@ -168,30 +98,22 @@ export class OAuthPopupManager {
 
     if (this.isOAuthUrl(url)) {
       // AntiFan is the browser here; the visited website owns this OAuth flow.
-      // Allowing Chromium to create the child preserves window.opener and uses
-      // the exact parent Session for cookies and origin storage.
+      // Letting Chromium create the child (through `createWindow`) preserves
+      // window.opener and puts the popup in the opener's exact Session.
+      const createOAuthPopup = options?.createOAuthPopup;
+      if (!createOAuthPopup) return { action: 'deny' };
       return {
         action: 'allow',
         overrideBrowserWindowOptions: {
-          width: 520,
-          height: 680,
-          parent: parentWindow,
-          show: true,
-          backgroundColor: '#080c14',
-          title: 'Xác thực Đăng nhập',
-          webPreferences: {
-            ...getSecureWebPreferences(),
-            session: parentContents.session,
-          },
+          webPreferences: getSecureWebPreferences(),
         },
+        createWindow: (windowOptions) => createOAuthPopup(windowOptions, url),
       };
     }
 
-    if (options?.onNewTabRequested && url.startsWith('http') && isAllowedNavigation(url)) {
+    if (options?.onNewTabRequested && url.startsWith('http')) {
       options.onNewTabRequested(url);
     }
     return { action: 'deny' };
   }
-
-
 }

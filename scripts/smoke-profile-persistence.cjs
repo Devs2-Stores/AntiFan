@@ -1,4 +1,4 @@
-const { app, BrowserWindow, protocol, session } = require('electron');
+const { app, BrowserWindow, WebContentsView, protocol, session } = require('electron');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -103,25 +103,40 @@ async function run() {
     if (indexedValue !== 'indexed-db-value') throw new Error(`IndexedDB did not survive restart: ${indexedValue}`);
 
     const { OAuthPopupManager } = require('../.compiled/src/main/browser/oauth-popup-manager.js');
-    win.webContents.setWindowOpenHandler((details) => OAuthPopupManager.getInstance().handleWindowOpen(win.webContents, win, details));
+    let popupView = null;
+    win.webContents.setWindowOpenHandler((details) => OAuthPopupManager.getInstance().handleWindowOpen(details, {
+      // The host's real popup builder wraps the WebContents Chromium created for the popup
+      // inside a view; this smoke does the same inside its own window.
+      createOAuthPopup: (windowOptions) => {
+        popupView = new WebContentsView({ webContents: windowOptions.webContents, webPreferences: windowOptions.webPreferences });
+        win.contentView.addChildView(popupView);
+        return popupView.webContents;
+      },
+    }));
+    // antifan://identity/oauth/authorize passes isAllowedNavigation (antifan: is
+    // allowlisted) and isOAuthUrl (path matches /oauth2?/authorize/), so the
+    // production allow branch creates the popup through createWindow on the parent Session.
     const popup = await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('OAuth child window was not created')), 5000);
-      win.webContents.once('did-create-window', (child) => {
-        clearTimeout(timer);
-        resolve(child);
-      });
-      // antifan://identity/oauth/authorize passes isAllowedNavigation (antifan: is
-      // allowlisted) and isOAuthUrl (path matches /oauth2?/authorize/), so the
-      // production allow branch creates a real child window on the parent Session.
       win.webContents.executeJavaScript("window.open('antifan://identity/oauth/authorize?client_id=smoke', 'oauth-smoke')").catch(reject);
+      const timer = setInterval(() => {
+        if (popupView) {
+          clearInterval(timer);
+          clearTimeout(deadline);
+          resolve(popupView.webContents);
+        }
+      }, 25);
+      const deadline = setTimeout(() => {
+        clearInterval(timer);
+        reject(new Error('OAuth popup was not created'));
+      }, 5000);
     });
-    await new Promise((resolve) => popup.webContents.once('did-finish-load', resolve));
-    console.log(`[profile-smoke] OAUTH_CHILD id=${popup.id} url=${popup.webContents.getURL()}`);
-    const sameSession = popup.webContents.session === win.webContents.session;
-    const hasOpener = await popup.webContents.executeJavaScript('window.opener !== null');
+    await new Promise((resolve) => popup.once('did-finish-load', resolve));
+    console.log(`[profile-smoke] OAUTH_CHILD id=${popup.id} url=${popup.getURL()}`);
+    const sameSession = popup.session === win.webContents.session;
+    const hasOpener = await popup.executeJavaScript('window.opener !== null');
     popup.destroy();
-    if (!sameSession) throw new Error('OAuth child did not share the parent Chromium Session');
-    if (!hasOpener) throw new Error('OAuth child lost window.opener');
+    if (!sameSession) throw new Error('OAuth popup did not share the parent Chromium Session');
+    if (!hasOpener) throw new Error('OAuth popup lost window.opener');
 
     console.log('[profile-smoke] READ_OK cookie + localStorage + IndexedDB survived process restart');
     console.log('[profile-smoke] OAUTH_OK child shares Session and preserves window.opener');

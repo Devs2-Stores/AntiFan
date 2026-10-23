@@ -800,9 +800,8 @@ async function run() {
     const splitOpenerContents = host.getTabWebContents(tabA2, 'desktop');
     if (splitOpenerContents && !splitOpenerContents.isDestroyed()) {
       const popupManager = require(compiledModule('browser/oauth-popup-manager.js')).OAuthPopupManager.getInstance();
-      const hubWindow = authority.windowFor(webKey);
       const productWindowOpenHandler = function (details) {
-        return popupManager.handleWindowOpen(splitOpenerContents, hubWindow, details, {
+        return popupManager.handleWindowOpen(details, {
           onNewTabRequested: function (url) {
             const adoptedId = host.createTab(url, true);
             if (adoptedId) host.adoptChildTab(tabA2, adoptedId, undefined, 'native_window_open', tabA2);

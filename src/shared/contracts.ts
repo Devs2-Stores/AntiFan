@@ -31,6 +31,12 @@ export interface AntiFanTab {
    * and persisted verbatim: never re-resolved against the hub's current project.
    */
   projectId?: string;
+  /**
+   * Set on a tab that hosts an OAuth popup: the id of the tab whose `window.open`
+   * created it. The popup keeps `window.opener` to that tab and shares its session;
+   * it is never persisted or hibernated, and closing it re-activates the opener.
+   */
+  popupOf?: string;
   ephemeral?: boolean;
   /**
    * Set while the tab's WebContentsViews are destroyed to reclaim the renderer.

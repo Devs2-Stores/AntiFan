@@ -38,12 +38,11 @@ describe('OAuthPopupManager Invariants', () => {
       assert.strictEqual(manager.isOAuthUrl(url), false, `expected ordinary URL: ${url}`);
     }
   });
-  it('keeps website-owned OAuth in the parent Chromium session without requesting a tab', () => {
+  it('hands an OAuth window.open to the tab builder through createWindow, never a native window', () => {
     const manager = OAuthPopupManager.getInstance();
-    const sharedSession = { name: 'shared-session' };
-    const parentContents = { session: sharedSession };
-    const parentWindow = { name: 'parent-window' };
     const opened: string[] = [];
+    const built: Array<{ windowOptions: unknown; url: string }> = [];
+    const popupContents = { name: 'popup-contents' };
 
     for (const url of [
       'https://accounts.google.com/o/oauth2/v2/auth?client_id=123',
@@ -57,18 +56,43 @@ describe('OAuthPopupManager Invariants', () => {
       'https://trello.com/1/authorize?key=123',
     ]) {
       const result = manager.handleWindowOpen(
-        parentContents as never,
-        parentWindow as never,
         { url } as never,
-        { onNewTabRequested: (requestedUrl) => opened.push(requestedUrl) }
+        {
+          onNewTabRequested: (requestedUrl) => opened.push(requestedUrl),
+          createOAuthPopup: (windowOptions, requestedUrl) => {
+            built.push({ windowOptions, url: requestedUrl });
+            return popupContents as never;
+          },
+        }
       );
       assert.strictEqual(result.action, 'allow');
-      assert.strictEqual(result.overrideBrowserWindowOptions?.parent, parentWindow);
-      assert.strictEqual(result.overrideBrowserWindowOptions?.webPreferences?.session, sharedSession);
+      assert.strictEqual(typeof result.createWindow, 'function', `an OAuth popup must be built through createWindow: ${url}`);
+      assert.strictEqual(result.overrideBrowserWindowOptions?.parent, undefined, 'no native parent window is requested');
       assert.strictEqual(result.overrideBrowserWindowOptions?.webPreferences?.sandbox, true);
       assert.strictEqual(result.overrideBrowserWindowOptions?.webPreferences?.nodeIntegration, false);
       assert.strictEqual(result.overrideBrowserWindowOptions?.webPreferences?.contextIsolation, true);
+      // The session is the opener's by construction (Chromium hands over the WebContents it
+      // created in the opener's browsing context): a session or partition pinned here could
+      // only diverge from it.
+      assert.strictEqual(result.overrideBrowserWindowOptions?.webPreferences?.session, undefined);
+      assert.strictEqual(result.overrideBrowserWindowOptions?.webPreferences?.partition, undefined);
+
+      const windowOptions = { webContents: popupContents, webPreferences: { sandbox: true } };
+      assert.strictEqual(result.createWindow?.(windowOptions as never), popupContents);
+      assert.strictEqual(built[built.length - 1]?.windowOptions, windowOptions, 'the builder receives Electron\'s own options object');
+      assert.strictEqual(built[built.length - 1]?.url, url);
     }
+    assert.deepEqual(opened, [], 'an OAuth popup never degrades into an ordinary tab request');
+  });
+
+  it('denies an OAuth window.open when the host provides no tab builder', () => {
+    const manager = OAuthPopupManager.getInstance();
+    const opened: string[] = [];
+    const result = manager.handleWindowOpen(
+      { url: 'https://accounts.google.com/o/oauth2/v2/auth?client_id=123' } as never,
+      { onNewTabRequested: (url) => opened.push(url) }
+    );
+    assert.strictEqual(result.action, 'deny');
     assert.deepEqual(opened, []);
   });
 
@@ -76,8 +100,6 @@ describe('OAuthPopupManager Invariants', () => {
     const manager = OAuthPopupManager.getInstance();
     const opened: string[] = [];
     const result = manager.handleWindowOpen(
-      { session: {} } as never,
-      {} as never,
       { url: 'https://example.com/docs' } as never,
       { onNewTabRequested: (url) => opened.push(url) }
     );
@@ -100,10 +122,11 @@ describe('OAuthPopupManager Invariants', () => {
       'data:/oauth/authorize',
     ]) {
       const result = manager.handleWindowOpen(
-        { session: {} } as never,
-        {} as never,
         { url } as never,
-        { onNewTabRequested: (requestedUrl) => opened.push(requestedUrl) }
+        {
+          onNewTabRequested: (requestedUrl) => opened.push(requestedUrl),
+          createOAuthPopup: () => { throw new Error('a dangerous scheme must never reach the popup builder'); },
+        }
       );
       assert.strictEqual(result.action, 'deny', `expected dangerous scheme to be denied: ${url}`);
     }
