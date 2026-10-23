@@ -341,6 +341,13 @@ blocks the rewrite: the old file stays as it is, the ids are journaled
 project that window was presenting plus the project windows the `open-windows.json`
 ledger lists, or only the Terminal Manager when there are none.
 
+Document-level preferences in `saved-tabs.json` (`bookmarks`, `mutedSites`,
+`activeChromeProfileId`, `sidebarWidth`, `isSidebarOpen`) belong to whichever window changed
+them: a window writes the keys that differ from what the document held when that window
+last read or wrote it, and copies every other key from the existing document, so two
+windows never overwrite each other's untouched keys. The terminal tab-strip prefs stay the
+Terminal Manager's.
+
 A terminal that no project claims (`resolveTerminalScope` answers `unattributed`) is
 adopted once from the cwd its PTY started in (`decideTerminalProjectAdoption` in
 `src/main/project/terminal-project-adoption.ts`): the project whose workspace contains

@@ -119,8 +119,8 @@ async function runVerifyPhase() {
   const port = Number(process.env.ANTIFAN_SITE_MUTE_PORT);
   const targetUrl = `http://127.0.0.1:${port}/`;
   const winShell = new ProjectWindowShell({
-    // 'web' (hub) owner: document-level preferences (mutedSites) only persist for the
-    // hub; 'project' shells intentionally drop them from saved-tabs.json.
+    // A project window persists the document-level preferences it changes (mutedSites
+    // included); the assertions below read them back from saved-tabs.json.
     owner: { kind: 'project', projectId: 'project-00000000-0000-4000-8000-0000000000e2' },
     title: 'AntiFan Smoke Window',
     bounds: { width: 1280, height: 800 },
@@ -182,8 +182,8 @@ async function runMainPhase() {
     const urlLocalhost = `http://localhost:${port}/`;
 
     const winShell = new ProjectWindowShell({
-      // 'web' (hub) owner: document-level preferences (mutedSites) only persist for the
-      // hub; 'project' shells intentionally drop them from saved-tabs.json.
+      // A project window persists the document-level preferences it changes (mutedSites
+      // included); the assertions below read them back from saved-tabs.json.
       owner: { kind: 'project', projectId: 'project-00000000-0000-4000-8000-0000000000e2' },
       title: 'AntiFan Smoke Window',
       bounds: { width: 1440, height: 900 },

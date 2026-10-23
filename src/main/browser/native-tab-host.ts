@@ -318,6 +318,19 @@ const SHARED_TERMINAL_PREF_KEYS = [
 type SharedTerminalPrefKey = typeof SHARED_TERMINAL_PREF_KEYS[number];
 
 /**
+ * Document-level preferences any window can change from its chrome. A window persists the
+ * ones it moved and leaves the rest to whatever the document already holds.
+ */
+const SHARED_DOCUMENT_PREF_KEYS = [
+  'bookmarks',
+  'mutedSites',
+  'activeChromeProfileId',
+  'sidebarWidth',
+  'isSidebarOpen',
+] as const;
+type SharedDocumentPrefKey = typeof SHARED_DOCUMENT_PREF_KEYS[number];
+
+/**
  * The on-disk saved-tabs document. `owners` is the only place window-scoped
  * browser state lives; the remaining top-level keys are application-wide
  * preferences (bookmarks, muted sites, profile, terminal presentation) that were
@@ -1363,6 +1376,13 @@ export class NativeTabHost extends EventEmitter {
    * must not write its stale copy over what a sibling window committed.
    */
   private touchedSharedTerminalPrefs = new Set<SharedTerminalPrefKey>();
+  /**
+   * What each document-level preference held (serialized) when this window last agreed with
+   * the saved-tabs document: after restore, and after each confirmed write of a key. A key
+   * whose current value differs was changed by this window and is its to write.
+   * `undefined` until the window restored, which makes every key this window's to write.
+   */
+  private sharedDocumentPrefBaseline: Record<SharedDocumentPrefKey, string> | undefined;
   // Running count of 'antifan:terminal:data' payloads actually handed to
   // safeSendWebContents; readable via getResourceStats/DUMP_DIAGNOSTICS without
   // benchmark mode.
@@ -13609,17 +13629,20 @@ export class NativeTabHost extends EventEmitter {
     // An existing document keeps its version: a host write never marks an unmigrated
     // document as migrated; only a document this write creates states the current one.
     const version = typeof existing?.version === 'number' ? existing.version : SAVED_TABS_SCHEMA_VERSION;
-    // A `project:<id>` window owns its tab record and nothing else: the document-level
-    // keys (bookmarks, sidebar, profile, terminal prefs) belong to the shared Terminal
-    // Manager's write, and this write must leave every byte of them exactly as they
-    // were. Merging the previous document forward means a project window's persist
-    // cannot clobber prefs its chrome cannot even see.
-    if (this.shell?.owner?.kind === 'project') {
-      return existing
-        ? { ...existing, owners, version, updatedAt: Date.now() }
-        : { version, owners, updatedAt: Date.now() };
-    }
+    // Document-level keys (bookmarks, muted sites, profile, sidebar) belong to whichever
+    // window changed them: a window writes only the keys it moved away from what the
+    // document held when it last agreed with it, and copies every other key from the
+    // existing document. A window's boot-time copy therefore never clobbers a sibling's
+    // newer value, and no window needs to be the "owner" of a preference it can edit.
+    const changed = this.changedSharedDocumentPrefs(data);
     const shared = this.sharedPrefsFromPersistData(data);
+    if (this.shell?.owner?.kind === 'project') {
+      // A project window also owns no terminal pref: those are the Terminal Manager's, and
+      // every key outside the changed set stays exactly as the document holds it.
+      const merged: Record<string, unknown> = { ...(existing ?? {}) };
+      for (const key of changed) merged[key] = shared[key];
+      return { ...merged, version, owners, updatedAt: Date.now() } as SavedTabsDocument;
+    }
     // The Terminal Manager's sidebar is pinned open by construction and its width is the
     // whole window; its write must not flip or resize the browser windows' shared sidebar.
     if (this.isTerminalOnlyWindow()) {
@@ -13627,6 +13650,10 @@ export class NativeTabHost extends EventEmitter {
       else delete shared.isSidebarOpen;
       if (typeof existing?.sidebarWidth === 'number') shared.sidebarWidth = existing.sidebarWidth;
       else delete shared.sidebarWidth;
+    }
+    for (const key of SHARED_DOCUMENT_PREF_KEYS) {
+      if (changed.has(key)) continue;
+      if (existing && key in existing) shared[key] = existing[key];
     }
     // A shared terminal pref this window never changed is a boot-time copy; the file may
     // already hold a sibling window's newer value, which wins.
@@ -14111,11 +14138,7 @@ export class NativeTabHost extends EventEmitter {
     return {
       activeTabId: persistedActiveTabId,
       tabs: tabList,
-      bookmarks: this.bookmarks,
-      mutedSites: Array.from(this.mutedSites),
-      activeChromeProfileId: ChromeProfileSyncManager.getInstance().activeProfileId,
-      sidebarWidth: this.shell.sidebarWidth,
-      isSidebarOpen: this.shell.isSidebarOpen,
+      ...this.sharedDocumentPrefValues(),
       terminalTabLayout: this.terminalTabLayout,
       terminalSidebarWidth: this.terminalSidebarWidth,
       terminalCollapsedCategories: this.terminalCollapsedCategories,
@@ -14222,6 +14245,7 @@ export class NativeTabHost extends EventEmitter {
           continue;
         }
         this.notePersistedProjection(filePath, serialized);
+        this.noteSharedDocumentPrefsWritten(data);
         console.log('[native-tab-host] Persisted tabs async to:', filePath);
       } while (this.hasPendingPersist && !this.isDisposed);
     } catch (err) {
@@ -14269,6 +14293,7 @@ export class NativeTabHost extends EventEmitter {
         const document = this.buildSavedTabsDocument(this.normalizeSavedTabsFileForMerge(filePath), data);
         this.writeSavedTabsDocumentSync(filePath, document);
         this.notePersistedProjection(filePath, serialized);
+        this.noteSharedDocumentPrefsWritten(data);
         console.log('[native-tab-host] Persisted tabs sync to:', filePath);
       }
     } catch (err) {
@@ -14282,14 +14307,8 @@ export class NativeTabHost extends EventEmitter {
       // Migrates a legacy flat file on first read; shared preferences apply to every
       // window, while tabs/popouts/affinities belong to this window's owner record.
       const document = this.loadSavedTabsDocument();
+      this.restoreSharedDocumentPrefs(document);
       if (document) {
-        this.restoreMutedSites(document.mutedSites);
-        if (typeof document.sidebarWidth === 'number' && document.sidebarWidth >= 260 && document.sidebarWidth <= 850) {
-          this.shell.sidebarWidth = document.sidebarWidth;
-        }
-        if (typeof document.isSidebarOpen === 'boolean' && !this.isTerminalOnlyWindow()) {
-          this.shell.isSidebarOpen = document.isSidebarOpen;
-        }
         this.restoreWindowTerminalLayout(document);
         this.applyTerminalTabPrefs({
           collapsedCategories: document.terminalCollapsedCategories,
@@ -14299,12 +14318,6 @@ export class NativeTabHost extends EventEmitter {
           projectOrder: document.terminalProjectOrder,
         });
         const record = document.owners[this.windowOwnerKey()];
-        if (document.activeChromeProfileId) {
-          ChromeProfileSyncManager.getInstance().activeProfileId = document.activeChromeProfileId;
-        }
-        if (Array.isArray(document.bookmarks) && document.bookmarks.length > 0) {
-          this.bookmarks = document.bookmarks;
-        }
         // The Terminal Manager has no page area: tabs persisted under it from before it
         // became terminals-only are not resurrected into a window that cannot show them.
         if (record && Array.isArray(record.tabs) && record.tabs.length > 0 && !this.isTerminalOnlyWindow()) {
@@ -14367,6 +14380,8 @@ export class NativeTabHost extends EventEmitter {
       }
     } catch (err) {
       console.warn('[native-tab-host] Failed to restore tabs:', err);
+      // Whatever this window holds is a default, not a choice: it must not be written over the document.
+      this.sharedDocumentPrefBaseline ??= this.serializeSharedDocumentPrefs(this.sharedDocumentPrefValues());
     }
 
     // Default fallback: a browser window is never empty. The Terminal Manager has no tabs.
@@ -14375,6 +14390,72 @@ export class NativeTabHost extends EventEmitter {
     } else {
       this.createTab(fallbackUrl || 'https://www.google.com');
     }
+  }
+
+  /** The document-level preferences this window holds, keyed by their saved-tabs name. */
+  private sharedDocumentPrefValues(): Record<SharedDocumentPrefKey, unknown> {
+    return {
+      bookmarks: this.bookmarks,
+      mutedSites: Array.from(this.mutedSites),
+      activeChromeProfileId: ChromeProfileSyncManager.getInstance().activeProfileId,
+      sidebarWidth: this.shell?.sidebarWidth,
+      isSidebarOpen: this.shell?.isSidebarOpen,
+    };
+  }
+
+  /**
+   * Applies the document-level preferences a document carries, then records what this
+   * window now holds as the value the document agrees with. A later persist writes a key
+   * only when this window moved it away from that value; every other key is whatever a
+   * sibling window committed since.
+   */
+  private restoreSharedDocumentPrefs(document: SavedTabsDocument | null): void {
+    if (document) {
+      this.restoreMutedSites(document.mutedSites);
+      if (typeof document.sidebarWidth === 'number' && document.sidebarWidth >= 260 && document.sidebarWidth <= 850) {
+        this.shell.sidebarWidth = document.sidebarWidth;
+      }
+      if (typeof document.isSidebarOpen === 'boolean' && !this.isTerminalOnlyWindow()) {
+        this.shell.isSidebarOpen = document.isSidebarOpen;
+      }
+      if (document.activeChromeProfileId) {
+        ChromeProfileSyncManager.getInstance().activeProfileId = document.activeChromeProfileId;
+      }
+      if (Array.isArray(document.bookmarks) && document.bookmarks.length > 0) {
+        this.bookmarks = document.bookmarks;
+      }
+    }
+    this.sharedDocumentPrefBaseline = this.serializeSharedDocumentPrefs(this.sharedDocumentPrefValues());
+  }
+
+  private serializeSharedDocumentPrefs(values: Record<string, unknown>): Record<SharedDocumentPrefKey, string> {
+    const serialized = {} as Record<SharedDocumentPrefKey, string>;
+    for (const key of SHARED_DOCUMENT_PREF_KEYS) serialized[key] = JSON.stringify(values[key] ?? null);
+    return serialized;
+  }
+
+  /**
+   * Document-level preference keys this window changed since the document last agreed
+   * with it. A window that never restored (no baseline) owns every key.
+   */
+  private changedSharedDocumentPrefs(data: Record<string, unknown>): Set<SharedDocumentPrefKey> {
+    const baseline = this.sharedDocumentPrefBaseline;
+    const current = this.serializeSharedDocumentPrefs(data);
+    const changed = new Set<SharedDocumentPrefKey>();
+    for (const key of SHARED_DOCUMENT_PREF_KEYS) {
+      if (!baseline || baseline[key] !== current[key]) changed.add(key);
+    }
+    return changed;
+  }
+
+  /** A confirmed write landed `data`: its changed keys are now what the document holds. */
+  private noteSharedDocumentPrefsWritten(data: Record<string, unknown>): void {
+    const changed = this.changedSharedDocumentPrefs(data);
+    if (changed.size === 0) return;
+    const current = this.serializeSharedDocumentPrefs(data);
+    const baseline = this.sharedDocumentPrefBaseline ?? current;
+    for (const key of changed) baseline[key] = current[key];
+    this.sharedDocumentPrefBaseline = baseline;
   }
 
   /**

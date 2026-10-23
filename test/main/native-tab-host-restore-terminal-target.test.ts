@@ -50,6 +50,8 @@ function restoreWith(record: Record<string, unknown>, owner: Record<string, unkn
 
   const host: Record<string, unknown> = Object.create(NativeTabHost.prototype);
   host.shell = { owner, isSidebarOpen: false, sidebarWidth: 380 };
+  host.mutedSites = new Set<string>();
+  host.bookmarks = [];
   const created: string[] = [];
   host.createTab = (url: string) => { created.push(url); return 'tab-fallback'; };
   host.getTabsStoragePath = () => tabsPath;

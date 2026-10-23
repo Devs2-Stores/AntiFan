@@ -614,6 +614,52 @@ describe('saved tabs: one record per owner', () => {
     assert.deepEqual(saved.terminalCollapsedCategories, ['project:proj-b']);
   });
 
+  it('a project window persists the document-level preferences it changed and never clobbers a sibling\'s', () => {
+    freshUserData('owner-shared-document-prefs');
+    const windowA = createHost({ owner: PROJECT_A, tabs: [['tab-a', {}]], activeTabId: 'tab-a' });
+    const windowB = createHost({ owner: PROJECT_B, tabs: [['tab-b', {}]], activeTabId: 'tab-b' });
+    const manager = createHost({ owner: { kind: 'unassigned' } });
+    // Every window starts from the same (empty) document, so each one's copy is a boot-time copy.
+    for (const host of [windowA, windowB, manager]) host.restoreSharedDocumentPrefs(null);
+
+    windowA.mutedSites.add('example.test');
+    windowA.toggleBookmark('https://a.test/', 'A');
+    windowA.shell.sidebarWidth = 420;
+    windowA.persistSync();
+
+    let saved = readSavedTabsFile();
+    assert.deepEqual(saved.mutedSites, ['example.test'], 'a mute toggled in a project window must persist');
+    assert.deepEqual(saved.bookmarks.map((b: AnyRecord) => b.url), ['https://a.test/']);
+    assert.equal(saved.sidebarWidth, 420);
+
+    // A sibling that changed none of those keys saves its own tabs: A's values survive.
+    windowB.persistSync();
+    manager.persistSync();
+    saved = readSavedTabsFile();
+    assert.deepEqual(saved.mutedSites, ['example.test'], 'a window that never touched the mute list overwrote it');
+    assert.deepEqual(saved.bookmarks.map((b: AnyRecord) => b.url), ['https://a.test/']);
+    assert.equal(saved.sidebarWidth, 420);
+    assert.deepEqual(Object.keys(saved.owners).sort(), [ownerKey(PROJECT_A), ownerKey(PROJECT_B), UNASSIGNED].sort());
+
+    // B changes only its bookmarks: that key becomes B's, the mute list stays A's.
+    windowB.toggleBookmark('https://b.test/', 'B');
+    windowB.persistSync();
+    saved = readSavedTabsFile();
+    assert.ok(saved.bookmarks.some((b: AnyRecord) => b.url === 'https://b.test/'));
+    assert.deepEqual(saved.mutedSites, ['example.test']);
+
+    // A saves again with nothing new: B's bookmarks are not rolled back to A's copy.
+    windowA.persistSync();
+    saved = readSavedTabsFile();
+    assert.ok(saved.bookmarks.some((b: AnyRecord) => b.url === 'https://b.test/'), 'an unchanged key was written back over a sibling\'s newer value');
+
+    // Unmuting in A is a change too: the key clears even though B still holds the old list.
+    windowA.mutedSites.delete('example.test');
+    windowA.persistSync();
+    windowB.persistSync();
+    assert.deepEqual(readSavedTabsFile().mutedSites, [], 'B\'s stale copy re-muted a site A cleared');
+  });
+
   it('does not write an automation surface into the saved strip', () => {
     freshUserData('owner-agent-tabs');
     const host = createHost({
