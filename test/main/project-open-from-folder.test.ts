@@ -79,7 +79,7 @@ browserWindowStub.getFocusedWindow = () => null;
 browserWindowStub.fromWebContents = () => null;
 
 import { createChromeRouteHarness } from '../support/chrome-route-harness';
-import { makeControlPlaneId } from '../../src/shared/control-plane-contracts';
+import { makeControlPlaneId, CONTROL_PLANE_DEFAULT_PROJECT_ID, CONTROL_PLANE_DEFAULT_WORKSPACE_ID } from '../../src/shared/control-plane-contracts';
 import type { ProjectOpenResult } from '../../src/shared/contracts';
 import { PROJECT_WINDOW_ROUTES, projectWindowAuthority } from '../../src/main/index';
 
@@ -159,6 +159,29 @@ describe('open project from folder', () => {
       assert.deepStrictEqual(registry().findWorkspacesByRoot(dir), [], 'no workspace attaches to the refused folder');
       assert.strictEqual(fs.existsSync(capsuleStorePath()), false, 'the refusal happens before any capsule record');
     } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('never adopts a folder into the control plane default lease, even once that lease is bound to it', async () => {
+    // The runtime binds the default lease's workspace to the cwd of the first terminal that
+    // pairs from it. That lease is no project (no window can own it), so a folder resolved
+    // through it would hand the terminal or the click to a project nothing can open: the
+    // folder takes the fresh-folder path instead, here its fail-closed refusal.
+    const dir = freshFolder();
+    const dataRoot = path.join(TEST_DATA_ROOT, 'control-plane');
+    const lease = registry().ensureInitialWorkspace(CONTROL_PLANE_DEFAULT_PROJECT_ID, CONTROL_PLANE_DEFAULT_WORKSPACE_ID, '', dataRoot);
+    registry().registerWorkspace({ ...lease, rootPath: dir, updatedAt: Date.now() });
+    try {
+      pickerScript = 'folder';
+      folderAnswer = { canceled: false, filePaths: [dir] };
+
+      const result = await openViaPicker();
+
+      assert.deepStrictEqual(result, { status: 'FAILED', reason: 'PROJECT_FOLDER_INVALID' });
+      assert.deepStrictEqual(registry().findWorkspacesByRoot(dir), [], 'the default lease never answers for a folder');
+    } finally {
+      registry().registerWorkspace({ ...lease, rootPath: '', updatedAt: Date.now() });
       fs.rmSync(dir, { recursive: true, force: true });
     }
   });

@@ -2,6 +2,7 @@ import * as path from 'node:path';
 import {
   ProjectRecord,
   WorkspaceRecord,
+  CONTROL_PLANE_DEFAULT_PROJECT_ID,
   makeControlPlaneId,
   validateControlPlaneId,
 } from '../../shared/control-plane-contracts';
@@ -188,10 +189,17 @@ export class ProjectRegistry {
     }
   }
 
+  /**
+   * The attached workspaces that make a folder some project's own. The control plane's default
+   * lease is left out: the runtime binds its workspace to the cwd of whichever terminal pairs
+   * first, yet it is no project (no window can own it), so a folder resolved through it would
+   * hand a terminal or a folder pick to a project nothing can open.
+   */
   findWorkspacesByRoot(rootPath: string): WorkspaceRecord[] {
     const normalized = path.resolve(rootPath);
     const key = process.platform === 'win32' ? normalized.toLowerCase() : normalized;
     return Array.from(this.workspaces.values()).filter((item) => {
+      if (item.projectId === CONTROL_PLANE_DEFAULT_PROJECT_ID) return false;
       const itemKey = process.platform === 'win32' ? item.rootPath.toLowerCase() : item.rootPath;
       return itemKey === key && item.state === 'attached';
     }).map((item) => ({ ...item }));
