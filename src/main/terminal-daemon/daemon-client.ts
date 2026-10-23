@@ -588,7 +588,7 @@ export class DaemonTerminalProxy extends EventEmitter {
     cwd?: string,
     cols?: number,
     rows?: number,
-    meta?: TerminalRoleMeta & { name?: unknown },
+    meta?: TerminalRoleMeta & { name?: unknown; ownerKey?: unknown },
   ): Promise<string> {
     const payload: HostNewSessionParams = { parentId };
     if (typeof cwd === 'string' && cwd) payload.cwd = cwd;
@@ -599,6 +599,7 @@ export class DaemonTerminalProxy extends EventEmitter {
       if (typeof meta.idlePolicy === 'string') payload.idlePolicy = meta.idlePolicy;
       if (typeof meta.spaceTerminalId === 'string') payload.spaceTerminalId = meta.spaceTerminalId;
       if (typeof meta.name === 'string') payload.name = meta.name;
+      if (typeof meta.ownerKey === 'string' && meta.ownerKey) payload.ownerKey = meta.ownerKey;
     }
     const r = await this.client.call<HostNewSessionResult>(HOST_METHOD.newSession, payload);
     return r.sessionId;

@@ -446,8 +446,7 @@ export function registerThemeTransactionCapabilities(
       const callerTenancy = extractTenancy(context);
       assertTerminalOwnership(
         resolveTerminalCallerScope(terminalOwnership, context),
-        params.cursor.sessionId,
-        'observe'
+        params.cursor.sessionId
       );
       const target: BrowserTarget =
         typeof params.tabId === 'string' && params.tabId.trim()

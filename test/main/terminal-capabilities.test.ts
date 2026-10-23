@@ -5,7 +5,12 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { SessionDeliveryJournal, TerminalManager, DEFAULT_TERMINAL_CAPSULE_ID } from '../../src/main/browser/terminal-manager';
 import { CapabilityCatalogue } from '../../src/main/tools/capability-catalogue';
-import { registerTerminalCapabilities } from '../../src/main/tools/terminal-capabilities';
+import {
+  registerTerminalCapabilities,
+  resolveHomeBaseTerminal,
+  isLiveSplitOf,
+  type TerminalOwnershipPort,
+} from '../../src/main/tools/terminal-capabilities';
 import {
   CapabilityError,
   issueRuntimeLease,
@@ -383,444 +388,385 @@ describe('Terminal Capabilities, Generation Tracking & Wait Lifecycle (Phase 04)
     );
   });
 
-  it('9. Scopes an attachment-bound caller to its own sessions: a foreign agent terminal is refused and never listed', async () => {
-    const mine = terminalManager.createSession('E:/Work/scope-mine');
-    const foreign = terminalManager.createSession('E:/Work/scope-foreign');
-    const userPlane = terminalManager.createSession('E:/Work/scope-user');
-    assert.ok(mine && foreign && userPlane);
-
-    // The host's live affinity is the single ownership source: `mine` is driven by tab-mine,
-    // `foreign` by tab-other, and `userPlane` by no agent at all (a human's shell).
-    const boundToTab: Record<string, string> = { 'tab-mine': mine, 'tab-other': foreign };
-    const ownership = {
-      ownerTabId: (attachmentId: string) =>
-        attachmentId === 'att-mine' ? 'tab-mine' : attachmentId === 'att-other' ? 'tab-other' : undefined,
-      allowsTab: (tabId: string, terminalId: string) => boundToTab[tabId] === terminalId,
-      isAgentTerminal: (terminalId: string) => terminalId === mine || terminalId === foreign,
-      isAgentHeld: (terminalId: string) => terminalId === mine || terminalId === foreign,
-      bind: () => true,
-      tabAffiliation: () => ({ live: true }),
-    };
-    const scoped = new CapabilityCatalogue({
-      runtime: { mode: 'standalone', lifecycle: 'active' },
-      projectId,
-      workspaceId,
-      runtimeId: lease.runtimeId,
-      hostEpoch: 1,
-      getActiveLease: () => lease,
-    });
-    registerTerminalCapabilities(scoped, terminalManager, ownership);
-
-    const contextOf = (attachmentId: string) => ({
-      attachmentId,
-      runId: 'run-scope',
-      attemptId: 'attempt-scope',
-      projectId,
-      workspaceId,
-      backendId: 'backend-scope',
-      hostEpoch: 1,
-      invocationId: 'invocation-scope',
-      lease,
-      leaseToken: lease.token,
-      grant: 'write' as const,
-    });
-
-    const writes: Array<{ sessionId: string; input: string }> = [];
-    const originalWriteTo = terminalManager.writeTo.bind(terminalManager);
-    terminalManager.writeTo = ((sessionId: string, input: string) => {
-      writes.push({ sessionId, input });
-      return originalWriteTo(sessionId, input);
-    }) as typeof terminalManager.writeTo;
-
-    try {
-      await scoped.dispatch('terminal.write', { sessionId: mine, input: 'echo MINE\r\n' }, contextOf('att-mine'));
-      assert.deepStrictEqual(writes.map((w) => w.sessionId), [mine], 'a caller may drive its own session');
-
-      await assert.rejects(
-        () => scoped.dispatch('terminal.write', { sessionId: foreign, input: 'echo STOLEN\r\n' }, contextOf('att-mine')),
-        (err: unknown) => err instanceof CapabilityError && err.code === 'TERMINAL_FORBIDDEN'
-      );
-      assert.strictEqual(writes.length, 1, 'a refused write must never reach the PTY');
-
-      // The user plane is readable but not drivable by an agent attachment, and must not goad the agent into calling terminal.create.
-      await assert.rejects(
-        () => scoped.dispatch('terminal.write', { sessionId: userPlane, input: 'echo USER\r\n' }, contextOf('att-mine')),
-        (err: unknown) => {
-          assert.ok(err instanceof CapabilityError);
-          assert.strictEqual(err.code, 'TERMINAL_FORBIDDEN');
-          assert.match(err.message, /terminal\.wait/);
-          assert.match(err.message, /terminal\.list/);
-          assert.doesNotMatch(err.message, /terminal\.create/);
-          return true;
-        }
-      );
-      const userSession = terminalManager.getSession(userPlane);
-      assert.ok(userSession);
-      userSession.buffer += '\r\nUSER_PLANE_MARKER\r\n';
-      const observed = (await scoped.dispatch(
-        'terminal.wait',
-        { sessionId: userPlane, condition: 'output-match', pattern: 'USER_PLANE_MARKER', timeoutMs: 2000 },
-        contextOf('att-mine')
-      )) as TerminalWaitResult;
-      assert.strictEqual(observed.satisfied, true, 'the user plane stays observable to an agent attachment');
-
-      await assert.rejects(
-        () =>
-          scoped.dispatch(
-            'terminal.wait',
-            { sessionId: foreign, condition: 'output-match', pattern: 'never', timeoutMs: 50 },
-            contextOf('att-mine')
-          ),
-        (err: unknown) => err instanceof CapabilityError && err.code === 'TERMINAL_FORBIDDEN'
-      );
-
-      const listed = (await scoped.dispatch('terminal.list', {}, contextOf('att-mine'))) as {
-        sessions: Array<{ id: string; owned: boolean }>;
-        omittedForeignAgentTerminals?: number;
-      };
-      const listedIds = listed.sessions.map((s) => s.id);
-      assert.ok(listedIds.includes(mine), 'the caller sees its own terminal');
-      assert.ok(listedIds.includes(userPlane), 'the caller sees the user plane');
-      assert.ok(!listedIds.includes(foreign), 'a foreign agent terminal must not be advertised for addressing');
-      assert.strictEqual(listed.omittedForeignAgentTerminals, 1);
-      // `owned` tells the caller which visible rows it may drive: its own terminal yes, the user plane only to observe.
-      assert.strictEqual(listed.sessions.find((s) => s.id === mine)?.owned, true);
-      assert.strictEqual(listed.sessions.find((s) => s.id === userPlane)?.owned, false);
-
-      // A caller with no attachment has no ownership question, so every row is owned.
-      const unboundListed = (await scoped.dispatch('terminal.list', {}, { lease, leaseToken: lease.token, projectId, workspaceId, grant: 'read' })) as {
-        sessions: Array<{ id: string; owned: boolean }>;
-      };
-      assert.ok(unboundListed.sessions.length >= 3);
-      assert.ok(unboundListed.sessions.every((s) => s.owned === true));
-
-      // A caller whose bound tab cannot be resolved is refused rather than allowed unverified.
-      await assert.rejects(
-        () => scoped.dispatch('terminal.write', { sessionId: mine, input: 'echo X\r\n' }, contextOf('att-unknown')),
-        (err: unknown) => err instanceof CapabilityError && err.code === 'TERMINAL_FORBIDDEN'
-      );
-
-      // A lease-bound internal caller carries no attachment, so its reach is unchanged.
-      await scoped.dispatch(
-        'terminal.write',
-        { sessionId: foreign, input: 'echo LEASE\r\n' },
-        { lease, leaseToken: lease.token, projectId, workspaceId, grant: 'write' }
-      );
-      assert.deepStrictEqual(writes.map((w) => w.sessionId), [mine, foreign]);
-    } finally {
-      terminalManager.writeTo = originalWriteTo;
-      await terminalManager.closeSession(mine);
-      await terminalManager.closeSession(foreign);
-      await terminalManager.closeSession(userPlane);
-    }
-  });
-
-  it('10. Claims a created terminal for the calling attachment and refuses to create one it cannot own', async () => {
-    const claims: Array<{ terminalId: string; generation: number | undefined; tabId: string }> = [];
-    const ownership = {
-      ownerTabId: (attachmentId: string) => (attachmentId === 'att-known' ? 'tab-known' : undefined),
-      allowsTab: (tabId: string, terminalId: string) => tabId === 'tab-known' && terminalId === 'terminal-owned-parent',
-      isAgentTerminal: () => false,
-      isAgentHeld: () => false,
-      bind: (terminalId: string, generation: number | undefined, tabId: string) => {
-        claims.push({ terminalId, generation, tabId });
-        return true;
-      },
-      tabAffiliation: () => ({ live: true }),
-    };
-    const scoped = new CapabilityCatalogue({
-      runtime: { mode: 'standalone', lifecycle: 'active' },
-      projectId,
-      workspaceId,
-      runtimeId: lease.runtimeId,
-      hostEpoch: 1,
-      getActiveLease: () => lease,
-    });
-    const created: string[] = [];
-    const facade = {
-      createSession: async () => {
-        created.push('terminal-90');
-        return 'terminal-90';
-      },
-      createSplitSession: async () => {
-        created.push('terminal-91');
-        return 'terminal-91';
-      },
-      getSession: (id: string) => ({ id, sessionGeneration: 7 }),
-      listSessions: () => [],
-      getActiveSessionId: () => '',
-    } as unknown as TerminalManager;
-    registerTerminalCapabilities(scoped, facade, ownership);
-
-    const contextOf = (attachmentId: string) => ({
-      attachmentId,
-      runId: 'run-create',
-      attemptId: 'attempt-create',
-      projectId,
-      workspaceId,
-      backendId: 'backend-create',
-      hostEpoch: 1,
-      invocationId: 'invocation-create',
-      lease,
-      leaseToken: lease.token,
-      grant: 'write' as const,
-    });
-
-    const base = (await scoped.dispatch('terminal.create', { cwd: 'E:/Work/scope-create' }, contextOf('att-known'))) as {
-      sessionId: string;
-      ownerBound?: boolean;
-    };
-    assert.deepStrictEqual(base, { sessionId: 'terminal-90', ownerBound: true });
-    assert.deepStrictEqual(
-      claims,
-      [{ terminalId: 'terminal-90', generation: 7, tabId: 'tab-known' }],
-      'a base session nobody owns yet must be claimed for the tab that asked for it'
-    );
-
-    const split = (await scoped.dispatch(
-      'terminal.create',
-      { parentId: 'terminal-owned-parent' },
-      contextOf('att-known')
-    )) as { sessionId: string; ownerBound?: boolean };
-    assert.deepStrictEqual(split, { sessionId: 'terminal-91', ownerBound: true });
-    assert.strictEqual(claims.length, 2, 'the split of an owned shell is claimed as well');
-
-    // Splitting a shell this caller does not own is refused BEFORE a shell exists.
-    await assert.rejects(
-      () => scoped.dispatch('terminal.create', { parentId: 'terminal-foreign' }, contextOf('att-known')),
-      (err: unknown) => err instanceof CapabilityError && err.code === 'TERMINAL_FORBIDDEN'
-    );
-
-    // An attachment with no resolvable tab owns nothing, so no ownerless session is created for it.
-    await assert.rejects(
-      () => scoped.dispatch('terminal.create', { cwd: 'E:/Work/scope-create' }, contextOf('att-unbound')),
-      (err: unknown) => err instanceof CapabilityError && err.code === 'TERMINAL_FORBIDDEN'
-    );
-    assert.deepStrictEqual(created, ['terminal-90', 'terminal-91'], 'a refused create must leave no session behind');
-  });
-  it('11. Refuses a dead bound tab before creating a PTY', async () => {
-    let creates = 0;
-    const ownership = {
-      ownerTabId: () => 'tab-dead',
-      allowsTab: () => false,
-      isAgentTerminal: () => false,
-      isAgentHeld: () => false,
-      bind: () => true,
-      tabAffiliation: () => ({ live: false }),
-    };
-    const scoped = new CapabilityCatalogue({ runtime: { mode: 'standalone', lifecycle: 'active' }, projectId, workspaceId, runtimeId: lease.runtimeId, hostEpoch: 1, getActiveLease: () => lease });
-    const facade = {
-      createSession: async () => { creates++; return 'terminal-dead'; },
-      createSplitSession: async () => { creates++; return 'terminal-dead-split'; },
-      listSessions: () => [],
-      getActiveSessionId: () => '',
-    } as unknown as TerminalManager;
-    registerTerminalCapabilities(scoped, facade, ownership);
-    const context = { attachmentId: 'att-dead', runId: 'r', attemptId: 'a', projectId, workspaceId, backendId: 'b', hostEpoch: 1, invocationId: 'i', lease, leaseToken: lease.token, grant: 'write' as const };
-    await assert.rejects(() => scoped.dispatch('terminal.create', {}, context), (err: unknown) => err instanceof CapabilityError && err.code === 'TARGET_STALE');
-    assert.strictEqual(creates, 0);
-  });
-
-  for (const bindOutcome of ['throws', 'false'] as const) {
-    it(`12. Rolls back a created PTY when bind ${bindOutcome}`, async () => {
-      let sessionExists = false;
-      let closeCalls = 0;
-      const ownership = {
-        ownerTabId: () => 'tab-live',
-        allowsTab: () => false,
-        isAgentTerminal: () => false,
-        isAgentHeld: () => false,
-        bind: () => {
-          if (bindOutcome === 'throws') throw new Error('stale tab');
-          return false;
-        },
-        tabAffiliation: () => ({ live: true }),
-      };
-      const scoped = new CapabilityCatalogue({ runtime: { mode: 'standalone', lifecycle: 'active' }, projectId, workspaceId, runtimeId: lease.runtimeId, hostEpoch: 1, getActiveLease: () => lease });
-      const facade = {
-        createSession: async () => { sessionExists = true; return 'terminal-rollback'; },
-        closeSession: async () => { closeCalls++; sessionExists = false; return true; },
-        getSession: () => ({ sessionGeneration: 1 }),
-        listSessions: () => sessionExists ? [{ id: 'terminal-rollback' }] : [],
-        getActiveSessionId: () => '',
-      } as unknown as TerminalManager;
-      registerTerminalCapabilities(scoped, facade, ownership);
-      const context = { attachmentId: 'att-live', runId: 'r', attemptId: 'a', projectId, workspaceId, backendId: 'b', hostEpoch: 1, invocationId: 'i', lease, leaseToken: lease.token, grant: 'write' as const };
-      // A `false` bind means the tab went away; a thrown bind is a real fault and surfaces unchanged.
-      await assert.rejects(
-        () => scoped.dispatch('terminal.create', {}, context),
-        (err: unknown) =>
-          bindOutcome === 'false'
-            ? err instanceof CapabilityError && err.code === 'TARGET_STALE'
-            : err instanceof Error && !(err instanceof CapabilityError) && err.message === 'stale tab'
-      );
-      assert.strictEqual(closeCalls, 1);
-      assert.deepStrictEqual(facade.listSessions(), []);
-    });
+  interface FakeRow {
+    id: string;
+    cwd: string;
+    state: string;
+    ownerKey?: string;
+    splitOf?: string;
+    disposed?: boolean;
+    role?: string;
+    spaceTerminalId?: string;
+  }
+  interface SplitCreateCall {
+    parentId: string;
+    cwd?: string;
+    ownerKey?: unknown;
+  }
+  interface ScenarioOptions {
+    rows: FakeRow[];
+    /** attachmentId → bound tab. */
+    tabs: Record<string, string>;
+    /** attachmentId → the terminal the host/registry names as that attachment's home. */
+    homes: Record<string, string | undefined>;
+    liveTabs?: string[];
+    activeId?: string;
+    createSplit?: (parentId: string) => Promise<string>;
   }
 
-  it('13. Uses the bound tab capsule, DEFAULT sentinel when absent, and explicit capsule when supplied', async () => {
-    const capsules: Array<string | undefined> = [];
-    let tabCapsule: string | undefined = 'tab-capsule';
-    const ownership = {
-      ownerTabId: () => 'tab-capsule',
-      allowsTab: () => false,
-      isAgentTerminal: () => false,
-      isAgentHeld: () => false,
-      bind: () => true,
-      tabAffiliation: () => ({ live: true, capsuleId: tabCapsule }),
-    };
-    const scoped = new CapabilityCatalogue({ runtime: { mode: 'standalone', lifecycle: 'active' }, projectId, workspaceId, runtimeId: lease.runtimeId, hostEpoch: 1, getActiveLease: () => lease });
-    let nextId = 1;
-    const facade = {
-      createSession: async (_cwd?: string, capsuleId?: string) => { capsules.push(capsuleId); return `terminal-capsule-${nextId++}`; },
-      getSession: (id: string) => ({ id, sessionGeneration: 1 }),
-      listSessions: () => [],
-      getActiveSessionId: () => '',
-    } as unknown as TerminalManager;
-    registerTerminalCapabilities(scoped, facade, ownership);
-    const context = { attachmentId: 'att-capsule', runId: 'r', attemptId: 'a', projectId, workspaceId, backendId: 'b', hostEpoch: 1, invocationId: 'i', lease, leaseToken: lease.token, grant: 'write' as const };
-    await scoped.dispatch('terminal.create', {}, context);
-    assert.strictEqual(capsules[0], 'tab-capsule');
-    tabCapsule = undefined;
-    await scoped.dispatch('terminal.create', {}, context);
-    assert.strictEqual(capsules[1], DEFAULT_TERMINAL_CAPSULE_ID);
-    assert.notStrictEqual(capsules[1], undefined);
-    await scoped.dispatch('terminal.create', { capsuleId: 'explicit-capsule' }, context);
-    assert.strictEqual(capsules[2], 'explicit-capsule');
+  const attachmentContext = (attachmentId: string) => ({
+    attachmentId,
+    runId: 'run-scope',
+    attemptId: 'attempt-scope',
+    projectId,
+    workspaceId,
+    backendId: 'backend-scope',
+    hostEpoch: 1,
+    invocationId: 'invocation-scope',
+    lease,
+    leaseToken: lease.token,
+    grant: 'write' as const,
   });
+  const unboundContext = () => ({ lease, leaseToken: lease.token, projectId, workspaceId, grant: 'write' as const });
+  const newCatalogue = () => new CapabilityCatalogue({
+    runtime: { mode: 'standalone', lifecycle: 'active' },
+    projectId,
+    workspaceId,
+    runtimeId: lease.runtimeId,
+    hostEpoch: 1,
+    getActiveLease: () => lease,
+  });
+  const homeRows = (): FakeRow[] => [
+    { id: 'terminal-home', cwd: 'E:/Work/home', state: 'running', ownerKey: 'project:p1' },
+    { id: 'split-user', cwd: 'E:/Work/home', state: 'running', ownerKey: 'project:p1', splitOf: 'terminal-home' },
+    { id: 'split-hrv', cwd: 'E:/Work/home/Haravan', state: 'running', ownerKey: 'project:p1', splitOf: 'terminal-home', role: 'sync', spaceTerminalId: 'haravan' },
+    { id: 'split-sapo', cwd: 'E:/Work/home/Sapo', state: 'running', ownerKey: 'project:p1', splitOf: 'terminal-home', role: 'sync', spaceTerminalId: 'sapo' },
+    { id: 'terminal-other', cwd: 'E:/Work/other', state: 'running', ownerKey: 'project:p2' },
+    { id: 'split-other', cwd: 'E:/Work/other', state: 'running', ownerKey: 'project:p2', splitOf: 'terminal-other' },
+    { id: 'terminal-agent-other', cwd: 'E:/Work/elsewhere', state: 'running', ownerKey: 'agent:tab-other' },
+  ];
 
-  it('14. Hands back the shell the tab already minted for that folder instead of leaving another behind', async () => {
-    // Field report: one agent minted a terminal per command (9 creates, 1 close in 8 minutes) and the
-    // sidebar filled with shells nobody closed.
-    const rows: Array<{ id: string; cwd: string; ownerKey?: string; state: string; capsuleId?: string; splitOf?: string }> = [];
-    const binds: string[] = [];
-    const ownership = {
-      ownerTabId: () => 'tab-reuse',
-      allowsTab: (tabId: string, terminalId: string) => tabId === 'tab-reuse' && rows.some((r) => r.id === terminalId && r.ownerKey === 'agent:tab-reuse'),
-      isAgentTerminal: () => false,
-      isAgentHeld: () => false,
-      bind: (terminalId: string) => {
-        binds.push(terminalId);
+  /** The capability surface over an in-memory terminal manager and the production reach predicate. */
+  const buildScenario = (options: ScenarioOptions) => {
+    const rows = options.rows;
+    const calls = {
+      writes: [] as Array<{ sessionId: string; input: string }>,
+      resizes: [] as string[],
+      closedSplits: [] as string[],
+      closedBases: [] as string[],
+      splitCreates: [] as SplitCreateCall[],
+      baseCreates: 0,
+    };
+    let nextSplit = 1;
+    const facade = {
+      listSessions: () => rows.map((row) => ({ ...row })),
+      getSession: (id: string) => rows.find((row) => row.id === id),
+      getActiveSessionId: () => options.activeId ?? '',
+      writeTo: async (sessionId: string, input: string) => {
+        calls.writes.push({ sessionId, input });
         return true;
       },
-      tabAffiliation: () => ({ live: true }),
-    };
-    const scoped = new CapabilityCatalogue({ runtime: { mode: 'standalone', lifecycle: 'active' }, projectId, workspaceId, runtimeId: lease.runtimeId, hostEpoch: 1, getActiveLease: () => lease });
-    const facade = {
-      createSession: async (cwd?: string, capsuleId?: string, ownerKey?: string) => {
-        const id = `terminal-reuse-${rows.length + 1}`;
-        rows.push({ id, cwd: cwd ?? 'E:/Work/default', ownerKey, state: 'running', capsuleId });
+      resizeTo: (sessionId: string) => {
+        calls.resizes.push(sessionId);
+      },
+      waitTerminal: async (params: { sessionId: string }) => ({ satisfied: true, sessionId: params.sessionId }),
+      closeSplitSession: async (id: string) => {
+        calls.closedSplits.push(id);
+        const index = rows.findIndex((row) => row.id === id);
+        if (index >= 0) rows.splice(index, 1);
+        return true;
+      },
+      closeSession: async (id: string) => {
+        calls.closedBases.push(id);
+        return true;
+      },
+      createSplitSession: async (parentId: string, cwd?: string, _cols?: number, _rows?: number, meta?: { ownerKey?: unknown }) => {
+        calls.splitCreates.push({ parentId, cwd, ownerKey: meta?.ownerKey });
+        if (options.createSplit) return options.createSplit(parentId);
+        const id = `split-new-${nextSplit++}`;
+        rows.push({ id, cwd: cwd ?? 'E:/Work/home', state: 'running', splitOf: parentId, ownerKey: typeof meta?.ownerKey === 'string' ? meta.ownerKey : undefined });
         return id;
       },
-      getSession: (id: string) => ({ id, sessionGeneration: 1 }),
-      listSessions: () => rows,
-      getActiveSessionId: () => '',
+      createSession: async () => {
+        calls.baseCreates++;
+        return 'terminal-base-new';
+      },
     } as unknown as TerminalManager;
+    const ownership: TerminalOwnershipPort = {
+      ownerTabId: (attachmentId) => options.tabs[attachmentId],
+      homeTerminalId: (attachmentId) => resolveHomeBaseTerminal(facade, [options.homes[attachmentId]]),
+      isHomeSplit: (homeId, terminalId) => isLiveSplitOf(facade, homeId, terminalId),
+      tabAffiliation: (tabId) => ({ live: (options.liveTabs ?? Object.values(options.tabs)).includes(tabId) }),
+    };
+    const scoped = newCatalogue();
     registerTerminalCapabilities(scoped, facade, ownership);
-    const context = { attachmentId: 'att-reuse', runId: 'r', attemptId: 'a', projectId, workspaceId, backendId: 'b', hostEpoch: 1, invocationId: 'i', lease, leaseToken: lease.token, grant: 'write' as const };
+    return { rows, calls, facade, scoped };
+  };
+  const forbidden = (err: unknown): boolean => err instanceof CapabilityError && err.code === 'TERMINAL_FORBIDDEN';
+
+  it('9. An attachment sees and drives only the split panes of its home terminal, never the home shell or any other terminal', async () => {
+    const { calls, scoped } = buildScenario({
+      rows: homeRows(),
+      tabs: { 'att-mine': 'tab-mine' },
+      homes: { 'att-mine': 'terminal-home' },
+      activeId: 'terminal-other',
+    });
+    const ctx = attachmentContext('att-mine');
+
+    const listed = (await scoped.dispatch('terminal.list', {}, ctx)) as {
+      sessions: Array<{ id: string; owned: boolean }>;
+      activeSessionId: string;
+      omittedOutOfScopeTerminals?: number;
+    };
+    assert.deepStrictEqual(listed.sessions.map((s) => s.id), ['split-user', 'split-hrv', 'split-sapo'], 'the user split and both Space splits, nothing else');
+    assert.ok(listed.sessions.every((s) => s.owned === true));
+    assert.strictEqual(listed.omittedOutOfScopeTerminals, 4, 'home, the other base, its split and the foreign agent shell are omitted and counted');
+    assert.strictEqual(listed.activeSessionId, 'split-user', 'the process-wide active id names a terminal outside the scope and is never echoed');
+
+    // Two Space splits (role sync, spaceTerminalId) under home are fully reachable.
+    for (const pane of ['split-hrv', 'split-sapo']) {
+      await scoped.dispatch('terminal.write', { sessionId: pane, input: `echo ${pane}\r\n` }, ctx);
+      await scoped.dispatch('terminal.resize', { sessionId: pane, cols: 100, rows: 30 }, ctx);
+      const waited = (await scoped.dispatch('terminal.wait', { sessionId: pane, condition: 'exit', timeoutMs: 50 }, ctx)) as TerminalWaitResult & { sessionId?: string };
+      assert.strictEqual(waited.satisfied, true);
+    }
+    assert.deepStrictEqual(calls.writes.map((w) => w.sessionId), ['split-hrv', 'split-sapo']);
+    assert.deepStrictEqual(calls.resizes, ['split-hrv', 'split-sapo']);
+    assert.strictEqual((await scoped.dispatch('terminal.close', { sessionId: 'split-sapo' }, ctx) as { closed: boolean }).closed, true);
+    assert.deepStrictEqual(calls.closedSplits, ['split-sapo'], 'a bound close always closes exactly that pane as a split');
+    assert.deepStrictEqual(calls.closedBases, []);
+
+    // The home shell the agent runs in is refused for every operation, so it can never type into its own prompt.
+    for (const op of [
+      () => scoped.dispatch('terminal.write', { sessionId: 'terminal-home', input: 'x\r\n' }, ctx),
+      () => scoped.dispatch('terminal.resize', { sessionId: 'terminal-home', cols: 80, rows: 24 }, ctx),
+      () => scoped.dispatch('terminal.wait', { sessionId: 'terminal-home', condition: 'exit', timeoutMs: 50 }, ctx),
+      () => scoped.dispatch('terminal.close', { sessionId: 'terminal-home' }, ctx),
+    ]) {
+      await assert.rejects(op, (err: unknown) => forbidden(err) && /home terminal/.test((err as CapabilityError).message));
+    }
+    // Other bases, panes of other bases and another attachment's agent shell are refused as out of scope.
+    for (const foreign of ['terminal-other', 'split-other', 'terminal-agent-other', 'terminal-missing']) {
+      await assert.rejects(() => scoped.dispatch('terminal.write', { sessionId: foreign, input: 'x\r\n' }, ctx), forbidden, foreign);
+      await assert.rejects(() => scoped.dispatch('terminal.wait', { sessionId: foreign, condition: 'exit', timeoutMs: 50 }, ctx), forbidden, foreign);
+      await assert.rejects(() => scoped.dispatch('terminal.resize', { sessionId: foreign, cols: 80, rows: 24 }, ctx), forbidden, foreign);
+      await assert.rejects(() => scoped.dispatch('terminal.close', { sessionId: foreign }, ctx), forbidden, foreign);
+    }
+    assert.strictEqual(calls.writes.length, 2, 'a refused write must never reach the PTY');
+    assert.deepStrictEqual(calls.closedSplits, ['split-sapo'], 'a refused close must not close anything');
+  });
+
+  it('9b. A caller with no attachment keeps its unscoped reach', async () => {
+    const { calls, scoped } = buildScenario({ rows: homeRows(), tabs: {}, homes: {} });
+    const listed = (await scoped.dispatch('terminal.list', {}, unboundContext())) as { sessions: Array<{ id: string; owned: boolean }> };
+    assert.strictEqual(listed.sessions.length, 7);
+    assert.ok(listed.sessions.every((s) => s.owned === true));
+    await scoped.dispatch('terminal.write', { sessionId: 'terminal-other', input: 'x' }, unboundContext());
+    assert.deepStrictEqual(calls.writes.map((w) => w.sessionId), ['terminal-other']);
+  });
+
+  it('10. A disposed or closed pane is unreachable and a split that is not under the home is never reachable', async () => {
+    const rows = homeRows();
+    rows.find((r) => r.id === 'split-user')!.disposed = true;
+    rows.find((r) => r.id === 'split-sapo')!.state = 'closed';
+    const { scoped } = buildScenario({ rows, tabs: { 'att-mine': 'tab-mine' }, homes: { 'att-mine': 'terminal-home' } });
+    const listed = (await scoped.dispatch('terminal.list', {}, attachmentContext('att-mine'))) as { sessions: Array<{ id: string }> };
+    assert.deepStrictEqual(listed.sessions.map((s) => s.id), ['split-hrv']);
+    await assert.rejects(() => scoped.dispatch('terminal.write', { sessionId: 'split-user', input: 'x' }, attachmentContext('att-mine')), forbidden);
+  });
+
+  it('11. An attachment whose home is a split resolves to the parent, and one with no live home gets an explicit error', async () => {
+    // The tab names a split as its terminal: the home is the base it is split off.
+    const viaSplit = buildScenario({ rows: homeRows(), tabs: { 'att-mine': 'tab-mine' }, homes: { 'att-mine': 'split-user' } });
+    const listed = (await viaSplit.scoped.dispatch('terminal.list', {}, attachmentContext('att-mine'))) as { sessions: Array<{ id: string }> };
+    assert.deepStrictEqual(listed.sessions.map((s) => s.id), ['split-user', 'split-hrv', 'split-sapo']);
+    await assert.rejects(() => viaSplit.scoped.dispatch('terminal.write', { sessionId: 'terminal-home', input: 'x' }, attachmentContext('att-mine')), forbidden);
+
+    // No home: never an empty list, always an actionable refusal; nothing is created.
+    const homeless = buildScenario({
+      rows: homeRows(),
+      tabs: { 'att-none': 'tab-none', 'att-gone': 'tab-gone' },
+      homes: { 'att-none': undefined, 'att-gone': 'terminal-closed-long-ago' },
+    });
+    for (const attachmentId of ['att-none', 'att-gone']) {
+      const ctx = attachmentContext(attachmentId);
+      const noHome = (err: unknown): boolean => forbidden(err) && /no home terminal/.test((err as CapabilityError).message);
+      await assert.rejects(() => homeless.scoped.dispatch('terminal.list', {}, ctx), noHome);
+      await assert.rejects(() => homeless.scoped.dispatch('terminal.write', { sessionId: 'split-user', input: 'x' }, ctx), noHome);
+      await assert.rejects(() => homeless.scoped.dispatch('terminal.wait', { sessionId: 'split-user', condition: 'exit', timeoutMs: 50 }, ctx), noHome);
+      await assert.rejects(() => homeless.scoped.dispatch('terminal.create', { cwd: 'E:/Work/x' }, ctx), noHome);
+    }
+    assert.deepStrictEqual(homeless.calls.splitCreates, []);
+    assert.strictEqual(homeless.calls.baseCreates, 0);
+    assert.deepStrictEqual(homeless.calls.writes, []);
+
+    // A caller whose bound tab cannot be resolved is refused rather than allowed unverified.
+    await assert.rejects(
+      () => homeless.scoped.dispatch('terminal.write', { sessionId: 'split-user', input: 'x' }, attachmentContext('att-unknown')),
+      forbidden
+    );
+    // A runtime wired without host authority cannot verify scope at all.
+    const unwired = newCatalogue();
+    registerTerminalCapabilities(unwired, buildScenario({ rows: homeRows(), tabs: {}, homes: {} }).facade);
+    await assert.rejects(() => unwired.dispatch('terminal.write', { sessionId: 'split-user', input: 'x' }, attachmentContext('att-mine')), forbidden);
+  });
+
+  it('12. terminal.create always mints a NEW split under the home, stamped with the agent key, even beside the user\'s own split', async () => {
+    const { rows, calls, scoped } = buildScenario({
+      rows: homeRows(),
+      tabs: { 'att-mine': 'tab-mine' },
+      homes: { 'att-mine': 'terminal-home' },
+    });
+    const ctx = attachmentContext('att-mine');
+    type CreateResult = { sessionId: string; ownerBound?: boolean; reused?: boolean };
+
+    const first = (await scoped.dispatch('terminal.create', { cwd: 'E:/Work/home/tools' }, ctx)) as CreateResult;
+    assert.strictEqual(first.sessionId, 'split-new-1');
+    assert.notStrictEqual(first.sessionId, 'split-user', 'the user\'s manual split is never handed back');
+    assert.strictEqual(first.ownerBound, true);
+    assert.deepStrictEqual(calls.splitCreates, [{ parentId: 'terminal-home', cwd: 'E:/Work/home/tools', ownerKey: 'agent:tab-mine' }]);
+    const second = (await scoped.dispatch('terminal.create', {}, ctx)) as CreateResult;
+    assert.strictEqual(second.sessionId, 'split-new-2', 'every call is a new pane');
+    assert.strictEqual(calls.baseCreates, 0, 'an agent never creates a base shell');
+
+    // The pane is immediately inside the agent's scope.
+    const listed = (await scoped.dispatch('terminal.list', {}, ctx)) as { sessions: Array<{ id: string }> };
+    assert.deepStrictEqual(listed.sessions.map((s) => s.id), ['split-user', 'split-hrv', 'split-sapo', 'split-new-1', 'split-new-2']);
+    await scoped.dispatch('terminal.write', { sessionId: first.sessionId, input: 'ls\r\n' }, ctx);
+    assert.ok(rows.some((r) => r.id === 'split-new-1' && r.ownerKey === 'agent:tab-mine'));
+
+    // A parent other than the home is refused before anything is minted; naming the home is fine.
+    for (const parentId of ['terminal-other', 'split-user']) {
+      await assert.rejects(() => scoped.dispatch('terminal.create', { parentId }, ctx), (err: unknown) => forbidden(err) && /always adds a split under your own terminal/.test((err as CapabilityError).message));
+    }
+    assert.strictEqual(calls.splitCreates.length, 2, 'a refused create must leave no session behind');
+    const named = (await scoped.dispatch('terminal.create', { parentId: 'terminal-home' }, ctx)) as CreateResult;
+    assert.strictEqual(named.sessionId, 'split-new-3');
+  });
+
+  it('13. An empty id from the manager is a refusal, and a dead bound tab is refused before a pane exists', async () => {
+    const refusing = buildScenario({
+      rows: homeRows(),
+      tabs: { 'att-mine': 'tab-mine' },
+      homes: { 'att-mine': 'terminal-home' },
+      createSplit: async () => '',
+    });
+    await assert.rejects(
+      () => refusing.scoped.dispatch('terminal.create', {}, attachmentContext('att-mine')),
+      (err: unknown) => err instanceof CapabilityError && err.code === 'EXECUTION_ERROR'
+    );
+
+    const dead = buildScenario({
+      rows: homeRows(),
+      tabs: { 'att-dead': 'tab-dead' },
+      homes: { 'att-dead': 'terminal-home' },
+      liveTabs: [],
+    });
+    await assert.rejects(
+      () => dead.scoped.dispatch('terminal.create', {}, attachmentContext('att-dead')),
+      (err: unknown) => err instanceof CapabilityError && err.code === 'TARGET_STALE'
+    );
+    assert.deepStrictEqual(dead.calls.splitCreates, []);
+  });
+
+  it('14. reuse:true hands back only the agent\'s own live pane under the home for that folder', async () => {
+    // Field report: one agent minted a terminal per command (9 creates, 1 close in 8 minutes) and the
+    // sidebar filled with shells nobody closed.
+    const { rows, calls, scoped } = buildScenario({
+      rows: homeRows(),
+      tabs: { 'att-mine': 'tab-mine' },
+      homes: { 'att-mine': 'terminal-home' },
+    });
+    const ctx = attachmentContext('att-mine');
     type CreateResult = { sessionId: string; ownerBound?: boolean; reused?: boolean; cwd?: string };
-    const create = (params: Record<string, unknown>) => scoped.dispatch('terminal.create', params, context) as Promise<CreateResult>;
+    const create = (params: Record<string, unknown>) => scoped.dispatch('terminal.create', params, ctx) as Promise<CreateResult>;
 
-    const first = await create({ cwd: 'E:/Work/first' });
-    assert.strictEqual(first.reused, undefined, 'the first create mints a shell');
+    const first = await create({ cwd: 'E:/Work/home/first' });
+    assert.strictEqual(first.reused, undefined, 'the first create mints a pane');
 
-    const again = await create({ cwd: 'E:/Work/first', reuse: true });
-    assert.deepStrictEqual(again, { sessionId: first.sessionId, ownerBound: true, reused: true, cwd: 'E:/Work/first' });
+    const again = await create({ cwd: 'E:/Work/home/first', reuse: true });
+    assert.deepStrictEqual(again, { sessionId: first.sessionId, ownerBound: true, reused: true, cwd: 'E:/Work/home/first' });
     const anyFolder = await create({ reuse: true });
-    assert.strictEqual(anyFolder.sessionId, first.sessionId, 'with no folder requested the tab\'s live shell fits');
-    assert.strictEqual(rows.length, 1, 'no second PTY may be spawned while a compatible shell is live');
-    assert.deepStrictEqual(binds, [first.sessionId], 'a reused shell is not re-bound');
+    assert.strictEqual(anyFolder.sessionId, first.sessionId, 'with no folder requested the tab\'s live pane fits');
+    assert.strictEqual(calls.splitCreates.length, 1, 'no second PTY may be spawned while a compatible pane is live');
 
-    // A different folder is a different shell: silently running there in the first folder would be worse than a new tab.
-    const other = await create({ cwd: 'E:/Work/second', reuse: true });
+    // A different folder is a different pane: silently running in the first folder would be worse than a new pane.
+    const other = await create({ cwd: 'E:/Work/home/second', reuse: true });
     assert.notStrictEqual(other.sessionId, first.sessionId);
     assert.strictEqual(other.reused, undefined);
 
-    // A shell that has exited cannot take commands, so it is never handed back.
+    // A pane that has exited cannot take commands, so it is never handed back.
     const firstRow = rows.find((r) => r.id === first.sessionId);
     assert.ok(firstRow);
     firstRow.state = 'exited';
-    const afterExit = await create({ cwd: 'E:/Work/first', reuse: true });
+    const afterExit = await create({ cwd: 'E:/Work/home/first', reuse: true });
     assert.notStrictEqual(afterExit.sessionId, first.sessionId);
     assert.strictEqual(afterExit.reused, undefined);
 
-    // Another tab's shell is not this caller's to hand back.
-    rows.push({ id: 'terminal-foreign', cwd: 'E:/Work/third', ownerKey: 'agent:tab-other', state: 'running' });
-    const third = await create({ cwd: 'E:/Work/third', reuse: true });
-    assert.notStrictEqual(third.sessionId, 'terminal-foreign');
+    // Another tab's pane under the same home, and the user's own split, are not this caller's to hand back.
+    rows.push({ id: 'split-foreign-agent', cwd: 'E:/Work/home/third', state: 'running', splitOf: 'terminal-home', ownerKey: 'agent:tab-other' });
+    const third = await create({ cwd: 'E:/Work/home/third', reuse: true });
+    assert.notStrictEqual(third.sessionId, 'split-foreign-agent');
     assert.strictEqual(third.reused, undefined);
+    const userFolder = await create({ cwd: 'E:/Work/home', reuse: true });
+    assert.notStrictEqual(userFolder.sessionId, 'split-user');
 
-    // Reuse is opt-in: without it a compatible, possibly busy shell is never handed back.
-    const plain = await create({ cwd: 'E:/Work/third' });
+    // Reuse is opt-in: without it a compatible, possibly busy pane is never handed back.
+    const plain = await create({ cwd: 'E:/Work/home/third' });
     assert.notStrictEqual(plain.sessionId, third.sessionId);
     assert.strictEqual(plain.reused, undefined);
+
+    // A pane of the agent's key that is NOT under its home (a stale base shell) is out of reach and never reused.
+    rows.push({ id: 'terminal-stale-agent', cwd: 'E:/Work/home/stale', state: 'running', ownerKey: 'agent:tab-mine' });
+    const stale = await create({ cwd: 'E:/Work/home/stale', reuse: true });
+    assert.notStrictEqual(stale.sessionId, 'terminal-stale-agent');
   });
 
-  it('15. Concurrent reuse creates from one tab mint a single shell', async () => {
+  it('15. Concurrent reuse creates from one tab mint a single pane', async () => {
     // Field report: parallel `terminal.create` calls both saw "no shell yet" and each minted one.
-    const rows: Array<{ id: string; cwd: string; ownerKey?: string; state: string }> = [];
-    const ownership = {
-      ownerTabId: () => 'tab-race',
-      allowsTab: (tabId: string, terminalId: string) => tabId === 'tab-race' && rows.some((r) => r.id === terminalId && r.ownerKey === 'agent:tab-race'),
-      isAgentTerminal: () => false,
-      isAgentHeld: () => false,
-      bind: () => true,
-      tabAffiliation: () => ({ live: true }),
-    };
-    const scoped = new CapabilityCatalogue({ runtime: { mode: 'standalone', lifecycle: 'active' }, projectId, workspaceId, runtimeId: lease.runtimeId, hostEpoch: 1, getActiveLease: () => lease });
-    const facade = {
-      // The row only lands after a tick, as the real daemon round trip does.
-      createSession: async (cwd?: string, _capsuleId?: string, ownerKey?: string) => {
-        // Yield a few microtasks, as the daemon round trip does, so racing creates interleave.
+    const rows = homeRows();
+    const scenario = buildScenario({
+      rows,
+      tabs: { 'att-mine': 'tab-mine' },
+      homes: { 'att-mine': 'terminal-home' },
+      // The row only lands after a few ticks, as the real daemon round trip does.
+      createSplit: async (parentId: string) => {
         for (let i = 0; i < 5; i++) await Promise.resolve();
-        const id = `terminal-race-${rows.length + 1}`;
-        rows.push({ id, cwd: cwd ?? 'E:/Work/default', ownerKey, state: 'running' });
+        const id = `split-race-${rows.length}`;
+        rows.push({ id, cwd: 'E:/Work/race', state: 'running', splitOf: parentId, ownerKey: 'agent:tab-mine' });
         return id;
       },
-      getSession: (id: string) => ({ id, sessionGeneration: 1 }),
-      listSessions: () => rows,
-      getActiveSessionId: () => '',
-    } as unknown as TerminalManager;
-    registerTerminalCapabilities(scoped, facade, ownership);
-    const context = { attachmentId: 'att-race', runId: 'r', attemptId: 'a', projectId, workspaceId, backendId: 'b', hostEpoch: 1, invocationId: 'i', lease, leaseToken: lease.token, grant: 'write' as const };
-    const create = () => scoped.dispatch('terminal.create', { cwd: 'E:/Work/race', reuse: true }, context) as Promise<{ sessionId: string }>;
-
+    });
+    const before = rows.length;
+    const create = () => scenario.scoped.dispatch('terminal.create', { cwd: 'E:/Work/race', reuse: true }, attachmentContext('att-mine')) as Promise<{ sessionId: string }>;
     const results = await Promise.all([create(), create(), create()]);
-    assert.strictEqual(rows.length, 1, 'three racing creates must spawn one PTY');
-    assert.deepStrictEqual(new Set(results.map((r) => r.sessionId)), new Set(rows.map((r) => r.id)));
+    assert.strictEqual(rows.length - before, 1, 'three racing creates must spawn one PTY');
+    assert.strictEqual(new Set(results.map((r) => r.sessionId)).size, 1);
   });
 
   it('16. A reuse create stuck forever does not hold the tab\'s later creates hostage', async () => {
-    // A createSession whose daemon socket stalls never settles. Its own caller fails at the policy
+    // A createSplitSession whose daemon socket stalls never settles. Its own caller fails at the policy
     // deadline; the next create from that tab must run once that deadline has passed, not wait on it.
-    const rows: Array<{ id: string; cwd: string; ownerKey?: string; state: string }> = [];
+    const rows = homeRows();
     let calls = 0;
-    const ownership = {
-      ownerTabId: () => 'tab-hang',
-      allowsTab: (tabId: string, terminalId: string) => tabId === 'tab-hang' && rows.some((r) => r.id === terminalId && r.ownerKey === 'agent:tab-hang'),
-      isAgentTerminal: () => false,
-      isAgentHeld: () => false,
-      bind: () => true,
-      tabAffiliation: () => ({ live: true }),
-    };
-    const scoped = new CapabilityCatalogue({ runtime: { mode: 'standalone', lifecycle: 'active' }, projectId, workspaceId, runtimeId: lease.runtimeId, hostEpoch: 1, getActiveLease: () => lease });
-    const facade = {
-      createSession: (cwd?: string, _capsuleId?: string, ownerKey?: string): Promise<string> => {
+    const scenario = buildScenario({
+      rows,
+      tabs: { 'att-mine': 'tab-mine' },
+      homes: { 'att-mine': 'terminal-home' },
+      createSplit: (parentId: string) => {
         calls += 1;
         if (calls === 1) return new Promise<string>(() => undefined);
-        const id = `terminal-hang-${calls}`;
-        rows.push({ id, cwd: cwd ?? 'E:/Work/default', ownerKey, state: 'running' });
+        const id = `split-hang-${calls}`;
+        rows.push({ id, cwd: 'E:/Work/hang', state: 'running', splitOf: parentId, ownerKey: 'agent:tab-mine' });
         return Promise.resolve(id);
       },
-      getSession: (id: string) => ({ id, sessionGeneration: 1 }),
-      listSessions: () => rows,
-      getActiveSessionId: () => '',
-    } as unknown as TerminalManager;
-    registerTerminalCapabilities(scoped, facade, ownership);
-    const context = { attachmentId: 'att-hang', runId: 'r', attemptId: 'a', projectId, workspaceId, backendId: 'b', hostEpoch: 1, invocationId: 'i', lease, leaseToken: lease.token, grant: 'write' as const };
-    const create = () => scoped.dispatch('terminal.create', { cwd: 'E:/Work/hang', reuse: true }, context) as Promise<{ sessionId: string }>;
-    const turn = () => new Promise<void>((resolve) => setImmediate(resolve));
+    });
+    const create = () => scenario.scoped.dispatch('terminal.create', { cwd: 'E:/Work/hang', reuse: true }, attachmentContext('att-mine')) as Promise<{ sessionId: string }>;
+    const turn = () => {
+      const { promise, resolve } = Promise.withResolvers<void>();
+      setImmediate(resolve);
+      return promise;
+    };
 
     mock.timers.enable({ apis: ['setTimeout'] });
     try {
@@ -831,7 +777,7 @@ describe('Terminal Capabilities, Generation Tracking & Wait Lifecycle (Phase 04)
       assert.strictEqual(calls, 1, 'the second create queues behind the first until the deadline');
       mock.timers.tick(15_000);
       const result = await second;
-      assert.strictEqual(result.sessionId, 'terminal-hang-2');
+      assert.strictEqual(result.sessionId, 'split-hang-2');
       assert.strictEqual(calls, 2);
     } finally {
       mock.timers.reset();
@@ -841,64 +787,88 @@ describe('Terminal Capabilities, Generation Tracking & Wait Lifecycle (Phase 04)
   it('17. Plain creates are never queued behind another create', async () => {
     const pending = Promise.withResolvers<string>();
     let calls = 0;
-    const ownership = {
-      ownerTabId: () => 'tab-plain',
-      allowsTab: () => false,
-      isAgentTerminal: () => false,
-      isAgentHeld: () => false,
-      bind: () => true,
-      tabAffiliation: () => ({ live: true }),
-    };
-    const scoped = new CapabilityCatalogue({ runtime: { mode: 'standalone', lifecycle: 'active' }, projectId, workspaceId, runtimeId: lease.runtimeId, hostEpoch: 1, getActiveLease: () => lease });
-    const facade = {
-      createSession: (): Promise<string> => {
+    const rows = homeRows();
+    const scenario = buildScenario({
+      rows,
+      tabs: { 'att-mine': 'tab-mine' },
+      homes: { 'att-mine': 'terminal-home' },
+      createSplit: (parentId: string) => {
         calls += 1;
-        return calls === 1 ? pending.promise : Promise.resolve('terminal-plain-2');
+        if (calls === 1) return pending.promise;
+        rows.push({ id: 'split-plain-2', cwd: 'E:/Work/plain', state: 'running', splitOf: parentId, ownerKey: 'agent:tab-mine' });
+        return Promise.resolve('split-plain-2');
       },
-      getSession: (id: string) => ({ id, sessionGeneration: 1 }),
-      listSessions: () => [],
-      getActiveSessionId: () => '',
-    } as unknown as TerminalManager;
-    registerTerminalCapabilities(scoped, facade, ownership);
-    const context = { attachmentId: 'att-plain', runId: 'r', attemptId: 'a', projectId, workspaceId, backendId: 'b', hostEpoch: 1, invocationId: 'i', lease, leaseToken: lease.token, grant: 'write' as const };
-    const create = () => scoped.dispatch('terminal.create', { cwd: 'E:/Work/plain' }, context) as Promise<{ sessionId: string }>;
+    });
+    const create = () => scenario.scoped.dispatch('terminal.create', { cwd: 'E:/Work/plain' }, attachmentContext('att-mine')) as Promise<{ sessionId: string }>;
 
     const first = create();
     const second = await create();
-    assert.strictEqual(second.sessionId, 'terminal-plain-2', 'a stalled create must not delay an independent one');
-    pending.resolve('terminal-plain-1');
-    assert.strictEqual((await first).sessionId, 'terminal-plain-1');
+    assert.strictEqual(second.sessionId, 'split-plain-2', 'a stalled create must not delay an independent one');
+    pending.resolve('split-plain-1');
+    assert.strictEqual((await first).sessionId, 'split-plain-1');
   });
 
-  it('18. A shell an agent still holds stays private even once evicted from the affinity map', async () => {
-    const rows = [
-      { id: 'terminal-held', cwd: 'E:/Work/held', state: 'running' },
-      { id: 'terminal-user', cwd: 'E:/Work/user', state: 'running' },
-    ];
-    const ownership = {
-      ownerTabId: () => 'tab-other',
-      allowsTab: () => false,
-      // Evicted: no live affinity any more, yet the directory still names an open tab as its agent.
-      isAgentTerminal: () => false,
-      isAgentHeld: (terminalId: string) => terminalId === 'terminal-held',
-      bind: () => true,
+  it('18. On the real manager an agent split never reuses the user\'s manual split, is stamped with the agent key, and stays out of the user toggle', async () => {
+    const home = terminalManager.createSession('E:/Work/real-home');
+    const otherHome = terminalManager.createSession('E:/Work/real-other');
+    const otherSplit = terminalManager.createSplitSession(otherHome);
+    const userSplit = terminalManager.createSplitSession(home);
+    const spaceSplit = terminalManager.createSplitSession(home, 'E:/Work/real-home', undefined, undefined, { role: 'sync', spaceTerminalId: 'haravan' });
+    assert.ok(home && otherHome && otherSplit && userSplit && spaceSplit);
+    assert.strictEqual(terminalManager.createSplitSession(home), userSplit, 'the user toggle still reuses its manual split');
+
+    const ownership: TerminalOwnershipPort = {
+      ownerTabId: () => 'tab-real',
+      homeTerminalId: () => resolveHomeBaseTerminal(terminalManager, [home]),
+      isHomeSplit: (homeId, terminalId) => isLiveSplitOf(terminalManager, homeId, terminalId),
       tabAffiliation: () => ({ live: true }),
     };
-    const scoped = new CapabilityCatalogue({ runtime: { mode: 'standalone', lifecycle: 'active' }, projectId, workspaceId, runtimeId: lease.runtimeId, hostEpoch: 1, getActiveLease: () => lease });
-    const facade = {
-      listSessions: () => rows,
-      getSession: (id: string) => rows.find((r) => r.id === id),
-      getActiveSessionId: () => '',
-    } as unknown as TerminalManager;
-    registerTerminalCapabilities(scoped, facade, ownership);
-    const context = { attachmentId: 'att-other', runId: 'r', attemptId: 'a', projectId, workspaceId, backendId: 'b', hostEpoch: 1, invocationId: 'i', lease, leaseToken: lease.token, grant: 'write' as const };
+    const scoped = newCatalogue();
+    registerTerminalCapabilities(scoped, terminalManager, ownership);
+    const ctx = attachmentContext('att-real');
+    const sessionIds = (listed: unknown): string[] => (listed as { sessions: Array<{ id: string }> }).sessions.map((s) => s.id).sort();
 
-    const listed = (await scoped.dispatch('terminal.list', {}, context)) as { sessions: Array<{ id: string }> };
-    assert.deepStrictEqual(listed.sessions.map((s) => s.id), ['terminal-user'], 'a held shell is not advertised to another attachment');
-    await assert.rejects(
-      () => scoped.dispatch('terminal.write', { sessionId: 'terminal-held', input: 'x\r\n' }, context),
-      (err: unknown) => err instanceof CapabilityError && err.code === 'TERMINAL_FORBIDDEN' && /agent terminal/.test(err.message)
-    );
+    try {
+      const created = (await scoped.dispatch('terminal.create', { cwd: 'E:/Work/real-home' }, ctx)) as { sessionId: string };
+      const createdAgain = (await scoped.dispatch('terminal.create', {}, ctx)) as { sessionId: string };
+      assert.notStrictEqual(created.sessionId, userSplit);
+      assert.notStrictEqual(createdAgain.sessionId, created.sessionId);
+      for (const id of [created.sessionId, createdAgain.sessionId]) {
+        assert.strictEqual(terminalManager.getSession(id)?.splitOf, home);
+        assert.strictEqual(terminalManager.getSession(id)?.ownerKey, 'agent:tab-real');
+      }
+      assert.notStrictEqual(terminalManager.getSession(userSplit)?.ownerKey, 'agent:tab-real', 'the user split keeps its own owner');
+
+      assert.deepStrictEqual(
+        sessionIds(await scoped.dispatch('terminal.list', {}, ctx)),
+        [userSplit, spaceSplit, created.sessionId, createdAgain.sessionId].sort(),
+        'the user split, the Space split and the agent panes; never home, another base or its split'
+      );
+      await scoped.dispatch('terminal.write', { sessionId: spaceSplit, input: 'echo sync\r\n' }, ctx);
+      await scoped.dispatch('terminal.resize', { sessionId: spaceSplit, cols: 90, rows: 20 }, ctx);
+      for (const refused of [home, otherHome, otherSplit]) {
+        await assert.rejects(() => scoped.dispatch('terminal.write', { sessionId: refused, input: 'x' }, ctx), forbidden, refused);
+      }
+
+      // The user's split toggle neither reuses nor closes an agent's pane.
+      assert.strictEqual(terminalManager.createSplitSession(home), userSplit);
+      assert.strictEqual(await terminalManager.closeSplitSession(home), true, 'closes the user\'s manual split');
+      assert.strictEqual(terminalManager.getSession(userSplit), undefined);
+      assert.strictEqual(await terminalManager.closeSplitSession(home), false, 'no manual split is left: the agent panes are not the toggle\'s to close');
+      assert.ok(terminalManager.getSession(created.sessionId));
+
+      // The agent closes its own pane by name; afterwards it is gone from its scope.
+      assert.strictEqual(((await scoped.dispatch('terminal.close', { sessionId: created.sessionId }, ctx)) as { closed: boolean }).closed, true);
+      assert.strictEqual(terminalManager.getSession(created.sessionId), undefined);
+      await assert.rejects(() => scoped.dispatch('terminal.write', { sessionId: created.sessionId, input: 'x' }, ctx), forbidden);
+
+      // A non-agent owner key is not an agent mint: it keeps the toggle's reuse semantics.
+      const toggled = terminalManager.createSplitSession(home, undefined, undefined, undefined, { ownerKey: 'project:p9' });
+      assert.notStrictEqual(terminalManager.getSession(toggled)?.ownerKey, 'project:p9');
+    } finally {
+      await terminalManager.closeSession(home);
+      await terminalManager.closeSession(otherHome);
+    }
   });
 
 });

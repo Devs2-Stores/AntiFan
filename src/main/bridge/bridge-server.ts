@@ -35,6 +35,7 @@ import {
   emitBridgeHealthChanged,
 } from './bridge-health';
 import { CapabilityTransportAdapter, describeRelayedFailure } from '../tools/capability-transport';
+import { resolveHomeBaseTerminal, isLiveSplitOf } from '../tools/terminal-capabilities';
 import { CapabilityRequestContext, CapabilityError, BrowserTarget, RuntimeLease, ArtifactRef, ClientInvocationIntent, makeControlPlaneId, hashSecret, verifySecret } from '../../shared/control-plane-contracts';
 import { AttachmentRegistry, type PageCloseAdmission } from '../run/attachment-registry';
 import { SessionCapabilityFilter, isCapabilityNamePermitted } from '../tools/capability-catalogue';
@@ -2160,17 +2161,12 @@ export class BridgeServer {
             title: wc && !wc.isDestroyed() ? wc.getTitle() : 'Agent Tab',
             ephemeral: true,
           } as AntiFanTab];
-          if (typeof this.tabHost.isTerminalAllowedForTab === 'function') {
-            initTerminalSessions = tm.listSessions().filter(s => this.tabHost.isTerminalAllowedForTab(boundTabId, s.id));
-            // Prefer the ownership oracle; the user's per-tab pick may name a
-            // terminal outside the advertised allowed list.
-            const ownedSessionId = typeof this.tabHost.getOwnedTerminalSession === 'function'
-              ? this.tabHost.getOwnedTerminalSession(boundTabId)
-              : (typeof this.tabHost.getTabTerminalSession === 'function' ? this.tabHost.getTabTerminalSession(boundTabId) : undefined);
-            initActiveTerminalSessionId = ownedSessionId && initTerminalSessions.some(s => s.id === ownedSessionId)
-              ? ownedSessionId
-              : initTerminalSessions[0]?.id;
-          }
+          // Only the split panes of the terminal the attachment runs in are advertised.
+          const homeTerminalId = this.attachmentHomeTerminal(verifiedAttachmentId);
+          initTerminalSessions = homeTerminalId
+            ? tm.listSessions().filter(s => isLiveSplitOf(tm, homeTerminalId, s.id))
+            : [];
+          initActiveTerminalSessionId = initTerminalSessions[0]?.id;
         }
       } else if (verifiedMobileGrant) {
         // Mobile companion: trim according to allowedScopes and user plane isolation
@@ -3390,7 +3386,10 @@ export class BridgeServer {
         case 'getTerminalSessions':
         case 'antifan.getTerminalSessions': {
           const tm = TerminalManager.getInstance();
-          const sessions = this.visibleTerminalSessions(tm.listSessions(), mobileGrant);
+          const homeTerminalId = boundAttachmentId ? this.attachmentHomeTerminal(boundAttachmentId) : undefined;
+          const sessions = boundAttachmentId
+            ? (homeTerminalId ? tm.listSessions().filter(s => isLiveSplitOf(tm, homeTerminalId, s.id)) : [])
+            : this.visibleTerminalSessions(tm.listSessions(), mobileGrant);
           respond(true, {
             // A companion sees exactly the sessions it may operate: agent terminals stay hidden
             // from the mobile surface, matching its connect payload and terminal data frames.
@@ -3411,6 +3410,10 @@ export class BridgeServer {
           const targetId = typeof p.sessionId === 'string' && p.sessionId.trim()
             ? p.sessionId.trim()
             : tm.getActiveSessionId();
+          if (boundAttachmentId && !this.attachmentMayReachTerminal(boundAttachmentId, targetId)) {
+            respond(false, undefined, 'TERMINAL_FORBIDDEN: attachment may only read the split panes of its own terminal');
+            break;
+          }
           if (mobileGrant && !this.userPlaneMayReachTerminal(targetId)) {
             respond(false, undefined, 'TERMINAL_FORBIDDEN: caller may not read an agent-owned terminal session');
             break;
@@ -3421,6 +3424,11 @@ export class BridgeServer {
 
         case 'terminalSwitchSession':
         case 'antifan.terminalSwitchSession': {
+          if (boundAttachmentId) {
+            // Switching changes the terminal the user is looking at, which is never an agent's to move.
+            respond(false, undefined, 'TERMINAL_FORBIDDEN: attachment callers may not switch the active terminal');
+            break;
+          }
           if (typeof p.sessionId === 'string') {
             const tm = TerminalManager.getInstance();
             if (mobileGrant && !this.userPlaneMayReachTerminal(p.sessionId)) {
@@ -3440,6 +3448,11 @@ export class BridgeServer {
 
         case 'terminalNewSession':
         case 'antifan.terminalNewSession': {
+          if (boundAttachmentId) {
+            // An agent never mints a base shell: terminal.create adds a split under its home terminal.
+            respond(false, undefined, 'TERMINAL_FORBIDDEN: attachment callers create terminals through terminal.create (a split under their own terminal)');
+            break;
+          }
           const tm = TerminalManager.getInstance();
           // The caller's workspace, not the daemon's ambient selection: a PTY filed under
           // whichever capsule the daemon happens to hold is invisible to the window that asked
@@ -3488,7 +3501,8 @@ export class BridgeServer {
             respond(false, undefined, 'TERMINAL_FORBIDDEN: caller may not operate this terminal session');
             break;
           }
-          const closed = await tm.closeSession(targetId);
+          // A bound caller only ever reaches a split pane (gated above), and a pane closes as a split.
+          const closed = boundAttachmentId ? await tm.closeSplitSession(targetId) : await tm.closeSession(targetId);
           const sessions = this.visibleTerminalSessions(tm.listSessions(), mobileGrant);
           respond(closed, {
             closed,
@@ -3528,6 +3542,11 @@ export class BridgeServer {
         case 'terminalRestart':
         case 'antifan.terminalRestart': {
           const tm = TerminalManager.getInstance();
+          if (boundAttachmentId) {
+            // A restart acts on the active shell, which is never an agent's: it would reach its own home.
+            respond(false, undefined, 'TERMINAL_FORBIDDEN: attachment callers may not restart terminals');
+            break;
+          }
           if (mobileGrant) {
             const effectiveSessionId = p.sessionId || tm.getActiveSessionId();
             if (!this.mobileMayDriveTerminal(mobileGrant, effectiveSessionId)) {
@@ -3548,6 +3567,10 @@ export class BridgeServer {
         case 'terminalResize':
         case 'antifan.terminalResize': {
           const tm = TerminalManager.getInstance();
+          if (boundAttachmentId && (typeof p.sessionId !== 'string' || !this.terminalWriteForAttachment(p.sessionId, boundAttachmentId, p.attachmentId))) {
+            respond(false, undefined, 'TERMINAL_FORBIDDEN: attachment may only resize the split panes of its own terminal');
+            break;
+          }
           if (mobileGrant) {
             const effectiveSessionId = p.sessionId || tm.getActiveSessionId();
             if (!this.mobileMayDriveTerminal(mobileGrant, effectiveSessionId)) {
@@ -3937,32 +3960,44 @@ export class BridgeServer {
       release();
     }
   }
+
   /**
-   * Phase 2 (step 6): verifies a terminal session belongs to the calling attachment
-   * (via its owned browser tab's terminal affinity). Attachment-bound callers may only
-   * operate terminals they own; no fallback to the user's active shell.
+   * The base terminal an attachment runs in: its bound tab's own terminal (asked on the host that
+   * OWNS the tab — a tab living on another project window is invisible to the construction host),
+   * else the terminal the attachment was minted from. A split resolves to its parent.
+   */
+  private attachmentHomeTerminal(attachmentId: string): string | undefined {
+    const registry = this.attachmentRegistry || this.controlPlaneRuntime?.runs?.attachments;
+    const record = registry ? registry.getRecord(attachmentId) : undefined;
+    const ownedTabId = record?.tabId || record?.browserTarget?.tabId;
+    const ownerHost = ownedTabId ? this.hostForRpcTab(ownedTabId) : undefined;
+    const tabHome = ownedTabId && ownerHost && typeof ownerHost.getTabHomeTerminalSession === 'function'
+      ? ownerHost.getTabHomeTerminalSession(ownedTabId)
+      : undefined;
+    return resolveHomeBaseTerminal(TerminalManager.getInstance(), [tabHome, record?.originTerminalSessionId]);
+  }
+
+  /**
+   * The one terminal gate for attachment-bound callers: a session is reachable only when it is a
+   * live split pane of the attachment's home terminal. The home shell itself, other base terminals
+   * and every other project's terminals are refused, so an agent can neither see nor type into them.
+   */
+  private attachmentMayReachTerminal(attachmentId: string, sessionId: string): boolean {
+    if (!attachmentId || !sessionId) return false;
+    const home = this.attachmentHomeTerminal(attachmentId);
+    return home !== undefined && isLiveSplitOf(TerminalManager.getInstance(), home, sessionId);
+  }
+
+  /**
+   * Verifies a terminal session may be operated on behalf of an attachment: it must be a split pane
+   * of the attachment's home terminal. Attachment-bound callers may only operate those; no fallback
+   * to the user's active shell.
    */
   private terminalWriteForAttachment(sessionId: string, boundAttachmentId?: string, attachmentIdParam?: unknown): boolean {
     if (!sessionId) return false;
     const targetAttachmentId = boundAttachmentId || (typeof attachmentIdParam === 'string' && attachmentIdParam.trim() ? attachmentIdParam.trim() : undefined);
     if (!targetAttachmentId) return false;
-    const registry = this.attachmentRegistry || this.controlPlaneRuntime?.runs?.attachments;
-    const attachmentRecord = registry ? registry.getRecord(targetAttachmentId) : undefined;
-    const ownedTabId = attachmentRecord?.tabId || attachmentRecord?.browserTarget?.tabId;
-    if (!ownedTabId) return false;
-    // The gate IS the membership check: isTerminalAllowedForTab admits a live affinity entry or a
-    // live tab that minted the session (owner key `agent:<tabId>`), so a pool-only or unbound tab
-    // can never write here. It is asked on the host that OWNS the tab: a tab living on another
-    // project window is invisible to the construction host.
-    const ownerHost = this.hostForRpcTab(ownedTabId);
-    if (typeof ownerHost.isTerminalAllowedForTab === 'function') {
-      return ownerHost.isTerminalAllowedForTab(ownedTabId, sessionId);
-    }
-    const ownedTerminalIds = typeof ownerHost.getOwnedTerminalSession === 'function'
-      ? ownerHost.getOwnedTerminalSession(ownedTabId)
-      : (typeof ownerHost.getTabTerminalSession === 'function' ? ownerHost.getTabTerminalSession(ownedTabId) : undefined);
-    const ownedList = (Array.isArray(ownedTerminalIds) ? ownedTerminalIds : [ownedTerminalIds]).filter(Boolean);
-    return ownedList.includes(sessionId);
+    return this.attachmentMayReachTerminal(targetAttachmentId, sessionId);
   }
 
   private resolveDirectRpcTargetTab(
@@ -4375,18 +4410,10 @@ export class BridgeServer {
   private isClientAuthorizedForTerminal(client: WebSocket, terminalSessionId?: string): boolean {
     if (!terminalSessionId) return false;
 
-    // 1. Agent plane attachment: must have affinity with the attachment's bound tab
+    // 1. Agent plane attachment: only the split panes of the terminal it runs in
     const boundAttachmentId = this.socketAttachmentIds.get(client);
     if (boundAttachmentId) {
-      const registry = this.attachmentRegistry || this.controlPlaneRuntime?.runs?.attachments;
-      const record = registry ? registry.getRecord(boundAttachmentId) : undefined;
-      const boundTabId = record?.tabId || record?.browserTarget?.tabId;
-      if (!boundTabId) return false;
-      const ownerHost = this.hostForRpcTab(boundTabId);
-      if (typeof ownerHost.isTerminalAllowedForTab === 'function') {
-        return ownerHost.isTerminalAllowedForTab(boundTabId, terminalSessionId);
-      }
-      return false;
+      return this.attachmentMayReachTerminal(boundAttachmentId, terminalSessionId);
     }
 
     // 2. Mobile companion client: requires terminal.sync scope and MUST NOT be an agent-owned terminal

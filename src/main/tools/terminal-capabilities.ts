@@ -1,6 +1,6 @@
 import { canonicalFolderKey } from '../project/workspace-capsule';
 import { CapabilityCatalogue } from './capability-catalogue';
-import { TerminalManager, agentTerminalOwnerKey, DEFAULT_TERMINAL_CAPSULE_ID, type SessionSummary } from '../browser/terminal-manager';
+import { TerminalManager, agentTerminalOwnerKey, type SessionSummary } from '../browser/terminal-manager';
 import {
   CapabilityError,
   CapabilityRequestContext,
@@ -24,6 +24,8 @@ interface TerminalLifecycleProbe {
   disposed?: boolean;
   lastSeq?: number;
   sessionGeneration?: number;
+  /** Set on a split pane: the base terminal it is split off. */
+  splitOf?: string;
 }
 
 function probeTerminalLifecycle(
@@ -98,25 +100,54 @@ function sleepingWaitResult(sessionId: string, record: TerminalLifecycleProbe): 
 }
 
 /**
- * Where terminal ownership comes from, joined once per runtime.
+ * The live base terminal an agent runs in, from the first candidate that names one.
  *
- * `ownerTabId` resolves the browser tab an attachment is bound to (the runtime's attachment
- * registry); the rest is the host's live tab authority (NativeTabHost) — the same source the
- * Bridge gate already reads. Joining them here keeps a single ownership record per plane instead
- * of a second, drifting one inside this tool surface.
+ * A candidate that is a split resolves to its parent, because the home is always the base shell:
+ * the agent's own shell is never part of what it may drive, only the panes split off it. A
+ * candidate that is missing, disposed or closed is skipped, so a stale record never becomes a home.
+ */
+export function resolveHomeBaseTerminal(
+  terminal: TerminalManager,
+  candidates: ReadonlyArray<string | undefined>
+): string | undefined {
+  const isLive = (record: TerminalLifecycleProbe | undefined): record is TerminalLifecycleProbe =>
+    record !== undefined && record.disposed !== true && record.state !== 'closed';
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const record = probeTerminalLifecycle(terminal, candidate);
+    if (!isLive(record)) continue;
+    if (!record.splitOf) return candidate;
+    const parent = probeTerminalLifecycle(terminal, record.splitOf);
+    if (isLive(parent) && !parent.splitOf) return record.splitOf;
+  }
+  return undefined;
+}
+
+/**
+ * Whether `terminalId` is a live split pane of `homeId`: the one relation that decides what an
+ * agent may see and drive. Everything else (the home shell itself, other base terminals, panes of
+ * other terminals, other projects) is outside it.
+ */
+export function isLiveSplitOf(terminal: TerminalManager, homeId: string, terminalId: string): boolean {
+  const record = probeTerminalLifecycle(terminal, terminalId);
+  return record !== undefined && record.disposed !== true && record.state !== 'closed' && record.splitOf === homeId;
+}
+
+/**
+ * Where terminal scope comes from, joined once per runtime.
+ *
+ * `ownerTabId` resolves the browser tab an attachment is bound to and `homeTerminalId` the base
+ * terminal it runs in (the bound tab's own terminal, else the terminal the attachment was minted
+ * from); both come from the runtime's attachment registry joined with the host's tab authority.
+ * `isHomeSplit` is the single reach predicate. Joining them here keeps one scope record per plane
+ * instead of a second, drifting one inside this tool surface.
  */
 export interface TerminalOwnershipPort {
   ownerTabId(attachmentId: string): string | undefined;
-  allowsTab(tabId: string, terminalId: string): boolean;
-  /** A live affinity binds the shell to a tab; `create` reads it to learn whether the host already claimed a session. */
-  isAgentTerminal(terminalId: string): boolean;
-  /**
-   * Whether an agent holds the shell for any reason the host knows: a live affinity in any window or
-   * the still-open tab its `agent:` owner key names. This is what keeps one attachment's shell away
-   * from another, so a shell evicted from the affinity map stays private to its tab's agent.
-   */
-  isAgentHeld(terminalId: string): boolean;
-  bind(terminalId: string, generation: number | undefined, tabId: string): boolean;
+  /** The live base terminal the attachment runs in, or undefined when none can be resolved. */
+  homeTerminalId(attachmentId: string): string | undefined;
+  /** Whether `terminalId` is a live split pane of `homeId`. */
+  isHomeSplit(homeId: string, terminalId: string): boolean;
   /** Probe whether a tab is alive and what capsule it was created under. */
   tabAffiliation(tabId: string): { live: boolean; capsuleId?: string };
 }
@@ -125,15 +156,19 @@ export interface TerminalOwnershipPort {
  * The host half of {@link TerminalOwnershipPort}: live tab authority without the attachment lookup
  * the runtime owns. This is what the composition root injects.
  */
-export type TerminalHostAuthority = Omit<TerminalOwnershipPort, 'ownerTabId'>;
+export interface TerminalHostAuthority {
+  /** The terminal id the tab is rooted in as the tab records it; may name a split or a dead session. */
+  tabHomeTerminal(tabId: string): string | undefined;
+  tabAffiliation(tabId: string): { live: boolean; capsuleId?: string };
+}
 
 /**
  * The terminal plane a caller may touch: unbound (lease-bound internal call, no attachment) or the
- * attachment's own tab.
+ * splits of the attachment's own home terminal.
  */
 export type TerminalCallerScope =
   | { bound: false }
-  | { bound: true; attachmentId: string; tabId: string; ownership: TerminalOwnershipPort };
+  | { bound: true; attachmentId: string; tabId: string; homeId: string; ownership: TerminalOwnershipPort };
 
 function callingAttachmentId(
   context?: CapabilityRequestContext | AuthenticatedCapabilityContext
@@ -146,10 +181,11 @@ function callingAttachmentId(
 /**
  * Resolve which terminal plane an attachment-bound caller may touch.
  *
- * Lease-bound internal calls stay exactly as they were: no attachment means no ownership question.
- * An attachment must resolve to its bound tab — nothing can be attributed to a caller without one,
- * and guessing would re-open the cross-project write this gate exists to stop — so an unattributable
- * caller is refused instead of allowed unverified.
+ * Lease-bound internal calls stay exactly as they were: no attachment means no scope question.
+ * An attachment must resolve to its bound tab AND to a home terminal — nothing can be attributed to
+ * a caller without both, and guessing would re-open the cross-project write this gate exists to
+ * stop — so an unattributable caller is refused with an explicit error instead of being handed an
+ * empty (or unverified) terminal plane.
  */
 export function resolveTerminalCallerScope(
   ownership: TerminalOwnershipPort | undefined,
@@ -160,7 +196,7 @@ export function resolveTerminalCallerScope(
   if (!ownership) {
     throw new CapabilityError(
       'TERMINAL_FORBIDDEN',
-      `Attachment "${attachmentId}" cannot be authorised for terminal access: this runtime is wired without host tab authority, so terminal ownership cannot be verified`
+      `Attachment "${attachmentId}" cannot be authorised for terminal access: this runtime is wired without host tab authority, so terminal scope cannot be verified`
     );
   }
   const tabId = ownership.ownerTabId(attachmentId);
@@ -170,62 +206,58 @@ export function resolveTerminalCallerScope(
       `Attachment "${attachmentId}" is bound to no browser tab: it owns no terminal, and no terminal can be attributed to it`
     );
   }
-  return { bound: true, attachmentId, tabId, ownership };
+  const homeId = ownership.homeTerminalId(attachmentId);
+  if (!homeId) {
+    throw new CapabilityError(
+      'TERMINAL_FORBIDDEN',
+      `Attachment "${attachmentId}" (tab "${tabId}") has no home terminal: it is not rooted in a live AntiFan terminal, so it has no terminal split panes to drive. Start the agent from an AntiFan terminal, then reconnect`
+    );
+  }
+  return { bound: true, attachmentId, tabId, homeId, ownership };
 }
 
 /**
  * Gate one terminal for the resolved caller.
  *
- * `operate` (write/resize/close/split) is owner-strict: a caller may not drive a shell it does not
- * own, whether that shell belongs to another agent or to the user. `observe` (wait) also allows the
- * user plane — reading what the user types is a legitimate read-only capability — while still
- * refusing another attachment's private agent terminal.
+ * An agent sees, reads and drives ONLY the live split panes of its home terminal: the user's own
+ * split, a Space pane such as a sync watcher, and a pane the agent created. The home shell itself
+ * (where the agent is typing) is refused, so it can never write into its own prompt, and so is every
+ * terminal of another base or project.
  */
-export function assertTerminalOwnership(
-  scope: TerminalCallerScope,
-  terminalId: string,
-  mode: 'operate' | 'observe'
-): void {
+export function assertTerminalOwnership(scope: TerminalCallerScope, terminalId: string): void {
   if (!scope.bound) return;
-  const { ownership, tabId } = scope;
-  if (ownership.allowsTab(tabId, terminalId)) return;
-  const agentOwned = ownership.isAgentHeld(terminalId);
-  if (mode === 'observe' && !agentOwned) return;
-  const plane = agentOwned ? "another attachment's agent terminal" : 'a user terminal';
+  if (scope.ownership.isHomeSplit(scope.homeId, terminalId)) return;
   throw new CapabilityError(
     'TERMINAL_FORBIDDEN',
-    `Terminal "${terminalId}" is ${plane} and is not owned by tab "${tabId}" of attachment "${scope.attachmentId}": ` +
-      (mode === 'operate'
-        ? 'observe user terminals such as hrv/shopify theme dev with terminal.wait or terminal.list; run one-off commands with your host shell tool; do not write to a terminal you do not own'
-        : 'wait on your own sessions, or on user-plane terminals no agent owns')
+    terminalId === scope.homeId
+      ? `Terminal "${terminalId}" is the home terminal of attachment "${scope.attachmentId}" (the shell you run in): it is never driven through terminal.*. Use terminal.create for a new split pane, or terminal.list for the panes you may drive`
+      : `Terminal "${terminalId}" is outside the terminal scope of attachment "${scope.attachmentId}": only the split panes under your own terminal "${scope.homeId}" are reachable (terminal.list shows them, terminal.create adds one)`
   );
 }
 
 /**
- * The live base shell this tab already minted that satisfies a `terminal.create` request, if any.
+ * The live pane this tab already minted under its home terminal that satisfies a `terminal.create`
+ * request, if any.
  *
- * Matching is on the owner key stamped at mint time and on the gate: an id is only handed back when
- * `allowsTab` would let the caller operate it, so the answer is never a shell the next write is
- * refused. A requested folder must name the same directory as the shell's cwd (canonical key, so
- * case and junctions do not matter) and an explicit capsule must match; with neither requested any
- * live shell of the tab fits.
+ * Matching is on the owner key stamped at mint time and on the reach predicate, so the answer is
+ * never a pane the next write is refused. A requested folder must name the same directory as the
+ * pane's cwd (canonical key, so case and junctions do not matter); with none requested any live
+ * pane of the tab fits.
  */
 function findReusableOwnTerminal(
   terminal: TerminalManager,
   scope: Extract<TerminalCallerScope, { bound: true }>,
   agentOwnerKey: string,
-  requestedCwd: string | undefined,
-  requestedCapsuleId: string | undefined
+  requestedCwd: string | undefined
 ): SessionSummary | undefined {
   const wantedFolder = typeof requestedCwd === 'string' && requestedCwd.trim()
     ? canonicalFolderKey(requestedCwd.trim())
     : undefined;
   for (const row of terminal.listSessions(true)) {
-    if (row.ownerKey !== agentOwnerKey || row.splitOf) continue;
+    if (row.ownerKey !== agentOwnerKey) continue;
     if (row.state === 'exited' || row.state === 'closed') continue;
-    if (requestedCapsuleId && row.capsuleId !== requestedCapsuleId) continue;
     if (wantedFolder !== undefined && canonicalFolderKey(row.cwd) !== wantedFolder) continue;
-    if (!scope.ownership.allowsTab(scope.tabId, row.id)) continue;
+    if (!scope.ownership.isHomeSplit(scope.homeId, row.id)) continue;
     return row;
   }
   return undefined;
@@ -239,7 +271,7 @@ export function registerTerminalCapabilities(
   catalogue.register<{ sessionId: string; input: string }, TerminalWriteResult>({
     name: 'terminal.write',
     description:
-      'Write raw input text to an active PTY terminal session. Writing to a SLEEPING session wakes it (a fresh shell in the same cwd) and then delivers the input; the result reports woke=true',
+      'Write raw input text to one of your terminal split panes (the panes under the terminal you run in; never the terminal you run in itself). Writing to a SLEEPING pane wakes it (a fresh shell in the same cwd) and then delivers the input; the result reports woke=true',
     risk: 'write',
     policy: {
       effect: 'interactive-effect',
@@ -274,7 +306,7 @@ export function registerTerminalCapabilities(
       if (typeof params.input !== 'string') {
         throw new CapabilityError('INVALID_ARGUMENT', 'input string is required');
       }
-      assertTerminalOwnership(resolveTerminalCallerScope(ownership, context), params.sessionId, 'operate');
+      assertTerminalOwnership(resolveTerminalCallerScope(ownership, context), params.sessionId);
       const before = probeTerminalLifecycle(terminal, params.sessionId);
       const wasSleeping = before !== undefined && before.disposed !== true && before.state === 'sleeping';
       // Writing IS the wake path. `writeTo` runs the manager's own wake transition
@@ -311,7 +343,7 @@ export function registerTerminalCapabilities(
 
   catalogue.register<{ sessionId: string; cols: number; rows: number }, { resized: boolean }>({
     name: 'terminal.resize',
-    description: 'Resize terminal rows and columns for an active PTY session',
+    description: 'Resize terminal rows and columns for one of your terminal split panes (the panes under the terminal you run in)',
     risk: 'write',
     policy: {
       effect: 'idempotent-write',
@@ -344,7 +376,7 @@ export function registerTerminalCapabilities(
       if (!params.sessionId || typeof params.sessionId !== 'string') {
         throw new CapabilityError('INVALID_ARGUMENT', 'sessionId is required');
       }
-      assertTerminalOwnership(resolveTerminalCallerScope(ownership, context), params.sessionId, 'operate');
+      assertTerminalOwnership(resolveTerminalCallerScope(ownership, context), params.sessionId);
       terminal.resizeTo(params.sessionId, params.cols, params.rows);
       return { resized: true };
     },
@@ -353,7 +385,7 @@ export function registerTerminalCapabilities(
   catalogue.register<TerminalWaitInput, TerminalWaitOutcome>({
     name: 'terminal.wait',
     description:
-      'Wait for output-match pattern, process exit, or silence on a terminal session. A SLEEPING session returns immediately with satisfied=false, sleeping=true and code=SESSION_SLEEPING instead of blocking: it is never woken here, write input to wake it',
+      'Wait for output-match pattern, process exit, or silence on one of your terminal split panes (the panes under the terminal you run in). A SLEEPING session returns immediately with satisfied=false, sleeping=true and code=SESSION_SLEEPING instead of blocking: it is never woken here, write input to wake it',
     risk: 'read',
     policy: {
       effect: 'read',
@@ -388,7 +420,7 @@ export function registerTerminalCapabilities(
       context?: CapabilityRequestContext | AuthenticatedCapabilityContext
     ) => {
       const signal = context && 'signal' in context ? context.signal : undefined;
-      assertTerminalOwnership(resolveTerminalCallerScope(ownership, context), params.sessionId, 'observe');
+      assertTerminalOwnership(resolveTerminalCallerScope(ownership, context), params.sessionId);
       // A sleeping session must never reach the wait path: materializing its shell
       // would let a read-only MCP wait (or a Haravan barrier awaitSync) silently
       // undo the nap and re-spawn a PTY. Answer with an explicit, actionable,
@@ -403,11 +435,11 @@ export function registerTerminalCapabilities(
 
   catalogue.register<
     { paged?: boolean },
-    { sessions: unknown[]; activeSessionId: string; omittedForeignAgentTerminals?: number }
+    { sessions: unknown[]; activeSessionId: string; omittedOutOfScopeTerminals?: number }
   >({
     name: 'terminal.list',
     description:
-      'List active terminal sessions with bounded wire summary and incarnation metadata. Each row carries `owned`: true when the caller may drive the session (terminal.write/resize/close); false for a user-plane terminal the caller can only observe with terminal.wait',
+      'List the terminal split panes you may drive: the panes under the terminal you run in (the Space panes such as a sync watcher, and panes you created). The terminal you run in, other terminals, and other projects\' terminals are never listed; `omittedOutOfScopeTerminals` counts them. Rows carry bounded wire summary and incarnation metadata',
     risk: 'read',
     policy: {
       effect: 'read',
@@ -442,25 +474,16 @@ export function registerTerminalCapabilities(
         // A caller with no attachment carries no ownership question: every row is its to drive.
         return { sessions: sessions.map((session) => withOwned(session, true)), activeSessionId: terminal.getActiveSessionId() };
       }
-      // An attachment sees its own sessions and the user plane. Another attachment's agent terminal
-      // is not part of its world: listing is how a caller discovers what to address, so a session it
-      // may not operate must not be advertised to it in the first place. A user-plane row that
-      // stays visible is observe-only, so it is marked `owned: false`: terminal.write refuses it.
-      const visible: unknown[] = [];
-      for (const session of sessions) {
-        const id = (session as { id?: string } | undefined)?.id;
-        if (!id) {
-          visible.push(withOwned(session, false));
-          continue;
-        }
-        const owned = scope.ownership.allowsTab(scope.tabId, id);
-        if (owned || !scope.ownership.isAgentHeld(id)) visible.push(withOwned(session, owned));
-      }
+      // An attachment sees the panes of its own terminal and nothing else: listing is how a caller
+      // discovers what to address, so a terminal it may not drive is not advertised to it at all.
+      const visible = sessions.filter((session) => Boolean(session?.id) && scope.ownership.isHomeSplit(scope.homeId, session.id));
       const omitted = sessions.length - visible.length;
+      // The process-wide active id may name a terminal this caller cannot see: never echo it.
+      const activeId = terminal.getActiveSessionId();
       return {
-        sessions: visible,
-        activeSessionId: terminal.getActiveSessionId(),
-        ...(omitted > 0 ? { omittedForeignAgentTerminals: omitted } : {}),
+        sessions: visible.map((session) => withOwned(session, true)),
+        activeSessionId: visible.some((session) => session.id === activeId) ? activeId : (visible[0]?.id ?? ''),
+        ...(omitted > 0 ? { omittedOutOfScopeTerminals: omitted } : {}),
       };
     },
   });
@@ -509,7 +532,7 @@ export function registerTerminalCapabilities(
   >({
     name: 'terminal.create',
     description:
-      'Create a new base or split terminal PTY session. Close shells you no longer need with terminal.close. reuse:true returns your live shell for the same folder instead of a new one; use it only when that shell is idle, because a shell still running a command receives the input',
+      'Create a new terminal split pane under the terminal you run in (always a new pane, never the user\'s own split). You can only ever drive the panes under your own terminal, so this is the only way to get a shell. Close panes you no longer need with terminal.close. reuse:true returns your own idle pane for the same folder instead of a new one; use it only when that pane is idle, because a pane still running a command receives the input',
     risk: 'write',
     policy: {
       effect: 'management',
@@ -529,37 +552,21 @@ export function registerTerminalCapabilities(
     inputSchema: {
       type: 'object',
       properties: {
-        cwd: { type: 'string' },
-        capsuleId: { type: 'string' },
-        parentId: { type: 'string' },
+        cwd: { type: 'string', description: 'Working directory of the new pane (defaults to your terminal\'s)' },
+        capsuleId: { type: 'string', description: 'Ignored for an agent: a pane always inherits the workspace of the terminal it splits' },
+        parentId: { type: 'string', description: 'Omit. An agent always splits its own terminal; any other value is refused' },
         initialCols: { type: 'number' },
         initialRows: { type: 'number' },
-        reuse: { type: 'boolean', description: 'Return this tab\'s live shell for the same cwd instead of creating one (only when it is idle)' },
+        reuse: { type: 'boolean', description: 'Return your own live pane for the same cwd instead of creating one (only when it is idle)' },
       },
     },
     execute: (
       params: { cwd?: string; capsuleId?: string; parentId?: string; initialCols?: number; initialRows?: number; reuse?: boolean },
       context?: CapabilityRequestContext | AuthenticatedCapabilityContext
-    ) => serializeReuseCreatePerTab(context, params.reuse === true && !params.parentId, async () => {
-      // Ownership is resolved BEFORE a shell exists: a session created for a caller that cannot be
-      // attributed to a tab would be an ownerless terminal inside the shared namespace — precisely
-      // the session any other project's attachment could then reach.
+    ) => serializeReuseCreatePerTab(context, params.reuse === true, async () => {
+      // Scope is resolved BEFORE a shell exists: a pane minted for a caller that cannot be attributed
+      // to a home terminal would be an ownerless terminal inside the shared namespace.
       const scope = resolveTerminalCallerScope(ownership, context);
-      if (scope.bound && params.parentId) {
-        // Splitting IS operating the parent: a split of a shell this caller does not own would put a
-        // new PTY in a foreign workspace and then claim that workspace's tab for it.
-        assertTerminalOwnership(scope, params.parentId, 'operate');
-      }
-      // A dead bound tab is refused before a shell exists: a PTY minted for it could never be bound,
-      // so it would outlive the call as an orphan nobody can reach.
-      const affiliation = scope.bound ? scope.ownership.tabAffiliation(scope.tabId) : undefined;
-      if (scope.bound && !affiliation?.live) {
-        throw new CapabilityError(
-          'TARGET_STALE',
-          `Target tab "${scope.tabId}" is not owned by any live window`,
-          { tabId: scope.tabId }
-        );
-      }
       // ASYNC/SYNC SEAM CONVENTION:
       // TerminalManager declares a synchronous contract (`createSession(cwd?, capsuleId?): string`),
       // but the daemon-backed facade installed as the process singleton (DaemonTerminalProxy)
@@ -570,79 +577,65 @@ export function registerTerminalCapabilities(
       // against in-process TerminalManager. Reading the return value synchronously yields an unhandled
       // Promise object in daemon mode, which would cause this tool to respond with `{"sessionId":{}}`
       // and lose the session identifier.
-      // Ownership of the row is the caller's own agent key — its bound tab, or `agent:unbound` when
-      // the invocation carries no attachment. This tool surface is only ever reached by an agent, so
-      // a session minted here must never be filed under a project window's key, which would make it
-      // appear in that window's sidebar and nowhere else.
-      const explicitCapsuleId =
-        typeof params.capsuleId === 'string' && params.capsuleId.trim()
-          ? params.capsuleId.trim()
-          : undefined;
-      const targetCapsuleId = scope.bound
-        ? (explicitCapsuleId ?? affiliation?.capsuleId ?? DEFAULT_TERMINAL_CAPSULE_ID)
-        : params.capsuleId;
-      const agentOwnerKey = agentTerminalOwnerKey(scope.bound ? scope.tabId : undefined);
-      // Opt-in only: the terminal manager has no busy/foreground signal, so a shell handed back
-      // implicitly could be mid-command (a timed-out wait is exactly when an agent asks for another
-      // shell) and would swallow the next command. A different folder, a shell that has exited, or
-      // one the gate would refuse the caller still mints a fresh session.
-      if (params.reuse === true && scope.bound && !params.parentId) {
-        const reusable = findReusableOwnTerminal(terminal, scope, agentOwnerKey, params.cwd, explicitCapsuleId);
-        if (reusable) return { sessionId: reusable.id, ownerBound: true, reused: true, cwd: reusable.cwd };
+      if (!scope.bound) {
+        // A lease-bound internal caller carries no attachment and keeps its unscoped reach.
+        const id = params.parentId
+          ? await terminal.createSplitSession(params.parentId, params.cwd, params.initialCols, params.initialRows)
+          : await terminal.createSession(params.cwd, params.capsuleId, agentTerminalOwnerKey(undefined));
+        if (typeof id !== 'string' || !id) {
+          // An empty id is a refusal, not a handle: `createSplitSession` reports an
+          // unusable parent (missing, disposed, or itself a split) that way. Fabricating
+          // `{ sessionId: '' }` would hand the caller a target that resolves to nothing.
+          throw new CapabilityError(
+            'EXECUTION_ERROR',
+            params.parentId
+              ? `No session id was issued: parent "${params.parentId}" is missing, disposed, or already a split`
+              : 'No session id was issued for the new terminal session'
+          );
+        }
+        return { sessionId: id };
       }
-      const id = params.parentId
-        ? await terminal.createSplitSession(params.parentId, params.cwd, params.initialCols, params.initialRows)
-        : await terminal.createSession(params.cwd, targetCapsuleId, agentOwnerKey);
-      if (typeof id !== 'string' || !id) {
-        // An empty id is a refusal, not a handle: `createSplitSession` reports an
-        // unusable parent (missing, disposed, or itself a split) that way. Fabricating
-        // `{ sessionId: '' }` would hand the caller a target that resolves to nothing.
+      if (typeof params.parentId === 'string' && params.parentId.trim() && params.parentId.trim() !== scope.homeId) {
         throw new CapabilityError(
-          'EXECUTION_ERROR',
-          params.parentId
-            ? `No session id was issued: parent "${params.parentId}" is missing, disposed, or already a split`
-            : 'No session id was issued for the new terminal session'
+          'TERMINAL_FORBIDDEN',
+          `terminal.create always adds a split under your own terminal "${scope.homeId}"; parent "${params.parentId}" is not it. Omit parentId`
         );
       }
-      if (!scope.bound) return { sessionId: id };
-      // A split already inherits its parent's tab through the host's own `session-created` hook, and
-      // re-binding it would evict that tab from its parent. Only an unattributed session is claimed.
-      if (scope.ownership.isAgentTerminal(id)) {
-        return { sessionId: id, ownerBound: true };
+      // A dead bound tab is refused before a pane exists: the pane is held by its tab's agent key,
+      // and a tab that is gone holds nothing, so the PTY would outlive the call as an orphan.
+      const affiliation = scope.ownership.tabAffiliation(scope.tabId);
+      if (!affiliation.live) {
+        throw new CapabilityError(
+          'TARGET_STALE',
+          `Target tab "${scope.tabId}" is not owned by any live window`,
+          { tabId: scope.tabId }
+        );
       }
-      const generation = probeTerminalLifecycle(terminal, id)?.sessionGeneration;
-      // The tab can still die between the liveness check and the bind. Either way a PTY that
-      // could not be bound is closed before the call returns: no orphan survives a failed create.
-      let ownerBound = false;
-      let bindFault: unknown;
-      try {
-        ownerBound = scope.ownership.bind(id, typeof generation === 'number' ? generation : undefined, scope.tabId);
-      } catch (err) {
-        bindFault = err;
+      // The pane is filed under the caller's own agent key, never the user's or a project window's.
+      const agentOwnerKey = agentTerminalOwnerKey(scope.tabId);
+      // Opt-in only: the terminal manager has no busy/foreground signal, so a pane handed back
+      // implicitly could be mid-command (a timed-out wait is exactly when an agent asks for another
+      // shell) and would swallow the next command. A different folder or a pane that has exited
+      // still mints a fresh one.
+      if (params.reuse === true) {
+        const reusable = findReusableOwnTerminal(terminal, scope, agentOwnerKey, params.cwd);
+        if (reusable) return { sessionId: reusable.id, ownerBound: true, reused: true, cwd: reusable.cwd };
       }
-      if (ownerBound) return { sessionId: id, ownerBound: true };
-      try {
-        if (params.parentId && typeof terminal.closeSplitSession === 'function') {
-          await terminal.closeSplitSession(id);
-        } else {
-          await terminal.closeSession(id);
-        }
-      } catch {
-        // The bind failure below is the caller's answer; a close failure must not replace it.
+      const id = await terminal.createSplitSession(scope.homeId, params.cwd, params.initialCols, params.initialRows, { ownerKey: agentOwnerKey });
+      if (typeof id !== 'string' || !id) {
+        throw new CapabilityError(
+          'EXECUTION_ERROR',
+          `No session id was issued: your terminal "${scope.homeId}" is missing, disposed, or already a split`
+        );
       }
-      // Only a `false` bind means the tab went away; anything thrown is a real fault and surfaces as is.
-      if (bindFault !== undefined) throw bindFault;
-      throw new CapabilityError(
-        'TARGET_STALE',
-        `Session "${id}" was created but could not be bound to tab "${scope.tabId}": target tab is not owned by any live window`,
-        { tabId: scope.tabId, sessionId: id }
-      );
+      return { sessionId: id, ownerBound: true };
     }),
   });
 
   catalogue.register<{ sessionId: string; isSplit?: boolean }, { closed: boolean }>({
     name: 'terminal.close',
-    description: 'Close a terminal session and safely terminate its process tree',
+    description:
+      'Close one of YOUR terminal split panes (a pane under the terminal you run in) and safely terminate its process tree. The terminal you run in and every terminal outside it are refused',
     risk: 'write',
     policy: {
       effect: 'management',
@@ -674,8 +667,10 @@ export function registerTerminalCapabilities(
       if (!params.sessionId || typeof params.sessionId !== 'string') {
         throw new CapabilityError('INVALID_ARGUMENT', 'sessionId is required');
       }
-      assertTerminalOwnership(resolveTerminalCallerScope(ownership, context), params.sessionId, 'operate');
-      const closed = params.isSplit
+      const scope = resolveTerminalCallerScope(ownership, context);
+      assertTerminalOwnership(scope, params.sessionId);
+      // A bound caller can only reach a split pane, and a split id closes exactly that pane.
+      const closed = params.isSplit || scope.bound
         ? await terminal.closeSplitSession(params.sessionId)
         : await terminal.closeSession(params.sessionId);
       return { closed };

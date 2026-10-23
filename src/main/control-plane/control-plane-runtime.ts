@@ -21,7 +21,7 @@ import type { DeviceControlPort, DeviceRegistryPort } from '../device/device-con
 import { WorkspaceFilePort } from '../tools/workspace-file-port';
 import { registerFileCapabilities } from '../tools/file-capabilities';
 import { registerArtifactCapabilities } from '../tools/artifact-capabilities';
-import { registerTerminalCapabilities, type TerminalHostAuthority, type TerminalOwnershipPort } from '../tools/terminal-capabilities';
+import { registerTerminalCapabilities, resolveHomeBaseTerminal, isLiveSplitOf, type TerminalHostAuthority, type TerminalOwnershipPort } from '../tools/terminal-capabilities';
 import { registerCoreCapabilities, createLazyCorePort } from '../tools/core-capabilities';
 import { registerWorkflowCapabilities } from '../workflow/workflow-capabilities';
 import { WorkflowRegistry } from '../workflow/workflow-registry';
@@ -284,23 +284,31 @@ export class ControlPlaneRuntime {
   /**
    * Bind the host's tab authority to this runtime's attachment registry.
    *
-   * Ownership has exactly one source of truth per plane: the attachment registry knows which browser
-   * tab an attachment is bound to, the host knows which tab currently drives which terminal. Joining
-   * them here is what lets an agent-created filter "the terminals I own" without a second, drifting
-   * ownership record — and what makes a foreign project's live shell unreachable by construction
-   * rather than by a policy check somewhere else.
+   * Terminal scope has exactly one source of truth per plane: the attachment registry knows which
+   * browser tab an attachment is bound to and which terminal it was minted from, the host knows
+   * which terminal each tab is rooted in. Joining them here is what lets an agent reach only the
+   * split panes of the terminal it runs in, without a second, drifting ownership record — and what
+   * makes a foreign project's live shell unreachable by construction rather than by a policy
+   * check somewhere else.
    */
   private composeTerminalOwnership(host?: TerminalHostAuthority): TerminalOwnershipPort | undefined {
     if (!host) return undefined;
+    const tabOf = (attachmentId: string): string | undefined => {
+      const record = this.runs.attachments.getRecord(attachmentId);
+      return record?.tabId || record?.browserTarget?.tabId;
+    };
     return {
-      ownerTabId: (attachmentId) => {
-        const record = this.runs.attachments.getRecord(attachmentId);
-        return record?.tabId || record?.browserTarget?.tabId;
+      ownerTabId: tabOf,
+      homeTerminalId: (attachmentId) => {
+        const tabId = tabOf(attachmentId);
+        // The tab's own terminal wins; the terminal the attachment was minted from backs it up when
+        // the tab names none (or names a session that no longer lives).
+        return resolveHomeBaseTerminal(this.terminal, [
+          tabId ? host.tabHomeTerminal(tabId) : undefined,
+          this.runs.attachments.getRecord(attachmentId)?.originTerminalSessionId,
+        ]);
       },
-      allowsTab: (tabId, terminalId) => host.allowsTab(tabId, terminalId),
-      isAgentTerminal: (terminalId) => host.isAgentTerminal(terminalId),
-      isAgentHeld: (terminalId) => host.isAgentHeld(terminalId),
-      bind: (terminalId, generation, tabId) => host.bind(terminalId, generation, tabId),
+      isHomeSplit: (homeId, terminalId) => isLiveSplitOf(this.terminal, homeId, terminalId),
       tabAffiliation: host.tabAffiliation.bind(host),
     };
   }

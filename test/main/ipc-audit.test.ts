@@ -603,51 +603,7 @@ describe('Webview & Extension IPC Audit Invariants', () => {
     assert.ok(fs.existsSync(nativeTabHostPath), `native-tab-host.ts must exist at ${nativeTabHostPath}`);
     const content = fs.readFileSync(nativeTabHostPath, 'utf8');
 
-    // 1. session-created hook:
-    // The host registers its TerminalManager listeners through a removable wrapper so
-    // `dispose()` can release exactly its own handlers from the shared singleton. The
-    // anchor therefore moves from the registration literal to the handler declaration
-    // the registration names; every assertion about the handler body is unchanged.
-    const sessionCreatedIdx = content.indexOf('const onTerminalSessionCreated = (');
-    assert.ok(sessionCreatedIdx !== -1, 'session-created handler must exist');
-    const sessionCreatedRegistrationIdx = content.indexOf(
-      "subscribe('session-created', onTerminalSessionCreated);",
-      sessionCreatedIdx
-    );
-    assert.ok(sessionCreatedRegistrationIdx !== -1, 'session-created listener must be registered on the shared TerminalManager');
-    const nextHookIdx = content.indexOf('channel: TERMINAL_CHANNELS.GET_FULL_BUFFER', sessionCreatedIdx);
-    assert.ok(nextHookIdx !== -1, 'TERMINAL_CHANNELS.GET_FULL_BUFFER boundary must exist');
-    const sessionCreatedBlock = content.slice(sessionCreatedIdx, sessionCreatedRegistrationIdx);
-
-    // Negative: must NOT fall back to this.activeTabId for root sessions
-    assert.strictEqual(
-      sessionCreatedBlock.includes('let targetTab = this.activeTabId;'),
-      false,
-      'session-created must not fall back to this.activeTabId for root sessions'
-    );
-    // Positive: targetTab starts undefined and only binds when parentId has alive affinity
-    assert.ok(
-      sessionCreatedBlock.includes('let targetTab: string | undefined = undefined;'),
-      'session-created must initialize targetTab to undefined'
-    );
-    assert.ok(
-      sessionCreatedBlock.includes('const parentAffinity = this.getTerminalAgentAffinity(parentId);'),
-      'session-created must look up parent affinity'
-    );
-    assert.ok(
-      sessionCreatedBlock.includes("parentAffinity.status === 'alive'"),
-      'session-created must require parent affinity to be alive'
-    );
-    assert.ok(
-      sessionCreatedBlock.includes('targetTab = parentAffinity.tabId;'),
-      'session-created must inherit parent tabId'
-    );
-    assert.ok(
-      sessionCreatedBlock.includes('this.bindTerminalAgentAffinity(id, generation || 1, targetTab);'),
-      'session-created must bind targetTab when inherited from alive parent'
-    );
-
-    // 2. TERMINAL_CHANNELS.START handler must directly return startTerminal without binding activeTabId
+    // 1. TERMINAL_CHANNELS.START handler must directly return startTerminal without binding activeTabId
     assert.ok(registeredRoutes.has(TERMINAL_CHANNELS.START), 'TERMINAL_CHANNELS.START route must be registered in Chrome route table');
     const startIdx = content.indexOf('channel: TERMINAL_CHANNELS.START');
     assert.ok(startIdx !== -1, 'TERMINAL_CHANNELS.START handler must exist in native-tab-host.ts');
@@ -691,7 +647,7 @@ describe('Webview & Extension IPC Audit Invariants', () => {
       'TERMINAL_CHANNELS.START must invoke startTerminal with the sender window workspace root, capsule and owner key'
     );
 
-    // 3. antifan:terminal:new-session handler must directly return createSession without binding activeTabId
+    // 2. antifan:terminal:new-session handler must directly return createSession without binding activeTabId
     assert.ok(registeredRoutes.has('antifan:terminal:new-session'), 'antifan:terminal:new-session route must be registered in Chrome route table');
     const newSessionIdx = content.indexOf("channel: 'antifan:terminal:new-session'");
     assert.ok(newSessionIdx !== -1, 'antifan:terminal:new-session handler must exist in native-tab-host.ts');

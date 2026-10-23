@@ -327,7 +327,7 @@ function main(): void {
                   cwd,
                   Number(p.cols) || undefined,
                   Number(p.rows) || undefined,
-                  roleMeta || p.name !== undefined ? { ...roleMeta, name: p.name } : undefined,
+                  roleMeta || p.name !== undefined || ownerKey ? { ...roleMeta, name: p.name, ownerKey } : undefined,
                 )
               : tm.createSession(cwd, capsuleId, ownerKey, roleMeta);
             respond(true, { sessionId, sessions: tm.listSessions(), activeSessionId: tm.getActiveSessionId() });

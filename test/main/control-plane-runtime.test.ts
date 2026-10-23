@@ -296,15 +296,21 @@ describe('ControlPlaneRuntime Main Launch Owner & Attachment Authority', () => {
     const workspaceId = makeControlPlaneId('workspace');
 
     const writes: Array<{ sessionId: string; input: string }> = [];
-    // The runtime joins its own attachment registry to the host authority; `allowsTab` /
-    // `isAgentTerminal` / `bind` are the host half, wired exactly as src/main/index.ts wires it.
-    const ownedByTab: Record<string, string> = { 'tab-mine': 'terminal-mine', 'tab-other': 'terminal-foreign' };
+    // The runtime joins its own attachment registry to the host authority; `tabHomeTerminal` /
+    // `tabAffiliation` are the host half, wired as src/main/index.ts wires them.
+    const homeByTab: Record<string, string> = { 'tab-mine': 'terminal-mine', 'tab-other': 'terminal-foreign' };
+    const rows: Array<{ id: string; splitOf?: string; state: string; disposed?: boolean }> = [
+      { id: 'terminal-mine', state: 'running' },
+      { id: 'pane-mine', splitOf: 'terminal-mine', state: 'running' },
+      { id: 'terminal-foreign', state: 'running' },
+      { id: 'pane-foreign', splitOf: 'terminal-foreign', state: 'running' },
+    ];
     const terminal = {
       writeTo: (sessionId: string, input: string) => {
         writes.push({ sessionId, input });
       },
-      getSession: (sessionId: string) => ({ id: sessionId, sessionGeneration: 1, state: 'live' }),
-      listSessions: () => [{ id: 'terminal-mine' }, { id: 'terminal-foreign' }, { id: 'terminal-user' }],
+      getSession: (sessionId: string) => rows.find((row) => row.id === sessionId),
+      listSessions: () => rows,
       getActiveSessionId: () => 'terminal-mine',
       closeSession: async () => true,
       closeSplitSession: async () => true,
@@ -320,10 +326,7 @@ describe('ControlPlaneRuntime Main Launch Owner & Attachment Authority', () => {
         workspaceRoot,
         terminal,
         terminalAuthority: {
-          allowsTab: (tabId, terminalId) => ownedByTab[tabId] === terminalId,
-          isAgentTerminal: (terminalId) => terminalId === 'terminal-mine' || terminalId === 'terminal-foreign',
-          isAgentHeld: (terminalId) => terminalId === 'terminal-mine' || terminalId === 'terminal-foreign',
-          bind: () => true,
+          tabHomeTerminal: (tabId) => homeByTab[tabId],
           tabAffiliation: () => ({ live: true }),
         },
       });
@@ -357,30 +360,28 @@ describe('ControlPlaneRuntime Main Launch Owner & Attachment Authority', () => {
         grant: 'write' as const,
       };
 
-      await runtime.capabilities.dispatch('terminal.write', { sessionId: 'terminal-mine', input: 'echo MINE\r\n' }, context);
-      assert.deepStrictEqual(writes.map((w) => w.sessionId), ['terminal-mine'], 'the attachment drives the terminal its tab owns');
+      await runtime.capabilities.dispatch('terminal.write', { sessionId: 'pane-mine', input: 'echo MINE\r\n' }, context);
+      assert.deepStrictEqual(writes.map((w) => w.sessionId), ['pane-mine'], 'the attachment drives the panes under the terminal its tab is rooted in');
 
-      await assert.rejects(
-        () =>
-          runtime.capabilities.dispatch(
-            'terminal.write',
-            { sessionId: 'terminal-foreign', input: 'echo STOLEN\r\n' },
-            context
-          ),
-        (err: unknown) => err instanceof CapabilityError && err.code === 'TERMINAL_FORBIDDEN'
-      );
+      for (const refused of ['terminal-mine', 'terminal-foreign', 'pane-foreign']) {
+        await assert.rejects(
+          () => runtime.capabilities.dispatch('terminal.write', { sessionId: refused, input: 'echo STOLEN\r\n' }, context),
+          (err: unknown) => err instanceof CapabilityError && err.code === 'TERMINAL_FORBIDDEN',
+          refused
+        );
+      }
       assert.strictEqual(writes.length, 1, 'a refused write must never reach the PTY');
 
       const listed = (await runtime.capabilities.dispatch('terminal.list', {}, context)) as {
         sessions: Array<{ id: string }>;
-        omittedForeignAgentTerminals?: number;
+        omittedOutOfScopeTerminals?: number;
       };
       assert.deepStrictEqual(
         listed.sessions.map((s) => s.id),
-        ['terminal-mine', 'terminal-user'],
-        'the caller sees its own session and the user plane, never a foreign agent terminal'
+        ['pane-mine'],
+        'the caller sees only the split panes of its own terminal'
       );
-      assert.strictEqual(listed.omittedForeignAgentTerminals, 1);
+      assert.strictEqual(listed.omittedOutOfScopeTerminals, 3);
 
       // Fail-closed: a runtime wired without host authority cannot verify ownership, so an
       // attachment-bound terminal call is refused instead of silently allowed unverified.

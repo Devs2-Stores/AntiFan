@@ -406,7 +406,7 @@ describe('Terminal Daemon Provenance & Async Seam Invariants (RC2)', () => {
     }
   });
 
-  it('6. terminal.create capability forwards capsuleId and resolves session ID string', async () => {
+  it('6. terminal.create capability awaits the async daemon facade and resolves the split session ID string', async () => {
     const projectId = makeControlPlaneId('project');
     const workspaceId = makeControlPlaneId('workspace');
     const lease = issueRuntimeLease(projectId, workspaceId, 60_000, 1);
@@ -419,24 +419,26 @@ describe('Terminal Daemon Provenance & Async Seam Invariants (RC2)', () => {
       getActiveLease: () => lease,
     });
 
-    const calls: Array<{ cwd?: string; capsuleId?: string }> = [];
+    const baseCalls: Array<{ cwd?: string; capsuleId?: string }> = [];
+    const splitCalls: Array<{ parentId: string; cwd?: string; ownerKey?: unknown }> = [];
     const asyncFacade = {
       createSession: async (cwd?: string, capsuleId?: string) => {
-        calls.push({ cwd, capsuleId });
+        baseCalls.push({ cwd, capsuleId });
         return 'terminal-async-123';
       },
-      createSplitSession: async () => 'terminal-async-split',
-      getSession: (id: string) => ({ id, sessionGeneration: 1 }),
+      createSplitSession: async (parentId: string, cwd?: string, _cols?: number, _rows?: number, meta?: { ownerKey?: unknown }) => {
+        splitCalls.push({ parentId, cwd, ownerKey: meta?.ownerKey });
+        return 'terminal-async-split';
+      },
+      getSession: (id: string) => ({ id, sessionGeneration: 1, state: 'running', disposed: false }),
       listSessions: () => [],
       getActiveSessionId: () => '',
     } as unknown as TerminalManager;
 
     const ownership = {
       ownerTabId: (attachmentId: string) => (attachmentId === 'att-1' ? 'tab-1' : undefined),
-      allowsTab: () => true,
-      isAgentTerminal: () => false,
-      isAgentHeld: () => false,
-      bind: () => true,
+      homeTerminalId: (attachmentId: string) => (attachmentId === 'att-1' ? 'terminal-home' : undefined),
+      isHomeSplit: () => false,
       tabAffiliation: () => ({ live: true }),
     };
 
@@ -462,7 +464,9 @@ describe('Terminal Daemon Provenance & Async Seam Invariants (RC2)', () => {
       context
     )) as { sessionId: string; ownerBound?: boolean };
 
-    assert.strictEqual(res.sessionId, 'terminal-async-123');
-    assert.deepStrictEqual(calls, [{ cwd: 'E:/Work/my-project', capsuleId: 'capsule-my-window' }]);
+    assert.strictEqual(res.sessionId, 'terminal-async-split');
+    assert.strictEqual(res.ownerBound, true);
+    assert.deepStrictEqual(splitCalls, [{ parentId: 'terminal-home', cwd: 'E:/Work/my-project', ownerKey: 'agent:tab-1' }]);
+    assert.deepStrictEqual(baseCalls, [], 'an agent never creates a base shell, and the capsule is inherited from the home terminal');
   });
 });

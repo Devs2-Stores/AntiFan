@@ -2394,23 +2394,6 @@ export class NativeTabHost extends EventEmitter {
     };
     subscribe('session-woken', onTerminalSessionWoken);
 
-    const onTerminalSessionCreated = ({ id, parentId, generation }: { id: string; parentId?: string; generation?: number }): void => {
-      let targetTab: string | undefined = undefined;
-      if (parentId) {
-        const parentAffinity = this.getTerminalAgentAffinity(parentId);
-        if (parentAffinity && parentAffinity.status === 'alive') {
-          targetTab = parentAffinity.tabId;
-        }
-      }
-      if (targetTab && this.hasTab(targetTab)) {
-        const existing = this.getTerminalAgentAffinity(id, generation);
-        if (!existing || existing.status === 'closed') {
-          this.bindTerminalAgentAffinity(id, generation || 1, targetTab);
-        }
-      }
-    };
-    subscribe('session-created', onTerminalSessionCreated);
-
     const onBridgeHealthChanged = (): void => {
       const report = buildBridgeHealthReport();
       if (this.shell.sidebarView && !this.shell.sidebarView.webContents.isDestroyed()) {
@@ -7860,7 +7843,16 @@ export class NativeTabHost extends EventEmitter {
 
     const sessionOwner = rowOwner ??
       (typeof tm.sessionOwnerKey === 'function' ? tm.sessionOwnerKey(sessionId) : undefined);
-    if (sessionOwner !== undefined) return sessionOwner === ownerKey;
+    if (sessionOwner !== undefined) {
+      if (sessionOwner === ownerKey) return true;
+      // A pane an agent minted under a base is filed under the agent's key, but it is shown next to
+      // the base it splits: the window that presents the base presents its panes.
+      if (parseOwnerKey(sessionOwner).kind === 'agent' && typeof tm.getSession === 'function') {
+        const parentId = (tm.getSession(sessionId) as { splitOf?: string } | undefined)?.splitOf;
+        if (parentId) return this.isSessionVisibleToWindow(parentId, undefined, senderId);
+      }
+      return false;
+    }
 
     // No owner key on the row: it predates ownership, so its capsule decides, exactly as it did
     // before the key existed. A seam that cannot name a capsule attributes nothing.
@@ -13658,6 +13650,18 @@ export class NativeTabHost extends EventEmitter {
       title: primaryTab?.state.title,
       url: primaryTab?.state.url,
     };
+  }
+
+  /**
+   * The terminal this tab is rooted in, as the tab's own per-tab choice records it: the shell an
+   * agent was minted from. Unlike `getTabTerminalSession` it never follows the affinity map (a
+   * split an agent mints must not become its home) and never answers `'auto'` ("follow the active
+   * terminal" names no terminal). The id is returned as stored; the caller resolves a split to its
+   * parent and checks liveness.
+   */
+  public getTabHomeTerminalSession(tabId: string): string | undefined {
+    const chosen = this.tabs.get(tabId)?.state.terminalSessionId;
+    return chosen && chosen !== 'auto' ? chosen : undefined;
   }
 
   public getTabTerminalSession(tabId: string): string | undefined {

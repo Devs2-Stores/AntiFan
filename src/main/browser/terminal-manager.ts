@@ -865,6 +865,11 @@ export function agentTerminalOwnerKey(tabId?: string): string {
   return `agent:${tabId?.trim() || 'unbound'}`;
 }
 
+/** Whether an owner key names an agent (`agent:<tabId>`), as {@link agentTerminalOwnerKey} mints it. */
+export function isAgentOwnerKey(key: unknown): key is string {
+  return typeof key === 'string' && key.startsWith('agent:');
+}
+
 /**
  * The provenance tag a session created by a project window that has no capsule of its own
  * carries: the project that window verified, and the workspace it attached.
@@ -2557,12 +2562,12 @@ export class TerminalManager extends EventEmitter {
   }
 
   /**
-   * A split the user made by hand: no Space entry owns it and it is not a watcher. This is the
-   * only kind the split toggle may reuse or remove; a Space pane and a sync pane are closed by
-   * naming them.
+   * A split the user made by hand: no Space entry owns it, it is not a watcher and no agent minted
+   * it. This is the only kind the split toggle may reuse or remove; a Space pane, a sync pane and an
+   * agent's pane are closed by naming them.
    */
   private static isManualSplit(s: Session): boolean {
-    return !s.spaceTerminalId && s.role !== 'sync';
+    return !s.spaceTerminalId && s.role !== 'sync' && !isAgentOwnerKey(s.ownerKey);
   }
 
   /**
@@ -2571,8 +2576,11 @@ export class TerminalManager extends EventEmitter {
    * same id is reused (and woken) instead of duplicated. Without one the call is the split
    * toggle's: it reuses the parent's manual split when there is one and adds the first otherwise.
    * The pane owns the role, idle policy and label it is minted with.
+   *
+   * An `agent:` `ownerKey` marks the pane as an agent's own: it is always a NEW pane (never the
+   * user's manual split) and it is stamped with that key instead of inheriting the parent's.
    */
-  public createSplitSession(parentId: string, cwd?: string, initialCols?: number, initialRows?: number, meta?: TerminalRoleMeta & { name?: unknown }): string {
+  public createSplitSession(parentId: string, cwd?: string, initialCols?: number, initialRows?: number, meta?: TerminalRoleMeta & { name?: unknown; ownerKey?: unknown }): string {
     const parentRecord = this.sessions.get(parentId);
     if (!parentRecord || parentRecord.disposed || parentRecord.splitOf) return '';
     // Splitting genuinely needs two live shells: route a sleeping parent through
@@ -2582,10 +2590,14 @@ export class TerminalManager extends EventEmitter {
       ? (this.wakeSession(parentId) ? (this.sessions.get(parentId) || parentRecord) : parentRecord)
       : (this.ensureSessionPty(parentId) || parentRecord);
     const clean = sanitizeRoleMeta(meta || {});
+    const agentOwnerKey = isAgentOwnerKey(meta?.ownerKey) ? meta.ownerKey : undefined;
     const siblings = [...this.sessions.values()].filter(x => x.splitOf === parentId);
-    const existing = clean.spaceTerminalId
-      ? siblings.find(x => x.spaceTerminalId === clean.spaceTerminalId)
-      : siblings.find(x => TerminalManager.isManualSplit(x));
+    const existing = agentOwnerKey
+      ? undefined
+      : clean.spaceTerminalId
+        ? siblings.find(x => x.spaceTerminalId === clean.spaceTerminalId)
+        : siblings.find(x => TerminalManager.isManualSplit(x));
+
     if (existing) {
       // The sidebar may hide a sleeping split, so the split toggle is also its
       // explicit wake path. Reuse the existing pane instead of creating a second
@@ -2601,7 +2613,7 @@ export class TerminalManager extends EventEmitter {
     const splitSession = this.spawn(id, cwd || parent.cwd, '', targetCols, targetRows, MIN_SPLIT_TERMINAL_ROWS, parentId, parent.sessionGeneration);
     splitSession.splitOf = parentId;
     splitSession.capsuleId = parent.capsuleId || this.currentCapsuleId;
-    splitSession.ownerKey = parent.ownerKey || this.effectiveCreationOwnerKey;
+    splitSession.ownerKey = agentOwnerKey ?? (parent.ownerKey || this.effectiveCreationOwnerKey);
     splitSession.category = parent.category;
     splitSession.role = clean.role;
     splitSession.idlePolicy = clean.idlePolicy;

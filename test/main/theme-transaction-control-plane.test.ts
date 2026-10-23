@@ -1082,11 +1082,13 @@ describe('ThemeTransactionRegistry ControlPlane Integration & Capability Dispatc
 
     const waitedSessions: string[] = [];
     const terminal = {
-      getSession: () => ({
+      getSession: (id: string) => ({
+        id,
         state: 'running',
         disposed: false,
         lastSeq: 5,
         sessionGeneration: 1,
+        splitOf: id === 'pane-sync' ? 'terminal-mine' : undefined,
       }),
       waitTerminal: async (input: { sessionId: string }) => {
         waitedSessions.push(input.sessionId);
@@ -1108,10 +1110,7 @@ describe('ThemeTransactionRegistry ControlPlane Integration & Capability Dispatc
         workspaceRoot,
         terminal,
         terminalAuthority: {
-          allowsTab: (tabId, terminalId) => tabId === 'tab-mine' && terminalId === 'terminal-mine',
-          isAgentTerminal: (terminalId) => terminalId === 'terminal-mine' || terminalId === 'terminal-foreign',
-          isAgentHeld: (terminalId) => terminalId === 'terminal-mine' || terminalId === 'terminal-foreign',
-          bind: () => true,
+          tabHomeTerminal: (tabId) => (tabId === 'tab-mine' ? 'terminal-mine' : undefined),
           tabAffiliation: () => ({ live: true }),
         },
       });
@@ -1228,28 +1227,33 @@ describe('ThemeTransactionRegistry ControlPlane Integration & Capability Dispatc
           ),
         (err: unknown) => err instanceof CapabilityError && err.code === 'TERMINAL_FORBIDDEN'
       );
-      assert.deepStrictEqual(waitedSessions, [], 'foreign agent terminal must be refused before waitTerminal runs');
+      assert.deepStrictEqual(waitedSessions, [], 'a terminal outside the home splits must be refused before waitTerminal runs');
 
-      const userSyncRes = (await awaitSyncCap.execute(
-        {
-          workspaceRoot,
-          cursor: { sessionId: 'terminal-user', sessionGeneration: 1, baselineSeq: 4 },
-          timeoutMs: 1000,
-        },
-        attachmentContext
-      )) as { sync: { settled: boolean } };
-      assert.strictEqual(userSyncRes.sync.settled, true);
+      // The shell the agent itself runs in is not a watcher it may observe either.
+      await assert.rejects(
+        async () =>
+          awaitSyncCap.execute(
+            {
+              workspaceRoot,
+              cursor: { sessionId: 'terminal-mine', sessionGeneration: 1, baselineSeq: 4 },
+              timeoutMs: 1000,
+            },
+            attachmentContext
+          ),
+        (err: unknown) => err instanceof CapabilityError && err.code === 'TERMINAL_FORBIDDEN'
+      );
+      assert.deepStrictEqual(waitedSessions, []);
 
       const ownSyncRes = (await awaitSyncCap.execute(
         {
           workspaceRoot,
-          cursor: { sessionId: 'terminal-mine', sessionGeneration: 1, baselineSeq: 4 },
+          cursor: { sessionId: 'pane-sync', sessionGeneration: 1, baselineSeq: 4 },
           timeoutMs: 1000,
         },
         attachmentContext
       )) as { sync: { settled: boolean } };
       assert.strictEqual(ownSyncRes.sync.settled, true);
-      assert.deepStrictEqual(waitedSessions, ['terminal-user', 'terminal-mine']);
+      assert.deepStrictEqual(waitedSessions, ['pane-sync']);
 
       await runtime.capabilities.get('theme.transaction.rollback')!.execute({ workspaceRoot }, attachmentContext);
     } finally {

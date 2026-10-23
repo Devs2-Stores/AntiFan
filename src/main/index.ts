@@ -4351,21 +4351,12 @@ async function createWindow(): Promise<void> {
     allowEval: ALLOW_EVAL,
     terminal: terminalManager,
     projects: projectRegistry,
-    // Terminal ownership for attachment-bound calls: the host's live tab affinity is the single
-    // source of truth already used by the Bridge gate, so both planes refuse a foreign shell the
-    // same way. Without this the control plane had no owner notion at all and every attachment
-    // shared one terminal namespace.
+    // Terminal scope for attachment-bound calls: an agent reaches only the split panes of the
+    // terminal it runs in. The tab's own terminal (the host's per-tab record) names that terminal
+    // and the control plane joins it with the attachment's origin terminal. Without this the control
+    // plane had no terminal scope at all and every attachment shared one terminal namespace.
     terminalAuthority: {
-      allowsTab: (tabId, terminalId) => (hostForTabOrDegrade(tabId, 'terminalAuthority.allowsTab')?.isTerminalAllowedForTab(tabId, terminalId) ?? false),
-      isAgentTerminal: (terminalId) => tabAuthorities.terminalHasLiveAgentAffinity(terminalId),
-      // Whether an agent holds the shell for ANY reason the directory knows (a live affinity in any
-      // window, or the open tab its `agent:` owner key names). A shell evicted from the affinity map
-      // is still its tab's agent shell, so another attachment must not list or wait on it.
-      isAgentHeld: agentHoldsTerminal,
-      // A dead tab answers `false` rather than throwing, so the capability can roll the fresh PTY
-      // back; anything the bind itself throws is a real fault and reaches the capability as is.
-      bind: (terminalId, generation, tabId) =>
-        hostForTabOrDegrade(tabId, 'terminalAuthority.bind')?.bindTerminalAgentAffinity(terminalId, generation, tabId) ?? false,
+      tabHomeTerminal: (tabId) => hostForTabOrDegrade(tabId, 'terminalAuthority.tabHomeTerminal')?.getTabHomeTerminalSession(tabId),
       tabAffiliation: (tabId) => {
         const host = hostForTabOrDegrade(tabId, 'terminalAuthority.tabAffiliation');
         if (!host || !host.hasTab(tabId)) {
