@@ -198,9 +198,12 @@ describe('Renderer split-pane behaviour', () => {
     assert.strictEqual(handler(keyEvent('d')), true, 'a bare key must pass through to the shell');
     assert.strictEqual(splitCalls.length, 0);
 
-    assert.strictEqual(handler(keyEvent('d', { ctrlKey: true, shiftKey: true })), false, 'Ctrl+Shift+D toggles the split');
     assert.strictEqual(handler(keyEvent('D', { altKey: true, shiftKey: true })), false, 'Alt+Shift+D toggles the split');
     assert.strictEqual(handler(keyEvent('\\', { ctrlKey: true })), false, 'Ctrl+\\ toggles the split');
+    const toggles = splitCalls.length;
+    // Ctrl+Shift+D is the application's detach/reattach-project chord: the terminal must not claim it.
+    assert.strictEqual(handler(keyEvent('d', { ctrlKey: true, shiftKey: true })), true, 'Ctrl+Shift+D is not a split chord');
+    assert.strictEqual(splitCalls.length, toggles);
   });
 
   it('labels the context menu action from the target session split state', () => {
@@ -361,7 +364,7 @@ describe('Renderer split-pane behaviour', () => {
     harness.unmountAllSplits();
     assert.strictEqual(harness.container.classList.contains('split'), false);
     assert.strictEqual(harness.splitButton.classList.contains('active'), false);
-    assert.match(harness.splitButton.title, /Chia đôi màn hình terminal/);
+    assert.match(harness.splitButton.title, /thêm một ô bên dưới \(Split\)/);
   });
 
   it('sizes the split PTY only from the split pane, never from a hidden main-pool pane', async () => {

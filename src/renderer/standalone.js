@@ -2146,9 +2146,9 @@ function setupTerminalClipboard(targetTerm) {
       return false;
     }
 
-    // Ctrl+Shift+D / Alt+Shift+D / Ctrl+\: Toggle terminal split
-    if (((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'd' || e.key === 'D')) ||
-        (e.altKey && e.shiftKey && (e.key === 'd' || e.key === 'D')) ||
+    // Alt+Shift+D / Ctrl+\: Toggle terminal split. Ctrl+Shift+D is the application's
+    // detach/reattach-project chord and never reaches the page (`dispatchApplicationMenuShortcut`).
+    if ((e.altKey && e.shiftKey && !e.ctrlKey && !e.metaKey && (e.key === 'd' || e.key === 'D')) ||
         ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key === '\\')) {
       e.preventDefault();
       e.stopPropagation();
@@ -4182,6 +4182,13 @@ function updateEmptyStateDisplay(hasSessions) {
 
 const btnNewTerminal = document.getElementById('btnNewTerminal');
 const splitButton = document.getElementById('btnSplitTerminal') || document.getElementById('btnSplitVertical');
+const spaceSplitsButton = document.getElementById('btnSpaceSplits');
+// What the active base's Space declares for it, asked of Main once per base: `{ baseId, splits }`
+// when it declares splits, `{ baseId, reason }` when it cannot (no space.json, no splitOf entry,
+// a refused read), null while unknown. A click always asks Main again, which re-reads space.json.
+let spaceSplitsInfo = null;
+let spaceSplitsQueriedFor = '';
+let spaceSplitsRequestSeq = 0;
 
 // Fix: ONLY ONE listener on btnNewTerminal (prevent duplicate terminals)
 if (btnNewTerminal) {
@@ -4650,22 +4657,40 @@ function updateSplitButton() {
   if (!splitButton) return;
   splitButton.classList.toggle('active', isSplitMounted());
   splitButton.title = manualSplitIdOf(activeId)
-    ? 'Tắt chia đôi terminal (Unsplit)'
-    : 'Chia đôi màn hình terminal (Split Right)';
+    ? 'Tắt ô chia đôi tự tạo (Unsplit)'
+    : 'Chia đôi terminal: thêm một ô bên dưới (Split)';
+  splitButton.setAttribute('aria-label', splitButton.title);
 }
 
-/** The splits of a base session in `splitSessionIds` order; rows its base row does not list yet follow. */
+/**
+ * The splits of a base session in the order the lower row shows them: the panes its Space declares
+ * first, in the order space.json lists them, then every other pane (the free one the split toggle
+ * makes, splits an agent minted) last. Until Main has said what the Space declares, declared panes
+ * keep `splitSessionIds` order among themselves; rows the base row does not list yet follow theirs.
+ */
 function splitRowsOf(baseId) {
   const base = findSession(baseId);
   const byId = new Map(sessions.filter((s) => s.splitOf === baseId).map((s) => [s.id, s]));
-  const ordered = [];
+  const listed = [];
   for (const id of (base && Array.isArray(base.splitSessionIds) ? base.splitSessionIds : [])) {
     const row = byId.get(id);
     if (!row) continue;
-    ordered.push(row);
+    listed.push(row);
     byId.delete(id);
   }
-  return ordered.concat(Array.from(byId.values()));
+  const rows = listed.concat(Array.from(byId.values()));
+  const declared = spaceSplitsInfo && spaceSplitsInfo.baseId === baseId && Array.isArray(spaceSplitsInfo.splits)
+    ? spaceSplitsInfo.splits.map((s) => s.id)
+    : [];
+  const rank = (row) => {
+    if (!row.spaceTerminalId) return declared.length + 1;
+    const index = declared.indexOf(row.spaceTerminalId);
+    return index === -1 ? declared.length : index;
+  };
+  return rows
+    .map((row, index) => ({ row, index, rank: rank(row) }))
+    .sort((a, b) => a.rank - b.rank || a.index - b.index)
+    .map((entry) => entry.row);
 }
 
 /** Dispose everything a pane owns. Bumping the epoch retires a hydration still in flight. */
@@ -4905,9 +4930,9 @@ async function closeSplitPane(pane) {
 }
 
 /**
- * Make the lower row show exactly the splits of the active base session, in `splitSessionIds`
- * order: panes for new splits are mounted, panes whose split vanished are unmounted, and the
- * surviving panes stay mounted (never re-created).
+ * Make the lower row show exactly the splits of the active base session, in `splitRowsOf` order:
+ * panes for new splits are mounted, panes whose split vanished are unmounted, and the surviving
+ * panes stay mounted (never re-created) and are only moved when the order changes.
  */
 function reconcileSplitPanes() {
   const rows = activeId && findSession(activeId) ? splitRowsOf(activeId) : [];
@@ -4935,6 +4960,8 @@ function reconcileSplitPanes() {
   }
   for (const pane of splitPanes.values()) refreshSplitPaneHeader(pane);
   updateSplitButton();
+  refreshSpaceSplitsFor(activeId);
+  updateSpaceSplitsButton();
 }
 
 /**
@@ -4972,6 +4999,105 @@ if (splitButton) {
       console.error('[Terminal] Split toggle failed:', err);
     } finally {
       splitButton.disabled = false;
+    }
+  };
+}
+
+function refreshSpaceSplitsFor(baseId) {
+  if (!spaceSplitsButton || typeof api?.getSpaceSplits !== 'function') return;
+  const base = baseId ? findSession(baseId) : null;
+  // Until the base's row has arrived there is nothing to ask about; the next broadcast retries.
+  const target = base && !base.splitOf ? baseId : '';
+  if (target === spaceSplitsQueriedFor) return;
+  spaceSplitsQueriedFor = target;
+  spaceSplitsInfo = null;
+  const seq = ++spaceSplitsRequestSeq;
+  if (!target) return;
+  Promise.resolve(api.getSpaceSplits(target)).then((res) => {
+    if (seq !== spaceSplitsRequestSeq) return;
+    spaceSplitsInfo = res && res.ok === true && Array.isArray(res.splits) && res.splits.length > 0
+      ? { baseId: target, splits: res.splits }
+      : { baseId: target, reason: SPACE_REFUSAL_TEXT[res?.reason] || res?.message || 'không đọc được space.json' };
+    // The declared order may move panes: re-lay the row when it is the one on screen.
+    if (target === activeId) reconcileSplitPanes();
+    else updateSpaceSplitsButton();
+  }, (err) => {
+    if (seq === spaceSplitsRequestSeq) spaceSplitsInfo = { baseId: target, reason: bridgeErrorText(err) };
+    updateSpaceSplitsButton();
+  });
+}
+
+/** How many of the declared splits already have a live pane under the base. */
+function openDeclaredSplitCount(info) {
+  const declared = new Set(info.splits.map((s) => s.id));
+  return splitRowsOf(info.baseId).filter((row) =>
+    declared.has(row.spaceTerminalId) && (!row.state || row.state === 'running' || row.state === 'sleeping')).length;
+}
+
+/**
+ * The button is always shown so it can be found; it is dimmed (`aria-disabled`) and its title says
+ * why while the active terminal's Space declares no split for it.
+ */
+function updateSpaceSplitsButton() {
+  if (!spaceSplitsButton) return;
+  const info = spaceSplitsInfo && spaceSplitsInfo.baseId === activeId ? spaceSplitsInfo : null;
+  const splits = info && Array.isArray(info.splits) ? info.splits : null;
+  spaceSplitsButton.setAttribute('aria-disabled', splits ? 'false' : 'true');
+  if (!splits) {
+    spaceSplitsButton.classList.toggle('active', false);
+    spaceSplitsButton.title = info && info.reason
+      ? `Split của Space (.antifan/space.json): ${info.reason}`
+      : 'Mở các split khai báo trong .antifan/space.json của dự án';
+  } else {
+    const labels = splits.map((s) => s.label).join(', ');
+    const complete = openDeclaredSplitCount(info) >= splits.length;
+    spaceSplitsButton.classList.toggle('active', complete);
+    spaceSplitsButton.title = complete
+      ? `Các split của Space đã mở (${labels})`
+      : `Mở ${splits.length} split của Space bên dưới: ${labels}`;
+  }
+  spaceSplitsButton.setAttribute('aria-label', spaceSplitsButton.title);
+}
+
+/**
+ * Open the splits the Space declares under this base terminal. Same consent as opening the whole
+ * Space: Main lists the exact commands first and the confirming call echoes the hash it showed.
+ */
+async function openSpaceSplitsFor(baseId) {
+  let result = await api.openSpaceSplits(baseId);
+  if (result && result.ok === false && result.reason === 'NEEDS_CONFIRM') {
+    const lines = result.commands.map((c) => `  ${c.label}: ${c.command}`).join('\n');
+    if (!window.confirm(`Các split này sẽ chạy lệnh sau trong Terminal:\n\n${lines}\n\nTiếp tục?`)) return;
+    result = await api.openSpaceSplits(baseId, result.hash);
+  }
+  if (result && result.ok === true) {
+    const skipped = Array.isArray(result.syncDuplicates) ? result.syncDuplicates : [];
+    const dupNote = skipped.length
+      ? ` - bỏ qua ${skipped.length} watcher sync trùng theme (đang chạy: ${skipped.map((d) => d.duplicate.label).join(', ')})`
+      : '';
+    showTerminalNotice(`Split của Space: +${result.terminalsOpened} mới (đã có: ${result.terminalsReused})${dupNote}`);
+    return;
+  }
+  const detail = result && Array.isArray(result.errors) && result.errors.length
+    ? `${result.errors[0].path}: ${result.errors[0].message}`
+    : '';
+  showTerminalNotice(`Không mở được split của Space: ${SPACE_REFUSAL_TEXT[result?.reason] || result?.message || 'lỗi'}${detail ? ` (${detail})` : ''}`);
+}
+
+if (spaceSplitsButton) {
+  spaceSplitsButton.onclick = async () => {
+    if (!activeId || !api || spaceSplitsButton.disabled || typeof api.openSpaceSplits !== 'function') return;
+    const baseId = activeId;
+    spaceSplitsButton.disabled = true;
+    try {
+      await openSpaceSplitsFor(baseId);
+    } catch (err) {
+      showTerminalNotice(`Không mở được split của Space: ${bridgeErrorText(err)}`);
+    } finally {
+      spaceSplitsButton.disabled = false;
+      // space.json may have changed since it was last read: ask again for this base.
+      if (spaceSplitsQueriedFor === baseId) spaceSplitsQueriedFor = '';
+      refreshSpaceSplitsFor(activeId);
     }
   };
 }
@@ -7528,12 +7654,14 @@ async function createTerminalInFolder(folder) {
 }
 
 const SPACE_REFUSAL_TEXT = {
-  NO_MANIFEST: 'Thư mục chưa có .antifan/space.json (Shift+click nút Space để tạo)',
+  NO_MANIFEST: 'Thư mục chưa có .antifan/space.json (chuột phải tiêu đề dự án → Tạo space.json từ trạng thái hiện tại)',
   MANIFEST_INVALID: 'space.json không hợp lệ',
   CONFIRM_MISMATCH: 'space.json đã đổi sau khi hiển thị lệnh; mở lại để xem lại',
   FOLDER_INVALID: 'Thư mục không hợp lệ hoặc không truy cập được',
   FOLDER_NOT_OWNED: 'Cửa sổ này chỉ mở Space của thư mục workspace của nó',
   ALREADY_EXISTS: 'space.json đã tồn tại, không ghi đè',
+  SESSION_INVALID: 'Terminal này đã đóng hoặc chính nó là một ô split',
+  NO_SPLITS: 'space.json không khai báo split nào (splitOf) cho terminal này',
 };
 
 /**
@@ -7549,7 +7677,7 @@ async function openFolderSpace(folder, create) {
       if (typeof api?.createSpaceManifest !== 'function') return;
       const made = await api.createSpaceManifest(path);
       showTerminalNotice(made && made.ok === true
-        ? `Đã tạo .antifan/space.json — kiểm tra file rồi bấm Space để mở${made.gitignoreWarning ? '. Lưu ý: thư mục là repo git mà .gitignore chưa chặn .antifan/ (URL có thể riêng tư)' : ''}`
+        ? `Đã tạo .antifan/space.json — kiểm tra file rồi chuột phải tiêu đề dự án → Mở Space${made.gitignoreWarning ? '. Lưu ý: thư mục là repo git mà .gitignore chưa chặn .antifan/ (URL có thể riêng tư)' : ''}`
         : `Không tạo được space.json: ${SPACE_REFUSAL_TEXT[made?.reason] || made?.message || 'lỗi'}`);
       return;
     }

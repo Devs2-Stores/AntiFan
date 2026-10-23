@@ -36,10 +36,18 @@
             <line x1="6" y1="2" x2="6" y2="14"/>
           </svg>
         </button>
-        <button id="btnSplitTerminal" class="icon-button" type="button" aria-label="Chia đôi màn hình terminal (Split Right)" title="Chia đôi màn hình terminal (Split Right)">
+        <button id="btnSplitTerminal" class="icon-button" type="button" aria-label="Chia đôi terminal: thêm một ô bên dưới (Split)" title="Chia đôi terminal: thêm một ô bên dưới (Split)">
           <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
             <rect x="2" y="2" width="12" height="12" rx="2"/>
-            <line x1="8" y1="2" x2="8" y2="14" stroke-dasharray="1.5 1.5"/>
+            <line x1="2" y1="9" x2="14" y2="9" stroke-dasharray="1.5 1.5"/>
+          </svg>
+        </button>
+        <!-- Opens the splits the active terminal's project Space (.antifan/space.json) declares for it; dimmed with the reason when there are none. -->
+        <button id="btnSpaceSplits" class="icon-button" type="button" aria-disabled="true" aria-label="Mở các split khai báo trong .antifan/space.json của dự án" title="Mở các split khai báo trong .antifan/space.json của dự án">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="2" width="12" height="12" rx="2"/>
+            <line x1="2" y1="9" x2="14" y2="9"/>
+            <line x1="8" y1="9" x2="8" y2="14"/>
           </svg>
         </button>
         <button id="btnFullscreenHeader" class="icon-button" type="button" aria-label="Toàn màn hình (F11)" title="Toàn màn hình (F11)">

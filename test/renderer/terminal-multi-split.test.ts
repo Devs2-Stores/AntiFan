@@ -295,7 +295,7 @@ describe('Renderer multi-split lower row', () => {
     // Main answers the close with a session push that no longer lists the manual split.
     harness.emitSession(pushState('b', [baseRow('b', ['s-sync']), splitRow('s-sync', 'b', { role: 'sync' })]));
     await settle();
-    assert.match(harness.splitButton.title, /Split Right/, 'with no manual split left the button offers to create one');
+    assert.match(harness.splitButton.title, /thêm một ô bên dưới \(Split\)/, 'with no manual split left the button offers to create one');
   });
 
   it('toggling on with only a sync pane creates the manual split and adds it to the end of the row', async () => {
@@ -316,6 +316,102 @@ describe('Renderer multi-split lower row', () => {
     assert.deepStrictEqual(unsplitCalls(), []);
     assert.deepStrictEqual(paneOrder(), ['s-sync', 's-new'], 'the new split is appended after the sync pane');
     assert.match(harness.splitButton.title, /Unsplit/);
+  });
+
+  it('enables the Space splits button only for a base whose Space declares splits, and lights it once they are all open', async () => {
+    const asked: string[] = [];
+    harness.api.getSpaceSplits = async (sessionId: string) => {
+      asked.push(sessionId);
+      return sessionId === 'b1'
+        ? { ok: true, folder: 'E:/p', baseSpecId: 'main', splits: [{ id: 'haravan', label: 'Haravan sync', role: 'sync' }, { id: 'sapo', label: 'Sapo', role: 'shell' }] }
+        : { ok: false, reason: 'NO_SPLITS', message: 'none' };
+    };
+    const button = harness.elements.get('btnSpaceSplits')!;
+    harness.emitSession(pushState('b1', [baseRow('b1', []), baseRow('b2', [])]));
+    await settle();
+    assert.deepStrictEqual(asked, ['b1']);
+    assert.strictEqual(button.getAttribute('aria-disabled'), 'false');
+    assert.match(button.title, /Mở 2 split của Space bên dưới: Haravan sync, Sapo/);
+    assert.strictEqual(button.classList.contains('active'), false);
+
+    harness.emitSession(pushState('b1', [
+      baseRow('b1', ['p-h', 'p-s']),
+      splitRow('p-h', 'b1', { role: 'sync', spaceTerminalId: 'haravan' }),
+      splitRow('p-s', 'b1', { role: 'shell', spaceTerminalId: 'sapo' }),
+      baseRow('b2', []),
+    ]));
+    await settle();
+    assert.deepStrictEqual(asked, ['b1'], 'a session push for the same base does not ask Main again');
+    assert.strictEqual(button.classList.contains('active'), true, 'every declared split has a pane');
+
+    harness.emitSession(pushState('b2', [baseRow('b1', []), baseRow('b2', [])]));
+    await settle();
+    assert.deepStrictEqual(asked, ['b1', 'b2']);
+    assert.strictEqual(button.getAttribute('aria-disabled'), 'true', 'b2 declares no split: the button stays visible but dimmed');
+    assert.match(button.title, /không khai báo split nào/, 'the title says why');
+    assert.strictEqual(button.classList.contains('active'), false);
+  });
+
+  it('opens the Space splits under the active base, showing the commands first and echoing the confirmed hash', async () => {
+    harness.api.getSpaceSplits = async () => ({ ok: true, folder: 'E:/p', baseSpecId: 'main', splits: [{ id: 'haravan', label: 'Haravan sync', role: 'sync' }] });
+    const opens: unknown[][] = [];
+    harness.api.openSpaceSplits = async (...args: unknown[]) => {
+      opens.push(args);
+      return args.length === 1
+        ? { ok: false, reason: 'NEEDS_CONFIRM', hash: 'h1', commands: [{ label: 'Haravan sync', command: 'hrv theme dev' }] }
+        : { ok: true, terminalsOpened: 1, terminalsReused: 0, tabsOpened: 0, tabsReused: 0 };
+    };
+    harness.emitSession(pushState('b1', [baseRow('b1', [])]));
+    await settle();
+    const button = harness.elements.get('btnSpaceSplits')!;
+
+    harness.setConfirmAnswer(false);
+    await button.onclick!();
+    assert.deepStrictEqual(opens, [['b1']], 'a declined prompt runs nothing');
+    assert.match(harness.confirmMessages[0] ?? '', /Haravan sync: hrv theme dev/);
+
+    harness.setConfirmAnswer(true);
+    await button.onclick!();
+    assert.deepStrictEqual(opens, [['b1'], ['b1'], ['b1', 'h1']]);
+  });
+
+  it('puts the panes the Space declares first, in space.json order, and the free splits last', async () => {
+    harness.api.getSpaceSplits = async (sessionId: string) => sessionId === 'b1'
+      ? { ok: true, folder: 'E:/p', baseSpecId: 'main', splits: [{ id: 'haravan', label: 'Haravan sync', role: 'sync' }, { id: 'sapo', label: 'Sapo sync', role: 'sync' }] }
+      : { ok: false, reason: 'NO_MANIFEST', message: 'none' };
+    // Creation order is the reverse of what the user wants: the free split first, then Sapo
+    // (reopened before Haravan), then Haravan.
+    const b1Rows = (extra: Row[] = []): Row[] => [
+      baseRow('b1', ['free', 'p-s', 'p-h', ...extra.map((r) => String(r.id))]),
+      splitRow('free', 'b1'),
+      splitRow('p-s', 'b1', { role: 'sync', spaceTerminalId: 'sapo' }),
+      splitRow('p-h', 'b1', { role: 'sync', spaceTerminalId: 'haravan' }),
+      ...extra,
+    ];
+    harness.emitSession(pushState('b1', b1Rows()));
+    await settle();
+    assert.deepStrictEqual(rowIds(), ['p-h', 'p-s', 'free'], 'declared panes in space.json order, then the free one');
+    assert.deepStrictEqual(paneOrder(), ['p-h', 'p-s', 'free']);
+    assert.deepStrictEqual(
+      dividers().map((d) => [d.getAttribute('data-left-id'), d.getAttribute('data-right-id')]),
+      [['p-h', 'p-s'], ['p-s', 'free']],
+      'the dividers follow the panes they now sit between',
+    );
+
+    harness.emitSession(pushState('b1', b1Rows([splitRow('free-2', 'b1')])));
+    await settle();
+    assert.deepStrictEqual(rowIds(), ['p-h', 'p-s', 'free', 'free-2'], 'a later free split joins the end');
+
+    // A Space that cannot be read still keeps its declared panes ahead of the free ones.
+    harness.emitSession(pushState('b2', [
+      ...b1Rows(),
+      baseRow('b2', ['f2', 'q-s', 'q-h']),
+      splitRow('f2', 'b2'),
+      splitRow('q-s', 'b2', { role: 'sync', spaceTerminalId: 'sapo' }),
+      splitRow('q-h', 'b2', { role: 'sync', spaceTerminalId: 'haravan' }),
+    ]));
+    await settle();
+    assert.deepStrictEqual(rowIds(), ['q-s', 'q-h', 'f2']);
   });
 
   it('resizes adjacent panes by dragging their divider, clamped, and persists the fractions per base', async () => {

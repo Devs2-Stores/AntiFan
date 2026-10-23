@@ -225,7 +225,22 @@ whose parent is gone leaves no orphan tab behind.
   `.antifan/space.json` (`src/main/project/space-manifest.ts`, opened by
   `src/main/project/space-open.ts` through `antifan:space:open`): the file is untrusted, so its
   commands are shown and confirmed by content hash (stored in the data root), reopening reuses
-  terminals by `spaceTerminalId`, and `path` tabs must resolve inside the folder. A terminal with
+  terminals by `spaceTerminalId`, and `path` tabs must resolve inside the folder. An entry with
+  `splitOf` is a pane in the lower row of its base terminal (each with its own `cwd`, role,
+  label and optional `command`; the platform is whatever the command runs - `hrv theme dev`,
+  `sapo theme dev`, `shopify theme dev` - nothing is keyed on Haravan or Sapo). The lower row
+  shows the declared panes first, in space.json order, then every other pane (the free split,
+  splits an agent minted) in creation order (`splitRowsOf` in `src/renderer/standalone.js`).
+  The terminal header's Space-splits button (`#btnSpaceSplits`, always shown, dimmed with the
+  reason in its title while the active terminal's Space declares no split for it) opens those
+  panes under the terminal the user is in instead of minting the Space's own base
+  (`antifan:space:splits-info` /
+  `antifan:space:open-splits`, `openSpaceSplits`): a terminal minted for a base entry gets that
+  entry's splits, any other terminal gets the first base's that declares splits. It reuses,
+  wakes and confirms commands exactly like a full open; confirming only those splits never
+  pre-approves the rest of the manifest. A command is typed only into a pane it mints or wakes;
+  a reused running pane keeps the role it was minted with. The manual split button keeps adding
+  or removing one unnamed free pane. A terminal with
   `role: 'sync'` or `idlePolicy: 'never'` (a theme watcher) is refused by `sleepSession`
   (`SLEEP_REFUSED_WATCHER`), because sleeping kills its process tree; identity for duplicate
   watchers comes from `src/main/project/sync-identity.ts`.
