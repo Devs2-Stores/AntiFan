@@ -1,5 +1,6 @@
+import { canonicalFolderKey } from '../project/workspace-capsule';
 import { CapabilityCatalogue } from './capability-catalogue';
-import { TerminalManager, agentTerminalOwnerKey, DEFAULT_TERMINAL_CAPSULE_ID } from '../browser/terminal-manager';
+import { TerminalManager, agentTerminalOwnerKey, DEFAULT_TERMINAL_CAPSULE_ID, type SessionSummary } from '../browser/terminal-manager';
 import {
   CapabilityError,
   CapabilityRequestContext,
@@ -72,6 +73,9 @@ export interface TerminalWriteResult {
 
 const SESSION_SLEEPING_CODE = 'SESSION_SLEEPING' as const;
 
+/** Deadline of a `terminal.create` call; also how long a queued reuse create waits on a stuck predecessor. */
+const CREATE_POLICY_TIMEOUT_MS = 15_000;
+
 function sleepingWaitResult(sessionId: string, record: TerminalLifecycleProbe): TerminalWaitSleepingResult {
   const sessionGeneration = typeof record.sessionGeneration === 'number' ? record.sessionGeneration : 0;
   const lastSeq = typeof record.lastSeq === 'number' ? record.lastSeq : 0;
@@ -104,7 +108,14 @@ function sleepingWaitResult(sessionId: string, record: TerminalLifecycleProbe): 
 export interface TerminalOwnershipPort {
   ownerTabId(attachmentId: string): string | undefined;
   allowsTab(tabId: string, terminalId: string): boolean;
+  /** A live affinity binds the shell to a tab; `create` reads it to learn whether the host already claimed a session. */
   isAgentTerminal(terminalId: string): boolean;
+  /**
+   * Whether an agent holds the shell for any reason the host knows: a live affinity in any window or
+   * the still-open tab its `agent:` owner key names. This is what keeps one attachment's shell away
+   * from another, so a shell evicted from the affinity map stays private to its tab's agent.
+   */
+  isAgentHeld(terminalId: string): boolean;
   bind(terminalId: string, generation: number | undefined, tabId: string): boolean;
   /** Probe whether a tab is alive and what capsule it was created under. */
   tabAffiliation(tabId: string): { live: boolean; capsuleId?: string };
@@ -178,7 +189,7 @@ export function assertTerminalOwnership(
   if (!scope.bound) return;
   const { ownership, tabId } = scope;
   if (ownership.allowsTab(tabId, terminalId)) return;
-  const agentOwned = ownership.isAgentTerminal(terminalId);
+  const agentOwned = ownership.isAgentHeld(terminalId);
   if (mode === 'observe' && !agentOwned) return;
   const plane = agentOwned ? "another attachment's agent terminal" : 'a user terminal';
   throw new CapabilityError(
@@ -188,6 +199,36 @@ export function assertTerminalOwnership(
         ? 'observe user terminals such as hrv/shopify theme dev with terminal.wait or terminal.list; run one-off commands with your host shell tool; do not write to a terminal you do not own'
         : 'wait on your own sessions, or on user-plane terminals no agent owns')
   );
+}
+
+/**
+ * The live base shell this tab already minted that satisfies a `terminal.create` request, if any.
+ *
+ * Matching is on the owner key stamped at mint time and on the gate: an id is only handed back when
+ * `allowsTab` would let the caller operate it, so the answer is never a shell the next write is
+ * refused. A requested folder must name the same directory as the shell's cwd (canonical key, so
+ * case and junctions do not matter) and an explicit capsule must match; with neither requested any
+ * live shell of the tab fits.
+ */
+function findReusableOwnTerminal(
+  terminal: TerminalManager,
+  scope: Extract<TerminalCallerScope, { bound: true }>,
+  agentOwnerKey: string,
+  requestedCwd: string | undefined,
+  requestedCapsuleId: string | undefined
+): SessionSummary | undefined {
+  const wantedFolder = typeof requestedCwd === 'string' && requestedCwd.trim()
+    ? canonicalFolderKey(requestedCwd.trim())
+    : undefined;
+  for (const row of terminal.listSessions(true)) {
+    if (row.ownerKey !== agentOwnerKey || row.splitOf) continue;
+    if (row.state === 'exited' || row.state === 'closed') continue;
+    if (requestedCapsuleId && row.capsuleId !== requestedCapsuleId) continue;
+    if (wantedFolder !== undefined && canonicalFolderKey(row.cwd) !== wantedFolder) continue;
+    if (!scope.ownership.allowsTab(scope.tabId, row.id)) continue;
+    return row;
+  }
+  return undefined;
 }
 
 export function registerTerminalCapabilities(
@@ -413,7 +454,7 @@ export function registerTerminalCapabilities(
           continue;
         }
         const owned = scope.ownership.allowsTab(scope.tabId, id);
-        if (owned || !scope.ownership.isAgentTerminal(id)) visible.push(withOwned(session, owned));
+        if (owned || !scope.ownership.isAgentHeld(id)) visible.push(withOwned(session, owned));
       }
       const omitted = sessions.length - visible.length;
       return {
@@ -424,6 +465,37 @@ export function registerTerminalCapabilities(
     },
   });
 
+  // Reuse creates from one tab run one at a time. `reuse` looks for a live shell and then mints one, so
+  // two racing on a tab would both mint. A plain create never looks, so it is never queued.
+  // A predecessor is waited for at most the create policy timeout: a createSession that never settles
+  // (a stalled daemon socket) fails its own caller at that deadline, and must not hold the tab's later
+  // creates hostage. The queue tail never rejects, so a failure cannot wedge a tab either.
+  const createQueues = new Map<string, Promise<void>>();
+  const settleWithin = (pending: Promise<void>, ms: number): Promise<void> => {
+    const { promise: deadline, resolve } = Promise.withResolvers<void>();
+    const timer = setTimeout(resolve, ms);
+    timer.unref?.();
+    return Promise.race([pending, deadline]).finally(() => clearTimeout(timer));
+  };
+  const serializeReuseCreatePerTab = async <T>(
+    context: CapabilityRequestContext | AuthenticatedCapabilityContext | undefined,
+    enabled: boolean,
+    work: () => Promise<T>
+  ): Promise<T> => {
+    if (!enabled) return work();
+    const scope = resolveTerminalCallerScope(ownership, context);
+    if (!scope.bound) return work();
+    const prior = createQueues.get(scope.tabId);
+    const run = prior ? settleWithin(prior, CREATE_POLICY_TIMEOUT_MS).then(work) : work();
+    const tail = run.then(() => undefined, () => undefined);
+    createQueues.set(scope.tabId, tail);
+    try {
+      return await run;
+    } finally {
+      if (createQueues.get(scope.tabId) === tail) createQueues.delete(scope.tabId);
+    }
+  };
+
   catalogue.register<
     {
       cwd?: string;
@@ -431,11 +503,13 @@ export function registerTerminalCapabilities(
       parentId?: string;
       initialCols?: number;
       initialRows?: number;
+      reuse?: boolean;
     },
-    { sessionId: string; ownerBound?: boolean }
+    { sessionId: string; ownerBound?: boolean; reused?: boolean; cwd?: string }
   >({
     name: 'terminal.create',
-    description: 'Create a new base or split terminal PTY session',
+    description:
+      'Create a new base or split terminal PTY session. Close shells you no longer need with terminal.close. reuse:true returns your live shell for the same folder instead of a new one; use it only when that shell is idle, because a shell still running a command receives the input',
     risk: 'write',
     policy: {
       effect: 'management',
@@ -445,7 +519,7 @@ export function registerTerminalCapabilities(
       duplicateMode: 'reject-concurrent',
       recordedVisibility: 'tenant-scoped',
       receiptReadPermission: 'write',
-      timeoutMs: 15_000,
+      timeoutMs: CREATE_POLICY_TIMEOUT_MS,
       retentionPolicy: 'run-durable',
       ownerCancellationBehavior: 'abort-immediate',
       subscriberDisconnectBehavior: 'abort-when-unobserved',
@@ -460,12 +534,13 @@ export function registerTerminalCapabilities(
         parentId: { type: 'string' },
         initialCols: { type: 'number' },
         initialRows: { type: 'number' },
+        reuse: { type: 'boolean', description: 'Return this tab\'s live shell for the same cwd instead of creating one (only when it is idle)' },
       },
     },
-    execute: async (
-      params: { cwd?: string; capsuleId?: string; parentId?: string; initialCols?: number; initialRows?: number },
+    execute: (
+      params: { cwd?: string; capsuleId?: string; parentId?: string; initialCols?: number; initialRows?: number; reuse?: boolean },
       context?: CapabilityRequestContext | AuthenticatedCapabilityContext
-    ) => {
+    ) => serializeReuseCreatePerTab(context, params.reuse === true && !params.parentId, async () => {
       // Ownership is resolved BEFORE a shell exists: a session created for a caller that cannot be
       // attributed to a tab would be an ownerless terminal inside the shared namespace — precisely
       // the session any other project's attachment could then reach.
@@ -507,6 +582,14 @@ export function registerTerminalCapabilities(
         ? (explicitCapsuleId ?? affiliation?.capsuleId ?? DEFAULT_TERMINAL_CAPSULE_ID)
         : params.capsuleId;
       const agentOwnerKey = agentTerminalOwnerKey(scope.bound ? scope.tabId : undefined);
+      // Opt-in only: the terminal manager has no busy/foreground signal, so a shell handed back
+      // implicitly could be mid-command (a timed-out wait is exactly when an agent asks for another
+      // shell) and would swallow the next command. A different folder, a shell that has exited, or
+      // one the gate would refuse the caller still mints a fresh session.
+      if (params.reuse === true && scope.bound && !params.parentId) {
+        const reusable = findReusableOwnTerminal(terminal, scope, agentOwnerKey, params.cwd, explicitCapsuleId);
+        if (reusable) return { sessionId: reusable.id, ownerBound: true, reused: true, cwd: reusable.cwd };
+      }
       const id = params.parentId
         ? await terminal.createSplitSession(params.parentId, params.cwd, params.initialCols, params.initialRows)
         : await terminal.createSession(params.cwd, targetCapsuleId, agentOwnerKey);
@@ -554,7 +637,7 @@ export function registerTerminalCapabilities(
         `Session "${id}" was created but could not be bound to tab "${scope.tabId}": target tab is not owned by any live window`,
         { tabId: scope.tabId, sessionId: id }
       );
-    },
+    }),
   });
 
   catalogue.register<{ sessionId: string; isSplit?: boolean }, { closed: boolean }>({

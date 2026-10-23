@@ -442,8 +442,21 @@ window.addEventListener(
     if (mutation.attributeName === 'class') return tokenSet(mutation.oldValue) === tokenSet(current);
     return mutation.oldValue === current;
   };
+  // A live countdown rewrites its digits every second by design. That is the page ticking, not the
+  // document changing under a capture, so a mutation inside one never advances the revision. This is
+  // the same set the DOM-quiet settle gate exempts (DEFAULT_DOM_QUIET_IGNORE in capture-settle.ts,
+  // which the sandboxed preload cannot import) plus the ARIA live-timer role; keep the two in step.
+  const VOLATILE_REGION = '[role="timer"], [data-countdown], [data-timer], .timer, .countdown';
+  const isInsideVolatileRegion = (node: Node | null): boolean => {
+    const el = node && node.nodeType === 1 ? (node as Element) : node ? node.parentElement : null;
+    try {
+      return !!el && el.closest(VOLATILE_REGION) !== null;
+    } catch {
+      return false;
+    }
+  };
   const isMeaningfulMutation = (m: MutationRecord): boolean => {
-    if (isAntifanOwned(m.target)) return false;
+    if (isAntifanOwned(m.target) || isInsideVolatileRegion(m.target)) return false;
     if (m.type === 'childList') {
       const nodes = [...Array.from(m.addedNodes), ...Array.from(m.removedNodes)];
       return nodes.length === 0 || !nodes.every((n) => isAntifanOwned(n));

@@ -622,6 +622,70 @@ describe('Terminal project handover — what the manager may do with an agent ro
     assert.deepEqual(recording.callsFor('closeSession'), [`closeSession:${AGENT_ROW.id}`]);
   });
 
+  it('lets a person end an agent-held shell after confirming, and keeps it on any other answer', async () => {
+    const { host, harness, recording } = windowFixture({ owner: MANAGER, rows: ROWS });
+    host.setAgentTerminalHold((terminalId) => terminalId === AGENT_ROW.id);
+    const electron = require('electron') as { dialog: { showMessageBox: (...args: unknown[]) => Promise<{ response: number }> } };
+    const original = electron.dialog.showMessageBox;
+    const asked: Array<{ message?: string; buttons?: string[] }> = [];
+    let answer = 0;
+    electron.dialog.showMessageBox = (...args: unknown[]) => {
+      asked.push(args[1] as { message?: string; buttons?: string[] });
+      return Promise.resolve({ response: answer });
+    };
+    const close = (id: string) => harness.invoke('antifan:terminal:close-session', id);
+    const cleared: string[] = [];
+    const hostSeam = host as unknown as { clearTerminalAgentAffinity: (id: string) => unknown };
+    const originalClear = hostSeam.clearTerminalAgentAffinity.bind(host);
+    hostSeam.clearTerminalAgentAffinity = (id: string) => {
+      cleared.push(id);
+      return originalClear(id);
+    };
+    try {
+      const shell = host.shell as unknown as { window: unknown };
+      const realWindow = shell.window;
+      // Nothing to ask from: a destroyed window gives no consent, and the shell stays.
+      shell.window = { isDestroyed: () => true };
+      assert.equal(await close(AGENT_ROW.id), false);
+      assert.equal(asked.length, 0);
+
+      shell.window = realWindow ?? { isDestroyed: () => false };
+      answer = 0;
+      assert.equal(await close(AGENT_ROW.id), false, 'declining keeps the agent\'s shell');
+      assert.deepEqual(recording.callsFor('closeSession'), []);
+      assert.equal(asked.length, 1);
+      assert.match(asked[0]?.message ?? '', new RegExp(AGENT_ROW.name ?? AGENT_ROW.id));
+
+      // A yes to the close dialog is not a licence for anything else: sleep and typing stay refused
+      // and never offer the dialog, so only the close button can end an agent's shell.
+      answer = 1;
+      asked.length = 0;
+      assert.deepEqual(await harness.invoke(TERMINAL_CHANNELS.SLEEP_SESSION, { id: AGENT_ROW.id }), { ok: false, reason: 'NOT_PERMITTED' });
+      const originalWarn = console.warn;
+      console.warn = () => {};
+      try {
+        harness.invoke('antifan:terminal:input-session', { id: AGENT_ROW.id, input: 'echo hi\r' });
+      } finally {
+        console.warn = originalWarn;
+      }
+      assert.deepEqual(recording.callsFor('sleepSession'), []);
+      assert.deepEqual(recording.callsFor('writeTo'), []);
+      assert.equal(asked.length, 0, 'none of them offers the confirmation');
+      assert.deepEqual(cleared, [], 'a refused write drops no affinity');
+
+      assert.equal(await close(AGENT_ROW.id), true, 'an explicit confirmation ends it');
+      assert.deepEqual(recording.callsFor('closeSession'), [`closeSession:${AGENT_ROW.id}`]);
+      assert.deepEqual(cleared, [AGENT_ROW.id], 'its affinity entry is dropped with the shell');
+
+      // A row nobody holds is never put to the person: that rule is only for an agent's shell.
+      const before = asked.length;
+      assert.equal(await close(OTHER_ROW.id), true);
+      assert.equal(asked.length, before);
+    } finally {
+      electron.dialog.showMessageBox = original;
+    }
+  });
+
   it('refuses a bridge-style caller that names no window before any route runs', async () => {
     const host = buildHost({ owner: MANAGER });
     const recording = new RecordingTerminalManager(ROWS);

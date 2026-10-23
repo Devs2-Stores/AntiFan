@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'node:test';
+import { describe, it, before, after, mock } from 'node:test';
 import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -397,6 +397,7 @@ describe('Terminal Capabilities, Generation Tracking & Wait Lifecycle (Phase 04)
         attachmentId === 'att-mine' ? 'tab-mine' : attachmentId === 'att-other' ? 'tab-other' : undefined,
       allowsTab: (tabId: string, terminalId: string) => boundToTab[tabId] === terminalId,
       isAgentTerminal: (terminalId: string) => terminalId === mine || terminalId === foreign,
+      isAgentHeld: (terminalId: string) => terminalId === mine || terminalId === foreign,
       bind: () => true,
       tabAffiliation: () => ({ live: true }),
     };
@@ -520,6 +521,7 @@ describe('Terminal Capabilities, Generation Tracking & Wait Lifecycle (Phase 04)
       ownerTabId: (attachmentId: string) => (attachmentId === 'att-known' ? 'tab-known' : undefined),
       allowsTab: (tabId: string, terminalId: string) => tabId === 'tab-known' && terminalId === 'terminal-owned-parent',
       isAgentTerminal: () => false,
+      isAgentHeld: () => false,
       bind: (terminalId: string, generation: number | undefined, tabId: string) => {
         claims.push({ terminalId, generation, tabId });
         return true;
@@ -602,6 +604,7 @@ describe('Terminal Capabilities, Generation Tracking & Wait Lifecycle (Phase 04)
       ownerTabId: () => 'tab-dead',
       allowsTab: () => false,
       isAgentTerminal: () => false,
+      isAgentHeld: () => false,
       bind: () => true,
       tabAffiliation: () => ({ live: false }),
     };
@@ -626,6 +629,7 @@ describe('Terminal Capabilities, Generation Tracking & Wait Lifecycle (Phase 04)
         ownerTabId: () => 'tab-live',
         allowsTab: () => false,
         isAgentTerminal: () => false,
+        isAgentHeld: () => false,
         bind: () => {
           if (bindOutcome === 'throws') throw new Error('stale tab');
           return false;
@@ -662,6 +666,7 @@ describe('Terminal Capabilities, Generation Tracking & Wait Lifecycle (Phase 04)
       ownerTabId: () => 'tab-capsule',
       allowsTab: () => false,
       isAgentTerminal: () => false,
+      isAgentHeld: () => false,
       bind: () => true,
       tabAffiliation: () => ({ live: true, capsuleId: tabCapsule }),
     };
@@ -683,6 +688,217 @@ describe('Terminal Capabilities, Generation Tracking & Wait Lifecycle (Phase 04)
     assert.notStrictEqual(capsules[1], undefined);
     await scoped.dispatch('terminal.create', { capsuleId: 'explicit-capsule' }, context);
     assert.strictEqual(capsules[2], 'explicit-capsule');
+  });
+
+  it('14. Hands back the shell the tab already minted for that folder instead of leaving another behind', async () => {
+    // Field report: one agent minted a terminal per command (9 creates, 1 close in 8 minutes) and the
+    // sidebar filled with shells nobody closed.
+    const rows: Array<{ id: string; cwd: string; ownerKey?: string; state: string; capsuleId?: string; splitOf?: string }> = [];
+    const binds: string[] = [];
+    const ownership = {
+      ownerTabId: () => 'tab-reuse',
+      allowsTab: (tabId: string, terminalId: string) => tabId === 'tab-reuse' && rows.some((r) => r.id === terminalId && r.ownerKey === 'agent:tab-reuse'),
+      isAgentTerminal: () => false,
+      isAgentHeld: () => false,
+      bind: (terminalId: string) => {
+        binds.push(terminalId);
+        return true;
+      },
+      tabAffiliation: () => ({ live: true }),
+    };
+    const scoped = new CapabilityCatalogue({ runtime: { mode: 'standalone', lifecycle: 'active' }, projectId, workspaceId, runtimeId: lease.runtimeId, hostEpoch: 1, getActiveLease: () => lease });
+    const facade = {
+      createSession: async (cwd?: string, capsuleId?: string, ownerKey?: string) => {
+        const id = `terminal-reuse-${rows.length + 1}`;
+        rows.push({ id, cwd: cwd ?? 'E:/Work/default', ownerKey, state: 'running', capsuleId });
+        return id;
+      },
+      getSession: (id: string) => ({ id, sessionGeneration: 1 }),
+      listSessions: () => rows,
+      getActiveSessionId: () => '',
+    } as unknown as TerminalManager;
+    registerTerminalCapabilities(scoped, facade, ownership);
+    const context = { attachmentId: 'att-reuse', runId: 'r', attemptId: 'a', projectId, workspaceId, backendId: 'b', hostEpoch: 1, invocationId: 'i', lease, leaseToken: lease.token, grant: 'write' as const };
+    type CreateResult = { sessionId: string; ownerBound?: boolean; reused?: boolean; cwd?: string };
+    const create = (params: Record<string, unknown>) => scoped.dispatch('terminal.create', params, context) as Promise<CreateResult>;
+
+    const first = await create({ cwd: 'E:/Work/first' });
+    assert.strictEqual(first.reused, undefined, 'the first create mints a shell');
+
+    const again = await create({ cwd: 'E:/Work/first', reuse: true });
+    assert.deepStrictEqual(again, { sessionId: first.sessionId, ownerBound: true, reused: true, cwd: 'E:/Work/first' });
+    const anyFolder = await create({ reuse: true });
+    assert.strictEqual(anyFolder.sessionId, first.sessionId, 'with no folder requested the tab\'s live shell fits');
+    assert.strictEqual(rows.length, 1, 'no second PTY may be spawned while a compatible shell is live');
+    assert.deepStrictEqual(binds, [first.sessionId], 'a reused shell is not re-bound');
+
+    // A different folder is a different shell: silently running there in the first folder would be worse than a new tab.
+    const other = await create({ cwd: 'E:/Work/second', reuse: true });
+    assert.notStrictEqual(other.sessionId, first.sessionId);
+    assert.strictEqual(other.reused, undefined);
+
+    // A shell that has exited cannot take commands, so it is never handed back.
+    const firstRow = rows.find((r) => r.id === first.sessionId);
+    assert.ok(firstRow);
+    firstRow.state = 'exited';
+    const afterExit = await create({ cwd: 'E:/Work/first', reuse: true });
+    assert.notStrictEqual(afterExit.sessionId, first.sessionId);
+    assert.strictEqual(afterExit.reused, undefined);
+
+    // Another tab's shell is not this caller's to hand back.
+    rows.push({ id: 'terminal-foreign', cwd: 'E:/Work/third', ownerKey: 'agent:tab-other', state: 'running' });
+    const third = await create({ cwd: 'E:/Work/third', reuse: true });
+    assert.notStrictEqual(third.sessionId, 'terminal-foreign');
+    assert.strictEqual(third.reused, undefined);
+
+    // Reuse is opt-in: without it a compatible, possibly busy shell is never handed back.
+    const plain = await create({ cwd: 'E:/Work/third' });
+    assert.notStrictEqual(plain.sessionId, third.sessionId);
+    assert.strictEqual(plain.reused, undefined);
+  });
+
+  it('15. Concurrent reuse creates from one tab mint a single shell', async () => {
+    // Field report: parallel `terminal.create` calls both saw "no shell yet" and each minted one.
+    const rows: Array<{ id: string; cwd: string; ownerKey?: string; state: string }> = [];
+    const ownership = {
+      ownerTabId: () => 'tab-race',
+      allowsTab: (tabId: string, terminalId: string) => tabId === 'tab-race' && rows.some((r) => r.id === terminalId && r.ownerKey === 'agent:tab-race'),
+      isAgentTerminal: () => false,
+      isAgentHeld: () => false,
+      bind: () => true,
+      tabAffiliation: () => ({ live: true }),
+    };
+    const scoped = new CapabilityCatalogue({ runtime: { mode: 'standalone', lifecycle: 'active' }, projectId, workspaceId, runtimeId: lease.runtimeId, hostEpoch: 1, getActiveLease: () => lease });
+    const facade = {
+      // The row only lands after a tick, as the real daemon round trip does.
+      createSession: async (cwd?: string, _capsuleId?: string, ownerKey?: string) => {
+        // Yield a few microtasks, as the daemon round trip does, so racing creates interleave.
+        for (let i = 0; i < 5; i++) await Promise.resolve();
+        const id = `terminal-race-${rows.length + 1}`;
+        rows.push({ id, cwd: cwd ?? 'E:/Work/default', ownerKey, state: 'running' });
+        return id;
+      },
+      getSession: (id: string) => ({ id, sessionGeneration: 1 }),
+      listSessions: () => rows,
+      getActiveSessionId: () => '',
+    } as unknown as TerminalManager;
+    registerTerminalCapabilities(scoped, facade, ownership);
+    const context = { attachmentId: 'att-race', runId: 'r', attemptId: 'a', projectId, workspaceId, backendId: 'b', hostEpoch: 1, invocationId: 'i', lease, leaseToken: lease.token, grant: 'write' as const };
+    const create = () => scoped.dispatch('terminal.create', { cwd: 'E:/Work/race', reuse: true }, context) as Promise<{ sessionId: string }>;
+
+    const results = await Promise.all([create(), create(), create()]);
+    assert.strictEqual(rows.length, 1, 'three racing creates must spawn one PTY');
+    assert.deepStrictEqual(new Set(results.map((r) => r.sessionId)), new Set(rows.map((r) => r.id)));
+  });
+
+  it('16. A reuse create stuck forever does not hold the tab\'s later creates hostage', async () => {
+    // A createSession whose daemon socket stalls never settles. Its own caller fails at the policy
+    // deadline; the next create from that tab must run once that deadline has passed, not wait on it.
+    const rows: Array<{ id: string; cwd: string; ownerKey?: string; state: string }> = [];
+    let calls = 0;
+    const ownership = {
+      ownerTabId: () => 'tab-hang',
+      allowsTab: (tabId: string, terminalId: string) => tabId === 'tab-hang' && rows.some((r) => r.id === terminalId && r.ownerKey === 'agent:tab-hang'),
+      isAgentTerminal: () => false,
+      isAgentHeld: () => false,
+      bind: () => true,
+      tabAffiliation: () => ({ live: true }),
+    };
+    const scoped = new CapabilityCatalogue({ runtime: { mode: 'standalone', lifecycle: 'active' }, projectId, workspaceId, runtimeId: lease.runtimeId, hostEpoch: 1, getActiveLease: () => lease });
+    const facade = {
+      createSession: (cwd?: string, _capsuleId?: string, ownerKey?: string): Promise<string> => {
+        calls += 1;
+        if (calls === 1) return new Promise<string>(() => undefined);
+        const id = `terminal-hang-${calls}`;
+        rows.push({ id, cwd: cwd ?? 'E:/Work/default', ownerKey, state: 'running' });
+        return Promise.resolve(id);
+      },
+      getSession: (id: string) => ({ id, sessionGeneration: 1 }),
+      listSessions: () => rows,
+      getActiveSessionId: () => '',
+    } as unknown as TerminalManager;
+    registerTerminalCapabilities(scoped, facade, ownership);
+    const context = { attachmentId: 'att-hang', runId: 'r', attemptId: 'a', projectId, workspaceId, backendId: 'b', hostEpoch: 1, invocationId: 'i', lease, leaseToken: lease.token, grant: 'write' as const };
+    const create = () => scoped.dispatch('terminal.create', { cwd: 'E:/Work/hang', reuse: true }, context) as Promise<{ sessionId: string }>;
+    const turn = () => new Promise<void>((resolve) => setImmediate(resolve));
+
+    mock.timers.enable({ apis: ['setTimeout'] });
+    try {
+      void create();
+      await turn();
+      const second = create();
+      await turn();
+      assert.strictEqual(calls, 1, 'the second create queues behind the first until the deadline');
+      mock.timers.tick(15_000);
+      const result = await second;
+      assert.strictEqual(result.sessionId, 'terminal-hang-2');
+      assert.strictEqual(calls, 2);
+    } finally {
+      mock.timers.reset();
+    }
+  });
+
+  it('17. Plain creates are never queued behind another create', async () => {
+    const pending = Promise.withResolvers<string>();
+    let calls = 0;
+    const ownership = {
+      ownerTabId: () => 'tab-plain',
+      allowsTab: () => false,
+      isAgentTerminal: () => false,
+      isAgentHeld: () => false,
+      bind: () => true,
+      tabAffiliation: () => ({ live: true }),
+    };
+    const scoped = new CapabilityCatalogue({ runtime: { mode: 'standalone', lifecycle: 'active' }, projectId, workspaceId, runtimeId: lease.runtimeId, hostEpoch: 1, getActiveLease: () => lease });
+    const facade = {
+      createSession: (): Promise<string> => {
+        calls += 1;
+        return calls === 1 ? pending.promise : Promise.resolve('terminal-plain-2');
+      },
+      getSession: (id: string) => ({ id, sessionGeneration: 1 }),
+      listSessions: () => [],
+      getActiveSessionId: () => '',
+    } as unknown as TerminalManager;
+    registerTerminalCapabilities(scoped, facade, ownership);
+    const context = { attachmentId: 'att-plain', runId: 'r', attemptId: 'a', projectId, workspaceId, backendId: 'b', hostEpoch: 1, invocationId: 'i', lease, leaseToken: lease.token, grant: 'write' as const };
+    const create = () => scoped.dispatch('terminal.create', { cwd: 'E:/Work/plain' }, context) as Promise<{ sessionId: string }>;
+
+    const first = create();
+    const second = await create();
+    assert.strictEqual(second.sessionId, 'terminal-plain-2', 'a stalled create must not delay an independent one');
+    pending.resolve('terminal-plain-1');
+    assert.strictEqual((await first).sessionId, 'terminal-plain-1');
+  });
+
+  it('18. A shell an agent still holds stays private even once evicted from the affinity map', async () => {
+    const rows = [
+      { id: 'terminal-held', cwd: 'E:/Work/held', state: 'running' },
+      { id: 'terminal-user', cwd: 'E:/Work/user', state: 'running' },
+    ];
+    const ownership = {
+      ownerTabId: () => 'tab-other',
+      allowsTab: () => false,
+      // Evicted: no live affinity any more, yet the directory still names an open tab as its agent.
+      isAgentTerminal: () => false,
+      isAgentHeld: (terminalId: string) => terminalId === 'terminal-held',
+      bind: () => true,
+      tabAffiliation: () => ({ live: true }),
+    };
+    const scoped = new CapabilityCatalogue({ runtime: { mode: 'standalone', lifecycle: 'active' }, projectId, workspaceId, runtimeId: lease.runtimeId, hostEpoch: 1, getActiveLease: () => lease });
+    const facade = {
+      listSessions: () => rows,
+      getSession: (id: string) => rows.find((r) => r.id === id),
+      getActiveSessionId: () => '',
+    } as unknown as TerminalManager;
+    registerTerminalCapabilities(scoped, facade, ownership);
+    const context = { attachmentId: 'att-other', runId: 'r', attemptId: 'a', projectId, workspaceId, backendId: 'b', hostEpoch: 1, invocationId: 'i', lease, leaseToken: lease.token, grant: 'write' as const };
+
+    const listed = (await scoped.dispatch('terminal.list', {}, context)) as { sessions: Array<{ id: string }> };
+    assert.deepStrictEqual(listed.sessions.map((s) => s.id), ['terminal-user'], 'a held shell is not advertised to another attachment');
+    await assert.rejects(
+      () => scoped.dispatch('terminal.write', { sessionId: 'terminal-held', input: 'x\r\n' }, context),
+      (err: unknown) => err instanceof CapabilityError && err.code === 'TERMINAL_FORBIDDEN' && /agent terminal/.test(err.message)
+    );
   });
 
 });

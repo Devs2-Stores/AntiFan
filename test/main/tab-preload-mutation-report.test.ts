@@ -124,4 +124,31 @@ describe('tab preload DOM mutation report', () => {
     await drain();
     assert.strictEqual(mutationReports(), 1);
   });
+
+  it('does not report a live countdown rewriting its digits', async () => {
+    const doc = dom.window.document;
+    const timer = doc.createElement('div');
+    timer.setAttribute('role', 'timer');
+    timer.innerHTML = '<span><strong>09</strong></span>';
+    doc.body.appendChild(timer);
+    await drain();
+    sent.length = 0;
+    timer.querySelector('strong').textContent = '08';
+    timer.querySelector('strong').textContent = '07';
+    await drain();
+    assert.strictEqual(mutationReports(), 0);
+  });
+
+  it('still reports a class change next to a countdown', async () => {
+    const doc = dom.window.document;
+    const timer = doc.createElement('div');
+    timer.setAttribute('role', 'timer');
+    doc.body.appendChild(timer);
+    await drain();
+    sent.length = 0;
+    timer.textContent = '00';
+    doc.querySelector('header').classList.add('is-scrolled');
+    await drain();
+    assert.strictEqual(mutationReports(), 1);
+  });
 });

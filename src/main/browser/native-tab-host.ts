@@ -59,7 +59,7 @@ import { LocalSessionVault, isTrustedSessionVaultSender } from './local-session-
 import { LocalCredentialVault, resolveSenderFrameOrigin } from './local-credential-vault';
 import { HaravanUploader } from './haravan-uploader';
 import type { ActionSequenceParams, ActionSequenceResult } from './tab-automation-host';
-import { TerminalManager, DEFAULT_TERMINAL_CAPSULE_ID, workspaceTerminalProvenance, selectAnnotationTargets, selectAnnotationPickerRows, type SessionSummary, type TerminalDiagnosticsReport, type TerminalManagerStats, type TerminalSessionStateProjection } from './terminal-manager';
+import { TerminalManager, DEFAULT_TERMINAL_CAPSULE_ID, agentTerminalOwnerKey, workspaceTerminalProvenance, selectAnnotationTargets, selectAnnotationPickerRows, type SessionSummary, type TerminalDiagnosticsReport, type TerminalManagerStats, type TerminalSessionStateProjection } from './terminal-manager';
 import { writeFullPageCapture } from './full-page-capture-file';
 import { buildVSCodeFileUrl, buildVSCodeLaunchArgs, normalizePreviewPath, readFilePreview } from './file-preview-reader';
 import { checkForUpdatesAndRestart } from './app-menu';
@@ -3837,17 +3837,18 @@ export class NativeTabHost extends EventEmitter {
     channel: 'antifan:terminal:close-session',
     surface: ['sidebar', 'terminalPopout'],
     sessionArgs: (args) => [typeof args[0] === 'string' ? args[0] : undefined],
-    run: ({ host }, event, args) => {
+    run: async ({ host }, event, args) => {
       const id = typeof args[0] === 'string' ? args[0] : '';
       const senderInfo = host.findTabByWebContents(event?.sender);
       const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tabId === host.automationTabId);
       if (isAgent && id) {
         host.assertTerminalAccess(senderInfo.tabId, id);
       }
-      // The manager's own read-only rule: it may close any row it shows except the agent-owned
-      // ones, whose shells are not the manager's to end.
+      // The manager's own read-only rule withholds an agent-held shell from every write, but ending
+      // one is a decision a person may take: the refusal becomes a confirmation, never a silent
+      // no-op on a button that is drawn on every row.
       const gate = host.assertManagerMayOperate(id, event?.sender?.id);
-      if (gate !== true) {
+      if (gate !== true && !(await host.confirmManagerCloseOfAgentSession(id, gate))) {
         host.reportManagerWriteRefusal('antifan:terminal:close-session', gate);
         return false;
       }
@@ -3859,17 +3860,17 @@ export class NativeTabHost extends EventEmitter {
     channel: 'antifan:terminal:delete-session',
     surface: ['sidebar', 'terminalPopout'],
     sessionArgs: (args) => [typeof args[0] === 'string' ? args[0] : undefined],
-    run: ({ host }, event, args) => {
+    run: async ({ host }, event, args) => {
       const id = typeof args[0] === 'string' ? args[0] : '';
       const senderInfo = host.findTabByWebContents(event?.sender);
       const isAgent = senderInfo && (senderInfo.tab.state.ephemeral === true || senderInfo.tabId === host.automationTabId);
       if (isAgent && id) {
         host.assertTerminalAccess(senderInfo.tabId, id);
       }
-      // Deleting is closing by another name, so the manager's read-only rule is the same one:
-      // an agent-owned row is shown, never destroyed.
+      // Deleting is closing by another name, so it takes the same road: an agent-held row is
+      // withheld from the manager's writes, and ending one is confirmed by the person, not assumed.
       const gate = host.assertManagerMayOperate(id, event?.sender?.id);
-      if (gate !== true) {
+      if (gate !== true && !(await host.confirmManagerCloseOfAgentSession(id, gate))) {
         host.reportManagerWriteRefusal('antifan:terminal:delete-session', gate);
         return false;
       }
@@ -7550,6 +7551,30 @@ export class NativeTabHost extends EventEmitter {
   /** Report a manager write refusal on the channel that hit it, for the channels that cannot reply. */
   private reportManagerWriteRefusal(surface: string, refusal: ManagerWriteRefusal): void {
     console.warn(`[native-tab-host] ${surface} refused: ${refusal.reason} — ${refusal.message}`);
+  }
+
+  /**
+   * Ask the person whether to end an agent's shell the manager shows read-only. The dialog is
+   * main-process owned, so a page cannot answer it for the user. Anything but an explicit "close"
+   * (cancel, Esc, no window to ask from, a refusal other than the agent-row one) keeps the shell.
+   */
+  public async confirmManagerCloseOfAgentSession(sessionId: string, refusal: ManagerWriteRefusal): Promise<boolean> {
+    if (refusal.reason !== 'MANAGER_AGENT_SESSION_READ_ONLY') return false;
+    const parent = this.shell?.window;
+    if (!parent || parent.isDestroyed()) return false;
+    const row: unknown = await Promise.resolve(TerminalManager.getInstance().getSession(sessionId));
+    const label = row && typeof row === 'object' && 'name' in row && typeof row.name === 'string' && row.name ? row.name : sessionId;
+    const res = await dialog.showMessageBox(parent, {
+      type: 'warning',
+      title: 'AntiFan — Đóng terminal của agent?',
+      message: `Terminal "${label}" do agent sở hữu.`,
+      detail: 'Nếu agent đang chạy lệnh trong terminal này, lệnh sẽ bị ngắt và không khôi phục được.',
+      buttons: ['Giữ lại', 'Đóng terminal'],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+    });
+    return res.response === 1;
   }
 
   /**
@@ -12721,20 +12746,28 @@ export class NativeTabHost extends EventEmitter {
    * A terminal is authorized if:
    * 1. The terminal has an active affinity entry whose primary or managed tabs include this tabId.
    * 2. The terminal session pool contains this tabId.
-   * User terminals (no affinity entry) or foreign terminals (affinity to another tab) return false.
+   * 3. The tab is live and minted the session itself (owner key `agent:<tabId>`). The affinity map
+   *    seats a tab with ONE terminal, so binding a newer terminal to the tab evicts it from every
+   *    older one; without this rule that older shell, still running, would be refused to the very
+   *    tab that created it and nobody could write to it or close it.
+   * A tombstoned affinity entry is an outright denial. User terminals (no affinity, other owner key)
+   * or foreign terminals (affinity to another tab, other owner key) return false.
    */
   public isTerminalAllowedForTab(tabId: string, terminalId: string): boolean {
     if (!tabId || !terminalId) return false;
     const canonicalTabId = this.resolveTargetTabId(tabId) || tabId;
     const entry = this.resolveTerminalAffinityEntry(terminalId);
-    if (!entry || entry.closedAt) return false;
-    if (entry.primaryTabId === canonicalTabId || entry.tabId === canonicalTabId) return true;
-    if (entry.managedTabIds && entry.managedTabIds.has(canonicalTabId)) return true;
-    if (this.sessionTabPools) {
-      const pool = this.sessionTabPools.get(terminalId);
-      if (pool && pool.has(canonicalTabId)) return true;
+    if (entry?.closedAt) return false;
+    if (entry) {
+      if (entry.primaryTabId === canonicalTabId || entry.tabId === canonicalTabId) return true;
+      if (entry.managedTabIds && entry.managedTabIds.has(canonicalTabId)) return true;
+      if (this.sessionTabPools) {
+        const pool = this.sessionTabPools.get(terminalId);
+        if (pool && pool.has(canonicalTabId)) return true;
+      }
     }
-    return false;
+    return this.hasTab(canonicalTabId)
+      && TerminalManager.getInstance().sessionOwnerKey(terminalId) === agentTerminalOwnerKey(canonicalTabId);
   }
 
   /**

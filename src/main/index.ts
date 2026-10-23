@@ -4358,6 +4358,10 @@ async function createWindow(): Promise<void> {
     terminalAuthority: {
       allowsTab: (tabId, terminalId) => (hostForTabOrDegrade(tabId, 'terminalAuthority.allowsTab')?.isTerminalAllowedForTab(tabId, terminalId) ?? false),
       isAgentTerminal: (terminalId) => tabAuthorities.terminalHasLiveAgentAffinity(terminalId),
+      // Whether an agent holds the shell for ANY reason the directory knows (a live affinity in any
+      // window, or the open tab its `agent:` owner key names). A shell evicted from the affinity map
+      // is still its tab's agent shell, so another attachment must not list or wait on it.
+      isAgentHeld: agentHoldsTerminal,
       // A dead tab answers `false` rather than throwing, so the capability can roll the fresh PTY
       // back; anything the bind itself throws is a real fault and reaches the capability as is.
       bind: (terminalId, generation, tabId) =>
@@ -5002,6 +5006,7 @@ async function createWindow(): Promise<void> {
     // getActiveTabId defaults). This is the same authority index the mint resolver
     // consults.
     bridgeServer.setTabHostResolver((tabId) => tabAuthorities.hostForTab(tabId));
+    bridgeServer.setAgentTerminalHold(agentHoldsTerminal);
     recordBenchmark({ surface: 'startup', name: 'bridgeCtor' });
     const bridgePort = await bridgeServer.start();
     recordBenchmark({ surface: 'startup', name: 'bridgeStarted' });

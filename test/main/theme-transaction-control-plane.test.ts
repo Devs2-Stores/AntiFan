@@ -1110,6 +1110,7 @@ describe('ThemeTransactionRegistry ControlPlane Integration & Capability Dispatc
         terminalAuthority: {
           allowsTab: (tabId, terminalId) => tabId === 'tab-mine' && terminalId === 'terminal-mine',
           isAgentTerminal: (terminalId) => terminalId === 'terminal-mine' || terminalId === 'terminal-foreign',
+          isAgentHeld: (terminalId) => terminalId === 'terminal-mine' || terminalId === 'terminal-foreign',
           bind: () => true,
           tabAffiliation: () => ({ live: true }),
         },

@@ -62,7 +62,7 @@ interface TestTabHost {
 }
 
 type TerminalManagerInternal = {
-  sessions: Map<string, { id: string; sessionGeneration: number }>;
+  sessions: Map<string, { id: string; sessionGeneration: number; ownerKey?: string }>;
   writeTo: (id: string, input: string) => void;
 };
 
@@ -208,6 +208,39 @@ describe('Phase 2 Agent-Plane Authority Contract Regressions', () => {
 
       // Tab B must NOT be allowed to operate Tab A's terminal
       assert.strictEqual(host.isTerminalAllowedForTab('tab-agent-b', 'term-agent-a'), false);
+    });
+
+    it('a tab keeps authority over every shell it minted after a newer shell is bound to it', () => {
+      // The affinity map seats a tab with one terminal, so binding terminal-23 evicts the tab from
+      // terminal-19. Field journal: the tab then got TERMINAL_FORBIDDEN ("a user terminal") for
+      // write and close on a PTY it had created, and the shell stayed in the sidebar forever.
+      const host = createMockTabHost();
+      const tab: MockTabRecord = {
+        state: { id: 'tab-agent-a', url: 'about:blank', title: 'Agent A', isLoading: false, canGoBack: false, canGoForward: false, crashed: false, zoomFactor: 1, devicePresetId: 'responsive', ephemeral: true },
+        focusedPane: 'desktop',
+        view: { webContents: createMockWebContents() },
+      };
+      host.tabs.set('tab-agent-a', tab);
+
+      const tmInternal = terminalManager as unknown as TerminalManagerInternal;
+      tmInternal.sessions.set('term-first', { id: 'term-first', sessionGeneration: 1, ownerKey: 'agent:tab-agent-a' });
+      tmInternal.sessions.set('term-second', { id: 'term-second', sessionGeneration: 1, ownerKey: 'agent:tab-agent-a' });
+      tmInternal.sessions.set('term-other-agent', { id: 'term-other-agent', sessionGeneration: 1, ownerKey: 'agent:tab-agent-b' });
+      tmInternal.sessions.set('term-user', { id: 'term-user', sessionGeneration: 1, ownerKey: 'project:project-x' });
+
+      host.bindTerminalAgentAffinity('term-first', 1, 'tab-agent-a');
+      host.bindTerminalAgentAffinity('term-second', 1, 'tab-agent-a');
+
+      assert.strictEqual(host.isTerminalAllowedForTab('tab-agent-a', 'term-second'), true);
+      assert.strictEqual(host.isTerminalAllowedForTab('tab-agent-a', 'term-first'), true, 'the evicted older shell stays operable by the tab that minted it');
+      assert.strictEqual(host.terminalWrite('tab-agent-a', 'echo still-mine\n', 'term-first'), true);
+      assert.deepStrictEqual(writesIntercepted.map((w) => w.id), ['term-first']);
+
+      // The widening is exactly "minted by this live tab": nobody else's shell, no user shell, no dead tab.
+      assert.strictEqual(host.isTerminalAllowedForTab('tab-agent-a', 'term-other-agent'), false);
+      assert.strictEqual(host.isTerminalAllowedForTab('tab-agent-a', 'term-user'), false);
+      host.tabs.delete('tab-agent-a');
+      assert.strictEqual(host.isTerminalAllowedForTab('tab-agent-a', 'term-first'), false, 'a closed tab has no authority');
     });
 
     it('assertTerminalAccess rejects foreign or user terminal with CapabilityError code TERMINAL_FORBIDDEN', () => {

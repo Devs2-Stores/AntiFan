@@ -17,10 +17,13 @@ export const DEFAULT_WORKSPACE_ROOTS = [
  * Roots an explicit caller-supplied workspaceRoot may name. Extends the project
  * roots with media folders that hold upload assets but are not URL-routed
  * projects, so resolveWorkspaceFromUrl keeps scanning DEFAULT_WORKSPACE_ROOTS only.
+ * Gác is the omp session root for the Tường channels; the user allowed agent
+ * uploads from it on 23/10/2026 instead of DataTransfer injection.
  */
 export const AUTHORIZED_WORKSPACE_ROOTS = [
   ...DEFAULT_WORKSPACE_ROOTS,
   path.join('e:\\Work', 'shopee-reels'),
+  path.join('e:\\Work', 'Gác'),
 ];
 
 function cleanProjectName(name: string): string {
