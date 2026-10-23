@@ -9,11 +9,82 @@
  *
  * The decision itself is `decideTerminalProjectAdoption`; this module is the wiring around it:
  * which terminals qualify, how the answer is stamped, and the typed refusal when no project can
- * be chosen. Every effect arrives through `deps` so the wiring is tested without Electron.
+ * be chosen. Every effect arrives through `deps`, except the bounded read of project markers
+ * under a folder that would become a project (`folderHoldsSeveralProjects`), so the wiring is
+ * tested without Electron.
  */
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { CapabilityError } from '../../shared/control-plane-contracts';
 import { parseOwnerKey } from './project-context';
 import { decideTerminalProjectAdoption } from './terminal-project-adoption';
+
+/** Paths whose presence marks a folder as a project root, relative to that folder. */
+const PROJECT_MARKERS: ReadonlyArray<{ rel: string; directory: boolean }> = [
+  { rel: '.git', directory: false },
+  { rel: 'package.json', directory: false },
+  { rel: '.antifan', directory: true },
+  { rel: path.join('layout', 'theme.liquid'), directory: false },
+  { rel: path.join('config', 'settings_schema.json'), directory: false },
+  { rel: path.join('layouts', 'theme.bwt'), directory: false },
+];
+
+/** Folders examined below a folder before the inspection gives up (and answers "no"). */
+const GROUPING_SCAN_BUDGET = 400;
+
+function hasProjectMarker(folder: string): boolean {
+  return PROJECT_MARKERS.some(({ rel, directory }) => {
+    try {
+      const stat = fs.statSync(path.join(folder, rel));
+      return directory ? stat.isDirectory() : true;
+    } catch {
+      return false;
+    }
+  });
+}
+
+/** Real sub-folders only: no files, no links (no cycles), no dependency trees, no dot-folders. */
+function childFolders(folder: string): string[] {
+  try {
+    return fs.readdirSync(folder, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && entry.name !== 'node_modules' && !entry.name.startsWith('.'))
+      .map((entry) => path.join(folder, entry.name));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Whether `folder` is a plain grouping folder: it carries no project marker itself, yet at
+ * least two folders one or two levels below it do. A marked folder is a project, so its own
+ * content is not looked into. Reads are bounded (`GROUPING_SCAN_BUDGET` folders); a missing or
+ * unreadable folder holds nothing.
+ */
+export function folderHoldsSeveralProjects(folder: string): boolean {
+  if (hasProjectMarker(folder)) return false;
+  let budget = GROUPING_SCAN_BUDGET;
+  let found = 0;
+  const unmarked: string[] = [];
+  for (const child of childFolders(folder)) {
+    if (budget-- <= 0) return false;
+    if (hasProjectMarker(child)) {
+      found += 1;
+      if (found >= 2) return true;
+    } else {
+      unmarked.push(child);
+    }
+  }
+  for (const parent of unmarked) {
+    for (const grandchild of childFolders(parent)) {
+      if (budget-- <= 0) return false;
+      if (hasProjectMarker(grandchild)) {
+        found += 1;
+        if (found >= 2) return true;
+      }
+    }
+  }
+  return false;
+}
 
 export interface TerminalProjectAdopterDeps {
   /** The folder the PTY was started in, as TerminalManager recorded it. */
@@ -66,6 +137,7 @@ export function createTerminalProjectAdopter(deps: TerminalProjectAdopterDeps): 
     const decision = decideTerminalProjectAdoption(cwd, deps.knownProjects(), {
       workRoot: deps.workRoot,
       homeDir: deps.homeDir,
+      holdsSeveralProjects: folderHoldsSeveralProjects,
     });
     if (decision.kind === 'refuse') {
       deps.journal?.('terminal-adoption.refused', { terminalSessionId, reason: decision.reason, folder: decision.folder });

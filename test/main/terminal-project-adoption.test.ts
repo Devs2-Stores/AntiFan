@@ -77,10 +77,42 @@ describe('decideTerminalProjectAdoption: existing project', () => {
     assert.equal(decision.kind === 'existing' && decision.projectId, 'ext');
   });
 
+  it('lets a project at the work root, the home folder or a drive root answer only for that exact folder', () => {
+    const broad = [
+      { projectId: 'at-work-root', workspacePaths: [WORK_ROOT] },
+      { projectId: 'at-home', workspacePaths: [HOME] },
+      { projectId: 'at-drive', workspacePaths: ['D:\\'] },
+    ];
+    assert.deepEqual(decideTerminalProjectAdoption('e:/work/', broad, opts), { kind: 'existing', projectId: 'at-work-root', workspacePath: WORK_ROOT });
+    assert.deepEqual(decideTerminalProjectAdoption('C:\\Users\\Admin', broad, opts), { kind: 'existing', projectId: 'at-home', workspacePath: HOME });
+    assert.deepEqual(decideTerminalProjectAdoption('D:\\', broad, opts), { kind: 'existing', projectId: 'at-drive', workspacePath: 'D:\\' });
+
+    // Beneath them nothing is absorbed: the ordinary rules decide.
+    assert.deepEqual(decideTerminalProjectAdoption('E:\\Work\\Fresh', broad, opts), { kind: 'create', folder: 'E:\\Work\\Fresh' });
+    assert.equal(refusal(decideTerminalProjectAdoption('C:\\Users\\Admin\\Documents', broad, opts)).reason, 'OUTSIDE_WORK_ROOT');
+    assert.equal(refusal(decideTerminalProjectAdoption('D:\\Repos\\thing', broad, opts)).reason, 'OUTSIDE_WORK_ROOT');
+  });
+
+  it('still lets a narrower project beneath a broad one claim its own terminals', () => {
+    const projects = [{ projectId: 'at-work-root', workspacePaths: [WORK_ROOT] }, lux];
+    const decision = decideTerminalProjectAdoption('E:\\Work\\Lux Shoes\\Haravan', projects, opts);
+    assert.equal(decision.kind === 'existing' && decision.projectId, 'lux');
+  });
+
   it('ignores projects with unusable workspace paths', () => {
     const junk = { projectId: 'junk', workspacePaths: ['', 'relative\\dir', '\\rooted-on-current-drive'] };
     const decision = decideTerminalProjectAdoption('E:\\Work\\Lux Shoes', [junk], opts);
     assert.equal(decision.kind, 'create');
+  });
+
+  it('does not ask for a grouping-folder verdict when an existing project already owns the folder', () => {
+    let asked = 0;
+    const decision = decideTerminalProjectAdoption('E:\\Work\\Lux Shoes\\Haravan', [lux], {
+      ...opts,
+      holdsSeveralProjects: () => { asked += 1; return true; },
+    });
+    assert.equal(decision.kind, 'existing');
+    assert.equal(asked, 0);
   });
 });
 
@@ -98,6 +130,16 @@ describe('decideTerminalProjectAdoption: create', () => {
   it('accepts a work root spelled with a different case or trailing separator', () => {
     const decision = decideTerminalProjectAdoption('E:\\Work\\Fresh', [], { workRoot: 'e:/work/', homeDir: HOME });
     assert.equal(decision.kind, 'create');
+  });
+
+  it('creates for a folder the grouping check clears and passes the check the canonical folder', () => {
+    const asked: string[] = [];
+    const decision = decideTerminalProjectAdoption('e:/Work/Clients/Acme/', [], {
+      ...opts,
+      holdsSeveralProjects: (folder) => { asked.push(folder); return false; },
+    });
+    assert.deepEqual(decision, { kind: 'create', folder: 'e:\\Work\\Clients\\Acme' });
+    assert.deepEqual(asked, ['e:\\Work\\Clients\\Acme']);
   });
 });
 
@@ -145,6 +187,21 @@ describe('decideTerminalProjectAdoption: refusals', () => {
     assert.equal(apps.reason, 'CONTAINS_PROJECTS');
     const themes = refusal(decideTerminalProjectAdoption('E:/work/Lux Shoes/', [luxHaravan], opts));
     assert.equal(themes.reason, 'CONTAINS_PROJECTS');
+  });
+
+  it('refuses an unregistered grouping folder with the typed reason and a message that names it', () => {
+    const decision = refusal(decideTerminalProjectAdoption('E:\\Work\\themes', [], { ...opts, holdsSeveralProjects: () => true }));
+    assert.equal(decision.reason, 'GROUPING_FOLDER');
+    assert.equal(decision.folder, 'E:\\Work\\themes');
+    assert.match(decision.message, /E:\\Work\\themes/);
+    assert.match(decision.message, /Terminal Manager/);
+  });
+
+  it('does not run the grouping check for folders that are refused for another reason', () => {
+    const never = (): boolean => { throw new Error('the grouping check must not run'); };
+    for (const spelling of ['E:\\Work', 'D:\\Repos\\thing', 'C:\\Users\\Admin', 'E:\\']) {
+      assert.doesNotThrow(() => decideTerminalProjectAdoption(spelling, [], { ...opts, holdsSeveralProjects: never }), spelling);
+    }
   });
 
   it('prefers an enclosing project over the grouping-folder refusal', () => {

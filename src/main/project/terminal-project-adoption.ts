@@ -18,7 +18,8 @@ export type TerminalAdoptionRefusalReason =
   | 'DRIVE_ROOT'
   | 'HOME_DIR'
   | 'OUTSIDE_WORK_ROOT'
-  | 'CONTAINS_PROJECTS';
+  | 'CONTAINS_PROJECTS'
+  | 'GROUPING_FOLDER';
 
 export type TerminalAdoptionDecision =
   | { kind: 'existing'; projectId: string; workspacePath: string }
@@ -73,17 +74,30 @@ const ASSIGN_HINT = 'Open the terminal inside a project folder, or assign it to 
  *
  * 1. `existing` — the known project whose workspace is the cwd or the nearest enclosing
  *    folder of it (the longest containing workspace path wins, so a project nested inside
- *    another claims its own terminals).
- * 2. `create` — the cwd is strictly inside the work root and no known project's workspace
- *    lies at or under it: the folder becomes a project of its own.
+ *    another claims its own terminals). A workspace that is a drive root, the work root or
+ *    the home folder never absorbs a folder beneath it, only its own folder.
+ * 2. `create` — the cwd is strictly inside the work root, no known project's workspace lies
+ *    at or under it, and it is not a grouping folder (`holdsSeveralProjects`): the folder
+ *    becomes a project of its own.
  * 3. `refuse` — anything else, with the reason as a typed code and an actionable message:
  *    no usable cwd, a drive root, the work root itself, the home directory, a folder
- *    outside the work root, or a grouping folder that already contains projects.
+ *    outside the work root, or a grouping folder that already contains (registered or on
+ *    disk) several projects.
  */
 export function decideTerminalProjectAdoption(
   cwd: string | undefined,
   projects: ReadonlyArray<{ projectId: string; workspacePaths: readonly string[] }>,
-  opts: { workRoot: string; homeDir: string },
+  opts: {
+    workRoot: string;
+    homeDir: string;
+    /**
+     * Whether the folder is a plain grouping folder: it carries no project marker itself but
+     * several projects live beneath it. Asked only for a folder that would otherwise become a
+     * project; the answer comes from the caller (it reads the disk, this module never does).
+     * Absent means "not a grouping folder".
+     */
+    holdsSeveralProjects?: (folder: string) => boolean;
+  },
 ): TerminalAdoptionDecision {
   const folderLabel = typeof cwd === 'string' ? cwd.trim() : '';
   const here = canonicalize(cwd);
@@ -96,6 +110,8 @@ export function decideTerminalProjectAdoption(
         : `The terminal has no recorded folder, so no project can be chosen for it. ${ASSIGN_HINT}`,
     );
   }
+  const workRoot = canonicalize(opts?.workRoot);
+  const home = canonicalize(opts?.homeDir);
 
   let best: { projectId: string; workspace: CanonicalPath } | null = null;
   let containsProject = false;
@@ -105,6 +121,10 @@ export function decideTerminalProjectAdoption(
       const workspace = canonicalize(workspacePath);
       if (!workspace) continue;
       if (isSameOrInside(workspace.key, here.key)) {
+        // A workspace that is a drive root, the work root or the home folder holds many
+        // unrelated folders: it answers only for its own folder, never for the ones beneath.
+        const broad = workspace.isRoot || workspace.key === workRoot?.key || workspace.key === home?.key;
+        if (broad && workspace.key !== here.key) continue;
         if (!best || workspace.key.length > best.workspace.key.length) best = { projectId: project.projectId, workspace };
       } else if (isSameOrInside(here.key, workspace.key)) {
         containsProject = true;
@@ -116,7 +136,6 @@ export function decideTerminalProjectAdoption(
   if (here.isRoot) {
     return refuse('DRIVE_ROOT', here.display, `'${here.display}' is a drive root, not a project folder. ${ASSIGN_HINT}`);
   }
-  const workRoot = canonicalize(opts?.workRoot);
   if (workRoot && here.key === workRoot.key) {
     return refuse(
       'WORK_ROOT',
@@ -124,7 +143,6 @@ export function decideTerminalProjectAdoption(
       `'${here.display}' is the work root that holds every project, not a project itself. ${ASSIGN_HINT}`,
     );
   }
-  const home = canonicalize(opts?.homeDir);
   if (home && here.key === home.key) {
     return refuse('HOME_DIR', here.display, `'${here.display}' is the user home folder, not a project folder. ${ASSIGN_HINT}`);
   }
@@ -140,6 +158,13 @@ export function decideTerminalProjectAdoption(
       'CONTAINS_PROJECTS',
       here.display,
       `'${here.display}' is a folder that contains other projects, not a project itself. Open the terminal inside one of them, or assign it to a project in the Terminal Manager.`,
+    );
+  }
+  if (opts?.holdsSeveralProjects?.(here.display)) {
+    return refuse(
+      'GROUPING_FOLDER',
+      here.display,
+      `'${here.display}' is a grouping folder that holds several projects, not a project itself. Open the terminal inside one of them, or assign it to a project in the Terminal Manager.`,
     );
   }
   return { kind: 'create', folder: here.display };

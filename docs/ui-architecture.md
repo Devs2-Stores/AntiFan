@@ -327,9 +327,14 @@ Every browser tab lives in exactly one project window, under that project's
 `project:<id>` record of `saved-tabs.json`; the Terminal Manager hosts no browser tabs.
 A document written before project windows (version below 3, with a shared `web` record)
 is migrated once at boot, before any window restores (`runSavedTabsMigrationAtBoot` in
-`src/main/index.ts`, rules in `src/main/browser/saved-tabs-migration.ts`): each tab moves
-to the record of the project it is stamped with, an unstamped tab to the project the old
-shared window was presenting, and the file is rewritten only after a
+`src/main/index.ts`, rules in `src/main/browser/saved-tabs-migration.ts`): the rows of the
+shared `web` record, of the old boot project and of the Terminal Manager's record each move
+to the record of the project they are stamped with — a project still in the registry,
+open or closed, keeps its rows in its own record. A row with no such project goes to the
+project the old shared window was presenting, else the first project of the
+`open-windows.json` ledger, else the open project whose record is newest; it then loses its
+old `capsuleId`, and that project's window is reopened at startup. Only with no open project
+is a row unplaced. The file is rewritten only after a
 `saved-tabs.json.pre-project-windows-<timestamp>.bak` copy exists. A tab with no home
 blocks the rewrite: the old file stays as it is, the ids are journaled
 (`saved-tabs-migration.blocked`), and the next boot tries again. Startup then reopens the
@@ -339,9 +344,14 @@ ledger lists, or only the Terminal Manager when there are none.
 A terminal that no project claims (`resolveTerminalScope` answers `unattributed`) is
 adopted once from the cwd its PTY started in (`decideTerminalProjectAdoption` in
 `src/main/project/terminal-project-adoption.ts`): the project whose workspace contains
-the cwd most closely, or a new project for a folder under `E:\Work`. A drive root, the
-`E:\Work` root itself, the home folder, a folder outside `E:\Work` and a folder that
-already contains projects are refused with `TERMINAL_SCOPE_UNRESOLVED` and a recovery hint. The
+the cwd most closely (a workspace that is a drive root, `E:\Work` or the home folder
+matches only its own folder, never the ones beneath it), or a new project for a folder
+under `E:\Work`. A drive root, the `E:\Work` root itself, the home folder, a folder outside
+`E:\Work`, a folder that already contains projects and a grouping folder (no project marker
+of its own — `.git`, `package.json`, `.antifan/`, a theme root file — but two or more marked
+folders one or two levels below it; `GROUPING_FOLDER`, read by
+`folderHoldsSeveralProjects` in `terminal-project-adopter.ts`) are refused with
+`TERMINAL_SCOPE_UNRESOLVED` and a recovery hint. The
 `project:<id>` stamp is written at that moment, so later reads are `measured`.
 
 Opening a project has one Main-owned surface, reached from both entrypoints — the
