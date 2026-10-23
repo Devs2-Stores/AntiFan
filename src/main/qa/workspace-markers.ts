@@ -11,10 +11,16 @@ import * as path from 'node:path';
 
 export const WORKSPACE_NOT_THEME_CODE = 'WORKSPACE_NOT_THEME';
 
+/**
+ * Files whose presence makes a directory a theme root: Haravan/Shopify (`layout/`, `config/`) and
+ * Sapo (`layouts/theme.bwt`, `configs/`), which spell both directories in the plural.
+ */
 export const THEME_ROOT_MARKERS: readonly string[] = [
   'layout/theme.liquid',
   'config/settings_schema.json',
   'config/settings.html',
+  'layouts/theme.bwt',
+  'configs/settings_schema.json',
 ];
 /** Directory AntiFan itself creates inside any root it ever saw; it says nothing about theme content. */
 const TOOL_OWNED_DIR = '.antifan';

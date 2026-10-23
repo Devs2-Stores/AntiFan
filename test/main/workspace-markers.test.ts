@@ -139,4 +139,48 @@ describe('workspace-markers', () => {
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it('accepts a Sapo root by layouts/theme.bwt or configs/settings_schema.json', () => {
+    const layoutRoot = scratchDir();
+    const schemaRoot = scratchDir();
+    try {
+      write(path.join(layoutRoot, 'layouts', 'theme.bwt'), '{{ content_for_layout }}');
+      write(path.join(schemaRoot, 'configs', 'settings_schema.json'), '[]');
+      for (const root of [layoutRoot, schemaRoot]) {
+        const assessment = assessWorkspaceRoot(root);
+        assert.strictEqual(assessment.ok, true);
+        assert.strictEqual(assessment.hasMarkers, true);
+        assert.doesNotThrow(() => assertThemeWorkspaceRoot(root, 'theme.qa_validate'));
+      }
+    } finally {
+      fs.rmSync(layoutRoot, { recursive: true, force: true });
+      fs.rmSync(schemaRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses the project folder that holds the Haravan and Sapo theme roots but is neither', () => {
+    const project = scratchDir();
+    try {
+      write(path.join(project, 'Haravan', 'layout', 'theme.liquid'), '');
+      write(path.join(project, 'Sapo', 'layouts', 'theme.bwt'), '');
+      assert.strictEqual(assessWorkspaceRoot(project).ok, false);
+      assert.strictEqual(assessWorkspaceRoot(path.join(project, 'Haravan')).ok, true);
+      assert.strictEqual(assessWorkspaceRoot(path.join(project, 'Sapo')).ok, true);
+    } finally {
+      fs.rmSync(project, { recursive: true, force: true });
+    }
+  });
+
+  it('suggests a diacritic-named Sapo sibling too', () => {
+    const parent = scratchDir();
+    try {
+      const theme = path.join(parent, 'Giao Hàng Nặng');
+      const stray = path.join(parent, 'Giao Hang Nang');
+      write(path.join(theme, 'layouts', 'theme.bwt'), '');
+      fs.mkdirSync(stray, { recursive: true });
+      assert.strictEqual(assessWorkspaceRoot(stray).suggestion, theme);
+    } finally {
+      fs.rmSync(parent, { recursive: true, force: true });
+    }
+  });
 });

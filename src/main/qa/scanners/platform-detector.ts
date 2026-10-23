@@ -31,6 +31,13 @@ export class PlatformDetector {
       const sectionsDir = path.join(workspaceRoot, 'sections');
       const configDir = path.join(workspaceRoot, 'config');
 
+      // A Sapo theme root names its layout `layouts/theme.bwt` (plural, unlike Haravan's
+      // `layout/theme.liquid`), so the file alone settles the platform for such a root.
+      if (fs.existsSync(path.join(workspaceRoot, 'layouts', 'theme.bwt'))) {
+        sapoScore += 60;
+        indicators.push('layouts/theme.bwt found (Sapo)');
+      }
+
       if (fs.existsSync(snippetsDir)) {
         const snippetFiles = fs.readdirSync(snippetsDir);
         if (snippetFiles.some((f) => f.endsWith('.bwt'))) {
