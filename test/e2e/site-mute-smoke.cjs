@@ -121,7 +121,7 @@ async function runVerifyPhase() {
   const winShell = new ProjectWindowShell({
     // 'web' (hub) owner: document-level preferences (mutedSites) only persist for the
     // hub; 'project' shells intentionally drop them from saved-tabs.json.
-    owner: { kind: 'web' },
+    owner: { kind: 'project', projectId: 'project-00000000-0000-4000-8000-0000000000e2' },
     title: 'AntiFan Smoke Window',
     bounds: { width: 1280, height: 800 },
     show: true,
@@ -184,7 +184,7 @@ async function runMainPhase() {
     const winShell = new ProjectWindowShell({
       // 'web' (hub) owner: document-level preferences (mutedSites) only persist for the
       // hub; 'project' shells intentionally drop them from saved-tabs.json.
-      owner: { kind: 'web' },
+      owner: { kind: 'project', projectId: 'project-00000000-0000-4000-8000-0000000000e2' },
       title: 'AntiFan Smoke Window',
       bounds: { width: 1440, height: 900 },
       show: true,

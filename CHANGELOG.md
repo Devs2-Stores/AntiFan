@@ -6,6 +6,13 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 
 ## [v1.3.6] - Unreleased
 
+### Đổi — Bỏ Web Hub: mỗi dự án một cửa sổ riêng
+
+- **Mô hình cửa sổ:** chỉ còn cửa sổ `project:<id>` của từng dự án và Terminal Manager (`unassigned`). Mở dự án (menu sidebar, project picker, IPC, bridge) tạo hoặc focus cửa sổ của chính dự án đó. Khởi động mở lại các cửa sổ dự án đang mở lúc thoát (`open-windows.json`); không có thì chỉ mở Terminal Manager. `ANTIFAN_PROJECT_ID` nay nghĩa là dự án có cửa sổ được mở trước; id lạ chỉ đổi lease mặc định của control plane.
+- **Di chuyển `saved-tabs.json` một lần (version 3):** mọi tab của owner `web` và của dự án khởi động cũ được đưa về bản ghi `project:<id>` của dự án mình; tab không xác định được dự án theo dự án hub đang trình bày, rồi `unassigned`. Bản sao lưu `saved-tabs.json.pre-project-windows-<yyyymmddHHMMss>.bak` được tạo trước lần ghi đầu; còn tab không có chỗ ở thì giữ nguyên file cũ và ghi log. Terminal mang stamp `web` hoặc dự án khởi động mất stamp khi đọc.
+- **Terminal chưa thuộc dự án:** khi `resolveTerminalScope` trả `unattributed`, Main gán một lần theo cwd mà TerminalManager đã ghi cho PTY (dự án chứa cwd gần nhất; hoặc tạo dự án mới cho thư mục con của `E:\Work`; còn lại từ chối `TERMINAL_SCOPE_UNRESOLVED` kèm cách xử lý). Stamp `project:<id>` đặt lúc mint nên các lần đọc sau là `measured`.
+- **Gỡ bỏ:** owner `web`, `DEFAULT_BOOT_PROJECT_ID` và dự án "Tổng hợp", detach/reattach/fold, kênh IPC `PROJECT_DETACH`/`PROJECT_REATTACH`, nút/menu "Web Hub", phím `Ctrl+Shift+D`, probe `probe-detached-webhub.cjs` và `probe-multi-window-binding.cjs`.
+
 ### Sửa — QA theme so với workspace của phiên, không phải workspace lúc app khởi động
 
 - **`WORKSPACE_MISMATCH` với theme của chính phiên:** `theme.qa_validate`, `anti.theme.await_cdn_sync`, `theme.package_check`, `anti.theme.resolve_element`, `verify_claim` (`canonicalWorkspace`, `theme.source_file_identified`) và telemetry fallback lấy root theo tenancy của phiên (`projectId`/`workspaceId`, giống `file.*`) qua `resolveCallerWorkspaceRoot` (`src/main/tools/file-capabilities.ts`). Trước đây chúng đọc root của runtime (workspace boot, thường là `process.cwd()` của app = `E:\Work\apps\AntiFan`), nên phiên gắn với project theme bị từ chối dù `file.read` cùng phiên đọc đúng thư mục theme. Phiên không có tenancy, hoặc ở chính workspace boot mà record không có root, vẫn dùng root của runtime (kể cả `THEME_WORKSPACE_ROOT`); tenant khác không có root thì fail closed như `file.*`.
