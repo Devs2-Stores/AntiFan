@@ -75,37 +75,106 @@ describe('migrateSavedTabsToProjectWindows: placement', () => {
     assert.equal(owner(result.doc, `project:${C}`).tabs.every((t) => t.projectId === C), true);
   });
 
-  it('sends a row stamped with an unknown or boot project to the presented project and restamps it', () => {
-    const input = doc({ web: { tabs: [tab('x1', 'project-gone'), tab('x2', BOOT)], updatedAt: 1, activeProjectId: A } });
+  it('sends a row stamped with an unknown or boot project to the presented project, restamps it and drops its capsule', () => {
+    const withCapsule = (id: string, projectId: string): Record<string, unknown> => ({ ...tab(id, projectId), capsuleId: `capsule-of-${projectId}` });
+    const input = doc({ web: { tabs: [withCapsule('x1', 'project-gone'), withCapsule('x2', BOOT)], updatedAt: 1, activeProjectId: A } });
     const result = migrateSavedTabsToProjectWindows(input, base);
     assert.deepEqual(tabIdsOf(result.doc, `project:${A}`), ['x1', 'x2']);
     assert.deepEqual(owner(result.doc, `project:${A}`).tabs.map((t) => t.projectId), [A, A]);
+    assert.equal(owner(result.doc, `project:${A}`).tabs.some((t) => 'capsuleId' in t), false);
   });
 
-  it('ignores a presented project that is the boot placeholder or unknown', () => {
-    for (const activeProjectId of [BOOT, 'project-gone']) {
-      const input = doc({ web: { tabs: [tab('x1')], updatedAt: 1, activeProjectId } });
-      const result = migrateSavedTabsToProjectWindows(input, base);
-      assert.deepEqual(tabIdsOf(result.doc, 'unassigned'), ['x1'], activeProjectId);
-    }
+  it('keeps the capsule of a row that is stamped with its own project', () => {
+    const input = doc({ web: { tabs: [{ ...tab('k1', B), capsuleId: 'capsule-b' }], updatedAt: 1, activeProjectId: A } });
+    const result = migrateSavedTabsToProjectWindows(input, base);
+    assert.equal(owner(result.doc, `project:${B}`).tabs[0]?.capsuleId, 'capsule-b');
   });
 
-  it('falls back to the unassigned record when no real project is presented, dropping stale stamps', () => {
+  it('sends a row stamped with a registered but closed project to that project unchanged', () => {
+    const closed = 'project-closed';
+    const input = doc({
+      web: { tabs: [{ ...tab('c1', closed), capsuleId: 'capsule-closed' }, tab('g1', 'project-gone')], updatedAt: 1, activeProjectId: A },
+    });
+    const result = migrateSavedTabsToProjectWindows(input, { ...base, registeredProjectIds: new Set([...known, closed]) });
+    assert.deepEqual(tabIdsOf(result.doc, `project:${closed}`), ['c1']);
+    assert.deepEqual(owner(result.doc, `project:${closed}`).tabs[0], { ...tab('c1', closed), capsuleId: 'capsule-closed' });
+    assert.deepEqual(tabIdsOf(result.doc, `project:${A}`), ['g1']);
+    assert.deepEqual(result.openProjectIds, [A], 'a closed project stays closed');
+  });
+
+  it('re-homes a stamp unknown to the registry even when other registered projects exist', () => {
+    const input = doc({ web: { tabs: [tab('g1', 'project-gone')], updatedAt: 1, activeProjectId: A } });
+    const result = migrateSavedTabsToProjectWindows(input, { ...base, registeredProjectIds: new Set(['project-closed']) });
+    assert.deepEqual(tabIdsOf(result.doc, `project:${A}`), ['g1']);
+  });
+
+  it('re-homes an unstamped row: presented project first', () => {
+    const input = doc({
+      web: { tabs: [tab('x1')], updatedAt: 1, activeProjectId: B },
+      [`project:${C}`]: { tabs: [tab('c1', C)], updatedAt: 999 },
+    });
+    const result = migrateSavedTabsToProjectWindows(input, { ...base, openWindowKeys: new Set([`project:${A}`]) });
+    assert.deepEqual(tabIdsOf(result.doc, `project:${B}`), ['x1']);
+  });
+
+  for (const activeProjectId of [undefined, BOOT, 'project-gone']) {
+    it(`re-homes an unstamped row to the first ledger project when the presented project is ${String(activeProjectId)}`, () => {
+      const input = doc({
+        web: { tabs: [tab('x1')], updatedAt: 1, ...(activeProjectId === undefined ? {} : { activeProjectId }) },
+        [`project:${C}`]: { tabs: [tab('c1', C)], updatedAt: 999 },
+      });
+      const result = migrateSavedTabsToProjectWindows(input, {
+        ...base,
+        openWindowKeys: new Set(['unassigned', `project:${BOOT}`, `project:${B}`, `project:${A}`]),
+      });
+      assert.deepEqual(result.unplacedTabIds, []);
+      assert.deepEqual(tabIdsOf(result.doc, `project:${B}`), ['x1']);
+      assert.deepEqual(result.openProjectIds, [B, A]);
+      assert.equal(result.doc.version, PROJECT_WINDOWS_SAVED_TABS_VERSION);
+    });
+  }
+
+  it('re-homes to the open project whose record is newest when neither the hub nor the ledger names one, and reopens it', () => {
+    const input = doc({
+      web: { tabs: [tab('x1', BOOT), tab('x2')], updatedAt: 1 },
+      [`project:${A}`]: { tabs: [tab('a1', A)], updatedAt: 10 },
+      [`project:${C}`]: { tabs: [tab('c1', C)], updatedAt: 30 },
+      [`project:${B}`]: { tabs: [tab('b1', B)], updatedAt: 20 },
+      'project:project-gone': { tabs: [tab('z1', 'project-gone')], updatedAt: 500 },
+    });
+    const result = migrateSavedTabsToProjectWindows(input, { ...base, openWindowKeys: new Set(['unassigned']) });
+    assert.deepEqual(tabIdsOf(result.doc, `project:${C}`), ['c1', 'x1', 'x2']);
+    assert.deepEqual(result.openProjectIds, [C]);
+    assert.equal(result.doc.version, PROJECT_WINDOWS_SAVED_TABS_VERSION);
+  });
+
+  it('uses an open project with no record yet when no open project has a record', () => {
+    const input = doc({ web: { tabs: [tab('x1')], updatedAt: 1 } });
+    const result = migrateSavedTabsToProjectWindows(input, { knownProjectIds: new Set([B, A]), unassignedHostsTabs: false });
+    assert.deepEqual(tabIdsOf(result.doc, `project:${B}`), ['x1']);
+    assert.deepEqual(result.unplacedTabIds, []);
+  });
+
+  it('falls back to the unassigned record only when no project is open and that window hosts tabs, dropping stale stamps', () => {
     const input = doc({
       web: { tabs: [tab('x1', 'project-gone'), tab('x2')], updatedAt: 1 },
       unassigned: { tabs: [tab('u1')], updatedAt: 9 },
     });
-    const result = migrateSavedTabsToProjectWindows(input, base);
+    const result = migrateSavedTabsToProjectWindows(input, { knownProjectIds: new Set(), unassignedHostsTabs: true });
     assert.deepEqual(tabIdsOf(result.doc, 'unassigned'), ['u1', 'x1', 'x2']);
     assert.equal(owner(result.doc, 'unassigned').tabs.some((t) => t.id === 'x1' && 'projectId' in t), false);
     assert.equal(owner(result.doc, 'unassigned').updatedAt, 9);
   });
 
-  it('reports unplaced tabs, keeps them in their source record and does not mark the document migrated', () => {
+  it('reports unplaced tabs only when no project is open, keeps them in their source record and does not mark the document migrated', () => {
     const input = doc({
       web: { tabs: [tab('ok', A), tab('lost1'), tab('lost2', 'project-gone')], updatedAt: 1, activeProjectId: 'project-gone' },
     });
-    const result = migrateSavedTabsToProjectWindows(input, { knownProjectIds: known, unassignedHostsTabs: false });
+    const result = migrateSavedTabsToProjectWindows(input, {
+      knownProjectIds: new Set(),
+      registeredProjectIds: new Set([A]),
+      unassignedHostsTabs: false,
+    });
     assert.deepEqual(result.unplacedTabIds, ['lost1', 'lost2']);
     assert.deepEqual(tabIdsOf(result.doc, 'web'), ['lost1', 'lost2']);
     assert.deepEqual(tabIdsOf(result.doc, `project:${A}`), ['ok']);
@@ -116,8 +185,48 @@ describe('migrateSavedTabsToProjectWindows: placement', () => {
 
   it('names id-less unplaced rows by their source position', () => {
     const input = doc({ web: { tabs: [{ url: 'https://example.test/' }], updatedAt: 1 } });
-    const result = migrateSavedTabsToProjectWindows(input, { knownProjectIds: known, unassignedHostsTabs: false });
+    const result = migrateSavedTabsToProjectWindows(input, { knownProjectIds: new Set(), unassignedHostsTabs: false });
     assert.deepEqual(result.unplacedTabIds, ['web#0']);
+  });
+});
+
+describe('migrateSavedTabsToProjectWindows: the Terminal Manager record', () => {
+  const managerDoc = (): SavedTabsDocument => doc({
+    unassigned: {
+      tabs: [tab('u1', B), tab('u2'), tab('u3', 'project-gone')],
+      updatedAt: 7,
+      activeTabId: 'u1',
+      terminalTabLayout: 'sidebar',
+      terminalSidebarWidth: 232,
+      terminalAffinities: [
+        { terminalId: 'term-1', primaryTabId: 'u1', managedTabIds: ['u1'] },
+        { terminalId: 'term-2', primaryTabId: 'elsewhere', managedTabIds: [] },
+      ],
+    },
+    web: { tabs: [], updatedAt: 1, activeProjectId: A },
+  });
+
+  it('moves its rows like hub rows and keeps the record with the window fields it still owns', () => {
+    const result = migrateSavedTabsToProjectWindows(managerDoc(), { ...base, unassignedHostsTabs: false });
+    assert.deepEqual(tabIdsOf(result.doc, `project:${B}`), ['u1']);
+    assert.deepEqual(tabIdsOf(result.doc, `project:${A}`), ['u2', 'u3']);
+    assert.deepEqual(result.unplacedTabIds, []);
+    const manager = owner(result.doc, 'unassigned');
+    assert.deepEqual(manager.tabs, []);
+    assert.equal(manager.terminalTabLayout, 'sidebar');
+    assert.equal(manager.activeTabId, undefined);
+    assert.deepEqual(manager.terminalAffinities?.map((a) => a.terminalId), ['term-2']);
+    assert.deepEqual(owner(result.doc, `project:${B}`).terminalAffinities?.map((a) => a.terminalId), ['term-1']);
+    assert.equal(owner(result.doc, `project:${B}`).activeTabId, 'u1');
+    // The manager's look is its own; it is not handed to a project window.
+    assert.equal(owner(result.doc, `project:${B}`).terminalTabLayout, undefined);
+    assert.equal(result.movedTabs.every((m) => m.from === 'unassigned'), true);
+  });
+
+  it('leaves its rows alone when that window hosts browser tabs', () => {
+    const result = migrateSavedTabsToProjectWindows(managerDoc(), { ...base, unassignedHostsTabs: true });
+    assert.deepEqual(tabIdsOf(result.doc, 'unassigned'), ['u1', 'u2', 'u3']);
+    assert.deepEqual(result.movedTabs, []);
   });
 });
 

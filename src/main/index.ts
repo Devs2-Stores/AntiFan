@@ -1957,15 +1957,17 @@ export interface SavedTabsMigrationBootOutcome {
  * before any window restores its own record. The document is backed up before its first
  * rewrite and is rewritten only when every tab has a home: with unplaced tabs the old file is
  * kept as it is, the ids are journaled loudly, and the next boot tries again. The Terminal
- * Manager window hosts no browser tabs, so it is never a home for a tab.
+ * Manager window hosts no browser tabs, so it is never a home for a tab. A row stamped with a
+ * project the registry holds (open or closed) goes to that project's record; a row with no
+ * such project goes to an open one (see `migrateSavedTabsToProjectWindows`).
  */
 export async function runSavedTabsMigrationAtBoot(): Promise<SavedTabsMigrationBootOutcome> {
   const filePath = savedTabsFilePath();
   const openWindowKeys = readOpenWindowLedger(openWindowLedgerPath(filePath));
-  const knownProjectIds = new Set(
-    listRegisteredProjects().filter((project) => project.state === 'open').map((project) => project.id),
-  );
-  const options = { knownProjectIds, unassignedHostsTabs: false, openWindowKeys };
+  const registered = listRegisteredProjects();
+  const knownProjectIds = new Set(registered.filter((project) => project.state === 'open').map((project) => project.id));
+  const registeredProjectIds = new Set(registered.map((project) => project.id));
+  const options = { knownProjectIds, registeredProjectIds, unassignedHostsTabs: false, openWindowKeys };
   const unmigrated = (openProjectIds: string[]): SavedTabsMigrationBootOutcome => (
     { openProjectIds, migrated: false, persisted: false, backupPath: null, unplacedTabIds: [] }
   );

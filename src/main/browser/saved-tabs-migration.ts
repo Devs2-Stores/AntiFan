@@ -3,12 +3,22 @@
  * presented one project at a time, a placeholder boot project, detach/fold markers) to one
  * record per project window.
  *
- * Invariant: no tab row leaves the document. Every row of the 'web' record and of the boot
- * project's record lands in the `project:<id>` record of the project it is stamped with; a
- * row whose project cannot be determined follows the hub's presented project, then the
- * Terminal Manager's 'unassigned' record when that window can host browser tabs, and is
- * otherwise reported in `unplacedTabIds` and left where it was — the caller must then log
- * and not persist.
+ * Invariant: no tab row leaves the document. Every row of the 'web' record, of the boot
+ * project's record and of the Terminal Manager's 'unassigned' record (which never restores
+ * tabs, so its first write would drop them) lands in the `project:<id>` record of the project
+ * it is stamped with. A stamp naming a project the registry still holds — open or closed —
+ * is honored as is; the row waits in that project's record until its window opens.
+ *
+ * A row whose stamp is missing, the boot placeholder, or unknown to the registry is re-homed
+ * to the first available project of this order, and loses its stale `capsuleId` (that
+ * capsule belonged to the old project):
+ *   1. the project the hub was presenting;
+ *   2. the first project in the open-window ledger;
+ *   3. the open project whose existing `project:<id>` record has the newest `updatedAt`
+ *      (an open project with no record yet when none has one).
+ * When no open project exists at all, the row goes to the Terminal Manager's 'unassigned'
+ * record if that window can host browser tabs; otherwise it is reported in `unplacedTabIds`
+ * and left where it was — the caller must then log and not persist.
  *
  * The transform is pure (the input is never mutated and nothing reads the clock or the
  * disk); only `backupSavedTabsBeforeMigration` touches the filesystem.
@@ -37,9 +47,18 @@ const POPOUT_FIELDS = ['terminalWindows', 'isTerminalPopoutOpen', 'wasSidebarOpe
 const WINDOW_LOOK_FIELDS = ['terminalTabLayout', 'terminalSidebarWidth'] as const;
 
 export interface ProjectWindowsMigrationOptions {
-  /** Projects that exist in the registry; a row stamped with any other id is unattributed. */
+  /** Open projects of the registry: the only ones a re-homed row may be sent to. */
   knownProjectIds: ReadonlySet<string>;
-  /** Whether the 'unassigned' (Terminal Manager) window can host browser tabs. */
+  /**
+   * Every project of the registry, whatever its state. A row stamped with one of these (and
+   * not open) keeps its stamp and moves into that project's own record; only a stamp the
+   * registry does not know falls back. Absent means "only the open projects are registered".
+   */
+  registeredProjectIds?: ReadonlySet<string>;
+  /**
+   * Whether the 'unassigned' (Terminal Manager) window can host browser tabs. When true its
+   * rows stay where they are and it is the last-resort home for a row with no open project.
+   */
   unassignedHostsTabs: boolean;
   /**
    * Owner keys of the windows that were open at the last exit (`open-windows.json`). The
@@ -61,8 +80,8 @@ export interface ProjectWindowsMigrationResult {
   /**
    * Project windows to reopen at startup. "Open at quit" is: the project the hub was
    * presenting (its window was open by construction), then every project whose window the
-   * ledger lists, in ledger order — only projects that are real and known. Never derived
-   * from `detached` markers.
+   * ledger lists, in ledger order — only projects that are real and known — then the
+   * fallback project when it took re-homed rows. Never derived from `detached` markers.
    */
   openProjectIds: string[];
 }
@@ -94,6 +113,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
+/** Open projects named by the hub's presented project, then by the ledger, in that order. */
 function openProjectIdsOf(
   presented: string | null,
   opts: ProjectWindowsMigrationOptions,
@@ -108,6 +128,32 @@ function openProjectIdsOf(
     add(realProjectId(key.slice(PROJECT_OWNER_PREFIX.length), opts.knownProjectIds));
   }
   return ids;
+}
+
+/**
+ * The project a row with no usable stamp is re-homed to: the presented project, else the
+ * first ledger project, else the open project whose existing record is newest (the first
+ * open project when none has a record). Null only when no project is open.
+ */
+function fallbackProjectOf(
+  presented: string | null,
+  owners: Record<string, LooseRecord>,
+  opts: ProjectWindowsMigrationOptions,
+): string | null {
+  if (presented) return presented;
+  const [firstLedger] = openProjectIdsOf(null, opts);
+  if (firstLedger) return firstLedger;
+  let newest: { id: string; updatedAt: number } | null = null;
+  let firstKnown: string | null = null;
+  for (const id of opts.knownProjectIds) {
+    if (typeof id !== 'string' || !id || id === LEGACY_BOOT_PROJECT_ID) continue;
+    firstKnown ??= id;
+    const record = owners[projectOwnerKey(id)];
+    if (!isObject(record)) continue;
+    const updatedAt = typeof record.updatedAt === 'number' && Number.isFinite(record.updatedAt) ? record.updatedAt : 0;
+    if (!newest || updatedAt > newest.updatedAt) newest = { id, updatedAt };
+  }
+  return newest?.id ?? firstKnown;
 }
 
 export function migrateSavedTabsToProjectWindows(
@@ -125,6 +171,10 @@ export function migrateSavedTabsToProjectWindows(
 
   const webRecord = isObject(owners[LEGACY_WEB_OWNER_KEY]) ? owners[LEGACY_WEB_OWNER_KEY] : undefined;
   const presented = realProjectId(webRecord?.activeProjectId, known);
+  const registered = new Set<string>([...known, ...(opts.registeredProjectIds ?? [])]);
+  // Fixed before any row moves, so the answer does not depend on records created below.
+  const fallbackProject = fallbackProjectOf(presented, owners, opts);
+  let usedFallbackProject = false;
 
   const movedTabs: ProjectWindowsMigrationResult['movedTabs'] = [];
   const unplacedTabIds: string[] = [];
@@ -143,7 +193,10 @@ export function migrateSavedTabsToProjectWindows(
     return created;
   };
 
-  for (const sourceKey of [LEGACY_WEB_OWNER_KEY, LEGACY_BOOT_OWNER_KEY]) {
+  const sourceKeys = opts.unassignedHostsTabs
+    ? [LEGACY_WEB_OWNER_KEY, LEGACY_BOOT_OWNER_KEY]
+    : [LEGACY_WEB_OWNER_KEY, LEGACY_BOOT_OWNER_KEY, UNASSIGNED_OWNER_KEY];
+  for (const sourceKey of sourceKeys) {
     const source = owners[sourceKey];
     if (!isObject(source)) continue;
     const sourceTabs: unknown[] = Array.isArray(source.tabs) ? source.tabs : [];
@@ -157,17 +210,21 @@ export function migrateSavedTabsToProjectWindows(
       if (!isObject(entry)) return;
       const tab: LooseTab = entry;
       const label = tabIdOf(tab) ?? `${sourceKey}#${index}`;
-      const own = realProjectId(tab.projectId, known);
+      const own = realProjectId(tab.projectId, registered);
       let destKey: string | null = null;
       if (own) {
         destKey = projectOwnerKey(own);
-      } else if (presented) {
-        destKey = projectOwnerKey(presented);
-        tab.projectId = presented;
+      } else if (fallbackProject) {
+        destKey = projectOwnerKey(fallbackProject);
+        tab.projectId = fallbackProject;
+        // The capsule belonged to the project the row used to be stamped with.
+        delete tab.capsuleId;
+        usedFallbackProject = true;
       } else if (opts.unassignedHostsTabs) {
         destKey = UNASSIGNED_OWNER_KEY;
         // A stale stamp for a removed project must not follow the row into a shared window.
         delete tab.projectId;
+        delete tab.capsuleId;
       }
       if (!destKey) {
         kept.push(tab);
@@ -194,19 +251,28 @@ export function migrateSavedTabsToProjectWindows(
       const valid = typeof dest.activeTabId === 'string'
         && dest.tabs.some((t) => isObject(t) && t.id === dest.activeTabId);
       if (!valid) dest.activeTabId = sourceActive;
+      if (sourceKey === UNASSIGNED_OWNER_KEY) delete source.activeTabId;
     }
 
     // An affinity travels with the window that holds its primary tab; one whose primary
-    // tab is gone points at nothing.
+    // tab is gone points at nothing. A record that stays (the Terminal Manager's) gives up
+    // the affinities that moved.
+    const remainingAffinities: Array<Record<string, unknown>> = [];
     for (const aff of Array.isArray(source.terminalAffinities) ? source.terminalAffinities : []) {
       if (!isObject(aff) || typeof aff.primaryTabId !== 'string') continue;
       const home = homeOfTab.get(aff.primaryTabId);
-      if (!home) continue;
+      if (!home) {
+        remainingAffinities.push(aff);
+        continue;
+      }
       const dest = owners[home] as LooseRecord;
       const list = (dest.terminalAffinities ??= []);
       if (!list.some((a) => a.terminalId === aff.terminalId && a.primaryTabId === aff.primaryTabId)) {
         list.push(aff);
       }
+    }
+    if (sourceKey === UNASSIGNED_OWNER_KEY && Array.isArray(source.terminalAffinities)) {
+      source.terminalAffinities = remainingAffinities;
     }
 
     // Terminal pop-outs were the hub's; the project it was presenting inherits them.
@@ -223,8 +289,9 @@ export function migrateSavedTabsToProjectWindows(
     }
 
     // A window record that took rows from here without a look of its own inherits the
-    // source window's tab-strip layout and sidebar width.
-    for (const destKey of touched) {
+    // source window's tab-strip layout and sidebar width. The Terminal Manager's look is
+    // its own and is never handed to a project window.
+    for (const destKey of sourceKey === UNASSIGNED_OWNER_KEY ? [] : touched) {
       const dest = owners[destKey] as LooseRecord;
       for (const field of WINDOW_LOOK_FIELDS) {
         if (dest[field] === undefined && source[field] !== undefined) dest[field] = source[field];
@@ -232,7 +299,12 @@ export function migrateSavedTabsToProjectWindows(
     }
 
     if (kept.length === 0) {
-      delete owners[sourceKey];
+      if (sourceKey === UNASSIGNED_OWNER_KEY) {
+        // The Terminal Manager's record stays: it still carries the window's own fields.
+        source.tabs = [];
+      } else {
+        delete owners[sourceKey];
+      }
     } else {
       source.tabs = kept;
       retained.add(sourceKey);
@@ -249,13 +321,14 @@ export function migrateSavedTabsToProjectWindows(
 
   if (unplacedTabIds.length === 0) out.version = PROJECT_WINDOWS_SAVED_TABS_VERSION;
 
-  return {
-    doc: out,
-    migrated: true,
-    movedTabs,
-    unplacedTabIds,
-    openProjectIds: openProjectIdsOf(presented, opts),
-  };
+  // A project that took re-homed rows reopens even when neither the hub nor the ledger named
+  // it, so those rows are not parked in a window nobody sees.
+  const openProjectIds = openProjectIdsOf(presented, opts);
+  if (usedFallbackProject && fallbackProject && !openProjectIds.includes(fallbackProject)) {
+    openProjectIds.push(fallbackProject);
+  }
+
+  return { doc: out, migrated: true, movedTabs, unplacedTabIds, openProjectIds };
 }
 
 function stamp(now: Date): string {
