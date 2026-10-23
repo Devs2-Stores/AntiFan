@@ -435,6 +435,7 @@ describe('Terminal Daemon Provenance & Async Seam Invariants (RC2)', () => {
       ownerTabId: (attachmentId: string) => (attachmentId === 'att-1' ? 'tab-1' : undefined),
       allowsTab: () => true,
       isAgentTerminal: () => false,
+      isAgentHeld: () => false,
       bind: () => true,
       tabAffiliation: () => ({ live: true }),
     };

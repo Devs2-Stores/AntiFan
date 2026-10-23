@@ -256,7 +256,7 @@ export interface DomQuietOptions {
  * unrelated components and turn an unsettled page into a pass.
  */
 export const DEFAULT_DOM_QUIET_IGNORE: readonly string[] = Object.freeze([
-  '[data-countdown]', '[data-timer]', '.timer', '.countdown',
+  '[role="timer"]', '[data-countdown]', '[data-timer]', '.timer', '.countdown',
   '[data-live-visitor]', '.live-views', '.marquee',
 ]);
 

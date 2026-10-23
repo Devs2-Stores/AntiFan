@@ -6395,6 +6395,9 @@ contextMenu?.querySelectorAll('.context-item').forEach((item) => {
         // A split cannot outlive its parent, so the parent (and the siblings sharing
         // its pane) stay while a split target is the one being kept.
         if (s.id === targetId || (parentId && (s.id === parentId || s.splitOf === parentId))) continue;
+        // A bulk close never reaches an agent's shell: ending one is a per-row decision the person
+        // confirms from that row's own close button, so one click cannot stack a dialog per shell.
+        if (isAgentOwnedSession(s)) continue;
         if (s.splitOf) api?.unsplitTerminal?.(s.id);
         else api?.closeTerminal(s.id);
       }

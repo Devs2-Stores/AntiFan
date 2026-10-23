@@ -322,6 +322,7 @@ describe('ControlPlaneRuntime Main Launch Owner & Attachment Authority', () => {
         terminalAuthority: {
           allowsTab: (tabId, terminalId) => ownedByTab[tabId] === terminalId,
           isAgentTerminal: (terminalId) => terminalId === 'terminal-mine' || terminalId === 'terminal-foreign',
+          isAgentHeld: (terminalId) => terminalId === 'terminal-mine' || terminalId === 'terminal-foreign',
           bind: () => true,
           tabAffiliation: () => ({ live: true }),
         },

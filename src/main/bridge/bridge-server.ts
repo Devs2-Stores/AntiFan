@@ -495,6 +495,23 @@ export class BridgeServer {
     this.tabHostResolver = resolver;
   }
 
+  /**
+   * Whether an agent still holds a terminal, as Main's tab directory answers it: a live affinity in
+   * ANY window, or the still-open tab named by the shell's `agent:` owner key. The user plane must
+   * not reach such a shell. Unset → the construction host's affinity map only, which misses
+   * another window's agents and a shell whose tab was evicted from the affinity map.
+   */
+  private agentTerminalHold?: (terminalId: string) => boolean;
+  public setAgentTerminalHold(hold?: (terminalId: string) => boolean): void {
+    this.agentTerminalHold = typeof hold === 'function' ? hold : undefined;
+  }
+
+  private agentHoldsTerminal(terminalId: string): boolean {
+    if (this.agentTerminalHold) return this.agentTerminalHold(terminalId);
+    if (typeof this.tabHost.getTerminalAgentAffinity !== 'function') return false;
+    return this.tabHost.getTerminalAgentAffinity(terminalId)?.status === 'alive';
+  }
+
   /** The owning host for a known tab id, or the construction host when unresolvable/absent. */
   private hostForRpcTab(tabId?: string): NativeTabHost {
     if (tabId && this.tabHostResolver) {
@@ -3933,14 +3950,17 @@ export class BridgeServer {
     const attachmentRecord = registry ? registry.getRecord(targetAttachmentId) : undefined;
     const ownedTabId = attachmentRecord?.tabId || attachmentRecord?.browserTarget?.tabId;
     if (!ownedTabId) return false;
-    // The gate IS the membership check: isTerminalAllowedForTab honors only live
-    // affinity entries, so a pool-only or unbound tab can never write here.
-    if (typeof this.tabHost.isTerminalAllowedForTab === 'function') {
-      return this.tabHost.isTerminalAllowedForTab(ownedTabId, sessionId);
+    // The gate IS the membership check: isTerminalAllowedForTab admits a live affinity entry or a
+    // live tab that minted the session (owner key `agent:<tabId>`), so a pool-only or unbound tab
+    // can never write here. It is asked on the host that OWNS the tab: a tab living on another
+    // project window is invisible to the construction host.
+    const ownerHost = this.hostForRpcTab(ownedTabId);
+    if (typeof ownerHost.isTerminalAllowedForTab === 'function') {
+      return ownerHost.isTerminalAllowedForTab(ownedTabId, sessionId);
     }
-    const ownedTerminalIds = typeof this.tabHost.getOwnedTerminalSession === 'function'
-      ? this.tabHost.getOwnedTerminalSession(ownedTabId)
-      : (typeof this.tabHost.getTabTerminalSession === 'function' ? this.tabHost.getTabTerminalSession(ownedTabId) : undefined);
+    const ownedTerminalIds = typeof ownerHost.getOwnedTerminalSession === 'function'
+      ? ownerHost.getOwnedTerminalSession(ownedTabId)
+      : (typeof ownerHost.getTabTerminalSession === 'function' ? ownerHost.getTabTerminalSession(ownedTabId) : undefined);
     const ownedList = (Array.isArray(ownedTerminalIds) ? ownedTerminalIds : [ownedTerminalIds]).filter(Boolean);
     return ownedList.includes(sessionId);
   }
@@ -4362,8 +4382,9 @@ export class BridgeServer {
       const record = registry ? registry.getRecord(boundAttachmentId) : undefined;
       const boundTabId = record?.tabId || record?.browserTarget?.tabId;
       if (!boundTabId) return false;
-      if (typeof this.tabHost.isTerminalAllowedForTab === 'function') {
-        return this.tabHost.isTerminalAllowedForTab(boundTabId, terminalSessionId);
+      const ownerHost = this.hostForRpcTab(boundTabId);
+      if (typeof ownerHost.isTerminalAllowedForTab === 'function') {
+        return ownerHost.isTerminalAllowedForTab(boundTabId, terminalSessionId);
       }
       return false;
     }
@@ -4372,19 +4393,11 @@ export class BridgeServer {
     const mobileGrant = this.socketMobileGrants.get(client);
     if (mobileGrant) {
       if (!mobileGrant.allowedScopes.includes('terminal.sync')) return false;
-      if (typeof this.tabHost.getTerminalAgentAffinity === 'function') {
-        const aff = this.tabHost.getTerminalAgentAffinity(terminalSessionId);
-        if (aff && aff.status === 'alive') return false; // Agent terminal isolated from mobile
-      }
-      return true;
+      return !this.agentHoldsTerminal(terminalSessionId); // Agent terminal isolated from mobile
     }
 
     // 3. User plane Bridge client: isolated from agent-plane terminals
-    if (typeof this.tabHost.getTerminalAgentAffinity === 'function') {
-      const aff = this.tabHost.getTerminalAgentAffinity(terminalSessionId);
-      if (aff && aff.status === 'alive') return false; // Agent terminal isolated from user plane
-    }
-    return true;
+    return !this.agentHoldsTerminal(terminalSessionId);
   }
 
   /**
@@ -4394,11 +4407,7 @@ export class BridgeServer {
    */
   private userPlaneMayReachTerminal(terminalSessionId?: string): boolean {
     if (!terminalSessionId) return false;
-    if (typeof this.tabHost.getTerminalAgentAffinity === 'function') {
-      const aff = this.tabHost.getTerminalAgentAffinity(terminalSessionId);
-      if (aff && aff.status === 'alive') return false;
-    }
-    return true;
+    return !this.agentHoldsTerminal(terminalSessionId);
   }
 
   /** The user-plane slice of a session list: an agent-owned session is never part of it. */

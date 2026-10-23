@@ -295,6 +295,7 @@ export class ControlPlaneRuntime {
       },
       allowsTab: (tabId, terminalId) => host.allowsTab(tabId, terminalId),
       isAgentTerminal: (terminalId) => host.isAgentTerminal(terminalId),
+      isAgentHeld: (terminalId) => host.isAgentHeld(terminalId),
       bind: (terminalId, generation, tabId) => host.bind(terminalId, generation, tabId),
       tabAffiliation: host.tabAffiliation.bind(host),
     };
