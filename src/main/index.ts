@@ -1932,6 +1932,23 @@ export function bootProjectWindowIds(openAtLastExit: readonly string[], requeste
   return ids;
 }
 
+/** The windows a boot opens: the startup window, then the project windows restored behind it. */
+export interface BootWindowPlan {
+  bootOwner: WindowOwner;
+  restoreProjectIds: string[];
+}
+
+/**
+ * The startup window is the first project window that was open at the last exit; the rest are
+ * restored behind it. With no project to reopen the startup window is the shared Terminal
+ * Manager alone — there is no project window to fall back to.
+ */
+export function planBootWindows(openAtLastExit: readonly string[], requestedProjectId: string | undefined): BootWindowPlan {
+  const [first, ...rest] = bootProjectWindowIds(openAtLastExit, requestedProjectId);
+  if (!first) return { bootOwner: { kind: 'unassigned' }, restoreProjectIds: [] };
+  return { bootOwner: { kind: 'project', projectId: first }, restoreProjectIds: rest };
+}
+
 /**
  * The boot leg that reopens project windows. Per project, in order and sequentially, with
  * the 'restore' intent: `showInactive` presentation, zero focus steals from this leg. One
@@ -3890,10 +3907,7 @@ async function createWindow(): Promise<void> {
   // the measurement of that moment is armed with the presentation itself, never by a second
   // presenter racing it for the same window. It is the first project window that was open at
   // the last exit, or the Terminal Manager when none was.
-  const bootProjectIds = bootProjectWindowIds(openProjectIdsAtBoot, projectId);
-  const bootOwner: WindowOwner = bootProjectIds[0]
-    ? { kind: 'project', projectId: bootProjectIds[0] }
-    : { kind: 'unassigned' };
+  const { bootOwner, restoreProjectIds } = planBootWindows(openProjectIdsAtBoot, projectId);
   const { shell, host: bootstrapHost } = await ensureProjectWindow(bootOwner, 'user', {
     onFirstPresented: () => {
       recordBenchmark({ surface: 'startup', name: 'firstVisible' });
@@ -3937,7 +3951,7 @@ async function createWindow(): Promise<void> {
   // The first one was already opened above as the startup window. The open-window ledger as
   // the last process left it also decides whether the Terminal Manager comes back.
   const openAtLastExit = readOpenWindowLedger(openWindowLedgerPath(savedTabsFilePath()));
-  await restoreProjectWindows(bootProjectIds.slice(bootOwner.kind === 'project' ? 1 : 0));
+  await restoreProjectWindows(restoreProjectIds);
   await restoreTerminalManagerIfOpenAtLastExit(openAtLastExit, (intent) => openSharedTerminalManagerWindow(intent));
 
   // A launch URL no project window consumed (the process booted with only the Terminal

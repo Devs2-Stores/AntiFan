@@ -120,13 +120,40 @@ describe('saved-tabs migration at boot', () => {
     fs.rmSync(pinnedRoot, { recursive: true, force: true });
   });
 
-  it('leaves the file byte-identical, writes no backup and names the tab that has no project window', async () => {
-    // `ok` has a project to live in; `lost` is stamped with a project the registry no longer
-    // holds and no project is presented, so the Terminal Manager (which hosts no tabs) is the
-    // only other candidate and it is refused.
-    const original = writeLegacyDocument({ tabs: [tab('ok', ALPHA), tab('lost', GONE)] });
+  it('gives a tab whose project is gone a home in an open project window, which then reopens', async () => {
+    // `lost` is stamped with a project the registry no longer holds and no project is
+    // presented or listed in the ledger. With no project record on disk yet, the first open
+    // project takes it, re-stamped, and that window is reopened so the tab is not hidden.
+    writeLegacyDocument({ tabs: [tab('ok', BETA), tab('lost', GONE)] });
 
     const outcome = await runSavedTabsMigrationAtBoot();
+
+    assert.equal(outcome.persisted, true);
+    assert.deepEqual(outcome.unplacedTabIds, []);
+    const owners = readOwners() as Record<string, { tabs: Array<{ id: string; projectId?: string }> }>;
+    assert.deepEqual(owners[`project:${BETA}`]?.tabs.map((row) => row.id), ['ok']);
+    assert.deepEqual(owners[`project:${ALPHA}`]?.tabs.map((row) => [row.id, row.projectId]), [['lost', ALPHA]]);
+    assert.equal(owners[`project:${GONE}`], undefined, 'a window record was made for a project Main does not know');
+    assert.deepEqual(outcome.openProjectIds, [ALPHA]);
+  });
+
+  it('leaves the file byte-identical, writes no backup and names the tab when no project is open', async () => {
+    // No open project at all: the Terminal Manager hosts no tabs, so `lost` has no home and
+    // the migration must not rewrite anything.
+    const original = writeLegacyDocument({ tabs: [tab('lost', GONE)] });
+    const reopen = [ALPHA, BETA, GAMMA].map((id) => projectRegistry.getProject(id));
+    for (const project of reopen) projectRegistry.closeProject(project.id);
+    let outcome: Awaited<ReturnType<typeof runSavedTabsMigrationAtBoot>>;
+    try {
+      outcome = await runSavedTabsMigrationAtBoot();
+    } finally {
+      for (const project of reopen) {
+        projectRegistry.registerProject(project);
+        for (const workspace of projectRegistry.listWorkspaces(project.id)) {
+          projectRegistry.registerWorkspace({ ...workspace, state: 'attached' });
+        }
+      }
+    }
 
     assert.equal(outcome.persisted, false);
     assert.deepEqual(outcome.unplacedTabIds, ['lost']);
