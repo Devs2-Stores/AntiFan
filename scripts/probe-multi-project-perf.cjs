@@ -1,7 +1,8 @@
 /**
  * Multi-project terminal performance probe - real Electron, real PTYs, real windows.
  *
- * Boots the shipping main process, opens N project windows (one terminal each), then runs
+ * Boots the shipping main process, opens N project windows (one per project, created by the same
+ * factory an "open project" request ends in; one terminal each), then runs
  * one terminal at ~1 MB/s while another is typed into every 200 ms, and measures what the
  * user feels:
  *
@@ -377,32 +378,23 @@ const totalWorkingSetMb = () => round(app.getAppMetrics().reduce((sum, m) => sum
 async function run() {
   const authority = mainProcess.projectWindowAuthority;
   await app.whenReady();
-  // Boot project lives on the startup hub window; every other project gets its own window only
-  // through the user's detach (open on the hub, then detach), exactly like the matrix harness.
-  await waitFor(() => authority.snapshot().length === 1, 'the startup hub window');
-  const firstKey = authority.snapshot()[0].ownerKey;
+  // ANTIFAN_PROJECT_ID names a project Main knows, so the startup window is that project's own
+  // window. Every other project gets its window from the factory a user's "open project"
+  // request ends in (`ensureProjectWindow`), one window per project.
+  const startup = await waitFor(() => authority.snapshot().find((e) => e.owner.kind === 'project') || false, 'the startup project window');
+  if (startup.owner.projectId !== PROJECTS[0].projectId) throw new Error(`startup window is ${JSON.stringify(startup.owner)}, expected ${PROJECTS[0].projectId}`);
+  await waitForApi(authority.shellFor(startup.ownerKey)?.sidebarView?.webContents ?? null, "typeof window.antifanStandalone === 'object' && typeof window.antifanStandalone.newTerminal === 'function'");
   const sidebarOf = (key) => authority.shellFor(key)?.sidebarView?.webContents ?? null;
-  const sidebar0 = sidebarOf(firstKey);
-  await waitForApi(sidebar0, "typeof window.antifanStandalone === 'object' && typeof window.antifanStandalone.detachProject === 'function'");
-
-  const keyOf = new Map([[PROJECTS[0].projectId, firstKey]]);
   const windowOpenStartedAt = Date.now();
-  for (const project of PROJECTS.slice(1)) {
-    const opened = await sidebar0.executeJavaScript(`window.antifanStandalone.openProject(${JSON.stringify(project.projectId)})`, true);
-    if (!opened || (opened.status !== 'OPENED' && opened.status !== 'FOCUSED')) throw new Error(`openProject(${project.name}) returned ${JSON.stringify(opened)}`);
-    const detached = await sidebar0.executeJavaScript(`window.antifanStandalone.detachProject({ projectId: ${JSON.stringify(project.projectId)} })`, true);
-    if (!detached || detached.status !== 'DETACHED') throw new Error(`detachProject(${project.name}) returned ${JSON.stringify(detached)}`);
-    const entry = await waitFor(
-      () => authority.snapshot().find((e) => e.owner.kind === 'project' && e.owner.projectId === project.projectId) || false,
-      `the detached ${project.name} window`,
-    );
+  const keyOf = new Map();
+  for (const project of PROJECTS) {
+    const entry = await authority.ensureProjectWindow({ kind: 'project', projectId: project.projectId }, 'user');
+    if (entry.owner.kind !== 'project' || entry.owner.projectId !== project.projectId) {
+      throw new Error(`ensureProjectWindow(${project.name}) opened ${JSON.stringify(entry.owner)}`);
+    }
     keyOf.set(project.projectId, entry.ownerKey);
   }
-  // Each detach clears the hub's scope, so the boot project is presented on the hub again.
-  const restored = await sidebar0.executeJavaScript(`window.antifanStandalone.openProject(${JSON.stringify(PROJECTS[0].projectId)})`, true);
-  if (!restored || (restored.status !== 'OPENED' && restored.status !== 'FOCUSED')) throw new Error(`re-presenting ${PROJECTS[0].name} returned ${JSON.stringify(restored)}`);
-  await waitFor(() => authority.hostForOwner(firstKey)?.activeProject() === PROJECTS[0].projectId, 'the hub to present the boot project');
-  await waitFor(() => authority.snapshot().length === N, `${N} windows`);
+  await waitFor(() => authority.snapshot().filter((e) => e.owner.kind === 'project').length === N, `${N} project windows`);
   const windowOpenMs = Date.now() - windowOpenStartedAt;
 
   // One terminal per project window, created from that window's own sidebar.
