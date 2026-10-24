@@ -1179,6 +1179,7 @@ describe('Responsive sweep surface', () => {
     disableCount: () => number;
     updateLayoutCount: () => number;
     perWidthReads: number[];
+    timeline: string[];
   }
 
   // Deliberately not the 1440x900 the background viewport path once invented, so a box
@@ -1209,6 +1210,7 @@ describe('Responsive sweep surface', () => {
     let childrenDuringFirstReading: unknown[] = [];
     // The width the document had when each per-width script ran.
     const perWidthReads: number[] = [];
+    const timeline: string[] = [];
 
     // The reading is the document's own answer, so the stub computes it the way the page
     // script does: against whatever emulation the tab actually carries at that moment.
@@ -1236,6 +1238,8 @@ describe('Responsive sweep surface', () => {
               if (ignoreOnce.delete(box.width)) return;
               liveEmulation = box;
               staleReadsLeft = staleReadsPerEmulation;
+            } else if (method === 'Runtime.evaluate') {
+              timeline.push('settle');
             } else if (method === 'Emulation.clearDeviceMetricsOverride') {
               disableCount += 1;
               liveEmulation = null;
@@ -1246,6 +1250,7 @@ describe('Responsive sweep surface', () => {
           if (script === PER_WIDTH_SCRIPT) {
             const widthSeen = liveEmulation?.width ?? 0;
             perWidthReads.push(widthSeen);
+            timeline.push(`script:${widthSeen}`);
             return { measured: true, widthSeen, findings: [] };
           }
           const current = liveEmulation ?? { width: 0, height: 0 };
@@ -1257,6 +1262,7 @@ describe('Responsive sweep surface', () => {
           const scrollWidth = Math.max(PAGE_CONTENT_WIDTH, clientWidth);
           const documentOverflowX = scrollWidth > clientWidth + 1;
           attachedDuringReadings.push(children.includes(view));
+          timeline.push(`read:${box.width}`);
           if (attachedDuringReadings.length === 1) {
             childrenDuringFirstReading = [...children];
           }
@@ -1355,6 +1361,7 @@ describe('Responsive sweep surface', () => {
       disableCount: () => disableCount,
       updateLayoutCount: () => updateLayoutCount,
       perWidthReads,
+      timeline,
     };
   }
 
@@ -1495,6 +1502,34 @@ describe('Responsive sweep surface', () => {
     assert.strictEqual(harness.perWidthReads.length, BREAKPOINT_WIDTHS.length, 'A sweep without the option must not evaluate anything extra');
     for (const id of BREAKPOINT_IDS) {
       assert.ok(!('integrity' in plainReadings[id]!), `${id}: no integrity key without the option`);
+    }
+  });
+
+  it('lets the page run its resize handlers before every reading of a width', async () => {
+    const harness = createSweepHarness({ staleReadsPerEmulation: 1 });
+    const host = harness.host;
+    const backgroundTab = createTestTabRecord('tab-bg');
+    backgroundTab.view = harness.view as unknown as NativeTabRecord['view'];
+    const activeTab = createTestTabRecord('tab-active');
+    activeTab.view = harness.activeView as unknown as NativeTabRecord['view'];
+    host.tabs.set('tab-active', activeTab);
+    host.tabs.set('tab-bg', backgroundTab);
+    host.tabByWebContents.set(harness.view.webContents, { tabId: 'tab-bg', tab: backgroundTab });
+
+    await host.runResponsiveCheck({ tabId: 'tab-bg', perWidthScript: PER_WIDTH_SCRIPT });
+
+    const timeline = harness.timeline;
+    const reads = timeline.map((event, index) => ({ event, index })).filter(({ event }) => event.startsWith('read:'));
+    assert.ok(reads.length >= BREAKPOINT_WIDTHS.length, 'every width is read');
+    for (const { event, index } of reads) {
+      assert.strictEqual(timeline[index - 1], 'settle', `${event} must follow a post-resize settle, got ${timeline[index - 1]}`);
+    }
+    const scripts = timeline.filter((event) => event.startsWith('script:'));
+    assert.deepStrictEqual(scripts, BREAKPOINT_WIDTHS.map((width) => `script:${width}`), 'the per-width script runs once per width');
+    for (let index = 0; index < timeline.length; index += 1) {
+      if (!timeline[index]!.startsWith('script:')) continue;
+      assert.ok(timeline.slice(0, index).includes('settle'), 'a settle precedes the first per-width script');
+      assert.ok(timeline[index - 1]!.startsWith('read:'), 'the script follows the confirmed reading of its own width');
     }
   });
 

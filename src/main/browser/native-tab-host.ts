@@ -11334,6 +11334,34 @@ export class NativeTabHost extends EventEmitter {
     return next;
   }
 
+  /**
+   * Wait until the page has run its resize handlers for the viewport it was just given. The
+   * document reports the new width at once, but the resize event is dispatched in the next
+   * rendering update, so a carousel, a drawer or any script that places things on resize still
+   * holds the layout of the previous width when it is read straight away. One frame delivers
+   * the event and a second lets handlers that defer to a frame finish. A surface that renders
+   * no frames gets the event dispatched by hand after a bounded wait.
+   */
+  private async settleAfterViewportChange(wc: Electron.WebContents): Promise<void> {
+    const fallbackMs = 300;
+    const expression = `new Promise((resolve) => {
+      let done = false;
+      const finish = () => { if (!done) { done = true; resolve(true); } };
+      const fallback = setTimeout(() => { try { window.dispatchEvent(new Event('resize')); } catch (e) {} finish(); }, ${fallbackMs});
+      requestAnimationFrame(() => requestAnimationFrame(() => { clearTimeout(fallback); setTimeout(finish, 0); }));
+    })`;
+    const bound = Promise.withResolvers<void>();
+    const guard = setTimeout(bound.resolve, fallbackMs + 700);
+    try {
+      await Promise.race([
+        this.getDevToolsHost().sendCdpCommand(wc, 'Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true }).then(() => undefined, () => undefined),
+        bound.promise,
+      ]);
+    } finally {
+      clearTimeout(guard);
+    }
+  }
+
   private async applyCdpDeviceEmulationStateNow(
     wc: Electron.WebContents,
     preset?: DevicePreset | null,
@@ -15170,6 +15198,9 @@ export class NativeTabHost extends EventEmitter {
         let evaluation: Record<string, unknown> = {};
         let emulationApplied = false;
         for (;;) {
+          // The document reports the emulated width before the page's own resize handlers have run, and
+          // a reading taken in that gap describes script state left over from the previous width.
+          await this.settleAfterViewportChange(wc);
           const evalPromise = wc.executeJavaScript(measureScript).catch((err: unknown) => ({ error: String(err) }));
           const evalTimeout = Promise.withResolvers<{ timeout: boolean }>();
           const evalTimer = setTimeout(() => evalTimeout.resolve({ timeout: true }), 5000);

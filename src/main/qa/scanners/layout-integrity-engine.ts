@@ -371,6 +371,18 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
     }
     return false;
   };
+  // Content of an inert or aria-hidden subtree that straddles the edge of the box cutting it: a
+  // carousel marks the slides it only shows in part as not interactive and not exposed, so the cut
+  // is the intended bleed. Content inside such a subtree that sits wholly within the box is not
+  // excused, and neither is anything outside one.
+  const inertBleed = (from, upto, box) => {
+    for (let e = from; e && e !== doc && e !== upto; e = e.parentElement) {
+      if (!e.hasAttribute('inert') && e.getAttribute('aria-hidden') !== 'true') continue;
+      const er = e.getBoundingClientRect();
+      if (er.left < box.left - 0.5 || er.right > box.right + 0.5 || er.top < box.top - 0.5 || er.bottom > box.bottom + 0.5) return true;
+    }
+    return false;
+  };
   // A title box (a heading, or a box inside one) capped to a fixed height and repeated across the
   // page is the product-grid title clamp: the whole lines it drops below its own edge are cut on
   // purpose. A one-off title (the product page's own name) cut the same way loses words the reader
@@ -494,7 +506,7 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
       const el = nodes[i];
       if (el.closest('svg') || el.closest(PLATFORM_PREVIEW_CHROME)) continue;
       if (!painted(el)) continue;
-      if (el.getAttribute('aria-hidden') === 'true' || el.closest('[aria-hidden="true"]') || isSrOnly(el)) continue;
+      if (el.getAttribute('aria-hidden') === 'true' || el.closest('[aria-hidden="true"], [inert]') || isSrOnly(el)) continue;
       const r = el.getBoundingClientRect();
       if (r.width <= 0 || r.height <= 0) {
         if (el.getClientRects().length === 0) continue;
@@ -1133,10 +1145,10 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
         if ((hx || sx) && visW < 1) { hidden = true; break; }
         if (hx || sx) { vis.left = Math.max(vis.left, b.left); vis.right = Math.min(vis.right, b.right); }
         if (hy || sy) { vis.top = Math.max(vis.top, b.top); vis.bottom = Math.min(vis.bottom, b.bottom); }
-        if (!defect && hy && visH < r.height * 0.85 && !movingBetween(p, a) && !in3d(p) && !collapsedByDesign(a)) {
+        if (!defect && hy && visH < r.height * 0.85 && !movingBetween(p, a) && !in3d(p) && !collapsedByDesign(a) && !inertBleed(p, a, b)) {
           defect = { by: a, detail: 'line sliced vertically: ' + Math.round(visH) + '/' + Math.round(r.height) + 'px visible' };
         }
-        if (!defect && hx && r.width - visW >= 4 && !intendedTruncation(p, a) && !movingBetween(p, a) && !in3d(p)) {
+        if (!defect && hx && r.width - visW >= 4 && !intendedTruncation(p, a) && !movingBetween(p, a) && !in3d(p) && !inertBleed(p, a, b)) {
           defect = { by: a, detail: 'line cut horizontally: ' + Math.round(visW) + '/' + Math.round(r.width) + 'px visible' };
         }
         if (sx || sy) {
@@ -1149,7 +1161,7 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
         const visW = span(r.left, r.right, 0, vw);
         if (visW < 1) hidden = true;
         else {
-          if (!defect && !docHScrollable && !fixedLayer && !inXScroller && r.width - visW >= 4 && !intendedTruncation(p, null) && !movingBetween(p, null) && !in3d(p)) {
+          if (!defect && !docHScrollable && !fixedLayer && !inXScroller && r.width - visW >= 4 && !intendedTruncation(p, null) && !movingBetween(p, null) && !in3d(p) && !inertBleed(p, null, { left: 0, right: vw, top: -Infinity, bottom: Infinity })) {
             defect = { by: null, detail: 'line cut by the viewport edge: ' + Math.round(visW) + '/' + Math.round(r.width) + 'px visible' };
           }
           vis.left = Math.max(vis.left, 0);
@@ -1251,7 +1263,7 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
           const overLeft = b.left - r.left;
           const overPx = Math.max(overRight, overLeft);
           if (overPx < 4) continue;
-          if (movingBetween(el, a) || transitionsBetween(el, a, SLIDE_IN) || intendedTruncation(el, a)) break;
+          if (movingBetween(el, a) || transitionsBetween(el, a, SLIDE_IN) || intendedTruncation(el, a) || inertBleed(el, a, b)) break;
           let absBetween = false;
           for (let p = parentOf(el); p && p !== a; p = parentOf(p)) {
             const pos = cs(p).position;

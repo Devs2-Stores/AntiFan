@@ -109,6 +109,8 @@ export interface ThemeQaDetailedFindings {
   domSemantics?: DomSemanticsScanResult;
   /** Contrast, tap-target and floating-widget measurements (see visual-quality-scanner.ts). */
   visualQuality?: VisualQualityScanResult;
+  /** Build-strict failures that count toward criticalCount but belong to no other family above: visual-quality, edge-spacing and overlay-state findings. */
+  strictFailures?: ThemeQaStrictFailure[];
 }
 export type ThemeQaSeverity = 'critical' | 'warning';
 
@@ -251,6 +253,11 @@ export interface QaWaiver {
   reason: string;
 }
 
+/** A supplied waiver the run did not apply, with the reason; echoed so an ignored exception is never mistaken for an accepted one. */
+export interface QaIgnoredWaiver extends QaWaiver {
+  why: string;
+}
+
 export type { QaProfile, QaThresholds, QaThresholdsSource };
 
 /** Per-call settle barrier overrides. Unset fields keep the host defaults. */
@@ -301,6 +308,8 @@ export interface ThemeQaReport {
   measuredRules: string[];
   /** Waivers the caller supplied; echoed so an accepted exception stays visible. */
   waivers?: QaWaiver[];
+  /** Supplied waivers that matched no waivable rule; the run graded as if they were absent. */
+  ignoredWaivers?: QaIgnoredWaiver[];
   /** Outcome of persisting the workspace receipt; set by the capability layer after the write. */
   receipt?: { written: boolean; path?: string; code?: string };
   createdAt: number;
@@ -368,6 +377,11 @@ export interface QaReceiptFinding {
   message: string;
 }
 
+/** A build-strict failure listed in the receipt; `activeKey` ties a promoted spacing warning to the finding it came from. */
+export interface ThemeQaStrictFailure extends QaReceiptFinding {
+  activeKey?: string;
+}
+
 export function normalizeReceiptRect(raw: unknown): QaReceiptFindingRect | null {
   if (!raw || typeof raw !== 'object') return null;
   const r = raw as Record<string, unknown>;
@@ -394,13 +408,17 @@ export function truncateReceiptMessage(msg: unknown, maxLen = 300): string {
   return s.length > maxLen ? s.slice(0, maxLen) : s;
 }
 
-export function buildReceiptFindings(
+export const QA_RECEIPT_MAX_FINDINGS = 200;
+
+export interface ReceiptSettingsRatchet {
+  ok?: boolean;
+  findings?: Array<{ rule?: string; id?: string; file?: string; line?: number; message?: string; detail?: string }>;
+}
+
+/** Every finding the receipt would list, criticals first, before the receipt's entry cap. */
+export function collectReceiptFindings(
   findings: ThemeQaDetailedFindings | undefined,
-  settingsRatchet?: {
-    ok?: boolean;
-    findings?: Array<{ rule?: string; id?: string; file?: string; line?: number; message?: string; detail?: string }>;
-  } | null,
-  maxEntries = 200
+  settingsRatchet?: ReceiptSettingsRatchet | null
 ): QaReceiptFinding[] {
   const criticals: QaReceiptFinding[] = [];
   const warnings: QaReceiptFinding[] = [];
@@ -508,6 +526,10 @@ export function buildReceiptFindings(
     const activeIntegrityWidth =
       findings.layoutIntegrity?.measured === true ? findings.layoutIntegrity.viewport?.width : undefined;
     const activeCriticalKeys = new Set<string>();
+    const strictActiveKeys = new Set<string>();
+    if (Array.isArray(findings.strictFailures)) {
+      for (const sf of findings.strictFailures) if (sf?.activeKey) strictActiveKeys.add(sf.activeKey);
+    }
     if (Array.isArray(findings.layoutIntegrity?.findings)) {
       for (const lf of findings.layoutIntegrity.findings) {
         if (!lf) continue;
@@ -523,9 +545,16 @@ export function buildReceiptFindings(
         if (sev === 'critical') {
           activeCriticalKeys.add(`${lf.kind}:${lf.selector || ''}:${(lf.details || '').slice(0, 80)}`);
           criticals.push(entry);
-        } else {
+        } else if (!strictActiveKeys.has(`${lf.kind}:${lf.selector || ''}:${(lf.details || '').slice(0, 80)}`)) {
+          // A spacing warning that build-strict promoted is listed once, as the critical it counts as.
           warnings.push(entry);
         }
+      }
+    }
+    if (Array.isArray(findings.strictFailures)) {
+      for (const sf of findings.strictFailures) {
+        if (!sf) continue;
+        criticals.push({ rule: sf.rule, severity: 'critical', selector: sf.selector, rect: sf.rect, message: sf.message });
       }
     }
     if (findings.responsive && typeof findings.responsive === 'object') {
@@ -587,7 +616,15 @@ export function buildReceiptFindings(
     }
   }
 
-  return [...criticals, ...warnings].slice(0, maxEntries);
+  return [...criticals, ...warnings];
+}
+
+export function buildReceiptFindings(
+  findings: ThemeQaDetailedFindings | undefined,
+  settingsRatchet?: ReceiptSettingsRatchet | null,
+  maxEntries = QA_RECEIPT_MAX_FINDINGS
+): QaReceiptFinding[] {
+  return collectReceiptFindings(findings, settingsRatchet).slice(0, maxEntries);
 }
 
 interface ParsedSelectorSegment {
@@ -1207,6 +1244,57 @@ const STRICT_SPACING_RULES: Record<string, true> = {
   'min-gap': true,
   'content-drift': true,
 };
+
+/** Visual-quality and image-frame rules that never fail a run, whatever the profile: a waiver for one changes nothing. */
+const NON_VERDICT_RULES: Record<string, true> = {
+  'image-low-res': true,
+  'fixed-chrome-ratio': true,
+  'wrap-quality': true,
+};
+
+/** Every rule id a waiver can switch off: the ones that carry a build-strict verdict and are graded per rule. */
+const WAIVABLE_RULES: Record<string, true> = {
+  ...STRICT_REGISTRY_RULES,
+  ...STRICT_SPACING_RULES,
+  'contrast-low': true,
+  'tap-target-tiny': true,
+  'invisible-click-blocker': true,
+  'floating-widget-overlap': true,
+};
+
+const LAYOUT_INTEGRITY_KIND_RE = /^layout_integrity(?:@\d+)?:(?:clipping|offscreen|overlap|occlusion|zero-size|layout-shift|sticky-obstruction|timed-popup-occluder)\b/;
+const WIDTH_SUFFIXED_RE = /^(?:layout_integrity@\d+:spacing:)?([a-z][a-z-]*)(?:@\d+)?$/;
+
+/**
+ * Splits supplied waivers into the ones that switch off a waivable rule and the ones that cannot.
+ * A waiver is a verdict exception, so an id that matches nothing must be said out loud rather than
+ * read as accepted: the caller would otherwise believe a still-critical finding was excused.
+ */
+export function classifyQaWaivers(supplied: readonly QaWaiver[]): { accepted: QaWaiver[]; ignored: QaIgnoredWaiver[] } {
+  const accepted: QaWaiver[] = [];
+  const ignored: QaIgnoredWaiver[] = [];
+  for (const waiver of supplied) {
+    const rule = typeof waiver?.rule === 'string' ? waiver.rule.trim() : '';
+    const reason = typeof waiver?.reason === 'string' ? waiver.reason : '';
+    if (WAIVABLE_RULES[rule] === true) {
+      accepted.push({ rule, reason });
+      continue;
+    }
+    let why: string;
+    const widthBase = WIDTH_SUFFIXED_RE.exec(rule)?.[1];
+    if (LAYOUT_INTEGRITY_KIND_RE.test(rule)) {
+      why = `layout_integrity critical findings (${rule}) are structural defects and cannot be waived by rule id; fix the layout, or mark a deliberately bled slide inert / aria-hidden so the scanner skips it`;
+    } else if (widthBase !== undefined && widthBase !== rule && WAIVABLE_RULES[widthBase] === true) {
+      why = `'${rule}' names a single width, but a waiver applies at every width; waive the base id '${widthBase}'`;
+    } else if (NON_VERDICT_RULES[rule] === true) {
+      why = `'${rule}' never fails a run, so there is nothing to waive`;
+    } else {
+      why = `'${rule}' is not a waivable rule id; waivable ids: ${Object.keys(WAIVABLE_RULES).join(', ')}`;
+    }
+    ignored.push({ rule: waiver?.rule, reason: waiver?.reason, why });
+  }
+  return { accepted, ignored };
+}
 
 /**
  * Folds a touch-width reading taken inside the responsive sweep into the active-width reading, so
@@ -2400,7 +2488,11 @@ export class ThemeQaWorkflow {
 
     // 9.7 Visual quality (contrast, tap targets, floating widgets, registry rules). Reported in every
     // profile; only build-strict lets it carry the verdict, so audit runs keep their existing contract.
-    const waivers: QaWaiver[] = Array.isArray(input.waivers) ? input.waivers : [];
+    const waiverClassification = classifyQaWaivers(Array.isArray(input.waivers) ? input.waivers : []);
+    const waivers: QaWaiver[] = waiverClassification.accepted;
+    for (const ignoredWaiver of waiverClassification.ignored) {
+      integrityAmbiguities.push(`[waiver] ignored: ${ignoredWaiver.why}`);
+    }
     let visualQualityResult: VisualQualityScanResult | undefined;
     await new Promise((r) => setImmediate(r));
     if (typeof this.ports.browser.eval === 'function') {
@@ -3045,6 +3137,32 @@ export class ThemeQaWorkflow {
       reason: 'Diagnostic viewport capture only; cannot certify visual parity without multi-viewport baseline comparison (anti.visual.compare)',
     };
 
+    // Failures that count toward criticalCount under build-strict but sit in no other findings
+    // family: without them the count names criticals the report never lists.
+    const strictFailureEntries: ThemeQaStrictFailure[] = [
+      ...strictVisualFailures.map((f): ThemeQaStrictFailure => ({
+        rule: `visual_quality:${f.ruleId}`,
+        severity: 'critical',
+        selector: f.selector || null,
+        rect: normalizeReceiptRect(f.rect),
+        message: truncateReceiptMessage(f.details),
+      })),
+      ...strictSpacingFailures.map(({ width, finding: f }): ThemeQaStrictFailure => ({
+        rule: width === null ? `layout_integrity:spacing:${f.ruleId}` : `layout_integrity@${width}:spacing:${f.ruleId}`,
+        severity: 'critical',
+        selector: f.selector || null,
+        rect: normalizeReceiptRect(f.rect),
+        message: truncateReceiptMessage(width === null ? f.details : `(${width}px) ${f.details}`),
+        activeKey: width !== null && width === integrityWidth ? `${f.kind}:${f.selector || ''}:${(f.details || '').slice(0, 80)}` : undefined,
+      })),
+      ...stateMatrixFailures.map((f): ThemeQaStrictFailure => ({
+        rule: `state_matrix:${f.code}`,
+        severity: 'critical',
+        selector: null,
+        rect: null,
+        message: truncateReceiptMessage(`Overlay ${f.trigger}: ${f.message}`),
+      })),
+    ];
     const findings: ThemeQaDetailedFindings = {
       platform: platformResult,
       liquid: liquidResult,
@@ -3053,6 +3171,7 @@ export class ThemeQaWorkflow {
       hsRules: hsResult,
       serverCrash: serverCrashResult,
       diagnosticIssues,
+      ...(strictFailureEntries.length > 0 ? { strictFailures: strictFailureEntries } : {}),
       diagnosticWarnings,
       ...(documentStatus !== undefined ? { documentStatus } : {}),
       ...(domSemanticsResult ? { domSemantics: domSemanticsResult } : {}),
@@ -3229,6 +3348,7 @@ export class ThemeQaWorkflow {
         ...(imageFrameResult?.measured === true ? imageFrameResult.stats.measuredRules : []),
       ],
       ...(waivers.length > 0 ? { waivers } : {}),
+      ...(waiverClassification.ignored.length > 0 ? { ignoredWaivers: waiverClassification.ignored } : {}),
       createdAt: Date.now(),
     };
   }

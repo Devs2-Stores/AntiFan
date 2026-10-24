@@ -13,7 +13,9 @@ import { LayoutOverflowEngine } from '../qa/scanners/layout-overflow-engine';
 import { HsGateRules, HsEvaluationResult } from '../qa/rules/hs-gate-rules';
 import {
   AUTH_ROUTE_RE,
-  buildReceiptFindings,
+  classifyQaWaivers,
+  collectReceiptFindings,
+  QA_RECEIPT_MAX_FINDINGS,
   computeScopedCriticalCount,
   resolveAnnotationTargetSelector,
   type QaReceiptFinding,
@@ -25,6 +27,7 @@ import {
   type QaProfile,
 } from '../qa/theme-qa-workflow';
 import { dispositionFor, isRebindableStale, type RefusalDisposition } from '../qa/qa-state';
+import { boundQaReportResponse } from '../qa/qa-response-bounds';
 import { ThemeQaRepairCoordinator } from '../qa/theme-qa-repair-coordinator';
 import type { CockpitPort } from './cockpit-port';
 import { registerCockpitCapabilities } from './cockpit-capabilities';
@@ -2193,6 +2196,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       let pageCriticalCount: number | null = null;
       let scopedCriticalCount: number | null | undefined = undefined;
       let receiptFindings: QaReceiptFinding[] = [];
+      let receiptFindingsTotal = 0;
+      let receiptCriticalListed = 0;
       // Read from the evidence gaps, not the capped findings list a warning can fall off.
       let authRedirect = false;
       let authLandingNote: string | null = null;
@@ -2210,6 +2215,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       let receiptDisposition: RefusalDisposition | null = null;
       let errorReason: string | null = null;
       let finalReport: ThemeQaReport | undefined;
+      let reportToReturn: ThemeQaReport | undefined;
+      const waiverClassification = classifyQaWaivers(qaOptions.waivers);
       // Set once the promoted baseline store has been consulted for a declared greenfield run.
       let greenfieldInput: { reason: string; baselineExists: boolean } | undefined;
       const runValidate = async (t: BrowserTarget) => themeQaWorkflow!.validate({
@@ -2505,7 +2512,12 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
             }
           }
         }
-        receiptFindings = buildReceiptFindings(report.findings, settingsRatchetPayload, 200);
+        const allReceiptFindings = collectReceiptFindings(report.findings, settingsRatchetPayload);
+        receiptFindings = allReceiptFindings.slice(0, QA_RECEIPT_MAX_FINDINGS);
+        receiptFindingsTotal = allReceiptFindings.length;
+        // The page's own criticals, counted by the same listing that fills the receipt, so a reader can
+        // set them against criticalCount; settings-ratchet entries are counted by the ratchet instead.
+        receiptCriticalListed = collectReceiptFindings(report.findings, null).filter((f) => f.severity === 'critical').length;
         authRedirect = Array.isArray(report.findings?.evidenceGaps) && report.findings.evidenceGaps.some((gap) => /^AUTH_REDIRECT:/.test(String(gap)));
         if (typeof report.summary?.criticalCount === 'number') {
           criticalCount = report.summary.criticalCount;
@@ -2546,7 +2558,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
           errorReason = settleFailure ? settleFailure.reason : (gaps[0] ? String(gaps[0]).slice(0, QA_RECEIPT_ERROR_MESSAGE_MAX) : 'evidence');
           errorMessage = gaps.length > 0 ? gaps.join('; ').slice(0, QA_RECEIPT_ERROR_MESSAGE_MAX) : null;
         }
-        return report;
+        reportToReturn = report;
       } catch (err) {
         // Terminal failure: the report never materialised, so the receipt must say so.
         // Diagnostics are best-effort (they must never replace the original error) and
@@ -2631,13 +2643,17 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
                     scopeSelector: settleSource.scopeSelector ?? null,
                   }
                 : null,
-              waivers: finalReport?.waivers ?? qaOptions.waivers,
+              waivers: finalReport?.waivers ?? waiverClassification.accepted,
               passed,
               criticalCount,
               pageCriticalCount,
               ...(scopedCriticalCount !== undefined ? { scopedCriticalCount } : {}),
               authRedirect,
               findings: receiptFindings,
+              findingsTotal: receiptFindingsTotal,
+              findingsTruncated: receiptFindingsTotal > receiptFindings.length,
+              criticalListed: receiptCriticalListed,
+              ignoredWaivers: finalReport?.ignoredWaivers ?? waiverClassification.ignored,
               ...(receiptViewportDetail ? { viewport: receiptViewportDetail } : {}),
               createdAt: new Date().toISOString(),
             };
@@ -2659,6 +2675,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
           }
         }
       }
+      return boundQaReportResponse(reportToReturn as ThemeQaReport);
     },
   });
 

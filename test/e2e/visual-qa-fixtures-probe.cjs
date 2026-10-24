@@ -163,6 +163,9 @@ async function run() {
           const ruleLabel = Array.isArray(expect.ruleIds) ? ` (ruleIds: ${expect.ruleIds.join('|')})` : '';
           reasons.push(`expected one of ${expect.kinds.join('|')}${ruleLabel} at ${vp.name}`);
         }
+        if (Number.isInteger(expect.exactCritical) && crit !== expect.exactCritical) {
+          reasons.push(`expected exactly ${expect.exactCritical} critical finding(s) at ${vp.name}, got ${crit}`);
+        }
       } else if (expect.documentOverflow && asserted && overflow.hasOverflow !== true) {
         reasons.push(`expected overflow.hasOverflow === true at ${vp.name}`);
       } else if (expect.control) {
