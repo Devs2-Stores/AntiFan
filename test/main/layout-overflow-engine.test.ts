@@ -4,10 +4,10 @@ import * as vm from 'node:vm';
 import { LayoutOverflowEngine, ViewportOverflowResult } from '../../src/main/qa/scanners/layout-overflow-engine';
 
 describe('LayoutOverflowEngine', () => {
-  it('defines the canonical five-width responsive contract (320/375/768/1024/1440)', () => {
+  it('defines the canonical seven-width responsive contract (320/375/768/1024/1440/1920/2560)', () => {
     const bps = LayoutOverflowEngine.BREAKPOINTS;
-    assert.strictEqual(bps.length, 5);
-    assert.deepStrictEqual(bps.map((b) => b.width), [375, 320, 768, 1024, 1440]);
+    assert.strictEqual(bps.length, 7);
+    assert.deepStrictEqual(bps.map((b) => b.width), [375, 320, 768, 1024, 1440, 1920, 2560]);
     assert.strictEqual(bps[0]?.name, 'mobile');
     assert.strictEqual(bps[4]?.name, 'desktop');
   });

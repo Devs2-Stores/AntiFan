@@ -14,6 +14,7 @@ import {
 import { ThemeEvidenceEnvelope } from '../tools/theme-evidence-envelope';
 import { SourceMappingResult, isAuthoritativeSourceCandidate } from '../browser/theme-source-mapper';
 import { MatchedStylesResult } from '../browser/css-cascade-analyzer';
+import { DEFAULT_SWEEP_BREAKPOINTS } from '../browser/sweep-viewports';
 
 export interface ThemeEvidenceBundleInput {
   sourceMappingEnvelope?: ThemeEvidenceEnvelope<SourceMappingResult>;
@@ -197,7 +198,7 @@ export class ThemeProofHelpers {
           expected: true,
           actual: 'missing',
           passed: false,
-          message: 'Incomplete responsive telemetry: not all 5 standard breakpoints were evaluated or signals are missing',
+          message: `Incomplete responsive telemetry: not all ${DEFAULT_SWEEP_BREAKPOINTS.length} standard breakpoints were evaluated or signals are missing`,
           source: 'deterministic',
         },
         {
@@ -205,7 +206,7 @@ export class ThemeProofHelpers {
           expected: true,
           actual: 'missing',
           passed: false,
-          message: 'Incomplete responsive telemetry: not all 5 standard breakpoints were evaluated or signals are missing',
+          message: `Incomplete responsive telemetry: not all ${DEFAULT_SWEEP_BREAKPOINTS.length} standard breakpoints were evaluated or signals are missing`,
           source: 'deterministic',
         },
       ];
@@ -220,7 +221,7 @@ export class ThemeProofHelpers {
         expected: true,
         actual: noTargetOverflow,
         passed: noTargetOverflow,
-        message: noTargetOverflow ? 'Zero target overflow across all 5 standard breakpoints' : 'Target horizontal overflow detected',
+        message: noTargetOverflow ? `Zero target overflow across all ${DEFAULT_SWEEP_BREAKPOINTS.length} standard breakpoints` : 'Target horizontal overflow detected',
         source: 'deterministic',
       },
       {
@@ -228,7 +229,7 @@ export class ThemeProofHelpers {
         expected: true,
         actual: noDocOverflow,
         passed: noDocOverflow,
-        message: noDocOverflow ? 'Zero document overflow across all 5 standard breakpoints' : 'Document horizontal overflow detected',
+        message: noDocOverflow ? `Zero document overflow across all ${DEFAULT_SWEEP_BREAKPOINTS.length} standard breakpoints` : 'Document horizontal overflow detected',
         source: 'deterministic',
       },
     ];

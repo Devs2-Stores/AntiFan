@@ -9,6 +9,7 @@ const { spawn } = require('node:child_process');
 const { StringDecoder } = require('node:string_decoder');
 const WebSocket = require('ws');
 const { ProjectWindowShell } = require('../.compiled/src/main/browser/project-window-shell.js');
+const { DEFAULT_SWEEP_BREAKPOINTS } = require('../.compiled/src/main/browser/sweep-viewports.js');
 
 function redactCreds(val) {
   const str = typeof val === 'string' ? val : (val instanceof Error ? (val.stack || val.message) : String(val ?? ''));
@@ -557,7 +558,7 @@ async function run() {
       tabId,
     }, 40_000), 'anti.inspect.responsive_matrix');
     const breakpointValues = Object.values(responsive.data.breakpoints);
-    assert.deepEqual(breakpointValues.map((item) => item.width).sort((a, b) => a - b), [320, 375, 768, 1024, 1440]);
+    assert.deepEqual(breakpointValues.map((item) => item.width).sort((a, b) => a - b), DEFAULT_SWEEP_BREAKPOINTS.map((bp) => bp.width).sort((a, b) => a - b));
     assert.equal(responsive.signals.allBreakpointsTested, true);
     assert.equal(responsive.signals.hasTargetOverflow, false);
     assert.equal(responsive.signals.hasDocOverflow, false);
@@ -841,7 +842,7 @@ async function run() {
       tabId,
     }, 40_000), 'anti.inspect.responsive_matrix drawer');
     const drawerBreakpoints = Object.values(drawerResponsive.data.breakpoints);
-    assert.deepEqual(drawerBreakpoints.map((item) => item.width).sort((a, b) => a - b), [320, 375, 768, 1024, 1440]);
+    assert.deepEqual(drawerBreakpoints.map((item) => item.width).sort((a, b) => a - b), DEFAULT_SWEEP_BREAKPOINTS.map((bp) => bp.width).sort((a, b) => a - b));
     assert.equal(drawerResponsive.signals.hasTargetOverflow, false);
     assert.equal(drawerResponsive.signals.hasDocOverflow, false);
 
@@ -1003,8 +1004,9 @@ async function run() {
     };
 
     console.log('[OK] Negative canaries: no-op claim REJECTED, ambiguous source REJECTED, pruned authority denied.');
-    console.log('[OK] Drawer: mobile viewport, trusted CDP click, sparse attributed delta, visible state, five widths, VERIFIED receipt.');
-    console.log('[OK] Product Card: real PNG, CDP provenance, source candidacy, file.write SHA, reload generation, five widths, VERIFIED receipt.');
+    const sweepWidthCount = DEFAULT_SWEEP_BREAKPOINTS.length;
+    console.log(`[OK] Drawer: mobile viewport, trusted CDP click, sparse attributed delta, visible state, ${sweepWidthCount} widths, VERIFIED receipt.`);
+    console.log(`[OK] Product Card: real PNG, CDP provenance, source candidacy, file.write SHA, reload generation, ${sweepWidthCount} widths, VERIFIED receipt.`);
     transportWarnings.assertNoneContaining(
       'is gone and no failover target exists',
       'No dispatch in this lane may ride a stale bound target'

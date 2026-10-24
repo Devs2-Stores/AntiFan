@@ -1187,10 +1187,10 @@ describe('Responsive sweep surface', () => {
   const TOOLBAR_HEIGHT = 68;
   // A page a little wider than the narrowest breakpoint: it overflows 320 and fits every
   // viewport above it. A reading taken against a detached zero-width box reports overflow
-  // at all five, so this page is what tells a real measurement from a refused one.
+  // at every width, so this page is what tells a real measurement from a refused one.
   const PAGE_CONTENT_WIDTH = 330;
-  const BREAKPOINT_IDS = ['mobile-small', 'mobile-standard', 'tablet-portrait', 'tablet-landscape', 'desktop-laptop'];
-  const BREAKPOINT_WIDTHS = [320, 375, 768, 1024, 1440];
+  const BREAKPOINT_IDS = ['mobile-small', 'mobile-standard', 'tablet-portrait', 'tablet-landscape', 'desktop-laptop', 'desktop-fhd', 'desktop-qhd'];
+  const BREAKPOINT_WIDTHS = [320, 375, 768, 1024, 1440, 1920, 2560];
   const PER_WIDTH_SCRIPT = 'per-width-probe';
 
   function createSweepHarness(options: { staleReadsPerEmulation?: number; ignoreFirstOverrideAt?: number[] } = {}): SweepHarness {
@@ -1380,7 +1380,7 @@ describe('Responsive sweep surface', () => {
     );
     assert.deepStrictEqual(
       harness.emulationCalls.map((call) => call.attached),
-      [true, true, true, true, true],
+      BREAKPOINT_IDS.map(() => true),
       'An emulation applied to a view with no surface measures nothing but the refusal'
     );
 
@@ -1399,7 +1399,7 @@ describe('Responsive sweep surface', () => {
     }
 
     // The page overflows the narrowest breakpoint alone; a detached zero-width box would
-    // report this document as overflowing all five.
+    // report this document as overflowing every width.
     assert.strictEqual(readings['mobile-small']?.hasHorizontalOverflow, true, 'A page wider than 320px must overflow it');
     for (const id of BREAKPOINT_IDS.slice(1)) {
       assert.strictEqual(readings[id]?.hasHorizontalOverflow, false, `${id}: a page that fits must not be reported as overflowing`);
@@ -1407,7 +1407,7 @@ describe('Responsive sweep surface', () => {
     assert.strictEqual(readings['mobile-small']?.documentOverflowX, true, 'documentOverflowX stays the document-level signal it always was');
 
     // The sweep borrows the window for a real surface, never for the user's attention.
-    assert.deepStrictEqual(harness.attachedDuringReadings, [true, true, true, true, true], 'Every reading must be taken with the tab view on screen');
+    assert.deepStrictEqual(harness.attachedDuringReadings, BREAKPOINT_IDS.map(() => true), 'Every reading must be taken with the tab view on screen');
     assert.strictEqual(host.activeTabId, 'tab-active', 'The sweep must not activate the background tab');
     const childrenDuringReading = harness.childrenDuringFirstReading();
     const sweepIndex = childrenDuringReading.indexOf(harness.view);
@@ -1465,7 +1465,7 @@ describe('Responsive sweep surface', () => {
     const payload = await host.runResponsiveCheck({ tabId: 'tab-bg' });
     const readings = payload.breakpoints as Record<string, BreakpointReading & { emulationApplied?: boolean }>;
 
-    assert.deepStrictEqual(harness.emulationCalls.map((call) => call.width), [320, 320, 375, 768, 1024, 1440], 'Only the dropped width is sent again');
+    assert.deepStrictEqual(harness.emulationCalls.map((call) => call.width), [320, 320, 375, 768, 1024, 1440, 1920, 2560], 'Only the dropped width is sent again');
     assert.strictEqual(readings['mobile-small']?.emulationApplied, true);
     assert.strictEqual(readings['mobile-small']?.clientWidth, 320);
     assert.strictEqual(readings['mobile-small']?.hasHorizontalOverflow, true, 'The 330px page overflows 320 once the re-sent override lands');
@@ -1492,7 +1492,7 @@ describe('Responsive sweep surface', () => {
 
     const plain = await host.runResponsiveCheck({ tabId: 'tab-bg' });
     const plainReadings = plain.breakpoints as Record<string, Record<string, unknown>>;
-    assert.strictEqual(harness.perWidthReads.length, 5, 'A sweep without the option must not evaluate anything extra');
+    assert.strictEqual(harness.perWidthReads.length, BREAKPOINT_WIDTHS.length, 'A sweep without the option must not evaluate anything extra');
     for (const id of BREAKPOINT_IDS) {
       assert.ok(!('integrity' in plainReadings[id]!), `${id}: no integrity key without the option`);
     }

@@ -11,10 +11,14 @@ const outDir = requestedOut ? path.resolve(requestedOut) : fs.mkdtempSync(path.j
 const scanFile = (process.argv.find((arg) => arg.startsWith('--scan-file=')) || '').slice(12);
 const corpusArg = (process.argv.find((arg) => arg.startsWith('--corpus=')) || '').slice(9);
 const corpusPath = corpusArg ? path.resolve(process.cwd(), corpusArg) : path.join(root, 'test/fixtures/visual-qa/fixtures.cjs');
+// 'wide' only runs the fixtures that ask for it (expect.viewports names it, or a control sets
+// expect.wide): it exists for rules that need a viewport wider than the page container.
 const viewports = [
   { name: 'mobile', width: 375, height: 667, deviceScaleFactor: 2, mobile: true },
   { name: 'desktop', width: 1440, height: 900, deviceScaleFactor: 1, mobile: false },
+  { name: 'wide', width: 1920, height: 1080, deviceScaleFactor: 1, mobile: false, optIn: true },
 ];
+const runsAt = (vp, fixture) => !vp.optIn || (fixture.expect.viewports || []).includes(vp.name) || fixture.expect.wide === true;
 let currentWin;
 let currentDebugger;
 let exitCode = 2;
@@ -121,6 +125,7 @@ async function run() {
   const rows = [];
   for (const vp of viewports) {
     for (const fixture of selected) {
+      if (!runsAt(vp, fixture)) continue;
       const htmlPath = path.join(outDir, `${vp.name}-${fixture.id}.html`);
       fs.writeFileSync(htmlPath, fixture.html, 'utf8');
       const win = await openAt(vp);

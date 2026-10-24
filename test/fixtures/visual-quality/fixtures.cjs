@@ -9,6 +9,9 @@
 // expect.control: no finding at all on any viewport.
 // expect.absentBy: { <viewport>: [ruleIds] } that viewport must not report.
 // expect.indeterminateAtLeast: stats.contrastIndeterminate floor (text over imagery).
+// scanOptions:    extra VisualQualityScanOptions for this fixture (for example timedWidgetWaitMs).
+// expect.truncatedMatch: some stats.truncatedReasons entry must match this RegExp on every viewport.
+// expect.noTimedWait: the scan must not wait for a timed popup (stats.timedWidgets absent).
 
 const page = (body, head = '') => `<!doctype html><html lang="vi"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -125,6 +128,59 @@ module.exports = [
 <footer style="padding:8px 16px 20px"><a href="#hotline" style="display:inline-block;padding:14px 0">Hotline 1900 1234</a></footer>
 <div role="complementary" style="position:fixed;right:auto;left:8px;bottom:8px;width:56px;height:56px;border-radius:50%;background:#0a7;z-index:20"></div>`),
     expect: { rules: ['floating-widget-overlap'] },
+  },
+  {
+    id: 'floating-widget-hidden-by-footer-observer',
+    html: page(`<main style="height:1400px;padding:24px 24px 24px 96px"><p>Nội dung</p></main>
+<footer style="padding:8px 16px 20px"><a href="#hotline" style="display:inline-block;padding:14px 0">Hotline 1900 1234</a></footer>
+<div class="toast" role="complementary" style="position:fixed;left:8px;bottom:8px;width:56px;height:56px;border-radius:50%;background:#0a7;z-index:20"></div>
+<script>new IntersectionObserver(function (entries) { document.querySelector('.toast').hidden = entries[entries.length - 1].isIntersecting; }).observe(document.querySelector('footer'));</script>`),
+    expect: { absent: ['floating-widget-overlap'] },
+  },
+  {
+    id: 'floating-toast-slides-out-when-footer-shows',
+    html: page(`<style>.toast{position:fixed;left:8px;bottom:8px;width:240px;height:96px;background:#0a7;z-index:20;transition:transform .4s ease,opacity .4s ease,visibility .4s}.toast:not(.is-visible){transform:translateX(-120%);opacity:0;visibility:hidden}</style>
+<main style="height:1400px;padding:24px 24px 24px 280px"><p>Nội dung</p></main>
+<footer style="padding:8px 16px 20px"><a href="#hotline" style="display:inline-block;padding:14px 0">Hotline 1900 1234</a></footer>
+<div class="toast is-visible" role="complementary"></div>
+<script>new IntersectionObserver(function (entries) { document.querySelector('.toast').classList.toggle('is-visible', !entries[entries.length - 1].isIntersecting); }).observe(document.querySelector('footer'));</script>`),
+    expect: { absent: ['floating-widget-overlap'] },
+  },
+  {
+    id: 'floating-toast-slides-in-over-footer-link',
+    html: page(`<style>.toast{position:fixed;left:8px;bottom:8px;width:240px;height:96px;background:#0a7;z-index:20;transition:transform .4s ease,opacity .4s ease,visibility .4s}.toast:not(.is-visible){transform:translateX(-120%);opacity:0;visibility:hidden}</style>
+<main style="height:1400px;padding:24px 24px 24px 280px"><p>Nội dung</p></main>
+<footer style="padding:8px 16px 20px"><a href="#hotline" style="display:inline-block;padding:14px 0">Hotline 1900 1234</a></footer>
+<div class="toast" role="complementary"></div>
+<script>new IntersectionObserver(function (entries) { document.querySelector('.toast').classList.toggle('is-visible', entries[entries.length - 1].isIntersecting); }).observe(document.querySelector('footer'));</script>`),
+    expect: { rules: ['floating-widget-overlap'] },
+  },
+  {
+    // A pop-sale style card hidden until its timer fires: graded once it shows, not read as absent.
+    id: 'floating-timed-toast-appears-over-links',
+    html: page(`<style>.pop-sale{position:fixed;left:8px;bottom:8px;width:240px;height:96px;background:#0a7;color:#fff;z-index:20}main p{margin:0;height:48px}</style>
+<main style="padding:0 24px">${Array.from({ length: 60 }, (_, i) => `<p><a href="#p${i}" style="display:inline-block;padding:12px 0">Sản phẩm ${i + 1}</a></p>`).join('')}</main>
+<div class="pop-sale" hidden><a href="#deal">Giày da vừa được mua</a></div>
+<script>setTimeout(function () { document.querySelector('.pop-sale').hidden = false; }, 1200);</script>`),
+    expect: { rules: ['floating-widget-overlap'] },
+  },
+  {
+    // Never shows inside the wait: the overlap is reported as unmeasured, never as a clean pass.
+    id: 'floating-timed-toast-never-shows',
+    scanOptions: { timedWidgetWaitMs: 1000 },
+    html: page(`<style>.pop-sale{position:fixed;left:8px;bottom:8px;width:240px;height:96px;background:#0a7;color:#fff;z-index:20}main p{margin:0;height:48px}</style>
+<main style="padding:0 24px">${Array.from({ length: 60 }, (_, i) => `<p><a href="#p${i}" style="display:inline-block;padding:12px 0">Sản phẩm ${i + 1}</a></p>`).join('')}</main>
+<div class="pop-sale" hidden><a href="#deal">Giày da vừa được mua</a></div>`),
+    expect: { absent: ['floating-widget-overlap'], truncatedMatch: /timed widget .*pop-sale.* stayed hidden/ },
+  },
+  {
+    // A newsletter modal and a full-width cookie bar that stay hidden are overlays, not timed toasts: no wait.
+    id: 'floating-hidden-modal-is-not-waited-for',
+    html: page(`<style>.newsletter-modal{position:fixed;inset:0;display:none;background:rgba(0,0,0,.5)}.cookie-bar{position:fixed;left:0;right:0;bottom:0;height:80px;visibility:hidden;background:#333;color:#fff}</style>
+<main style="height:1600px;padding:24px"><p>Nội dung</p></main>
+<div class="newsletter-modal"><form><input placeholder="Email"><button>Đăng ký</button></form></div>
+<div class="cookie-bar notification-bar">Chúng tôi dùng cookie <button>Đồng ý</button></div>`),
+    expect: { control: true, noTimedWait: true },
   },
   {
     id: 'floating-widget-clear-of-content-control',

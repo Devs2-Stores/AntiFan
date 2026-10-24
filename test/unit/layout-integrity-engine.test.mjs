@@ -122,6 +122,15 @@ describe('LayoutIntegrityEngine', () => {
       );
     });
 
+    it('excludes the Haravan and Sapo/Bizweb preview chrome from the scan (behaviour: visual-qa fixtures 71-72)', () => {
+      const scriptText = LayoutIntegrityEngine.getBrowserScanScript('active');
+      const line = scriptText.split('\n').find((l) => l.includes('const PLATFORM_PREVIEW_CHROME'));
+      assert.ok(line, 'PLATFORM_PREVIEW_CHROME must be declared');
+      for (const sel of ['#haravan-notification', '#preview-bar-iframe', '#bizweb-theme-previewer']) {
+        assert.ok(line.includes(sel), `PLATFORM_PREVIEW_CHROME must contain ${sel}`);
+      }
+    });
+
     it('wires the inner overflow-x clipping, scrolled-header and fixed-vs-sticky collision passes into the scan (behaviour: visual-qa fixtures 51-55)', () => {
       const scriptText = LayoutIntegrityEngine.getBrowserScanScript('active');
       assert.ok(

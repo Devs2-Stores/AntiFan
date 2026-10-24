@@ -16,13 +16,15 @@ export const SWEEP_VIEWPORT_MAX_ENTRIES = 5;
 export const SWEEP_VIEWPORT_MIN_PX = 200;
 export const SWEEP_VIEWPORT_MAX_PX = 3000;
 
-/** Standard widths with the heights the host sweep has always used. */
+/** Standard widths with the heights the host sweep has always used; the single source for every QA width list. */
 export const DEFAULT_SWEEP_BREAKPOINTS: readonly SweepBreakpoint[] = [
   { id: 'mobile-small', name: 'Mobile Small (320px)', width: 320, height: 568, deviceScaleFactor: 2, mobile: true },
   { id: 'mobile-standard', name: 'Mobile Standard (375px)', width: 375, height: 667, deviceScaleFactor: 2, mobile: true },
   { id: 'tablet-portrait', name: 'Tablet Portrait (768px)', width: 768, height: 1024, deviceScaleFactor: 2, mobile: false },
   { id: 'tablet-landscape', name: 'Tablet Landscape (1024px)', width: 1024, height: 768, deviceScaleFactor: 2, mobile: false },
   { id: 'desktop-laptop', name: 'Desktop Laptop (1440px)', width: 1440, height: 900, deviceScaleFactor: 1, mobile: false },
+  { id: 'desktop-fhd', name: 'Desktop Full HD (1920px)', width: 1920, height: 1080, deviceScaleFactor: 1, mobile: false },
+  { id: 'desktop-qhd', name: 'Desktop QHD (2560px)', width: 2560, height: 1440, deviceScaleFactor: 1, mobile: false },
 ];
 
 /**
@@ -71,7 +73,7 @@ export function viewportsToBreakpoints(viewports: unknown): SweepBreakpoint[] {
 }
 
 /**
- * Breakpoints one sweep measures: the base list (standard five unless the caller named its own)
+ * Breakpoints one sweep measures: the base list (the standard list unless the caller named its own)
  * followed by the caller's extra `viewports`. An extra that repeats a base width+height is dropped.
  */
 export function resolveSweepBreakpoints(base: readonly SweepBreakpoint[] | undefined, viewports: unknown): SweepBreakpoint[] {

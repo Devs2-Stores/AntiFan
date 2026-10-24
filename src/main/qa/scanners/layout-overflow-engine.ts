@@ -240,8 +240,8 @@ export class LayoutOverflowEngine {
   }
 
   /**
-   * Canonical QA viewport contract — the same five CSS widths the host
-   * runResponsiveCheck sweep measures (320/375/768/1024/1440). Presets here are
+   * Canonical QA viewport contract — the same CSS widths the host
+   * runResponsiveCheck sweep measures (320/375/768/1024/1440/1920/2560). Presets here are
    * metadata only; per-width measurement authority lives in the sweep.
    */
   public static readonly BREAKPOINTS = [
@@ -250,5 +250,7 @@ export class LayoutOverflowEngine {
     { name: 'tablet' as const, width: 768, height: 1024, label: 'Tablet (768)' },
     { name: 'laptop' as const, width: 1024, height: 768, label: 'Laptop (1024)' },
     { name: 'desktop' as const, width: 1440, height: 900, label: 'Desktop (1440)' },
+    { name: 'desktop-fhd' as const, width: 1920, height: 1080, label: 'Desktop Full HD (1920)' },
+    { name: 'desktop-qhd' as const, width: 2560, height: 1440, label: 'Desktop QHD (2560)' },
   ];
 }

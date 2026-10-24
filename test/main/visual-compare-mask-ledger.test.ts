@@ -1517,6 +1517,33 @@ describe('computePixelDiff & visualCompare comprehensive edge cases', () => {
     assert.strictEqual(zeroResult.length, 0, 'Zero-match tracked selectors must produce empty candidate list');
   });
 
+  it('buildStructuralQueryScript leaves platform preview chrome out of the untracked root children', () => {
+    const box = () => ({ x: 0, y: 0, width: 100, height: 40, top: 0, right: 100, bottom: 40, left: 0 });
+    const makeEl = (tag: string, id: string, cls: string, isChrome: boolean) => ({
+      tagName: tag,
+      id,
+      getAttribute: (attr: string) => (attr === 'class' ? cls : null),
+      getBoundingClientRect: box,
+      closest: (sel: string) => (isChrome && sel === '#haravan-notification, #bizweb-theme-previewer' ? {} : null),
+    });
+    const header = makeEl('HEADER', '', 'site-header', false);
+    const bar = makeEl('DIV', 'haravan-notification', '', true);
+    const rootEl = {
+      tagName: 'BODY',
+      id: '',
+      getAttribute: () => null,
+      getBoundingClientRect: box,
+      closest: () => null,
+      children: [header, bar],
+    };
+    const context = vm.createContext({ document: { querySelector: () => rootEl }, Map, Array, Math, Boolean });
+    const run = (exclude: string) =>
+      Array.from(vm.runInContext(buildStructuralQueryScript('body', [], exclude), context) as Array<{ selector: string }>, (r) => r.selector);
+
+    assert.deepStrictEqual(run('#haravan-notification, #bizweb-theme-previewer'), ['body', 'header.site-header']);
+    assert.deepStrictEqual(run(''), ['body', 'header.site-header', '#haravan-notification']);
+  });
+
   it('computeStructuralMetrics fails closed when requested tracked scope resolves zero elements on both sides', () => {
     const emptyBundle = {
       regions: [],

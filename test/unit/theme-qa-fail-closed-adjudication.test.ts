@@ -201,6 +201,29 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
       assert.strictEqual(tiny.summary.verdict, 'FAIL');
     });
 
+    it('build-strict reports a timed popup that never showed without blocking the verdict', async () => {
+      const validate = (appeared: number) => {
+        const result = visualResult([], true);
+        const stats = { ...result.stats, timedWidgets: { latent: 1, appeared, waitedMs: 9000, selectors: ['div.pop-sale'] } };
+        return new ThemeQaWorkflow(portsWithVisual({ ...result, stats })).validate({
+          runId: 'run-vq-timed',
+          attemptId: 'att-vq-timed',
+          workspaceRoot: 'E:/Work/test-theme',
+          target: makeTarget(1),
+          profile: 'build-strict',
+          coverageFloor: 0,
+          multiBreakpoint: false,
+          thresholds: { minTextPx: 12, minTapHitPx: 24 },
+        });
+      };
+      const hidden = await validate(0);
+      assert.strictEqual(hidden.summary.verdict, 'PASS');
+      assert.ok((hidden.findings?.visualAmbiguities || []).some((a) => a.startsWith('[timed-widget] div.pop-sale stayed hidden')));
+      const shown = await validate(1);
+      assert.strictEqual(shown.summary.verdict, 'PASS');
+      assert.ok(!(shown.findings?.visualAmbiguities || []).some((a) => a.startsWith('[timed-widget]')));
+    });
+
     it('build-strict does not vouch for tap targets from a desktop-width scan', async () => {
       const report = await run(portsWithVisual(visualResult([])), 'build-strict');
       assert.strictEqual(report.summary.verdict, 'INCONCLUSIVE');

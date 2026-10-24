@@ -5,6 +5,7 @@
  * named here.
  */
 import type { ProbeResult } from './probes/probe-deps';
+import { DEFAULT_SWEEP_BREAKPOINTS } from '../browser/sweep-viewports';
 
 export interface ChecklistTick {
   itemId: string;
@@ -19,7 +20,7 @@ export type ChecklistProbeResults = Partial<Record<
 >>;
 
 export const NOTE_PREFIX = '[scan]';
-const RESPONSIVE_WIDTHS = ['320', '375', '768', '1024', '1440'];
+const RESPONSIVE_WIDTHS = DEFAULT_SWEEP_BREAKPOINTS.map((bp) => String(bp.width));
 
 type Rec = Record<string, unknown>;
 

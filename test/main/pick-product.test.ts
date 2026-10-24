@@ -107,6 +107,22 @@ describe('runPickProduct', () => {
     assert.strictEqual(result.findings[0]?.ruleId, 'pick-product-no-match');
   });
 
+  it('falls back to /products.json aliases on a Sapo storefront whose cards link bare aliases', async () => {
+    const routes: Record<string, FetchRoute> = {
+      '/collections/all?page=1': { html: '<html><body><a href="/alpha">alpha</a><a href="/beta">beta</a><a href="/giay-nam">Nam</a></body></html>' },
+      '/products.json?page=1': { json: { products: [{ alias: 'alpha' }, { alias: 'beta' }] } },
+      '/products.json?page=2': { json: { products: [] } },
+      '/products/alpha.js': { json: product('alpha', { variants: variants(2) }) },
+      '/products/beta.js': { json: product('beta', { variants: variants(6) }) },
+    };
+    const deps = makeDomDeps(openPage(readProbeFixture('pdp-not-product.html'), { url: `${STOREFRONT_ORIGIN}/`, routes })).deps;
+
+    const result = await runPickProduct(deps, { strategy: 'max-variants' });
+
+    assert.strictEqual(result.measured, true, result.error);
+    assert.deepStrictEqual(result.data.handles, ['beta', 'alpha']);
+  });
+
   it('is not measured when the listing exposes no product link', async () => {
     const deps = storefront([[]], []);
 

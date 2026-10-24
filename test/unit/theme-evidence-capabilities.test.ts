@@ -276,6 +276,8 @@ describe('Phase 3: Theme Evidence Capabilities', () => {
             'tablet-portrait': { width: 768, documentOverflowX: false, targetOverflowX: false },
             'tablet-landscape': { width: 1024, documentOverflowX: false, targetOverflowX: false },
             'desktop-laptop': { width: 1440, documentOverflowX: false, targetOverflowX: false },
+            'desktop-fhd': { width: 1920, documentOverflowX: false, targetOverflowX: false },
+            'desktop-qhd': { width: 2560, documentOverflowX: false, targetOverflowX: false },
           },
         };
       },

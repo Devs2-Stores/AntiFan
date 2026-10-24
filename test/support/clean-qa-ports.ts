@@ -11,7 +11,7 @@ import { HsGateRules } from '../../src/main/qa/rules/hs-gate-rules';
 import { VISUAL_QUALITY_RULE_IDS } from '../../src/main/qa/scanners/visual-quality-scanner';
 import { IMAGE_FRAME_RULE_IDS } from '../../src/main/qa/scanners/image-frame-scanner';
 
-export const SWEEP_WIDTHS = [320, 375, 768, 1024, 1440] as const;
+export const SWEEP_WIDTHS = [320, 375, 768, 1024, 1440, 1920, 2560] as const;
 
 export interface CleanPortsOptions {
   /** Width of the tab itself (what the active-viewport scans read). */

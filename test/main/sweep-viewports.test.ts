@@ -42,9 +42,10 @@ describe('viewportsToBreakpoints', () => {
 });
 
 describe('resolveSweepBreakpoints', () => {
-  it('is the standard five when nothing is added', () => {
+  it('is the standard seven, including the wide desktop widths, when nothing is added', () => {
     const list = resolveSweepBreakpoints(undefined, undefined);
-    assert.deepEqual(list.map((b) => b.width), [320, 375, 768, 1024, 1440]);
+    assert.deepEqual(list.map((b) => b.width), [320, 375, 768, 1024, 1440, 1920, 2560]);
+    assert.ok(list.some((b) => b.width === 1920 && !b.mobile) && list.some((b) => b.width === 2560 && !b.mobile));
     assert.equal(list.length, DEFAULT_SWEEP_BREAKPOINTS.length);
   });
 
@@ -52,7 +53,7 @@ describe('resolveSweepBreakpoints', () => {
     const base = resolveSweepBreakpoints(undefined, undefined);
     assert.ok(!base.some((b) => b.height === 350 || b.height === 375 && b.width === 667));
     const withShort = resolveSweepBreakpoints(undefined, SHORT_HEIGHT_VIEWPORTS);
-    assert.deepEqual(withShort.slice(5).map((b) => `${b.width}x${b.height}`), ['667x375', '1366x600', '375x350']);
+    assert.deepEqual(withShort.slice(DEFAULT_SWEEP_BREAKPOINTS.length).map((b) => `${b.width}x${b.height}`), ['667x375', '1366x600', '375x350']);
   });
 
   it('keeps a caller base list and appends the extras after it', () => {

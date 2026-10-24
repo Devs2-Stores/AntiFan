@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { ArtifactRef, BrowserTarget, CapabilityError } from '../../shared/control-plane-contracts';
+import { ArtifactRef, BrowserTarget, CapabilityError, TargetStaleCause } from '../../shared/control-plane-contracts';
 import { BrowserControlPort } from '../tools/browser-control-port';
 import type { CaptureFailureCode, EvidenceCaptureEnvelope } from '../verification/visual-capture';
 import { effectiveDomQuietIgnore, type VisualSettleReceipt } from '../verification/capture-settle';
@@ -16,8 +16,9 @@ import type { QaVerification, QaExecution, QaRecovery } from './qa-state';
 import { HsGateRules, HsEvaluationResult, HsRuleViolation } from './rules/hs-gate-rules';
 import { classifyDiagnostics, extractCorrelatableAssetFailures, extractDocumentHttpStatus, DiagnosticsInput, DiagnosticIssue } from './diagnostics-filter';
 import { DomSemanticsScanner, type DomSemanticsScanResult } from './scanners/dom-semantics-scanner';
-import { VisualQualityScanner, type VisualQualityScanResult, type VisualQualityFinding } from './scanners/visual-quality-scanner';
+import { VisualQualityScanner, visualQualityEvalTimeoutMs, type VisualQualityScanResult, type VisualQualityFinding } from './scanners/visual-quality-scanner';
 import { formatInflightNote } from '../browser/first-party-network-tracker';
+import { DEFAULT_SWEEP_BREAKPOINTS } from '../browser/sweep-viewports';
 import type { ThemeTransactionRegistry } from './theme-transaction-registry';
 import type { TerminalSyncCursor, SyncSettleResult } from './haravan-sync-barrier';
 import { DEFAULT_QA_PROFILE, resolveQaThresholds, type QaProfile, type QaThresholds, type QaThresholdsSource } from './qa-thresholds';
@@ -89,7 +90,9 @@ export interface ThemeQaDetailedFindings {
   layoutIntegrity?: LayoutIntegrityResult;
   /** Visual findings that deterministic rules cannot settle — surfaced for AI/human review, never auto-failed. */
   visualAmbiguities?: string[];
-  /** Per-breakpoint finding counts keyed by CSS width ("320","375","768","1024","1440"). */
+  /** Present only when the timer-driven popup wait ran: whether a hidden popup showed and how long the scan waited for it. */
+  timedWidgets?: { seen: boolean; waitedMs: number };
+  /** Per-breakpoint finding counts keyed by CSS width ("320","375","768","1024","1440","1920","2560"). */
   responsive?: Record<string, {
     documentOverflow: boolean | null;
     criticalOverflow: number | null;
@@ -226,9 +229,10 @@ export interface TrackerIsolationOutcome {
   reason?: string;
 }
 
-/** Canonical responsive contract — same five widths the host sweep
- * (runResponsiveCheck) measures. Single source for the per-width map. */
-export const QA_RESPONSIVE_WIDTHS: readonly number[] = [320, 375, 768, 1024, 1440];
+/** Canonical responsive contract: the widths the host sweep
+ * (runResponsiveCheck) measures, taken from DEFAULT_SWEEP_BREAKPOINTS so the
+ * sweep and the per-width map cannot drift apart. */
+export const QA_RESPONSIVE_WIDTHS: readonly number[] = DEFAULT_SWEEP_BREAKPOINTS.map((bp) => bp.width);
 
 export type VisualSettleReceiptExtended = VisualSettleReceipt & {
   layoutStable?: boolean;
@@ -1119,7 +1123,7 @@ function captureEvidenceFailure(error: unknown): ThemeQaEvidenceFailure | undefi
 function rethrowTargetLifecycleError(error: unknown): void {
   if (
     error instanceof CapabilityError &&
-    (error.code === 'TARGET_REQUIRED' || error.code === 'TARGET_STALE' || error.code === 'TARGET_MISMATCH')
+    (error.code === 'TARGET_REQUIRED' || error.code === 'TARGET_STALE' || error.code === 'TARGET_MISMATCH' || error.code === 'ANTI_BOT_CHALLENGE')
   ) {
     throw error;
   }
@@ -1201,6 +1205,7 @@ const STRICT_SPACING_RULES: Record<string, true> = {
   'edge-control': true,
   'sibling-gap': true,
   'min-gap': true,
+  'content-drift': true,
 };
 
 /**
@@ -1504,7 +1509,7 @@ export class ThemeQaWorkflow {
 
   async validate(input: ThemeQaValidateInput): Promise<ThemeQaReport> {
     if (input.signal?.aborted) {
-      throw new CapabilityError('TARGET_STALE', 'Theme QA validation was aborted by document navigation');
+      throw new CapabilityError('TARGET_STALE', 'Theme QA validation was aborted by document navigation', { cause: 'navigated-away' satisfies TargetStaleCause });
     }
     this.assertOwnership(input.target);
     // Greenfield is a declared exception to the baseline requirement, so it is refused unless it
@@ -1674,13 +1679,13 @@ export class ThemeQaWorkflow {
 
     // Stage 1: File system debounce quiescence
     if (input.signal?.aborted) {
-      throw new CapabilityError('TARGET_STALE', 'Theme QA validation was aborted by document navigation');
+      throw new CapabilityError('TARGET_STALE', 'Theme QA validation was aborted by document navigation', { cause: 'navigated-away' satisfies TargetStaleCause });
     }
     const quiescence = Promise.withResolvers<void>();
     setTimeout(quiescence.resolve, this.ports.fsQuiescenceMs ?? DEFAULT_FS_QUIESCENCE_MS);
     await quiescence.promise;
     if (input.signal?.aborted) {
-      throw new CapabilityError('TARGET_STALE', 'Theme QA validation was aborted by document navigation');
+      throw new CapabilityError('TARGET_STALE', 'Theme QA validation was aborted by document navigation', { cause: 'navigated-away' satisfies TargetStaleCause });
     }
 
     // Stage 2: Reload to reach load-complete document
@@ -1706,10 +1711,10 @@ export class ThemeQaWorkflow {
     const loadPhase = await this.withTrackerIsolation(preReloadTarget, async (rebindTarget) => {
       const reload = await this.ports.reload(preReloadTarget, { ownedReloadToken });
       if (input.signal?.aborted) {
-        throw new CapabilityError('TARGET_STALE', 'Theme QA validation was aborted by document navigation');
+        throw new CapabilityError('TARGET_STALE', 'Theme QA validation was aborted by document navigation', { cause: 'navigated-away' satisfies TargetStaleCause });
       }
       if (!reload || !reload.reloaded || !reload.target) {
-        throw new CapabilityError('TARGET_STALE', 'Bound browser tab could not reach a load-complete document');
+        throw new CapabilityError('TARGET_STALE', 'Bound browser tab could not reach a load-complete document', { cause: 'tab-gone' satisfies TargetStaleCause });
       }
       const postReloadGen = this.ports.browser.getDocumentGeneration?.(reload.target.tabId) ?? reload.target.documentGeneration;
       activeTarget = {
@@ -1837,11 +1842,11 @@ export class ThemeQaWorkflow {
 
     const checkAborted = () => {
       if (input.signal?.aborted) {
-        throw new CapabilityError('TARGET_STALE', 'Theme QA validation was aborted by document navigation');
+        throw new CapabilityError('TARGET_STALE', 'Theme QA validation was aborted by document navigation', { cause: 'navigated-away' satisfies TargetStaleCause });
       }
       const currentGen = this.ports.browser.getDocumentGeneration?.(activeTarget.tabId);
       if (typeof currentGen === 'number' && activeTarget.documentGeneration && currentGen !== activeTarget.documentGeneration) {
-        throw new CapabilityError('TARGET_STALE', `Document generation advanced from ${activeTarget.documentGeneration} to ${currentGen}`);
+        throw new CapabilityError('TARGET_STALE', `Document generation advanced from ${activeTarget.documentGeneration} to ${currentGen}`, { cause: 'navigated-away' satisfies TargetStaleCause });
       }
     };
 
@@ -2144,7 +2149,7 @@ export class ThemeQaWorkflow {
       .filter((f) => f.severity === 'warning')
       .map((f) => `[${f.kind}] ${f.selector ? `${f.selector} — ` : ''}${f.details}`);
 
-    // Per-breakpoint responsive contract: 320/375/768/1024/1440. The
+    // Per-breakpoint responsive contract: QA_RESPONSIVE_WIDTHS. The
     // multi-breakpoint sweep (runResponsiveCheck) measures document-level
     // horizontal overflow by width. Integrity counts are null for every width
     // other than the one the integrity scan measured; widths the sweep did not
@@ -2401,7 +2406,8 @@ export class ThemeQaWorkflow {
     if (typeof this.ports.browser.eval === 'function') {
       try {
         checkAborted();
-        const evalRes = await this.ports.browser.eval(activeTarget, VisualQualityScanner.getBrowserScanScript({ thresholds: effectiveThresholds }));
+        const vqOptions = { thresholds: effectiveThresholds };
+        const evalRes = await this.ports.browser.eval(activeTarget, VisualQualityScanner.getBrowserScanScript(vqOptions), undefined, undefined, { timeoutMs: visualQualityEvalTimeoutMs(vqOptions) });
         checkAborted();
         visualQualityResult = VisualQualityScanner.normalize(evalRes);
       } catch (error) {
@@ -2423,6 +2429,12 @@ export class ThemeQaWorkflow {
     if (strictProfile && visualQualityResult?.measured === true && visualQualityResult.mobile !== true) {
       // Tap targets are graded at mobile widths only; a desktop-width run cannot vouch for them.
       evidenceGaps.push(`Tap targets not graded under build-strict: this run measured ${visualQualityResult.viewport.width}px and the mobile sweep reading is missing; validate a mobile viewport (<= 767px) to certify them`);
+    }
+    const timedWidgets = visualQualityResult?.measured === true ? visualQualityResult.stats.timedWidgets : undefined;
+    if (timedWidgets && timedWidgets.appeared === 0) {
+      // A theme may keep its popup hidden on purpose while it would cover content, so an unseen
+      // popup is reported, not counted as an evidence gap that no re-run could clear.
+      integrityAmbiguities.push(`[timed-widget] ${timedWidgets.selectors.join(', ')} stayed hidden for ${timedWidgets.waitedMs}ms; its overlap when shown was not graded`);
     }
     let imageFrameResult: ImageFrameScanResult | undefined;
     if (typeof this.ports.browser.eval === 'function') {
@@ -3051,6 +3063,7 @@ export class ThemeQaWorkflow {
       ...(evidenceFailure ? { evidenceFailure } : {}),
       ...(integrityResult ? { layoutIntegrity: integrityResult } : {}),
       ...(integrityAmbiguities.length > 0 ? { visualAmbiguities: integrityAmbiguities } : {}),
+      ...(timedWidgets ? { timedWidgets: { seen: timedWidgets.appeared > 0, waitedMs: timedWidgets.waitedMs } } : {}),
       responsive: responsiveMap,
       diagnosticScreenshot,
     };
@@ -3062,7 +3075,7 @@ export class ThemeQaWorkflow {
     collectRef(evidence.dom);
     if (evidence.screenshot) collectRef(evidence.screenshot.artifactRef);
     if (input.signal?.aborted) {
-      throw new CapabilityError('TARGET_STALE', 'Theme QA validation was aborted by document navigation');
+      throw new CapabilityError('TARGET_STALE', 'Theme QA validation was aborted by document navigation', { cause: 'navigated-away' satisfies TargetStaleCause });
     }
     // A declared greenfield run grades each representative width by the absolute gates measured at
     // that width; a width nothing measured stays null and can never certify.

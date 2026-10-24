@@ -79,6 +79,16 @@ function overlayPage(opts = {}) {
 module.exports = [
   { id: 'drawer-healthy', html: overlayPage(), expect: { triggers: 1, status: { 0: 'PASS' }, measured: true } },
   {
+    // Lux Shoes mobile menu at 375px: an opaque drawer as wide as the viewport with a painted head
+    // and foot. It is a full-screen sheet with no backdrop, so the backdrop close is not graded.
+    id: 'full-screen-sheet-has-no-backdrop',
+    html: overlayPage({ backdrop: false })
+      .replace('.drawer{position:fixed;top:0;right:0;width:360px;max-width:88vw;', '.drawer{position:fixed;top:0;right:0;width:100vw;max-width:none;padding:0;')
+      .replace('<h2 style="margin:0 0 12px">', '<div style="background:#f7f4ef;height:64px">Menu</div><h2 style="margin:0 0 12px">')
+      .replace('</aside>', '<div style="position:absolute;left:0;right:0;bottom:0;height:84px;background:#ece9e4">Tài khoản</div></aside>'),
+    expect: { triggers: 1, status: { 0: 'PASS' }, noCodes: { 0: ['CLOSE_BACKDROP_FAILED'] } },
+  },
+  {
     // Mirrors S2 Sky Fashion under ?themeid=: the Haravan preview bar (#haravan-notification with
     // ul.preview-cta) sits over the bottom mobile dock. A shopper never sees that bar, so the dock
     // trigger must still be driven.
@@ -107,6 +117,19 @@ module.exports = [
     expect: { triggers: 1, status: { 0: 'PASS' }, noCodes: { 0: ['CONTENT_OVERFLOWS_PANEL'] } },
   },
   { id: 'modal-hangs-off-the-right-edge', html: overlayPage({ kind: 'modal', offscreen: true }), expect: { status: { 0: 'FAIL' }, codes: { 0: ['OVERLAY_OFFSCREEN'] } } },
+  {
+    // Sapo logged-in admin session: content_for_header's admin-bar script pushes every fixed element
+    // 40px down on window.onload. Shoppers never run it, so the drawer is not off-screen.
+    id: 'drawer-shifted-by-sapo-admin-bar-script',
+    html: overlayPage().replace('<script>', '<script>(function(){function getStyle(el,p){return getComputedStyle(el).getPropertyValue(p)}function doShift(down){var a=document.getElementsByTagName("*");for(var i=0;i<a.length;i++){if(a[i].id!="admin_bar_iframe"&&getStyle(a[i],"position")=="fixed")a[i].style.top=parseInt(getStyle(a[i],"top"),10)+(down?40:-40)+"px"}}window.onload=function(){doShift(true)}}())</script>\n<script>'),
+    expect: { triggers: 1, noCodes: { 0: ['OVERLAY_OFFSCREEN'] } },
+  },
+  {
+    // Same 40px push from the theme itself (no admin-bar script): the drawer really hangs off the bottom.
+    id: 'drawer-pushed-below-the-fold-by-theme',
+    html: overlayPage().replace('style=""', 'style="top:40px"'),
+    expect: { triggers: 1, status: { 0: 'FAIL' }, codes: { 0: ['OVERLAY_OFFSCREEN'] } },
+  },
   { id: 'drawer-focus-stays-behind', html: overlayPage({ focus: false }), expect: { status: { 0: 'WARN' }, codes: { 0: ['FOCUS_NOT_MOVED'] } } },
   {
     id: 'stuck-overlay-stops-the-run',

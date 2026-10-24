@@ -16,7 +16,7 @@ function byId(ticks: ChecklistTick[]): Record<string, ChecklistTick> {
   return Object.fromEntries(ticks.map((tick) => [tick.itemId, tick]));
 }
 
-const WIDTHS = ['320', '375', '768', '1024', '1440'];
+const WIDTHS = ['320', '375', '768', '1024', '1440', '1920', '2560'];
 
 function responsive(overflowing: string[], unmeasured: string[] = []): Record<string, unknown> {
   return Object.fromEntries(WIDTHS.map((w) => [w, unmeasured.includes(w) ? {} : { documentOverflow: overflowing.includes(w) }]));
@@ -28,12 +28,12 @@ describe('checklist autotick', () => {
     assert.deepStrictEqual(deriveChecklistTicks({ qa: { findings: {} } }), []);
   });
 
-  it('ticks qag-07 only when all five widths were measured without overflow', () => {
+  it('ticks qag-07 only when all seven widths were measured without overflow', () => {
     const ticks = byId(deriveChecklistTicks({ qa: { findings: { responsive: responsive([]) } } }));
     assert.strictEqual(ticks['qag-07']?.done, true);
     assert.ok(ticks['qag-07']?.note.startsWith(NOTE_PREFIX));
 
-    const partial = byId(deriveChecklistTicks({ qa: { findings: { responsive: responsive([], ['1440']) } } }));
+    const partial = byId(deriveChecklistTicks({ qa: { findings: { responsive: responsive([], ['2560']) } } }));
     assert.strictEqual(partial['qag-07'], undefined, 'an unmeasured width leaves the item untouched');
   });
 

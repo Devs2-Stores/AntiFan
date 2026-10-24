@@ -1,3 +1,5 @@
+import { PLATFORM_PREVIEW_CHROME } from '../platform-preview-chrome';
+
 export interface LayoutIntegrityFinding {
   kind: 'overlap' | 'clipping' | 'occlusion' | 'offscreen' | 'zero-size' | 'sticky-obstruction' | 'layout-shift' | 'spacing' | 'timed-popup-occluder';
   ruleId?: string; // present on 'spacing' findings: which clearance rule fired
@@ -70,7 +72,7 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
   const SKIP_LAYOUT_SHIFT = '__SKIP_LAYOUT_SHIFT__' === 'true';
   const ACTIONABLE = 'a[href], button, [role="button"], input:not([type="hidden"]), select, textarea, [data-action]';
   const CAROUSEL_SLIDE = '.swiper-slide, .swiper-wrapper, .slick-slide, .slick-track, .splide__slide, .flickity-slider, .glide__slide, .owl-item, [aria-roledescription="slide"], [aria-roledescription="carousel"]';
-  const PLATFORM_PREVIEW_CHROME = '#haravan-notification, #preview-bar-iframe, #admin_bar_iframe, #admin-bar-iframe';
+  const PLATFORM_PREVIEW_CHROME = '__PLATFORM_PREVIEW_CHROME__';
   const IDENTITY = 'matrix(1, 0, 0, 1, 0, 0)';
 
   const stats = { elements: 0, textRuns: 0, controls: 0, sweepSteps: 0, truncated: false, truncatedReasons: [], failedDetectors: [], durationMs: 0 };
@@ -223,14 +225,27 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
     }
   };
   const animTargets = new Set();
+  // Finite motion (a CSS transition, or an animation that ends) settles into a different frame;
+  // an infinite loop (marquee, pulsing CTA) is what the shopper keeps seeing.
+  const transientTargets = new Set();
   try {
     const anims = typeof document.getAnimations === 'function' ? document.getAnimations() : [];
     for (let i = 0; i < anims.length; i++) {
       const a = anims[i];
-      if (a.playState === 'running' && a.effect && a.effect.target && animatesGeometry(a)) animTargets.add(a.effect.target);
+      if (a.playState === 'running' && a.effect && a.effect.target && animatesGeometry(a)) {
+        animTargets.add(a.effect.target);
+        let finite = typeof CSSTransition !== 'undefined' && a instanceof CSSTransition;
+        if (!finite) {
+          try {
+            finite = Number.isFinite(a.effect.getComputedTiming().endTime);
+          } catch (e) {}
+        }
+        if (finite) transientTargets.add(a.effect.target);
+      }
     }
   } catch (e) {}
   const animating = memo(false, (el) => ((el !== body && el !== doc) && animTargets.has(el)) || animating(parentOf(el)));
+  const inTransit = memo(false, (el) => ((el !== body && el !== doc) && transientTargets.has(el)) || inTransit(parentOf(el)));
   const unsettled = (el) => in3d(el) || animating(el);
   // Images that have not loaded yet (still fetching, or a lazy source not swapped in) and render
   // collapsed: they have no size yet, so whatever is laid out from them moves when they arrive.
@@ -875,6 +890,214 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
     detectorFailed('spacing', err);
   }
   mark('spacing');
+  // ---- 3d. content drift (scanner severity warning; build-strict fails it via STRICT_SPACING_RULES) ----
+  // A wide viewport leaves the page's centred max-width container a gutter on both sides. Primary
+  // content (h1-h3, left-aligned text blocks, CTA buttons) that starts well left of that container's
+  // content box sits in a section laid out edge to edge with a fixed padding of its own: every other
+  // section lines up on the container, so this one drifts toward the viewport edge. The reference
+  // container is read from the page, not from a class name: elements centred in a wider parent, at
+  // least 40% of the viewport wide, grouped by content box. The group the header sits in wins (the
+  // header and footer shell is the page's outer container, and a narrower centred wrapper inside
+  // some sections must not outvote it); with no shared header group, the group that spans the most
+  // sections wins, unless header or footer text sits left of it (the shell is then wider than that
+  // group, so it is a section wrapper, not the page container). A centred wrapper held inside another
+  // group is ignored, and a page with no container shared by two sections, or whose container sits
+  // under 48px from the edge, is not graded.
+  // Media and backgrounds are never owners, fixed layers, sideways scrollers and carousel slides
+  // that are not full-width are skipped, and the report is one finding per top-level section.
+  try {
+    const DRIFT_MIN_INSET = 48;
+    const T_DRIFT = Math.max(24, vw * 0.02);
+    const dRight = Math.min(vw, doc.clientWidth);
+    const BLEED = dRight * 0.9;
+    const columnMemo = new Map();
+    const isPageColumn = (par) => {
+      let v = columnMemo.get(par);
+      if (v !== undefined) return v;
+      let seen = 0;
+      let stacked = 0;
+      let prevBottom = -Infinity;
+      const kids = par.children;
+      for (let k = 0; k < kids.length && k < 40; k++) {
+        const ks = cs(kids[k]);
+        if (ks.display === 'none' || ks.position === 'fixed' || ks.position === 'absolute') continue;
+        const kr = kids[k].getBoundingClientRect();
+        if (kr.height < 1) continue;
+        seen++;
+        if (kr.width >= BLEED && kr.top >= prevBottom - 2 && kids[k].firstElementChild) stacked++;
+        prevBottom = Math.max(prevBottom, kr.bottom);
+      }
+      v = seen >= 3 && stacked >= seen * 0.6;
+      columnMemo.set(par, v);
+      return v;
+    };
+    const SECTION_TAG = 'section, header, footer, [role="banner"], [role="contentinfo"]';
+    const sectionMemo = new Map();
+    // The outermost section/header/footer below <main> or <body>; without one, the child of the
+    // nearest ancestor that stacks full-width blocks.
+    const sectionOf = (el) => {
+      let hit = sectionMemo.get(el);
+      if (hit) return hit;
+      let top = null;
+      for (let a = el; a && a !== body && a !== doc; a = a.parentElement) {
+        if (a.matches('main, [role="main"]')) break;
+        if (a.matches(SECTION_TAG)) top = a;
+      }
+      if (!top) {
+        top = el;
+        while (top.parentElement && top.parentElement !== body && top.parentElement !== doc) {
+          const par = top.parentElement;
+          if (par.matches('main, [role="main"]') || isPageColumn(par)) break;
+          top = par;
+        }
+      }
+      sectionMemo.set(el, top);
+      return top;
+    };
+    const groupMap = new Map();
+    for (let i = 0; i < elementLimit; i++) {
+      const el = allElements[i];
+      const par = el.parentElement;
+      if (!par || par === doc || el === body || el.children.length === 0 || el.namespaceURI !== 'http://www.w3.org/1999/xhtml') continue;
+      const s = cs(el);
+      if (s.display === 'none' || s.display === 'contents' || s.display.indexOf('inline') === 0 || s.position === 'fixed' || s.position === 'absolute') continue;
+      const r = el.getBoundingClientRect();
+      if (r.width < dRight * 0.4 || r.height < 1 || r.left < 8) continue;
+      if (Math.abs(r.left - (dRight - r.right)) > 2) continue;
+      if (par.getBoundingClientRect().width < r.width + 16) continue;
+      if (!painted(el) || el.closest(PLATFORM_PREVIEW_CHROME)) continue;
+      const cl = r.left + (parseFloat(s.borderLeftWidth) || 0) + (parseFloat(s.paddingLeft) || 0);
+      const cr = r.right - (parseFloat(s.borderRightWidth) || 0) - (parseFloat(s.paddingRight) || 0);
+      if (cr - cl < dRight * 0.3) continue;
+      const key = Math.round(cl) + '|' + Math.round(cr);
+      let g = groupMap.get(key);
+      if (!g) {
+        g = { left: cl, right: cr, width: cr - cl, els: [], sections: new Set(), header: false };
+        groupMap.set(key, g);
+      }
+      g.els.push(el);
+      g.sections.add(sectionOf(el));
+      if (el.closest('header, [role="banner"]')) g.header = true;
+    }
+    const shared = Array.from(groupMap.values()).filter((g) => g.sections.size >= 2);
+    const groupOfEl = new Map();
+    shared.forEach((g) => g.els.forEach((e) => groupOfEl.set(e, g)));
+    const heldInOther = (g) => g.els.every((e) => {
+      for (let a = e.parentElement; a && a !== body; a = a.parentElement) {
+        const og = groupOfEl.get(a);
+        if (og && og !== g) return true;
+      }
+      return false;
+    });
+    const outer = shared.filter((g) => !heldInOther(g));
+    outer.sort((a, b) => ((b.header ? 1 : 0) - (a.header ? 1 : 0)) || (b.sections.size - a.sections.size) || (b.width - a.width));
+    let ref = outer[0];
+    if (ref && !ref.header) {
+      const SHELL = 'header, footer, [role="banner"], [role="contentinfo"]';
+      for (let i = 0; i < runs.length && ref; i++) {
+        const rr = runs[i].r;
+        if (rr.right <= 0 || rr.left >= vw || ref.left - rr.left <= T_DRIFT) continue;
+        const p = runs[i].p;
+        if (p.closest(SHELL) && !p.closest(PLATFORM_PREVIEW_CHROME) && !fixedLayerOf(p)) ref = null;
+      }
+    }
+    if (ref && ref.left >= DRIFT_MIN_INSET) {
+      const HEADING = 'h1, h2, h3, [role="heading"][aria-level="1"], [role="heading"][aria-level="2"], [role="heading"][aria-level="3"]';
+      const TEXT_BLOCKED = 'nav, a[href], button, [role="button"], label, th, td, code, pre, option, summary';
+      const CTA_CLASS = /(^|[^a-z])(btn|button|cta)([^a-z]|$)/i;
+      const sideScroller = (el) => {
+        const clips = contentClips(el);
+        for (let k = 0; k < clips.length; k++) {
+          const a = clips[k];
+          if (a !== body && a !== doc && isScrollAxis(cs(a).overflowX) && a.scrollWidth > a.clientWidth + 1) return true;
+        }
+        return false;
+      };
+      const slidePeek = (el) => {
+        const slide = el.closest(CAROUSEL_SLIDE);
+        if (!slide) return false;
+        const sr = slide.getBoundingClientRect();
+        return sr.width < BLEED || Math.abs(sr.left) > 2;
+      };
+      const driftSkipped = (el) => unsettled(el) || alphaOf(el) < 0.3 || Boolean(el.closest('[aria-hidden="true"]')) || Boolean(fixedLayerOf(el)) || Boolean(el.closest(PLATFORM_PREVIEW_CHROME)) || sideScroller(el) || slidePeek(el);
+      const blockOf = (el) => {
+        let b = el;
+        for (let d = 0; d < 4 && b.parentElement && cs(b).display.indexOf('inline') === 0; d++) b = b.parentElement;
+        return b;
+      };
+      const entries = new Map();
+      const rejected = new Set();
+      for (let i = 0; i < runs.length; i++) {
+        const run = runs[i];
+        const rr = run.r;
+        if (rr.right <= 0 || rr.left >= vw) continue;
+        const heading = run.p.closest(HEADING);
+        let owner = heading;
+        let kind = heading ? 'Heading (' + (heading.getAttribute('aria-level') ? 'h' + heading.getAttribute('aria-level') : heading.tagName.toLowerCase()) + ')' : 'Text block';
+        if (!owner) {
+          if (run.p.closest(TEXT_BLOCKED)) continue;
+          owner = blockOf(run.p);
+        }
+        if (rejected.has(owner)) continue;
+        let ent = entries.get(owner);
+        if (!ent) {
+          const os = cs(owner);
+          const text = (owner.textContent || '').replace(/\s+/g, ' ').trim();
+          const leftAligned = os.direction !== 'rtl' && (os.textAlign === 'left' || os.textAlign === 'start');
+          if (!leftAligned || (!heading && text.length < 40) || driftSkipped(owner)) {
+            rejected.add(owner);
+            continue;
+          }
+          ent = { el: owner, kind: kind, label: snippet(text), left: rr.left, top: rr.top, rect: rr };
+          entries.set(owner, ent);
+        } else {
+          if (rr.left < ent.left) ent.left = rr.left;
+          if (rr.top < ent.top) { ent.top = rr.top; ent.rect = rr; }
+        }
+      }
+      for (let i = 0; i < controls.length; i++) {
+        const el = controls[i].el;
+        const r = controls[i].rect;
+        if (r.right <= 0 || r.left >= vw || entries.has(el)) continue;
+        const label = (el.tagName === 'INPUT' ? (el.value || '') : (el.textContent || '')).replace(/\s+/g, ' ').trim();
+        if (label.length < 2 || label.length > 40 || r.width > 520 || r.height > 140) continue;
+        if (!el.matches('button, [role="button"], input[type="submit"], input[type="button"]') && !CTA_CLASS.test(typeof el.className === 'string' ? el.className : '')) continue;
+        if (el.querySelector('img, picture, video') || driftSkipped(el)) continue;
+        entries.set(el, { el: el, kind: 'CTA', label: snippet(label), left: r.left, top: r.top, rect: r });
+      }
+      const bySection = new Map();
+      entries.forEach((ent) => {
+        if (ref.left - ent.left <= T_DRIFT) return;
+        const sec = sectionOf(ent.el);
+        const hit = bySection.get(sec);
+        if (!hit) {
+          bySection.set(sec, { first: ent, count: 1 });
+          return;
+        }
+        hit.count++;
+        if (ent.top < hit.first.top - 1 || (Math.abs(ent.top - hit.first.top) <= 1 && ent.left < hit.first.left)) hit.first = ent;
+      });
+      bySection.forEach((hit) => {
+        const ent = hit.first;
+        const gap = ref.left - ent.left;
+        push({
+          kind: 'spacing',
+          severity: 'warning',
+          ruleId: 'content-drift',
+          selector: getSelector(ent.el),
+          relatedSelector: getSelector(ref.els[0]),
+          actualPx: Math.round(gap),
+          details: ent.kind + ' "' + ent.label + '" starts at x=' + Math.round(ent.left) + ', ' + Math.round(gap) + 'px left of the page container content box (x=' + Math.round(ref.left) + ' to ' + Math.round(ref.right) + ') at ' + Math.round(vw) + 'px width, over the ' + Math.round(T_DRIFT) + 'px tolerance' + (hit.count > 1 ? '; ' + (hit.count - 1) + ' more in this section' : ''),
+          rect: toRect(ent.rect)
+        });
+      });
+      stats.spacingMeasured = (stats.spacingMeasured || 0) + entries.size;
+      stats.spacingFlagged = (stats.spacingFlagged || 0) + bySection.size;
+    }
+  } catch (err) {
+    detectorFailed('spacing', err);
+  }
+  mark('contentDrift');
   // ---- 3. clipped text (line box sliced or cut by a clipping ancestor) -----------------------
   const clippedOwners = new Set();
   // owner element -> { visible: bool, below: clip that pushed a whole line past its bottom edge,
@@ -1657,6 +1880,10 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
             const eSlide = e.closest(SLIDE_ITEM);
             if (tgSlide && eSlide && tgSlide !== eSlide) continue;
             if (isCollapsedCurtain(e, tg.owner)) continue;
+            if (inTransit(e)) {
+              deferredBy = deferredBy || layerOf(e) || e;
+              continue;
+            }
             const eLayer = layerOf(e);
             if (eLayer && eLayer !== tg.layer) {
               if (s === 0 && !tg.fixed && topLayer(eLayer) && isOpaque(e)) return { state: 'covered', by: e, sticky: 'at page load' };
@@ -2000,6 +2227,7 @@ export class LayoutIntegrityEngine {
   public static getBrowserScanScript(viewportName: string = 'active', options: LayoutIntegrityScanOptions = {}): string {
     return LAYOUT_INTEGRITY_SCAN
       .replace("'__VIEWPORT_NAME__'", () => JSON.stringify(viewportName))
+      .replace("'__PLATFORM_PREVIEW_CHROME__'", () => JSON.stringify(PLATFORM_PREVIEW_CHROME))
       .replace("'__SKIP_LAYOUT_SHIFT__'", () => JSON.stringify(options.skipLayoutShift === true ? 'true' : 'false'));
   }
 

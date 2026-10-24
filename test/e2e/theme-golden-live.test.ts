@@ -4,6 +4,9 @@ import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { DEFAULT_SWEEP_BREAKPOINTS } from '../../src/main/browser/sweep-viewports';
+
+const sweepWidths = DEFAULT_SWEEP_BREAKPOINTS.map((bp) => bp.width).sort((a, b) => a - b);
 
 function sha256(value: string): string {
   return createHash('sha256').update(value, 'utf8').digest('hex');
@@ -68,8 +71,8 @@ describe('Live Chromium E2E: Theme Golden Product Card and Drawer', () => {
     // plus the exit state observed after the kill.
     assert.equal(timedOut, false, `Live theme proof timed out after 300 seconds; killed orchestrator exited with code ${exit.code}, signal ${exit.signal}; stdout:\n${stdout}\nstderr:\n${stderr}`);
     assert.equal(exit.code, 0, `Live theme proof must exit cleanly; stdout:\n${stdout}\nstderr:\n${stderr}`);
-    assert.match(stdout, /\[OK\] Product Card: real PNG, CDP provenance, source candidacy, file\.write SHA, reload generation, five widths, VERIFIED receipt\./);
-    assert.match(stdout, /\[OK\] Drawer: mobile viewport, trusted CDP click, sparse attributed delta, visible state, five widths, VERIFIED receipt\./);
+    assert.match(stdout, new RegExp(`\\[OK\\] Product Card: real PNG, CDP provenance, source candidacy, file\\.write SHA, reload generation, ${sweepWidths.length} widths, VERIFIED receipt\\.`));
+    assert.match(stdout, new RegExp(`\\[OK\\] Drawer: mobile viewport, trusted CDP click, sparse attributed delta, visible state, ${sweepWidths.length} widths, VERIFIED receipt\\.`));
     assert.match(stdout, /\[OK\] Negative canaries: no-op claim REJECTED, ambiguous source REJECTED, pruned authority denied\./);
     assert.match(stdout, /\[OK\] Persisted bounded live proof:/);
     assert.match(stdout, /LIVE THEME GOLDEN PRODUCT CARD AND DRAWER SLICES PASSED\./);
@@ -78,7 +81,7 @@ describe('Live Chromium E2E: Theme Golden Product Card and Drawer', () => {
     assert.equal(report.type, 'antifan-live-theme-proof');
     assert.equal(report.verdict, 'PASSED');
     assert.equal(report.proofChecksum, checksumObject(report, 'proofChecksum'));
-    assert.deepEqual(report.productCard.responsiveWidths, [320, 375, 768, 1024, 1440]);
+    assert.deepEqual(report.productCard.responsiveWidths, sweepWidths);
     assert.equal(report.productCard.sourceCandidate, 'snippets/card-product.liquid');
     assert.equal(report.productCard.matchedCssDefinitionOfDone, 'STRONG PASS');
     assert.equal(report.productCard.verificationVerdict, 'VERIFIED');
@@ -102,7 +105,7 @@ describe('Live Chromium E2E: Theme Golden Product Card and Drawer', () => {
     assert.equal(mutationC.diagnosticStatus, 'INCONCLUSIVE');
     assert.equal('verdict' in mutationC, false);
 
-    assert.deepEqual(report.drawer.responsiveWidths, [320, 375, 768, 1024, 1440]);
+    assert.deepEqual(report.drawer.responsiveWidths, sweepWidths);
     assert.equal(report.drawer.mutationRevisionAdvanced, true);
     assert.equal(report.drawer.trustedClick, true);
     assert.equal(report.drawer.interactionVerdict, 'DRAWER_EXPANDED');

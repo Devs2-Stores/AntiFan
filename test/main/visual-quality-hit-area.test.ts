@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { VisualQualityScanner } from '../../src/main/qa/scanners/visual-quality-scanner';
@@ -39,6 +40,29 @@ test('normalize keeps the rule coverage lists and defaults them for a result wit
   const bare = VisualQualityScanner.normalize({ measured: true, viewport: { width: 1, height: 1 }, mobile: false, findings: [], stats: {} });
   assert.deepEqual(bare.stats.measuredRules, []);
   assert.deepEqual(bare.stats.unmeasuredRules, []);
+});
+
+type JsdomCtor = new (html: string, options?: Record<string, unknown>) => {
+  window: Window & typeof globalThis & { eval: (src: string) => unknown };
+};
+
+function loadJsdom(): JsdomCtor {
+  const req = createRequire(__filename);
+  const searchPaths = process.env.ANTIFAN_JSDOM ? [process.env.ANTIFAN_JSDOM, __dirname] : [__dirname];
+  // jsdom ships no bundled types; the module is asserted to its documented export shape.
+  return (req(req.resolve('jsdom', { paths: searchPaths })) as { JSDOM: JsdomCtor }).JSDOM;
+}
+
+// The build-strict responsive sweep pastes the skipFloating script into a synchronous
+// expression, so a scan that never scrolls must hand back its reading, not a Promise.
+test('a scan that never scrolls returns its reading synchronously', () => {
+  const JSDOM = loadJsdom();
+  const dom = new JSDOM('<!doctype html><html lang="vi"><body><main><a href="/a">Liên hệ</a></main></body></html>', { runScripts: 'outside-only' });
+  for (const options of [{ thresholds, skipFloating: true }, { thresholds, skipPageEnd: true }]) {
+    const reading = dom.window.eval(VisualQualityScanner.getBrowserScanScript(options)) as { then?: unknown };
+    assert.notEqual(typeof reading.then, 'function', `${JSON.stringify(Object.keys(options))} must not return a thenable`);
+    assert.equal(VisualQualityScanner.normalize(reading).measured, true);
+  }
 });
 
 // Real browser pass over the kit pages: a 16px swatch whose ::before reaches 24px passes, a 16px

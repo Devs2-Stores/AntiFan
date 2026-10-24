@@ -9,9 +9,10 @@
  *
  * Images that have not finished loading are counted in stats.imagesPending and not graded: a
  * missing natural size is a loading state, never a defect of the frame. Parked boxes (closed
- * drawers), visually hidden images and preview-bar chrome are skipped. Every rule reports
+ * drawers), visually hidden images and platform preview chrome are skipped. Every rule reports
  * `warning`; whether a warning may fail a run is the QA workflow profile's decision.
  */
+import { PLATFORM_PREVIEW_CHROME } from '../platform-preview-chrome';
 
 export const IMAGE_FRAME_RULE_IDS = ['image-crop', 'image-low-res'] as const;
 
@@ -72,7 +73,7 @@ export class ImageFrameScanner {
   const started = Date.now();
   const vw = window.innerWidth;
   const vh = window.innerHeight;
-  const PREVIEW_CHROME = '#preview-bar-iframe, [id*="preview-bar"], .preview-bar, ul.preview-cta, #haravan-notification, .hrv-admin-bar, #admin-bar-iframe, #admin_bar_iframe, #PBarNextFrameWrapper, [data-antifan-override]';
+  const PREVIEW_CHROME = ${JSON.stringify(`${PLATFORM_PREVIEW_CHROME}, [data-antifan-override]`)};
   const findings = [];
   const counts = {};
   const truncatedReasons = [];

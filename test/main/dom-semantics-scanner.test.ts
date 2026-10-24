@@ -71,4 +71,25 @@ describe('DomSemanticsScanner browser script', () => {
     assert.strictEqual(injected.summary.duplicateIdCount, 1);
     assert.strictEqual(direct.summary.duplicateIdCount, 1);
   });
+
+  it('does not grade tap targets inside a closed drawer whose visibility:hidden is inherited', () => {
+    const JSDOM = loadJsdom();
+    const page = `<!doctype html><html lang="vi"><head><title>Bài viết</title></head><body><h1>Bài viết</h1>
+<a id="shown" href="/a">Liên hệ</a>
+<div class="cart-drawer" style="visibility: hidden"><article><h3><a id="in-drawer" href="/giay">Giày tây nam ECCO Lisbon</a></h3></article></div>
+</body></html>`;
+    const dom = new JSDOM(page, { runScripts: 'outside-only' });
+    Object.defineProperty(dom.window, 'innerWidth', { configurable: true, value: 375 });
+    for (const a of Array.from(dom.window.document.querySelectorAll('a'))) {
+      a.getBoundingClientRect = () => ({ x: 0, y: 0, left: 0, top: 0, right: 165, bottom: 18, width: 165, height: 18, toJSON: () => ({}) }) as DOMRect;
+    }
+    const injected = dom.window.eval(DomSemanticsScanner.getBrowserScanScript()) as DomSemanticsScanResult;
+    const direct = DomSemanticsScanner.evaluateDom(dom.window.document, 375);
+
+    for (const result of [injected, direct]) {
+      assert.strictEqual(result.summary.touchTargetsSub24Count, 1, 'only the rendered link is a tap target');
+      const selectors = Array.from(result.findings.filter((f) => f.type === 'touch_target_too_small'), (f) => f.selector);
+      assert.deepStrictEqual(selectors, ['a#shown']);
+    }
+  });
 });

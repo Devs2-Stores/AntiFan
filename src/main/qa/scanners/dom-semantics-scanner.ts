@@ -369,7 +369,7 @@ export class DomSemanticsScanner {
       let touchTargetsSub24Count = 0;
       if (isMobileWidth) {
         for (const el of interactiveEls) {
-          if (isAriaHidden(el)) continue;
+          if (isAriaHidden(el) || isNotRendered(el)) continue;
           const rect = el.getBoundingClientRect();
           if (rect.width > 0 && rect.height > 0 && (rect.width < 24 || rect.height < 24)) {
             touchTargetsSub24Count++;
@@ -740,7 +740,7 @@ export class DomSemanticsScanner {
     let touchTargetsSub24Count = 0;
     if (isMobileWidth) {
       for (const el of interactiveEls) {
-        if (isAriaHidden(el)) continue;
+        if (isAriaHidden(el) || isNotRendered(el)) continue;
         if (typeof el.getBoundingClientRect === 'function') {
           const rect = el.getBoundingClientRect();
           if (rect.width > 0 && rect.height > 0 && (rect.width < 24 || rect.height < 24)) {

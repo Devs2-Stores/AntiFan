@@ -30,6 +30,19 @@ describe('runVariantImageProbe', () => {
     assert.strictEqual(dom.window.document.querySelector<HTMLInputElement>('input[name="id"]')?.value, '101');
   });
 
+  it('reads the product gallery, not a related-products carousel that also marks a current slide', async () => {
+    const related = '<section class="related"><div class="related__slide swiper-slide-active"><a href="/products/other"><img src="//cdn.example/products/other-shoe_1024x1024.jpg" alt=""></a></div></section>';
+    const dom = openPage(readProbeFixture('pdp-good.html').replace('<body>', `<body>${related}`));
+    const { deps } = makeDomDeps(dom);
+
+    const result = await runVariantImageProbe(deps, {});
+
+    assert.strictEqual(result.measured, true, result.error);
+    const colours = result.data.perValue.filter((r) => r.option === 'Màu sắc');
+    assert.deepStrictEqual(colours.map((r) => r.shownImage), ['ao-do', 'ao-xanh', 'ao-den']);
+    assert.strictEqual(result.passed, true, JSON.stringify(result.findings));
+  });
+
   it('fails with swatch-no-image-switch when different colours keep showing the same gallery image', async () => {
     const dom = openPage(readProbeFixture('pdp-swatch-no-switch.html'));
     const { deps } = makeDomDeps(dom);
@@ -85,12 +98,15 @@ describe('runVariantImageProbe', () => {
     assert.strictEqual(result.data.optionValuesCount['Màu sắc'], 9);
   });
 
-  it('resolves the product through /products/<handle>.js when the page embeds no product JSON', async () => {
+  for (const [where, url] of [
+    ['a /products/<handle> URL', `${STOREFRONT_ORIGIN}/products/ao-so-mi`],
+    ['a Sapo bare-alias URL marked og:type=product', `${STOREFRONT_ORIGIN}/ao-so-mi`],
+  ] as const) it(`resolves the product through /products/<handle>.js on ${where} when the page embeds no product JSON`, async () => {
     const html = readProbeFixture('pdp-good.html');
     const embedded = /<script type="application\/json" data-product-json>([\s\S]*?)<\/script>/.exec(html);
     assert.ok(embedded);
     const product = JSON.parse(embedded[1] ?? 'null') as unknown;
-    const dom = openPage(html.replace(embedded[0] ?? '', '').replace(/<script>[\s\S]*?<\/script>/, ''), { routes: { '/products/ao-so-mi.js': { json: product } } });
+    const dom = openPage(html.replace(embedded[0] ?? '', '').replace(/<script>[\s\S]*?<\/script>/, ''), { url, routes: { '/products/ao-so-mi.js': { json: product } } });
     // The fixture's page script reads the embedded block, so the swatch handler is re-created from the fetched product.
     dom.window.eval(`(function () {
       var product = ${JSON.stringify(product)};

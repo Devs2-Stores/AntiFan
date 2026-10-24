@@ -58,7 +58,23 @@ for (var page = 1; page <= MAX_PAGES && handles.length < limit; page++) {
   });
   if (handles.length === before) break;
 }
-if (handles.length === 0) return { ok: false, error: 'no product links found on /collections/all', products: [], scannedPages: scannedPages };
+// Sapo links a product at its bare alias ("/giay-derby-nam"), so the listing above finds nothing;
+// its storefront /products.json names every product by alias.
+var fromJson = handles.length === 0;
+for (var jp = 1; fromJson && jp <= MAX_PAGES && handles.length < limit; jp++) {
+  var jr;
+  try { jr = await fetch('/products.json?page=' + jp, { credentials: 'same-origin' }); } catch (e) { break; }
+  if (!jr || !jr.ok) break;
+  var list;
+  try { list = (await jr.json()).products; } catch (e) { break; }
+  if (!Array.isArray(list) || list.length === 0) break;
+  list.forEach(function (p) {
+    var h = p && (p.alias || p.handle);
+    if (h && handles.indexOf(h) < 0 && handles.length < limit) handles.push(String(h));
+  });
+  scannedPages++;
+}
+if (handles.length === 0) return { ok: false, error: 'no product links found on /collections/all or /products.json', products: [], scannedPages: scannedPages };
 function imgUrl(v) {
   var f = v && v.featured_image;
   if (!f) return null;

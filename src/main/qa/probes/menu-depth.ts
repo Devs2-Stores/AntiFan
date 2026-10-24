@@ -104,6 +104,17 @@ const MENU_RUNTIME = String.raw`function (op, mobile) {
   if (op === 'cleanup') { clear(); return { ok: true }; }
 
   if (op === 'visible') {
+    // A background tab does not advance CSS transitions, so a hover-revealed panel
+    // stays at its start frame (opacity 0) and reads as hidden; jump each finite
+    // transition/animation to its end state first.
+    if (typeof document.getAnimations === 'function') {
+      document.getAnimations().forEach(function (a) {
+        try {
+          var t = a.effect && a.effect.getComputedTiming ? a.effect.getComputedTiming() : null;
+          if (t && isFinite(t.endTime)) a.finish();
+        } catch (e) {}
+      });
+    }
     var byDepth = []; var maxD = 0;
     Array.prototype.forEach.call(document.querySelectorAll('[data-af-menu]'), function (item) {
       if (!isVisible(labelEl(item))) return;
@@ -224,11 +235,13 @@ export async function runMenuDepth(
 
     let maxVisibleDepth = 1;
     let failedInteractions = 0;
+    let firstError: string | undefined;
     const open = async (item: MenuItemRecord): Promise<void> => {
       const target = mobile && item.hasToggle ? `[data-af-menu-toggle="${item.path}"]` : `[data-af-menu="${item.path}"]`;
       let res = mobile ? await deps.click(target) : await deps.hover(target);
       if (!res.ok && !mobile) res = await deps.click(target);
       if (!res.ok) {
+        firstError ??= `${target}: ${res.error ?? 'unknown'}`;
         failedInteractions += 1;
         return;
       }
@@ -249,7 +262,7 @@ export async function runMenuDepth(
         ruleId: 'menu-interaction-failed',
         severity: 'info',
         message: `${failedInteractions} menu item${failedInteractions === 1 ? '' : 's'} could not be ${mobile ? 'clicked' : 'hovered'}; visible depth may be understated.`,
-        measured: { failedInteractions },
+        measured: { failedInteractions, ...(firstError ? { firstError } : {}) },
       });
     }
 

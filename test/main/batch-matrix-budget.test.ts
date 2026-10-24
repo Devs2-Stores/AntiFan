@@ -4,6 +4,7 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { BATCH_MATRIX_BUDGET_MS, BrowserControlPort, BrowserHostPort, batchRoutesWithinBudget } from '../../src/main/tools/browser-control-port';
+import { DEFAULT_SWEEP_BREAKPOINTS } from '../../src/main/browser/sweep-viewports';
 import { BrowserTarget, issueRuntimeLease, makeControlPlaneId } from '../../src/shared/control-plane-contracts';
 
 const START_URL = 'https://shop.example.com/';
@@ -99,15 +100,17 @@ describe('batch_matrix budget', () => {
   it('sweeps whole routes in order and returns the rest as remainingRoutes', async () => {
     const { port, navigations } = rig();
     const all = routes(17);
+    const fits = batchRoutesWithinBudget(all.length, DEFAULT_SWEEP_BREAKPOINTS.length, BATCH_MATRIX_BUDGET_MS);
+    assert.ok(fits >= 1 && fits < all.length, 'the fixture must overflow the budget so the partial path runs');
     const result = await port.runBatchMatrix(makeTarget(), { routes: all });
     const swept = result.routes as Array<{ route: string; breakpoints: Record<string, unknown> }>;
     assert.equal(result.partial, true);
     assert.equal(result.routesRequested, 17);
-    assert.equal(result.routesScanned, 10);
-    assert.deepEqual(result.remainingRoutes, all.slice(10));
-    assert.deepEqual(swept.map((entry) => entry.route), all.slice(0, 10));
+    assert.equal(result.routesScanned, fits);
+    assert.deepEqual(result.remainingRoutes, all.slice(fits));
+    assert.deepEqual(swept.map((entry) => entry.route), all.slice(0, fits));
     for (const entry of swept) {
-      assert.equal(Object.keys(entry.breakpoints).length, 5, `route ${entry.route} must carry all five widths, never a half-measured set`);
+      assert.equal(Object.keys(entry.breakpoints).length, DEFAULT_SWEEP_BREAKPOINTS.length, `route ${entry.route} must carry every standard width, never a half-measured set`);
     }
     assert.equal(result.passed, null, 'routes left unswept leave the batch unverified');
     assert.equal(navigations.at(-1), START_URL, 'the tab goes back to the page it started on');

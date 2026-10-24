@@ -408,7 +408,7 @@ function makeScanFixture(options: ScanFixtureOptions = {}) {
   return { catalogue, root, scope, navigations, qaCalls };
 }
 
-const WIDTHS = ['320', '375', '768', '1024', '1440'];
+const WIDTHS = ['320', '375', '768', '1024', '1440', '1920', '2560'];
 
 function responsiveReport(overflowing: string[]): unknown {
   return {

@@ -23,6 +23,7 @@
  * (remaining triggers are reported NOT_RUN) instead of forcing classes back.
  */
 import { VisualQualityScanner, type VisualQualityFinding } from './scanners/visual-quality-scanner';
+import { PLATFORM_PREVIEW_CHROME } from './platform-preview-chrome';
 
 export type StateMatrixKind = 'drawer' | 'modal' | 'dropdown' | 'megamenu';
 export type StateMatrixCloseMethod = 'escape' | 'close-button' | 'backdrop';
@@ -197,7 +198,7 @@ export const smCloseSelector = (i: number) => `[${SM_CLOSE}="${i}"]`;
 
 /** Shared in-page helpers (closest-style lookups, visibility maths). */
 const PAGE_HELPERS = String.raw`
-  const PREVIEW_CHROME = '#preview-bar-iframe, [id*="preview-bar"], .preview-bar, ul.preview-cta, #haravan-notification, .hrv-admin-bar, #admin-bar-iframe, #admin_bar_iframe';
+  const PREVIEW_CHROME = ${JSON.stringify(PLATFORM_PREVIEW_CHROME)};
   const selectorOf = (el) => {
     if (!el || el.nodeType !== 1) return '';
     if (el.getAttribute('id')) return '#' + el.getAttribute('id');
@@ -567,7 +568,10 @@ export function buildMeasureOpenScript(index: number, kind: StateMatrixKind, clo
       if ((clipX && (r.right > cr.right + 2 || r.left < cr.left - 2)) || (clipY && (r.bottom > cr.bottom + 2 || r.top < cr.top - 2))) { clipped = true; break; }
     }
   }
-  const within = r.left >= -1 && r.top >= -1 && r.right <= vw + 1 && r.bottom <= vh + 1;
+  // Sapo's admin-session script (content_for_header, logged-in admins only) adds 40px to the inline
+  // top of every fixed element on window.onload; customers never get that shift.
+  const adminShift = Array.from(document.scripts).some((s) => !s.src && s.textContent.includes('function doShift(down)') && s.textContent.includes('admin_bar_iframe')) && /(^|;)\\s*top:\\s*-?\\d/.test(panel.getAttribute('style') || '') ? 40 : 0;
+  const within = r.left >= -1 && r.top - adminShift >= -1 && r.right <= vw + 1 && r.bottom - adminShift <= vh + 1;
   let occluded = false;
   const cx = Math.floor(Math.max(0, Math.min(vw - 1, r.left + r.width / 2)));
   const cy = Math.floor(Math.max(0, Math.min(vh - 1, r.top + Math.min(r.height / 2, 120))));
@@ -618,7 +622,11 @@ export function buildMeasureOpenScript(index: number, kind: StateMatrixKind, clo
     // The match can be a part inside the card (".sky-account-modal__panel" is a tab pane inside an
     // unnamed ".sky-modal-card"): the dialog box is the wrapper's child that holds it.
     while (inner && inner.parentElement && inner.parentElement !== panel) inner = inner.parentElement;
-    if (!inner) {
+    // An opaque full-viewport panel is a full-screen sheet (mobile drawer at 375px): it has no
+    // backdrop, so its painted header/footer strips are never taken as the dialog box.
+    const panelBg = cs.backgroundColor;
+    const panelPainted = panelBg !== 'transparent' && !/rgba\\([^)]*,\\s*0\\)$/.test(panelBg);
+    if (!inner && !panelPainted) {
       // Unnamed card (".sky-modal-card" beside a backdrop button): the painted child that does not
       // cover the viewport and is not the scrim.
       const painted = Array.from(panel.children).filter((c) => {
@@ -641,7 +649,7 @@ export function buildMeasureOpenScript(index: number, kind: StateMatrixKind, clo
   const strips = [
     { x: br.left / 2, y: vh / 2, w: br.left },
     { x: (br.right + vw) / 2, y: vh / 2, w: vw - br.right },
-    { x: vw / 2, y: br.top / 2, w: br.top },
+    { x: vw / 2, y: adminShift + (br.top - adminShift) / 2, w: br.top - adminShift },
     { x: vw / 2, y: (br.bottom + vh) / 2, w: vh - br.bottom },
   ].filter((s) => s.w >= 24).sort((a, b) => b.w - a.w);
   if (strips.length) backdrop = { x: Math.round(strips[0].x), y: Math.round(strips[0].y) };

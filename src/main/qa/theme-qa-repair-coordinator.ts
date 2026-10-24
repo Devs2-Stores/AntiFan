@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { CapabilityError, BrowserTarget } from '../../shared/control-plane-contracts';
+import { CapabilityError, BrowserTarget, TargetStaleCause } from '../../shared/control-plane-contracts';
 import { ThemeQaWorkflow, ThemeQaReport, ThemeQaSummary, ThemeQaDetailedFindings } from './theme-qa-workflow';
 import { VerificationCircuitBreaker } from '../verification/circuit-breaker';
 import type { VerificationBatchLifecycle } from '../verification/verification-contract';
@@ -92,7 +92,7 @@ export class ThemeQaRepairCoordinator {
       target: input.target,
     });
     if (readWorkspaceRevision(input.workspaceRoot) !== baselineRevision) {
-      throw new CapabilityError('TARGET_STALE', 'Workspace changed while capturing repair baseline');
+      throw new CapabilityError('TARGET_STALE', 'Workspace changed while capturing repair baseline', { cause: 'dom-drift' satisfies TargetStaleCause });
     }
 
     const sessionId = randomUUID();
@@ -179,7 +179,7 @@ export class ThemeQaRepairCoordinator {
       });
       if (readWorkspaceRevision(session.workspaceRoot) !== revision) {
         session.status = 'awaiting_fix';
-        throw new CapabilityError('TARGET_STALE', 'Workspace changed during verification; fresh evidence is required');
+        throw new CapabilityError('TARGET_STALE', 'Workspace changed during verification; fresh evidence is required', { cause: 'dom-drift' satisfies TargetStaleCause });
       }
       if (!report.findings?.differential || report.findings.evidenceGaps?.length) {
         // An inconclusive verification still consumed this revision: a retry without

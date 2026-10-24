@@ -78,6 +78,8 @@ function variantOptionValue(v, i) {
 }
 function currentHandle() {
   var m = location.pathname.match(/\/products\/([^\/?#]+)/);
+  // Sapo serves a product at its bare alias ("/giay-derby-nam") and marks the page og:type=product.
+  if (!m && document.querySelector('meta[property="og:type"][content="product"]')) m = location.pathname.match(/^\/([^\/?#]+)\/?$/);
   if (!m) return null;
   try { return decodeURIComponent(m[1]); } catch (e) { return m[1]; }
 }
@@ -212,6 +214,58 @@ function isSelectedControl(el) {
   }
   return false;
 }
+function linksElsewhere(img) {
+  var a = img.closest ? img.closest('a[href]') : null;
+  if (!a) return false;
+  var u;
+  try { u = new URL(a.getAttribute('href'), location.href); } catch (e) { return false; }
+  if (u.origin !== location.origin) return false;
+  if (/\.(jpe?g|png|webp|gif|avif|svg)$/i.test(u.pathname)) return false;
+  return u.pathname.replace(/\/$/, '') !== location.pathname.replace(/\/$/, '');
+}
+function galleryImageSrc(img) {
+  if (img.closest && img.closest('[class*="thumb"],[data-thumbnail]')) return null;
+  if (linksElsewhere(img)) return null;
+  var src = img.currentSrc || img.getAttribute('src') || img.getAttribute('data-src') || img.getAttribute('data-large') || img.getAttribute('data-zoom');
+  if (!src && img.getAttribute('data-srcset')) src = img.getAttribute('data-srcset').split(',')[0].trim().split(' ')[0];
+  if (src && src.indexOf('data:') === 0) src = img.getAttribute('data-src') || '';
+  return src || null;
+}
+function galleryCandidate(img, laidOut) {
+  if (!galleryImageSrc(img)) return false;
+  if (!laidOut) return true;
+  var r = img.getBoundingClientRect();
+  return r.width >= 150 && r.height >= 150;
+}
+function productGalleryRoot() {
+  var anchor = document.querySelector('form[action*="/cart/add"]') || document.querySelector('select[name="id"], input[name="id"], [name="variantId"]');
+  var el = anchor ? anchor.parentElement : null;
+  // Share icons and badges sit next to the variant picker; the gallery is the first
+  // gallery-sized image met on the way up. Without layout (jsdom) any image counts.
+  var laidOut = document.body ? document.body.getBoundingClientRect().width > 0 : false;
+  while (el && el !== document.body && el !== document.documentElement) {
+    var imgs = el.querySelectorAll('img');
+    for (var i = 0; i < imgs.length; i++) if (galleryCandidate(imgs[i], laidOut)) return el;
+    el = el.parentElement;
+  }
+  return null;
+}
+function largestImageIn(root) {
+  var best = [];
+  var max = 0;
+  var imgs = root.querySelectorAll('img');
+  for (var i = 0; i < imgs.length; i++) {
+    var src = galleryImageSrc(imgs[i]);
+    if (!src) continue;
+    var r = imgs[i].getBoundingClientRect();
+    var area = r.width * r.height;
+    if (area <= 0) continue;
+    best.push({ src: src, area: area });
+    if (area > max) max = area;
+  }
+  for (var k = 0; k < best.length; k++) if (best[k].area >= max * 0.6) return best[k].src;
+  return null;
+}
 function findGalleryImage() {
   var activeSelectors = [
     '.swiper-slide-active img', '.slick-current img', '.slick-active img', '.flickity-slider .is-selected img',
@@ -223,15 +277,21 @@ function findGalleryImage() {
     '.featured-image img', '.product-single__photo img', '#product-featured-image', '[data-gallery] img', '.product-gallery img', '.product__media img'
   ];
   var all = activeSelectors.concat(mainSelectors);
-  for (var i = 0; i < all.length; i++) {
-    var imgs = document.querySelectorAll(all[i]);
-    for (var j = 0; j < imgs.length; j++) {
-      var img = imgs[j];
-      if (img.closest && img.closest('[class*="thumb"],[data-thumbnail]')) continue;
-      var src = img.currentSrc || img.getAttribute('src') || img.getAttribute('data-src') || img.getAttribute('data-large') || img.getAttribute('data-zoom');
-      if (!src && img.getAttribute('data-srcset')) src = img.getAttribute('data-srcset').split(',')[0].trim().split(' ')[0];
-      if (src && src.indexOf('data:') === 0) src = img.getAttribute('data-src') || '';
-      if (src) return src;
+  // A carousel of related products also carries .slick-current / .swiper-slide-active,
+  // so the gallery is looked up inside the block that holds the add-to-cart form first.
+  var root = productGalleryRoot();
+  var scopes = root ? [root, document] : [document];
+  for (var s = 0; s < scopes.length; s++) {
+    for (var i = 0; i < all.length; i++) {
+      var imgs = scopes[s].querySelectorAll(all[i]);
+      for (var j = 0; j < imgs.length; j++) {
+        var src = galleryImageSrc(imgs[j]);
+        if (src) return src;
+      }
+    }
+    if (scopes[s] === root) {
+      var largest = largestImageIn(root);
+      if (largest) return largest;
     }
   }
   return null;

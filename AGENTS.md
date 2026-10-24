@@ -27,6 +27,7 @@
 - `NEVER` execute destructive VCS, filesystem, or live remote theme push commands without explicit approval: `git reset --hard`, `git clean -fd/x`, `git checkout -- .`, `rm -rf`, `git push --force`, `haravan theme push*`, `shopify theme push*`, or uncoordinated `pkill/taskkill`.
 - **Escape Hatch (Fail-Closed):** If required context, credentials, or dependencies are missing, DO NOT guess—STOP immediately, report exact missing prerequisites, and request user input.
 - **Circuit Breaker:** If 3 consecutive tool calls fail to advance state (or get stuck in identical syntax errors), agent MUST stop and flip to `BLOCKED`.
+- **Storefront password gate:** khi tab storefront bị redirect `/password`, thử mật khẩu mặc định toàn workspace `haravan` (điền input password rồi submit form qua `anti.browser.evaluate`) trước khi hỏi user; chỉ báo lại khi mật khẩu này sai.
 
 ## 3.1 Tool Fallback Policy (AntiFan MCP → Playwright)
 - **Primary surface:** all browser evidence MUST go through AntiFan MCP (`anti.*`, `theme.*`, `browser.*` mounted under `mcp__antifan_browser_*`). AntiFan owns attachment authority, evidence leases, and verification receipts.

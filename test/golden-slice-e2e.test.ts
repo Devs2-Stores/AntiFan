@@ -32,6 +32,7 @@ import {
   isThemeEvidenceEnvelope,
   ThemeEvidenceEnvelope,
 } from '../src/main/tools/theme-evidence-envelope';
+import { DEFAULT_SWEEP_BREAKPOINTS } from '../src/main/browser/sweep-viewports';
 import { ThemeProofHelpers } from '../src/main/verification/theme-proof-helpers';
 import { VerificationEvaluator } from '../src/main/verification/verification-evaluator';
 import {
@@ -215,13 +216,9 @@ describe('Phase 5: Golden Slice E2E & Architecture Gate Validation', () => {
       runResponsiveCheck: async () => ({
         ok: true,
         tabId: 'tab-e2e-1',
-        breakpoints: {
-          'mobile-small': { width: 320, documentOverflowX: false, targetOverflowX: false },
-          'mobile-standard': { width: 375, documentOverflowX: false, targetOverflowX: false },
-          'tablet-portrait': { width: 768, documentOverflowX: false, targetOverflowX: false },
-          'tablet-landscape': { width: 1024, documentOverflowX: false, targetOverflowX: false },
-          'desktop-laptop': { width: 1440, documentOverflowX: false, targetOverflowX: false },
-        },
+        breakpoints: Object.fromEntries(
+          DEFAULT_SWEEP_BREAKPOINTS.map((bp) => [bp.id, { width: bp.width, documentOverflowX: false, targetOverflowX: false }]),
+        ),
       }),
       inspectStyles: async () => ({
         'font-size': '10px',
@@ -389,7 +386,7 @@ describe('Phase 5: Golden Slice E2E & Architecture Gate Validation', () => {
     assert.ok(updatedContent.includes('max-width: 100%'));
   });
 
-  it('Step 5: Dispatches anti.inspect.responsive_matrix via CapabilityCatalogue across all 5 breakpoints', async () => {
+  it('Step 5: Dispatches anti.inspect.responsive_matrix via CapabilityCatalogue across every standard breakpoint', async () => {
     const rawRes = await dispatchMonitoredCapability(
       'anti.inspect.responsive_matrix',
       { selector: '.card', tabId: 'tab-e2e-1' }

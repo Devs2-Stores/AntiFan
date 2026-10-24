@@ -79,6 +79,12 @@ function judge(fixture, byViewport) {
     for (const rule of expect.unmeasuredRules || []) {
       if (!res.stats.unmeasuredRules.includes(rule)) failures.push(`${vp.name}: ${rule} not in stats.unmeasuredRules (${res.stats.unmeasuredRules.join(',')})`);
     }
+    if (expect.truncatedMatch && !res.stats.truncatedReasons.some((r) => expect.truncatedMatch.test(r))) {
+      failures.push(`${vp.name}: no truncatedReason matches ${expect.truncatedMatch} (${res.stats.truncatedReasons.join('; ') || 'none'})`);
+    }
+    if (expect.noTimedWait && res.stats.timedWidgets) {
+      failures.push(`${vp.name}: waited for ${res.stats.timedWidgets.selectors.join(', ')} (${res.stats.timedWidgets.waitedMs}ms)`);
+    }
   }
   return failures;
 }
@@ -111,7 +117,7 @@ async function run() {
       const fixtureThresholds = fixture.thresholds && typeof fixture.thresholds === 'object' ? { ...thresholds, ...fixture.thresholds } : thresholds;
       const script = imageFrame
         ? ImageFrameScanner.getBrowserScanScript()
-        : VisualQualityScanner.getBrowserScanScript(fixture.thresholds ? { thresholds: fixtureThresholds } : {});
+        : VisualQualityScanner.getBrowserScanScript({ ...(fixture.scanOptions || {}), ...(fixture.thresholds ? { thresholds: fixtureThresholds } : {}) });
       const raw = await win.webContents.executeJavaScript(script);
       const after = await win.webContents.executeJavaScript('[window.scrollX, window.scrollY]');
       const res = imageFrame ? ImageFrameScanner.normalize(raw) : VisualQualityScanner.normalize(raw);
