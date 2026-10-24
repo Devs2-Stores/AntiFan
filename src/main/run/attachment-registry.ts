@@ -1152,6 +1152,18 @@ export class AttachmentRegistry {
       documentGeneration: resolvedDocGen,
     };
     const previousTabId = record.tabId;
+    // Evaluated before the rotation while the record still names the old tab: a
+    // move onto a tab the old binding already manages (a sibling or a tab this
+    // session opened) keeps the old tab owned by the session, so only a move
+    // away from the managed set releases it.
+    let coManaged = false;
+    if (previousTabId && previousTabId !== tabId && this.delegate?.isTabAllowed) {
+      try {
+        coManaged = this.delegate.isTabAllowed(record, tabId) === true;
+      } catch {
+        coManaged = false;
+      }
+    }
     try {
       const nextRevision = await this.rotateAuthorityRevision(attachmentId, {
         browserTarget: currentTarget,
@@ -1164,7 +1176,7 @@ export class AttachmentRegistry {
       // session slot is no longer held by this attachment. Releasing is
       // bookkeeping only — a failure must never fail the rotation — and the
       // same-tab no-op releases nothing.
-      if (previousTabId && previousTabId !== tabId && this.delegate?.releaseSessionTab) {
+      if (previousTabId && previousTabId !== tabId && !coManaged && this.delegate?.releaseSessionTab) {
         try {
           this.delegate.releaseSessionTab(previousTabId, previousTabId);
         } catch (err) {

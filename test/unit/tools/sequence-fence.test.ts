@@ -118,10 +118,16 @@ describe('BrowserControlPort.sequence document fence', () => {
     assert.equal(executed.length, 0, 'the host must never run a fenced sequence');
   });
 
-  it('refuses a coordinate click under generation drift', async () => {
+  it('runs a coordinate-only sequence under generation drift: pixels do not belong to a DOM generation', async () => {
+    const { port, executed } = makePort(5);
+    await port.sequence({ actions: [{ type: 'click', x: 4, y: 9 }] }, target(2));
+    assert.equal(executed.length, 1);
+  });
+
+  it('still refuses a sequence that mixes a coordinate click with a selector click under drift', async () => {
     const { port, executed } = makePort(5);
     await assert.rejects(
-      port.sequence({ actions: [{ type: 'click', x: 4, y: 9 }] }, target(2)),
+      port.sequence({ actions: [{ type: 'click', x: 4, y: 9 }, { type: 'click', selector: '.buy' }] }, target(2)),
       (err: unknown) => err instanceof CapabilityError && err.code === 'TARGET_STALE'
     );
     assert.equal(executed.length, 0);

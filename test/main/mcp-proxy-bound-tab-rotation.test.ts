@@ -91,6 +91,7 @@ function isMockFailure(value: unknown): value is MockFailureResult {
 
 interface Harness {
   callTool: (mcpId: number, name: string, args: Record<string, unknown>) => Promise<Record<string, unknown>>;
+  request: (mcpId: number, method: string, params: Record<string, unknown>) => Promise<Record<string, unknown>>;
   /** The most recent dispatch frame the proxy sent for `capability`. */
   lastDispatch: (capability: string) => DispatchFrame;
   /** Every dispatch frame the proxy sent for `capability`, in order. */
@@ -219,17 +220,17 @@ async function startHarness(respond: (capability: string, params: Record<string,
     }
   });
 
-  const callTool = (mcpId: number, name: string, args: Record<string, unknown>) =>
+  const request = (mcpId: number, method: string, params: Record<string, unknown>) =>
     withTimeout(
       new Promise<Record<string, unknown>>((resolve) => {
         pending.set(mcpId, resolve);
-        child.stdin?.write(
-          JSON.stringify({ jsonrpc: '2.0', id: mcpId, method: 'tools/call', params: { name, arguments: args } }) + '\n'
-        );
+        child.stdin?.write(JSON.stringify({ jsonrpc: '2.0', id: mcpId, method, params }) + '\n');
       }),
       30_000,
-      `tools/call ${name} never produced a response`
+      `${method} never produced a response`
     );
+  const callTool = (mcpId: number, name: string, args: Record<string, unknown>) =>
+    request(mcpId, 'tools/call', { name, arguments: args });
 
   const initialized = new Promise<void>((resolve) => {
     pending.set(0, () => resolve());
@@ -250,6 +251,7 @@ async function startHarness(respond: (capability: string, params: Record<string,
 
   return {
     callTool,
+    request,
     lastDispatch: (capability: string) => {
       const frame = [...frames].reverse().find((entry) => entry.capability === capability);
       assert.ok(frame, `the proxy must have dispatched '${capability}' (saw: ${frames.map((f) => f.capability).join(', ')})`);
@@ -520,6 +522,79 @@ describe('MCP proxy bound-tab default follows the authority', { concurrency: 4 }
       assert.equal(toolCallFailed(resRevert), false);
       const lastRevertDispatch = harness.lastDispatch('anti.theme.style_override');
       assert.equal(lastRevertDispatch.params.operation, 'clear', 'operation "revert" must be normalized to "clear" on the wire');
+    } finally {
+      harness.dispose();
+    }
+  });
+
+  it('10. a moved binding rides the result _meta and leaves one valid JSON content block', async () => {
+    const harness = await startHarness((capability) => {
+      if (capability === 'browser.open-tab') {
+        return {
+          data: { tabId: CREATED_TAB_ID },
+          bindingChanged: { oldTabId: BOOTSTRAP_TAB_ID, newTabId: CREATED_TAB_ID, reason: 'open-tab' },
+        };
+      }
+      return {};
+    });
+    try {
+      const response = await harness.callTool(1, 'anti.browser.tabs.create', {});
+      assert.equal(toolCallFailed(response), false, harness.stderrText());
+      const result = response.result as { content: Array<{ type: string; text: string }>; _meta?: { bindingChanged?: unknown } };
+      assert.equal(result.content.length, 1, 'the binding change must not append a second content block');
+      assert.doesNotThrow(() => JSON.parse(result.content[0]!.text), 'the content stays one parseable JSON payload');
+      assert.ok(!result.content.some((block) => block.text.includes('bindingChanged:')), 'no trailing bindingChanged text line');
+      assert.deepEqual(result._meta?.bindingChanged, { oldTabId: BOOTSTRAP_TAB_ID, newTabId: CREATED_TAB_ID, reason: 'open-tab' });
+    } finally {
+      harness.dispose();
+    }
+  });
+
+  it('11. a call that leaves the binding where it was carries no bindingChanged', async () => {
+    const harness = await startHarness(() => ({}));
+    try {
+      const response = await harness.callTool(1, 'anti.inspect.dom', {});
+      const result = response.result as { _meta?: { bindingChanged?: unknown } };
+      assert.equal(result._meta?.bindingChanged, undefined);
+    } finally {
+      harness.dispose();
+    }
+  });
+
+  it('12. tools/list advertises anti.browser.wait, dialog read, secret typing, frame selectors and file chooser upload', async () => {
+    const harness = await startHarness(() => ({}));
+    try {
+      const response = await harness.request(1, 'tools/list', {});
+      const tools = (response.result as { tools: Array<{ name: string; inputSchema: { properties: Record<string, { enum?: string[] }>; required?: string[]; oneOf?: unknown[]; anyOf?: unknown[] } }> }).tools;
+      const byName = new Map(tools.map((tool) => [tool.name, tool]));
+
+      const wait = byName.get('anti.browser.wait');
+      assert.ok(wait, 'anti.browser.wait must be advertised');
+      assert.deepEqual(wait.inputSchema, byName.get('browser.wait')!.inputSchema, 'the alias advertises exactly the browser.wait arguments');
+
+      assert.ok(byName.get('anti.browser.dialog')!.inputSchema.properties.action!.enum!.includes('read'));
+
+      const typing = byName.get('anti.agent.cursor.type')!.inputSchema;
+      assert.ok('fromEnv' in typing.properties && 'secret' in typing.properties);
+      assert.equal(typing.required, undefined, 'text is no longer unconditionally required');
+      assert.deepEqual(typing.oneOf, [{ required: ['text'] }, { required: ['fromEnv'] }]);
+
+      const frame = byName.get('anti.browser.evaluate_frame')!.inputSchema;
+      for (const field of ['frameUrl', 'frameId', 'frameIndex', 'frameSelector']) assert.ok(field in frame.properties, field);
+      assert.ok(!frame.required?.includes('frameUrl'));
+
+      assert.ok('viaFileChooser' in byName.get('anti.agent.file_upload')!.inputSchema.properties);
+    } finally {
+      harness.dispose();
+    }
+  });
+
+  it('13. anti.browser.wait dispatches under its own name', async () => {
+    const harness = await startHarness((capability) => (capability === 'anti.browser.wait' ? { satisfied: true } : {}));
+    try {
+      const response = await harness.callTool(1, 'anti.browser.wait', { condition: 'dom-stable' });
+      assert.equal(toolCallFailed(response), false, harness.stderrText());
+      assert.equal(harness.lastDispatch('anti.browser.wait').params.condition, 'dom-stable');
     } finally {
       harness.dispose();
     }

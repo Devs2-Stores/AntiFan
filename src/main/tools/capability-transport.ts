@@ -16,8 +16,9 @@ import {
   CapabilityRisk,
   ChildDispatchSpec,
   InvocationState,
+  type TargetStaleCause,
 } from '../../shared/control-plane-contracts';
-import { CapabilityCatalogue } from './capability-catalogue';
+import { CapabilityCatalogue, SHARE_TAB_GUIDANCE } from './capability-catalogue';
 import { AttachmentRegistry, type PageCloseAdmission } from '../run/attachment-registry';
 import { onceCloseAdmissionRelease, assertPageAdmitsWork, assertApplicationAdmitsWork } from './browser-control-port';
 import { InvocationLedger } from '../session/invocation-ledger';
@@ -61,10 +62,37 @@ export function describeRelayedFailure(err: unknown): { code: string; message: s
   const typed = err as { code?: unknown; details?: unknown } | null | undefined;
   const code = typed && typeof typed === 'object' && typeof typed.code === 'string' && typed.code ? typed.code : 'CAPABILITY_ERROR';
   const rawDetails = typed && typeof typed === 'object' ? typed.details : undefined;
-  const details = rawDetails && typeof rawDetails === 'object' && !Array.isArray(rawDetails)
+  const plainDetails = rawDetails && typeof rawDetails === 'object' && !Array.isArray(rawDetails)
     ? (rawDetails as Record<string, unknown>)
     : undefined;
-  return { code, message: relayErrorMessage(err), ...(details ? { details } : {}) };
+  const message = relayErrorMessage(err);
+  // Every stale-target refusal reaches the wire with a machine-readable cause, whichever site raised it.
+  const staleCause = code === 'TARGET_STALE' ? classifyTargetStale(plainDetails, message) : undefined;
+  const details = staleCause !== undefined && staleCause !== plainDetails?.cause
+    ? { ...(plainDetails ?? {}), cause: staleCause }
+    : plainDetails;
+  return { code, message, ...(details ? { details } : {}) };
+}
+
+const TARGET_STALE_CAUSES: ReadonlySet<string> = new Set<TargetStaleCause>(['dom-drift', 'tab-gone', 'poisoned', 'unowned', 'closing', 'navigated-away']);
+
+/**
+ * Why a `TARGET_STALE` refusal happened. An explicit `details.cause` set by the raising site
+ * wins; otherwise the evidence the site attached (document generations, poison record, close
+ * reservation) decides, then the wording. A refusal with no document-identity evidence means
+ * the target itself is unavailable.
+ */
+export function classifyTargetStale(details: Record<string, unknown> | undefined, message: string): TargetStaleCause {
+  const explicit = details?.cause;
+  if (typeof explicit === 'string' && TARGET_STALE_CAUSES.has(explicit)) return explicit as TargetStaleCause;
+  if (details?.reservedForClose === true || details?.closeReservationUnreadable === true || details?.applicationQuitting === true) return 'closing';
+  if (details?.poisonedAt !== undefined) return 'poisoned';
+  if (details?.targetDocumentGeneration !== undefined || details?.liveDocumentGeneration !== undefined) return 'dom-drift';
+  if (/not owned by any (?:live )?window|not owned by any capsule/i.test(message)) return 'unowned';
+  if (/was closed|closing|reserved for close|is quitting/i.test(message)) return 'closing';
+  if (/navigat|route changed/i.test(message)) return 'navigated-away';
+  if (/document (?:identity|generation)|dom mutation|no longer matches the current tab document/i.test(message)) return 'dom-drift';
+  return 'tab-gone';
 }
 
 type EffectMarker = 'not-started' | 'effect-started' | 'effect-committed';
@@ -78,6 +106,7 @@ const CATALOGUE_DIGEST_INTENT = 'catalogue.digest';
 /** Expected, caller-visible failure classes — policy/validation/abort outcomes
  * that are part of the contract, not defects worth an issue-register row. */
 const BENIGN_SETTLEMENT_CODES = new Set([
+  'ANTI_BOT_CHALLENGE',
   'POLICY_DENIED',
   'UNAUTHENTICATED',
   'AUTHENTICATION_DENIED',
@@ -751,10 +780,10 @@ export class CapabilityTransportAdapter {
           if (!allowed) {
             throw new CapabilityError(
               'TARGET_MISMATCH',
-              `Tab ID '${resolvedRequested}' is outside this session's authority (bound '${authorityTabId}'). It belongs to another project, session or window (for example a tab the user opened), so this session cannot take it over. Rebind only to session-managed or same-project tabs: list them with anti.browser.tabs.list (affiliated rows) or open one with anti.browser.tabs.create.`,
+              `Tab ID '${resolvedRequested}' is outside this session's authority (bound '${authorityTabId}'). It belongs to another project, session or window (for example a tab the user opened), so this session cannot take it over. Rebind only to session-managed or same-project tabs: list them with anti.browser.tabs.list (affiliated rows) or open one with anti.browser.tabs.create. ${SHARE_TAB_GUIDANCE}`,
               failoverId
-                ? { candidateTabIds: [failoverId], failoverTabId: failoverId, recovery: 'anti.browser.rebind_target', alternativeRecovery: 'anti.browser.tabs.create {url}', boundTabId: authorityTabId }
-                : { recovery: 'anti.browser.rebind_target', alternativeRecovery: 'anti.browser.tabs.create {url}', boundTabId: authorityTabId }
+                ? { candidateTabIds: [failoverId], failoverTabId: failoverId, recovery: 'anti.browser.rebind_target', alternativeRecovery: 'anti.browser.tabs.create {url}', shareRecovery: SHARE_TAB_GUIDANCE, boundTabId: authorityTabId }
+                : { recovery: 'anti.browser.rebind_target', alternativeRecovery: 'anti.browser.tabs.create {url}', shareRecovery: SHARE_TAB_GUIDANCE, boundTabId: authorityTabId }
             );
           }
         }
@@ -770,6 +799,7 @@ export class CapabilityTransportAdapter {
           throw new CapabilityError('TARGET_STALE', `Anchor tab '${requestedAnchor}' no longer exists`, {
             anchorTabId: requestedAnchor,
             canRebind: true,
+            cause: 'tab-gone' satisfies TargetStaleCause,
             recovery: 'anti.browser.tabs.list',
           });
         }
@@ -780,11 +810,12 @@ export class CapabilityTransportAdapter {
           const failoverId = authorityTabId ? this.catalogue.resolveFailoverTabId(authorityTabId) : undefined;
           throw new CapabilityError(
             'TARGET_MISMATCH',
-            `Anchor tab '${anchorTabId}' is outside this attachment's authority (bound '${authorityTabId ?? 'none'}'). It belongs to another project, session or window.`,
+            `Anchor tab '${anchorTabId}' is outside this attachment's authority (bound '${authorityTabId ?? 'none'}'). It belongs to another project, session or window. ${SHARE_TAB_GUIDANCE}`,
             {
               ...(failoverId ? { candidateTabIds: [failoverId], failoverTabId: failoverId } : {}),
               boundTabId: authorityTabId,
               recovery: 'anti.browser.rebind_target',
+              shareRecovery: SHARE_TAB_GUIDANCE,
             }
           );
         }

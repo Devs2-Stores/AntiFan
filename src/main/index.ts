@@ -49,7 +49,8 @@ import {
 import { NativeTabHost, collectTabSearchInventory, type SavedTabsDocument, activateTabSearchResult, isUnhostedTerminalWindow, purgeSavedTabsFileForProject, readSavedTabsDocument, writeSavedTabsDocument, savedTabsFilePath, type TabSearchInventoryRow, type TabSearchActivationFailure } from './browser/native-tab-host';
 import { PROJECT_WINDOWS_SAVED_TABS_VERSION, backupSavedTabsBeforeMigration, migrateSavedTabsToProjectWindows } from './browser/saved-tabs-migration';
 import { createTerminalProjectAdopter } from './project/terminal-project-adopter';
-import { singleInstanceLockExitCode } from './browser/single-instance-lock';
+import { isQuitRequestArgv, singleInstanceLockExitCode } from './browser/single-instance-lock';
+import { describeChildProcessGone, type LiveTabSummary } from './diagnostics/child-process-gone';
 import { markWindowClosed, markWindowOpen, openWindowLedgerPath, readOpenWindowLedger, retainOpenWindows } from './browser/open-window-ledger';
 import { closeAuxiliaryWindow } from './browser/auxiliary-close';
 import { ProjectWindowManager, type OpenIntent } from './browser/project-window-manager';
@@ -180,7 +181,15 @@ app.on('render-process-gone', (_event, webContents, details) => {
 
 app.on('child-process-gone', (_event, details) => {
   console.warn('[antifan child-process-gone]', details.type, details.reason, 'exitCode:', details.exitCode);
-  recordLifecycleEvent('child-process-gone', { type: details.type, reason: details.reason, exitCode: details.exitCode });
+  // The tab directory is built after this listener is installed; a crash before then has no
+  // tabs to name, and the journal line must be written either way.
+  let liveTabs: LiveTabSummary[] = [];
+  try {
+    liveTabs = tabAuthorities.hosts().flatMap((host) => host.getTabList());
+  } catch {
+    liveTabs = [];
+  }
+  recordLifecycleEvent('child-process-gone', { ...describeChildProcessGone(details, liveTabs) });
 });
 
 // One interceptor covers every explicit exit — including `app.exit`, which fires no
@@ -862,6 +871,13 @@ if (!gotTheLock) {
     // A URL opens in the project window focused most recently (never the Terminal Manager,
     // which has no page area); with no project window the user picks the project. A
     // process with no shell ignores the launch instead of resurrecting a global one.
+    // A quit request is not a launch: it must be honoured even with no live shell (a process
+    // whose windows are all closed is exactly the one a restart script needs to end cleanly).
+    if (isQuitRequestArgv(commandLine)) {
+      recordLifecycleEvent('second-instance.quit-request', { liveShells: liveProjectShells().length });
+      requestApplicationQuit('second-instance-quit');
+      return;
+    }
     const shells = liveProjectShells();
     if (shells.length === 0) return;
     const urlArg = launchUrlArgument(commandLine);
@@ -2311,6 +2327,38 @@ export function createBridgeMintHostResolver(deps: BridgeMintResolverDeps): Brid
     }
     if (opts.boundTabId) return undefined;
     return { host: deps.ambientHost() };
+  };
+}
+
+export interface EnsureProjectTabHostDeps {
+  isKnownProjectId(projectId: string): boolean;
+  hasProjectHost(projectId: string): boolean;
+  /** Opens the project's window unfocused and unpresented; resolves whether it was created. */
+  openProjectWindow(projectId: string): Promise<boolean>;
+  journal(event: string, fields: Record<string, unknown>): void;
+}
+
+/**
+ * The window a project's agent tab lands on is opened before `createTab` runs, because
+ * creation itself is synchronous and a project with no live window would refuse with
+ * TARGET_REQUIRED. A project that already has a host is left alone, and an unknown
+ * project is refused rather than guessed at.
+ */
+export function createEnsureProjectTabHost(deps: EnsureProjectTabHostDeps): (projectId: string) => Promise<void> {
+  return async (projectId) => {
+    if (!deps.isKnownProjectId(projectId)) {
+      throw new CapabilityError(
+        'TARGET_REQUIRED',
+        `Project '${projectId}' is not a known project, so no window can be opened for its tab`,
+        {
+          projectId,
+          recovery: 'Open the project in AntiFan, or start the session from a terminal assigned to a project, then retry.',
+        },
+      );
+    }
+    if (deps.hasProjectHost(projectId)) return;
+    const created = await deps.openProjectWindow(projectId);
+    if (created) deps.journal('project-window.reopened-off-screen', { projectId, reason: 'agent-tab-create' });
   };
 }
 
@@ -3790,6 +3838,8 @@ async function createWindow(): Promise<void> {
     getDocumentGeneration: (tabId) => hostForTabOrDegrade(tabId, 'controlPlane.getDocumentGeneration')?.getDocumentGeneration(tabId) ?? 1,
     getOpenJsDialog: (tabId) => hostForTabOrDegrade(tabId, 'controlPlane.getOpenJsDialog')?.getOpenJsDialog(tabId),
     isTabAllowed: (primaryTabId, requestedTabId) => (hostForTabOrDegrade(primaryTabId, 'controlPlane.isTabAllowed')?.isTabAllowedForPrimary(primaryTabId, requestedTabId) ?? false),
+    describeTabOwnership: (boundTabId, targetTabId) => hostForTabOrDegrade(boundTabId, 'controlPlane.describeTabOwnership')?.describeTabOwnership(boundTabId, targetTabId),
+    isTabSplit: (tabId) => hostForTabOrDegrade(tabId, 'controlPlane.isTabSplit')?.isTabSplit(tabId),
     resolveTabId: (id) => {
       if (!id) return undefined;
       for (const host of tabAuthorities.hosts()) {
@@ -3988,6 +4038,8 @@ async function createWindow(): Promise<void> {
       tabAuthorities.hostForTab(tabId)?.noteAgentTabActivity(tabId);
     },
     isTabAllowed: (primaryOrBoundTabId, requestedTabId) => (hostForTabOrDegrade(primaryOrBoundTabId, 'port.isTabAllowed')?.isTabAllowedForPrimary(primaryOrBoundTabId, requestedTabId) ?? false),
+    describeTabOwnership: (boundTabId, targetTabId) => hostForTabOrDegrade(boundTabId, 'port.describeTabOwnership')?.describeTabOwnership(boundTabId, targetTabId),
+    isTabSplit: (tabId) => hostForTabOrDegrade(tabId, 'port.isTabSplit')?.isTabSplit(tabId),
     getTabList: () => tabAuthorities.hosts().flatMap((h) => h.getTabList()),
     getSessionTabList: (boundTabId) => hostForTabOrDegrade(boundTabId, 'port.getSessionTabList')?.getSessionTabRecords(boundTabId) ?? [],
     getFailoverTargetTab: (tabId) => {
@@ -4035,6 +4087,12 @@ async function createWindow(): Promise<void> {
       const host = tabAmbient.hostForNewTab(anchorTabId, projectId);
       return host.createTab(url, activate, anchorTabId && projectId ? { ...hostOptions, projectId } : hostOptions);
     },
+    ensureProjectTabHost: createEnsureProjectTabHost({
+      isKnownProjectId,
+      hasProjectHost: (projectId) => tabAuthorities.hostForProject(projectId) !== undefined,
+      openProjectWindow: async (projectId) => (await ensureProjectWindow({ kind: 'project', projectId }, 'agent')).created,
+      journal: recordLifecycleEvent,
+    }),
     closeTab: (tabId, source) => hostForTabOrBootstrap(tabId).closeTab(tabId, source),
     switchTab: (tabId, opts) => hostForTabOrBootstrap(tabId).switchTab(tabId, opts),
     trySwitchTab: (tabId, opts) => hostForTabOrBootstrap(tabId).trySwitchTab(tabId, opts),

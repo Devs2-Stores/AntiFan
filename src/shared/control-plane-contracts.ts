@@ -804,7 +804,11 @@ export type CapabilityErrorCode =
   | 'GREENFIELD_BASELINE_EXISTS'
   | 'TAB_HAS_NO_COMMITTED_URL'
   | 'DIALOG_OPEN'
-  | 'NO_DIALOG_OPEN';
+  | 'NO_DIALOG_OPEN'
+  | 'ANTI_BOT_CHALLENGE';
+
+/** Why a `TARGET_STALE` refusal was raised: lets a caller choose between re-inspecting, rebinding and giving up. */
+export type TargetStaleCause = 'dom-drift' | 'tab-gone' | 'poisoned' | 'unowned' | 'closing' | 'navigated-away';
 
 /**
  * Shape convention for `CapabilityError.details` on fail-closed refusals

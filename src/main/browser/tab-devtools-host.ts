@@ -48,6 +48,17 @@ import { buildTrackerStubScript, buildTrackerStubTeardownScript, TRACKER_BLOCK_P
 import type { TrackerIsolationReceipt } from './tracker-isolation';
 import { withEvalCeiling } from './eval-ceiling';
 import { finalizeFullPageTiles, fullPageMaxCssHeight, planTiles, prewarmOptionsForDocument, type PrewarmWalkOptions } from '../verification/full-page-tiles';
+import {
+  buildIframeProbeExpression,
+  normalizeFrameRef,
+  readIframeProbe,
+  selectChildFrame,
+  type FrameRef,
+  type IframeElementFacts,
+} from './child-frame-resolution';
+import { buildDrainRefusalDetails, drainIsExpired } from './cdp-drain-admission';
+import { interceptFileChooser, type FileChooserOpened } from './file-chooser-intercept';
+import { buildScreenshotGuardInstallSnippet } from './screenshot-guard-css';
 
 const delay = (ms: number): Promise<void> => {
   const { promise, resolve } = Promise.withResolvers<void>();
@@ -491,7 +502,9 @@ function evalExceptionError(thrown: EvalThrown, tabId: string): CapabilityError 
 }
 
 /**
- * Resolve the child frame of `wc` whose URL contains `frameUrl`.
+ * Resolve the child frame of `wc` a frame reference names: a URL substring, a frame-tree
+ * node id, a position among the child frames, or the CSS selector of the `<iframe>`
+ * element in the top document.
  *
  * Identity comes from `WebFrameMain.framesInSubtree`, deliberately not from
  * `Page.getFrameTree`: the CDP frame tree reports a cross-origin child without its
@@ -499,8 +512,8 @@ function evalExceptionError(thrown: EvalThrown, tabId: string): CapabilityError 
  * The tab's own top frame is never a candidate — running a caller's script in the
  * top frame when it asked for a child frame would execute it in the wrong context.
  */
-function findChildFrameByUrl(wc: Electron.WebContents, frameUrl: string, tabId: string): Electron.WebFrameMain {
-  const needle = String(frameUrl || '').toLowerCase();
+async function resolveChildFrame(wc: Electron.WebContents, frameRef: FrameRef, tabId: string): Promise<Electron.WebFrameMain> {
+  const ref = normalizeFrameRef(frameRef);
   const root = wc.mainFrame;
   let frames: Electron.WebFrameMain[] = [];
   try {
@@ -508,12 +521,17 @@ function findChildFrameByUrl(wc: Electron.WebContents, frameUrl: string, tabId: 
   } catch {
     frames = [];
   }
-  const match = frames.find((frame) => frame !== root && String(frame.url || '').toLowerCase().includes(needle));
-  if (match) return match;
-  const census = frames
-    .map((frame) => `${frame === root ? 'top' : 'child'}@${frame.frameTreeNodeId}=${String(frame.url || '').slice(0, 160) || '(no url)'}`)
-    .join(' | ');
-  throw new CapabilityError('SELECTOR_NOT_FOUND', `No child frame in tab ${tabId} matches "${frameUrl}". Frames: ${census || '(none)'}`);
+  let facts: IframeElementFacts | undefined;
+  if (ref.kind === 'selector') {
+    let raw: unknown;
+    try {
+      raw = await wc.executeJavaScript(buildIframeProbeExpression(ref.selector));
+    } catch (err: unknown) {
+      throw new CapabilityError('EXECUTION_ERROR', `Frame selector "${ref.selector}" could not be evaluated in tab ${tabId}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    facts = readIframeProbe(ref.selector, tabId, raw);
+  }
+  return selectChildFrame(root, frames, ref, tabId, facts);
 }
 
 export class TabDevToolsHost {
@@ -1179,13 +1197,18 @@ export class TabDevToolsHost {
 
     const draining = this.cdpDrainingTargets.get(wcId);
     if (draining) {
-      const drainingDuration = Date.now() - (draining.startedAt || 0);
-      if (drainingDuration > 5000) {
+      const admittedAt = Date.now();
+      if (drainIsExpired(draining, admittedAt)) {
         try { if (wc.debugger.isAttached()) wc.debugger.detach(); } catch {}
         this.cdpDrainingTargets.delete(wcId);
         this.cdpQueues.delete(wcId);
       } else {
-        throw new CaptureError('TARGET_BUSY_DRAINING', `TARGET_BUSY_DRAINING: Cannot admit CDP command ${method}; target ${wcId} is draining timed-out command ${draining.method}`);
+        const details = buildDrainRefusalDetails(draining, admittedAt, { wcId, refusedMethod: method });
+        throw new CaptureError(
+          'TARGET_BUSY_DRAINING',
+          `TARGET_BUSY_DRAINING: Cannot admit CDP command ${method}; target ${wcId} is draining timed-out command ${draining.method} (retry in ${details.retryAfterMs} ms)`,
+          { ...details }
+        );
       }
     }
 
@@ -1831,6 +1854,32 @@ export class TabDevToolsHost {
     return { ok: true, drained, resetPerformed: true, elapsedMs: Date.now() - startedAt };
   }
 
+  /**
+   * Run `trigger` (a click that makes the page open its native file chooser) and return the
+   * chooser the page opened, with the `<input type=file>` node it belongs to. The chooser never
+   * shows: interception is on for exactly the duration of this call.
+   */
+  public async captureFileChooser(
+    wc: Electron.WebContents,
+    trigger: () => Promise<void>,
+    waitMs?: number
+  ): Promise<FileChooserOpened> {
+    return await interceptFileChooser(
+      {
+        send: (method, params) => this.sendCdpCommand(wc, method, params ?? {}),
+        onEvent: (handler) => {
+          const listener = (_event: Electron.Event, method: string, params: Record<string, unknown>): void => handler(method, params ?? {});
+          wc.debugger.on('message', listener);
+          return () => {
+            try { wc.debugger.removeListener('message', listener); } catch {}
+          };
+        },
+      },
+      trigger,
+      waitMs
+    );
+  }
+
   private toCaptureError(err: unknown, context: string): Error {
     if (err instanceof CaptureError) return err;
     const message = err instanceof Error ? err.message : String(err);
@@ -2343,13 +2392,7 @@ export class TabDevToolsHost {
           `(() => {
             const ov = document.getElementById('__antifan_agent_overlay__');
             if (ov) ov.classList.add('suppressed');
-            let st = document.getElementById('__antifan_screenshot_guard__');
-            if (!st && (document.head || document.documentElement)) {
-              st = document.createElement('style');
-              st.id = '__antifan_screenshot_guard__';
-              st.textContent = '#__antifan_agent_overlay__, #__antifan_agent_cursor__, #__antifan_agent_highlight__, #__antifan_agent_banner__, [data-antifan-agent-cursor], #haravan-notification, #preview-bar-iframe, #bizweb-theme-previewer { display: none !important; visibility: hidden !important; opacity: 0 !important; pointer-events: none !important; }';
-              (document.head || document.documentElement).appendChild(st);
-            }
+            ${buildScreenshotGuardInstallSnippet()}
           })()`,
           targetId,
           effectivePane
@@ -2803,10 +2846,12 @@ export class TabDevToolsHost {
     }
     const mode = resolveCaptureMode(rect, options?.fullPage);
     const imageFormat: 'png' | 'jpeg' = options?.format === 'jpeg' ? 'jpeg' : 'png';
-    if (this.isWebContentsDraining(wc)) {
+    const drainingEntry = wc ? this.cdpDrainingTargets.get(wc.id) : undefined;
+    if (drainingEntry) {
       throw new CaptureError(
         'TARGET_BUSY_DRAINING',
-        `Target '${targetId}' is draining a timed-out CDP command; drain the target before capturing`
+        `Target '${targetId}' is draining a timed-out CDP command; drain the target before capturing`,
+        { tabId: targetId, ...buildDrainRefusalDetails(drainingEntry, Date.now(), { wcId: wc.id }) }
       );
     }
     const boundMs = Math.min(60_000, Math.max(1, options?.timeoutMs ?? 60_000));
@@ -2876,13 +2921,7 @@ export class TabDevToolsHost {
             `(() => {
               const ov = document.getElementById('__antifan_agent_overlay__');
               if (ov) ov.classList.add('suppressed');
-              let st = document.getElementById('__antifan_screenshot_guard__');
-              if (!st && (document.head || document.documentElement)) {
-                st = document.createElement('style');
-                st.id = '__antifan_screenshot_guard__';
-                st.textContent = '#__antifan_agent_overlay__, #__antifan_agent_cursor__, #__antifan_agent_highlight__, #__antifan_agent_banner__, [data-antifan-agent-cursor], #haravan-notification, #preview-bar-iframe, #bizweb-theme-previewer { display: none !important; visibility: hidden !important; opacity: 0 !important; pointer-events: none !important; }';
-                (document.head || document.documentElement).appendChild(st);
-              }
+              ${buildScreenshotGuardInstallSnippet()}
             })()`,
             targetId,
             effectivePane
@@ -3745,11 +3784,11 @@ export class TabDevToolsHost {
   public async getDom(selector?: string, tabId?: string, paneId?: SplitPaneId): Promise<string> {
     const targetId = tabId || this.ctx.getActiveTabId();
     const target = this.ctx.getTabRecord(targetId);
-    if (!target) throw new CapabilityError('TARGET_STALE', `No such tab: ${targetId}`);
+    if (!target) throw new CapabilityError('TARGET_STALE', `No such tab: ${targetId}`, { cause: 'tab-gone', tabId: targetId });
     const effectivePane = paneId || target.focusedPane;
     const wc = this.ctx.getTabWebContents(targetId, effectivePane);
     if (!wc || wc.isDestroyed()) {
-      throw new CapabilityError('TARGET_STALE', `Tab ${targetId} has no live web contents in pane ${effectivePane}`);
+      throw new CapabilityError('TARGET_STALE', `Tab ${targetId} has no live web contents in pane ${effectivePane}`, { cause: 'tab-gone', tabId: targetId });
     }
     return this.ctx.withTabAgentWorking(targetId, async () => {
       const script = selector
@@ -3791,11 +3830,11 @@ export class TabDevToolsHost {
     const hardBudgetMs = Math.max(softBudgetMs + 3000, Math.round(softBudgetMs * 2.5));
     const targetId = tabId || this.ctx.getActiveTabId();
     const target = this.ctx.getTabRecord(targetId);
-    if (!target) throw new CapabilityError('TARGET_STALE', `No such tab: ${targetId}`);
+    if (!target) throw new CapabilityError('TARGET_STALE', `No such tab: ${targetId}`, { cause: 'tab-gone', tabId: targetId });
     const effectivePane = paneId || target.focusedPane;
     const wc = this.ctx.getTabWebContents(targetId, effectivePane);
     if (!wc || wc.isDestroyed()) {
-      throw new CapabilityError('TARGET_STALE', `Tab ${targetId} has no live web contents in pane ${effectivePane}`);
+      throw new CapabilityError('TARGET_STALE', `Tab ${targetId} has no live web contents in pane ${effectivePane}`, { cause: 'tab-gone', tabId: targetId });
     }
     const openDialog = this.jsDialogs.get(wc.id);
     if (openDialog) throw dialogOpenError(openDialog, targetId);
@@ -3882,7 +3921,7 @@ export class TabDevToolsHost {
       // A typed refusal, never a result-shaped object: callers parse eval results as their own
       // measurements and would read a stand-in object as data.
       const navigatedError = (url: string): CapabilityError =>
-        new CapabilityError('TARGET_STALE', `Tab ${targetId} navigated to ${url || 'a new document'} while the script ran; its result belonged to the document that was replaced`, { tabId: targetId, newUrl: url });
+        new CapabilityError('TARGET_STALE', `Tab ${targetId} navigated to ${url || 'a new document'} while the script ran; its result belonged to the document that was replaced`, { cause: 'navigated-away', tabId: targetId, newUrl: url });
       const { promise: navPromise, reject: navReject } = Promise.withResolvers<never>();
       const onDidStartNav = (_event: unknown, url?: string, isInPlace?: boolean, isMainFrame?: boolean): void => {
         // Sub-frame loads and same-document moves (pushState, hash) keep the script's context.
@@ -3941,7 +3980,8 @@ export class TabDevToolsHost {
 
   /**
    * Evaluate an expression inside a child frame (cross-origin iframe) selected by
-   * URL substring.
+   * URL substring, frame-tree node id, child-frame index, or the CSS selector of its
+   * `<iframe>` element.
    *
    * Frame identity comes from `WebFrameMain.framesInSubtree`, deliberately not from
    * `Page.getFrameTree`: the CDP frame tree reports a cross-origin child without its
@@ -3953,7 +3993,7 @@ export class TabDevToolsHost {
    */
   public async evalJsInFrame(
     expression: string,
-    frameUrl: string,
+    frameRef: FrameRef,
     tabId?: string,
     paneId?: SplitPaneId,
     userGesture = false,
@@ -3963,13 +4003,13 @@ export class TabDevToolsHost {
     const hardBudgetMs = Math.max(softBudgetMs + 3000, Math.round(softBudgetMs * 2.5));
     const targetId = tabId || this.ctx.getActiveTabId();
     const target = this.ctx.getTabRecord(targetId);
-    if (!target) throw new CapabilityError('TARGET_STALE', `No such tab: ${targetId}`);
+    if (!target) throw new CapabilityError('TARGET_STALE', `No such tab: ${targetId}`, { cause: 'tab-gone', tabId: targetId });
     const effectivePane = paneId || target.focusedPane;
     const wc = this.ctx.getTabWebContents(targetId, effectivePane);
     if (!wc || wc.isDestroyed()) {
-      throw new CapabilityError('TARGET_STALE', `Tab ${targetId} has no live web contents in pane ${effectivePane}`);
+      throw new CapabilityError('TARGET_STALE', `Tab ${targetId} has no live web contents in pane ${effectivePane}`, { cause: 'tab-gone', tabId: targetId });
     }
-    const frame = findChildFrameByUrl(wc, frameUrl, targetId);
+    const frame = await resolveChildFrame(wc, frameRef, targetId);
 
     return this.ctx.withTabAgentWorking(targetId, async () => {
       const execute = async (): Promise<unknown> => {

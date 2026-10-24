@@ -38,6 +38,8 @@
  * restores the original scroll position before returning.
  */
 
+import { PLATFORM_PREVIEW_CHROME } from '../platform-preview-chrome';
+
 export const VISUAL_QUALITY_RULE_IDS = [
   'contrast-low',
   'tap-target-tiny',
@@ -87,6 +89,8 @@ export interface VisualQualityStats {
   measuredRules: string[];
   /** Rule ids that were not evaluated (missing thresholds, desktop width, skipped pass). */
   unmeasuredRules: string[];
+  /** Timer-driven popups (toasts, pop-sale cards) that were hidden when the scan started. */
+  timedWidgets?: { latent: number; appeared: number; waitedMs: number; selectors: string[] };
 }
 
 export interface VisualQualityScanResult {
@@ -111,6 +115,28 @@ export interface VisualQualityScanOptions {
   scopeSelector?: string;
   /** Registry thresholds; the rules that read them only run when this is supplied. */
   thresholds?: VisualQualityThresholds;
+  /**
+   * How long the floating pass waits for a hidden timer-driven popup (toast, pop-sale card) to
+   * show before grading it; 0 disables. Pages without such a popup never wait.
+   */
+  timedWidgetWaitMs?: number;
+}
+
+export const VISUAL_QUALITY_DEFAULT_TIMED_WIDGET_WAIT_MS = 9000;
+
+/** Eval deadline for a scan built with these options: the base budget plus the popup wait. */
+export function visualQualityEvalTimeoutMs(options: VisualQualityScanOptions = {}): number {
+  return 20_000 + timedWidgetWaitOf(options);
+}
+
+function timedWidgetWaitOf(options: VisualQualityScanOptions): number {
+  if (options.skipFloating === true || options.skipPageEnd === true) return 0;
+  const v = options.timedWidgetWaitMs;
+  if (v === undefined) return VISUAL_QUALITY_DEFAULT_TIMED_WIDGET_WAIT_MS;
+  if (typeof v !== 'number' || !Number.isFinite(v) || v < 0 || v > VISUAL_QUALITY_DEFAULT_TIMED_WIDGET_WAIT_MS) {
+    throw new Error(`visual-quality timedWidgetWaitMs must be 0..${VISUAL_QUALITY_DEFAULT_TIMED_WIDGET_WAIT_MS} ms, the eval budget leaves no room for more (got ${JSON.stringify(v)})`);
+  }
+  return Math.round(v);
 }
 
 export const VISUAL_QUALITY_LIMITS = Object.freeze({
@@ -174,6 +200,7 @@ export class VisualQualityScanner {
       skipFloating: options.skipFloating === true,
       scopeSelector: typeof options.scopeSelector === 'string' && options.scopeSelector.trim() ? options.scopeSelector.trim() : null,
       thresholds: normalizeThresholds(options.thresholds),
+      timedWidgetWaitMs: timedWidgetWaitOf(options),
     });
     const limits = JSON.stringify(VISUAL_QUALITY_LIMITS);
     const allRules = JSON.stringify(VISUAL_QUALITY_RULE_IDS);
@@ -196,7 +223,7 @@ export class VisualQualityScanner {
   function rulesReport() {
     return { measuredRules: measuredRules.slice(), unmeasuredRules: ALL_RULES.filter((id) => !measuredRules.includes(id)) };
   }
-  const PREVIEW_CHROME = '#preview-bar-iframe, [id*="preview-bar"], .preview-bar, ul.preview-cta, #haravan-notification, .hrv-admin-bar, #admin-bar-iframe, #admin_bar_iframe, #PBarNextFrameWrapper, [data-antifan-override]';
+  const PREVIEW_CHROME = ${JSON.stringify(`${PLATFORM_PREVIEW_CHROME}, [data-antifan-override]`)};
 
   function isPreviewChrome(el) {
     try { return !!(el && el.closest && el.closest(PREVIEW_CHROME)); } catch (e) { return false; }
@@ -832,51 +859,163 @@ export class VisualQualityScanner {
   const startY = window.scrollY;
   const html = document.documentElement;
   const priorBehavior = html.style.scrollBehavior;
-  try {
-    html.style.scrollBehavior = 'auto';
-    const maxY = Math.max(0, (document.scrollingElement || html).scrollHeight - vh);
-    const positions = OPTS.skipFloating ? [] : OPTS.skipPageEnd ? [startY] : maxY < 8 ? [0] : [0, maxY];
-    if (positions.length) { markMeasured('floating-widget-overlap'); markMeasured('invisible-click-blocker'); }
-    const whereOf = (y) => (y === 0 ? 'page top' : y >= maxY ? 'page end' : 'scroll position ' + Math.round(y));
-    const positionOf = (y) => (y === 0 ? 'top' : y >= maxY ? 'end' : 'current');
-    for (const y of positions) {
-      if (window.scrollY !== y) window.scrollTo(startX, y);
-      stats.scrollPositions++;
-      const widgets = floatingWidgets();
-      stats.floatingWidgets = Math.max(stats.floatingWidgets, widgets.length);
-      for (const widget of widgets) {
-        const wr = widget.getBoundingClientRect();
-        const wsel = selectorOf(widget);
-        for (const hit of contentUnder(widget, wr)) {
-          const csel = selectorOf(hit.el);
-          const where = whereOf(y);
-          const covered = (hit.isControl ? 'control ' : 'text ') + csel + (hit.text ? ' "' + hit.text.slice(0, 40) + '"' : '');
-          const size = ' (' + Math.round(hit.ix) + 'x' + Math.round(hit.iy) + 'px)';
-          push({
-            ruleId: hit.paints ? 'floating-widget-overlap' : 'invisible-click-blocker',
-            severity: 'warning',
-            selector: wsel,
-            details: hit.paints
-              ? 'Floating widget ' + wsel + ' covers ' + covered + ' at ' + where + size
-              : 'Transparent fixed layer ' + wsel + ' sits on top of ' + covered + ' at ' + where + size + ': the content is visible but clicks land on the invisible layer',
-            rect: rectOf(wr),
-            measured: { coveredSelector: csel, coveredText: hit.text.slice(0, 80), coveredIsControl: hit.isControl, overlapPx: { x: Math.round(hit.ix), y: Math.round(hit.iy) }, scrollPosition: positionOf(y), widgetPaintsAtPoint: hit.paints },
-          }, 'float|' + wsel + '|' + csel + '|' + positionOf(y));
-        }
+  const maxY = Math.max(0, (document.scrollingElement || html).scrollHeight - vh);
+  const positions = OPTS.skipFloating ? [] : OPTS.skipPageEnd ? [startY] : maxY < 8 ? [0] : [0, maxY];
+  if (positions.length) { markMeasured('floating-widget-overlap'); markMeasured('invisible-click-blocker'); }
+  // A toast or notification card that is fixed but not painted yet is waiting for its timer (or
+  // for a scroll that arms it); grading the page now would read it as absent. Modals, newsletter
+  // popups and cookie sheets are dismissable overlays with their own probes and are not waited for.
+  const TIMED_NAME = /pop-?sale|pop-?noti|toast|snackbar|notif/i;
+  const latentTimedWidgets = () => {
+    const out = [];
+    const all = document.body ? document.body.getElementsByTagName('*') : [];
+    for (let i = 0; i < all.length && i < 8000; i++) {
+      const el = all[i];
+      const cs = getComputedStyle(el);
+      if (cs.position !== 'fixed' || isPreviewChrome(el)) continue;
+      if (el.matches('dialog, [role="dialog"], [aria-modal="true"]')) continue;
+      const role = el.getAttribute('role') || '';
+      const name = el.tagName + ' ' + (el.getAttribute('id') || '') + ' ' + (typeof el.className === 'string' ? el.className : '');
+      if (!TIMED_NAME.test(name) && !/^(status|alert|log)$/.test(role)) continue;
+      let nested = false;
+      for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) {
+        if (getComputedStyle(p).position === 'fixed') { nested = true; break; }
+      }
+      if (nested || !(el.textContent || '').trim() && !el.querySelector('img, a, button')) continue;
+      const box = el.getBoundingClientRect();
+      if (box.width * box.height > 0 && (box.width * box.height > vw * vh * L.floatingMaxViewportShare || box.width > vw * L.floatingMaxWidthShare)) continue;
+      if (!paintedNow(el)) out.push(el);
+    }
+    return out;
+  };
+  const paintedNow = (el) => {
+    const r = el.getBoundingClientRect();
+    return rendered(el, r) && ancestorOpacity(el) >= 0.05 && r.right > 0 && r.bottom > 0 && r.left < vw && r.top < vh;
+  };
+  const latent = positions.length > 1 && OPTS.timedWidgetWaitMs > 0 ? latentTimedWidgets() : [];
+  if (latent.length) stats.timedWidgets = { latent: latent.length, appeared: 0, waitedMs: 0, selectors: latent.slice(0, 5).map(selectorOf) };
+  const whereOf = (y) => (y === 0 ? 'page top' : y >= maxY ? 'page end' : 'scroll position ' + Math.round(y));
+  const positionOf = (y) => (y === 0 ? 'top' : y >= maxY ? 'end' : 'current');
+  const scanFloatingAt = (y) => {
+    stats.scrollPositions++;
+    const widgets = floatingWidgets();
+    stats.floatingWidgets = Math.max(stats.floatingWidgets, widgets.length);
+    for (const widget of widgets) {
+      const wr = widget.getBoundingClientRect();
+      const wsel = selectorOf(widget);
+      for (const hit of contentUnder(widget, wr)) {
+        const csel = selectorOf(hit.el);
+        const where = whereOf(y);
+        const covered = (hit.isControl ? 'control ' : 'text ') + csel + (hit.text ? ' "' + hit.text.slice(0, 40) + '"' : '');
+        const size = ' (' + Math.round(hit.ix) + 'x' + Math.round(hit.iy) + 'px)';
+        push({
+          ruleId: hit.paints ? 'floating-widget-overlap' : 'invisible-click-blocker',
+          severity: 'warning',
+          selector: wsel,
+          details: hit.paints
+            ? 'Floating widget ' + wsel + ' covers ' + covered + ' at ' + where + size
+            : 'Transparent fixed layer ' + wsel + ' sits on top of ' + covered + ' at ' + where + size + ': the content is visible but clicks land on the invisible layer',
+          rect: rectOf(wr),
+          measured: { coveredSelector: csel, coveredText: hit.text.slice(0, 80), coveredIsControl: hit.isControl, overlapPx: { x: Math.round(hit.ix), y: Math.round(hit.iy) }, scrollPosition: positionOf(y), widgetPaintsAtPoint: hit.paints },
+        }, 'float|' + wsel + '|' + csel + '|' + positionOf(y));
       }
     }
-  } finally {
+  };
+  const restoreScroll = () => {
     if (window.scrollX !== startX || window.scrollY !== startY) window.scrollTo(startX, startY);
     html.style.scrollBehavior = priorBehavior;
-  }
-
-  return {
+  };
+  const result = () => ({
     measured: true,
     viewport: { width: vw, height: vh },
     mobile: mobile,
     findings: findings,
     stats: Object.assign(stats, { durationMs: Date.now() - started, truncated: truncatedReasons.length > 0, truncatedReasons: truncatedReasons }, rulesReport()),
+  });
+  if (!latent.length && !positions.some((y) => y !== window.scrollY)) {
+    for (const y of positions) scanFloatingAt(y);
+    return result();
+  }
+  // A scroll reaches the page's IntersectionObserver and scroll handlers only on the following
+  // frames, so a widget the page hides when the footer comes into view is still painted in the
+  // task that scrolled. Two frames let it react; then any finite transition or animation on a
+  // fixed layer (a toast sliding out, or in) runs to its end state before the widget is graded.
+  // Both waits are bounded because background tabs throttle frames and timers.
+  const frame = () => {
+    const wait = Promise.withResolvers();
+    requestAnimationFrame(() => wait.resolve());
+    return wait.promise;
   };
+  const delay = (ms) => {
+    const wait = Promise.withResolvers();
+    setTimeout(wait.resolve, ms);
+    return wait.promise;
+  };
+  const inFixedLayer = (node) => {
+    for (let cur = node; cur && cur.nodeType === 1; cur = cur.parentElement) {
+      if (getComputedStyle(cur).position === 'fixed') return true;
+    }
+    return false;
+  };
+  const fixedLayerMotion = () => {
+    if (typeof document.getAnimations !== 'function') return [];
+    return document.getAnimations().filter((a) => {
+      if (a.playState !== 'running' || !a.effect || !a.effect.target) return false;
+      const end = a.effect.getComputedTiming().endTime;
+      return Number.isFinite(end) && inFixedLayer(a.effect.target);
+    });
+  };
+  const settle = async () => {
+    await Promise.race([frame().then(frame), delay(250)]);
+    const motion = fixedLayerMotion();
+    if (motion.length) await Promise.race([Promise.all(motion.map((a) => a.finished.catch(() => undefined))), delay(1000)]);
+  };
+  const awaitTimedWidget = async () => {
+    // The first stop (one viewport down) arms popups that wait for a first scroll and stays clear
+    // of the footer, which several themes use as the signal to put the popup away. A theme that
+    // also keeps the popup hidden while it would cover content may never show it at one stop, so
+    // the wait moves through a few stops before concluding the popup did not appear.
+    const stops = [Math.min(maxY, vh), Math.round(maxY * 0.4), Math.round(maxY * 0.65), 0].filter((y, i, all) => all.indexOf(y) === i);
+    const dwellMs = Math.max(1500, Math.floor(OPTS.timedWidgetWaitMs / stops.length));
+    const t0 = Date.now();
+    let at = -1;
+    let shownAt = null;
+    while (Date.now() - t0 < OPTS.timedWidgetWaitMs) {
+      const next = Math.min(stops.length - 1, Math.floor((Date.now() - t0) / dwellMs));
+      if (next !== at) {
+        at = next;
+        if (window.scrollY !== stops[at]) window.scrollTo(startX, stops[at]);
+      }
+      if (latent.some(paintedNow)) { shownAt = window.scrollY; break; }
+      await delay(200);
+    }
+    stats.timedWidgets.waitedMs = Date.now() - t0;
+    await settle();
+    const shown = latent.filter(paintedNow);
+    stats.timedWidgets.appeared = shown.length;
+    if (!shown.length) {
+      truncatedReasons.push('timed widget ' + stats.timedWidgets.selectors.join(', ') + ' stayed hidden for ' + OPTS.timedWidgetWaitMs + 'ms across ' + stops.length + ' scroll positions, so its overlap was not graded');
+      return [];
+    }
+    return [shownAt === null ? window.scrollY : shownAt, ...stops.filter((y) => y !== 0)];
+  };
+  return (async () => {
+    html.style.scrollBehavior = 'auto';
+    try {
+      const timedStops = latent.length ? await awaitTimedWidget() : [];
+      const stops = [...timedStops, ...positions].filter((y, i, all) => all.indexOf(y) === i);
+      for (const y of stops) {
+        if (window.scrollY !== y) {
+          window.scrollTo(startX, y);
+          await settle();
+        }
+        scanFloatingAt(y);
+      }
+    } finally {
+      restoreScroll();
+    }
+    return result();
+  })();
 })()`;
   }
 

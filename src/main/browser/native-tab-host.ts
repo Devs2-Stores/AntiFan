@@ -1435,6 +1435,8 @@ export class NativeTabHost extends EventEmitter {
   private automationTabId: string | null = null;
   private terminalAgentAffinity = new Map<string, TerminalAgentAffinityEntry>();
   private readonly sessionTabPools = new Map<string, Set<string>>();
+  /** When each OAuth popup tab was registered, for the lifetime the close event reports. */
+  private readonly popupOpenedAt = new Map<string, number>();
   /**
    * Pool anchor of each recently closed tab (bounded). Closing a tab removes it from
    * every pool, which would otherwise erase the only trace of which session it belonged
@@ -8418,6 +8420,7 @@ export class NativeTabHost extends EventEmitter {
             }
           },
           createOAuthPopup: (windowOptions, url) => this.openOAuthPopupTab(id, windowOptions, url),
+          onDecision: (decision) => recordLifecycleEvent('oauth.windowOpen', { ...decision, openerTabId: id }),
         }
       );
     });
@@ -8483,6 +8486,8 @@ export class NativeTabHost extends EventEmitter {
       }
       this.switchTab(tabId, { plane: 'user' });
     });
+    this.popupOpenedAt?.set(tabId, Date.now());
+    recordLifecycleEvent('oauth.popup.opened', { tabId, openerTabId });
     return popupContents;
   }
 
@@ -9185,7 +9190,23 @@ export class NativeTabHost extends EventEmitter {
           this.sessionTabPools.delete(sId);
         }
       }
+      // A pool keyed by the closing tab's own id survives its anchor while any other
+      // member is alive: the members keep their shared authority under the first
+      // live member's key. Only a pool with no survivor is dropped.
+      const anchored = this.sessionTabPools.get(tabId);
       this.sessionTabPools.delete(tabId);
+      if (anchored) {
+        const survivor = Array.from(anchored).find((id) => id !== tabId && this.tabs?.has(id));
+        if (survivor) {
+          const members = new Set(Array.from(anchored).filter((id) => id !== tabId && this.tabs?.has(id)));
+          const existing = this.sessionTabPools.get(survivor);
+          if (existing) {
+            for (const id of members) existing.add(id);
+          } else {
+            this.sessionTabPools.set(survivor, members);
+          }
+        }
+      }
     }
     if (target.state.partition) {
       unconfigureBrowserSessionPartition(target.state.partition);
@@ -9288,6 +9309,27 @@ export class NativeTabHost extends EventEmitter {
       lastActiveAt: target.lastActiveAt,
       agentActivityAt: target.agentActivityAt,
     });
+    if (target.state.popupOf) {
+      const openedAt = this.popupOpenedAt?.get(tabId);
+      this.popupOpenedAt?.delete(tabId);
+      let lastHost = '';
+      let lastPath = '';
+      try {
+        const parsed = new URL(target.state.url || '');
+        if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+          lastHost = parsed.hostname.toLowerCase();
+          lastPath = parsed.pathname.slice(0, 200);
+        }
+      } catch {}
+      recordLifecycleEvent('oauth.popup.closed', {
+        tabId,
+        openerTabId: target.state.popupOf,
+        source,
+        lifetimeMs: openedAt !== undefined ? Date.now() - openedAt : undefined,
+        lastHost,
+        lastPath,
+      });
+    }
   }
 
   /**
@@ -12267,6 +12309,62 @@ export class NativeTabHost extends EventEmitter {
     return this.isTabAllowedForPrimary(primaryOrBoundTabId, requestedTabId);
   }
 
+  /**
+   * Why `isTabAllowed(boundTabId, targetTabId)` answers as it does, for refusal
+   * diagnostics: ids only, bounded, no URLs.
+   */
+  public describeTabOwnership(boundTabId: string, targetTabId: string): {
+    boundTabId: string;
+    targetTabId: string;
+    boundLive: boolean;
+    targetLive: boolean;
+    allowed: boolean;
+    targetOwner: 'same-session' | 'other-session' | 'unowned';
+    managedTabIds: string[];
+    managedTotal: number;
+  } {
+    const pId = this.resolveTargetTabId(boundTabId) || boundTabId;
+    const rId = this.resolveTargetTabId(targetTabId) || targetTabId;
+    const allowed = this.isTabAllowedForPrimary(pId, rId);
+    let targetOwner: 'same-session' | 'other-session' | 'unowned' = 'unowned';
+    if (allowed) {
+      targetOwner = 'same-session';
+    } else {
+      for (const [poolKey, pool] of this.sessionTabPools?.entries() ?? []) {
+        if (poolKey === rId || pool.has(rId)) {
+          targetOwner = 'other-session';
+          break;
+        }
+      }
+      if (targetOwner === 'unowned') {
+        for (const entry of this.terminalAgentAffinity?.values() ?? []) {
+          if (!entry.closedAt && (entry.primaryTabId === rId || entry.managedTabIds?.has(rId))) {
+            targetOwner = 'other-session';
+            break;
+          }
+        }
+      }
+    }
+    const managed = Array.from(this.getManagedTabIdsForBoundTab(pId));
+    return {
+      boundTabId: pId,
+      targetTabId: rId,
+      boundLive: Boolean(this.tabs?.has(pId)),
+      targetLive: Boolean(this.tabs?.has(rId)),
+      allowed,
+      targetOwner,
+      managedTabIds: managed.slice(0, 5),
+      managedTotal: managed.length,
+    };
+  }
+
+  /** Whether the tab is in split review mode with a live mobile pane. */
+  public isTabSplit(tabId: string): boolean {
+    const resolved = this.resolveTargetTabId(tabId);
+    const tab = resolved ? this.tabs?.get(resolved) : undefined;
+    return Boolean(tab?.state.splitMode && tab.mobileView && !tab.mobileView.webContents.isDestroyed());
+  }
+
   /** The live user-issued share grant of a tab, or undefined when it has none or it expired. */
   public getTabShareGrant(tabId: string): TabShareGrant | undefined {
     const resolved = this.resolveTargetTabId(tabId);
@@ -13523,14 +13621,14 @@ export class NativeTabHost extends EventEmitter {
     return this.getDevToolsHost().evalJs(expression, tabId, paneId, userGesture, timeoutMs);
   }
 
-  public async evalJsInFrame(expression: string, frameUrl: string, tabId?: string, paneId?: SplitPaneId, userGesture = false, timeoutMs?: number): Promise<unknown> {
-    return this.getDevToolsHost().evalJsInFrame(expression, frameUrl, tabId, paneId, userGesture, timeoutMs);
+  public async evalJsInFrame(expression: string, frame: string | { frameUrl?: string; frameId?: number; index?: number; selector?: string }, tabId?: string, paneId?: SplitPaneId, userGesture = false, timeoutMs?: number): Promise<unknown> {
+    return this.getDevToolsHost().evalJsInFrame(expression, frame, tabId, paneId, userGesture, timeoutMs);
   }
 
-  public async uploadFileInput(params: { refOrSelector: string; filePaths: string[]; workspaceRoot?: string; tabId?: string; paneId?: SplitPaneId }): Promise<{ success: boolean; uploadedCount: number; reason?: string }> {
+  public async uploadFileInput(params: { refOrSelector: string; filePaths: string[]; workspaceRoot?: string; tabId?: string; paneId?: SplitPaneId; viaFileChooser?: boolean }): Promise<{ success: boolean; uploadedCount: number; reason?: string }> {
     const release = this.admitAgentAction('uploadFileInput', params.tabId);
     try {
-      return await this.getAutomationHost().uploadFileInput(params.refOrSelector, params.filePaths, params.tabId, params.paneId, params.workspaceRoot);
+      return await this.getAutomationHost().uploadFileInput(params.refOrSelector, params.filePaths, params.tabId, params.paneId, params.workspaceRoot, params.viaFileChooser);
     } finally {
       release();
     }

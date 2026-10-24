@@ -344,11 +344,13 @@ describe('Advanced Inspection Browser Capabilities', () => {
       evalJs: async () => ({}),
       agentClick: async () => true,
       isTabAllowed: () => false,
+      isTabSplit: () => true,
     };
 
     const catalogue = new CapabilityCatalogue({
       ...catalogueOptions,
       isTabAllowed: () => false,
+      isTabSplit: () => true,
     });
     const controlPort = new BrowserControlPort(mockHost);
     registerBrowserCapabilities(catalogue, controlPort);
@@ -373,6 +375,7 @@ describe('Advanced Inspection Browser Capabilities', () => {
         assert.strictEqual(err.code, 'TARGET_MISMATCH');
         assert.ok(err.message.includes('expected tab-123, got tab-456'));
         assert.ok(err.message.includes('Note: In split review mode, use the bound tabId with paneId: "mobile"'));
+        assert.ok(err.message.includes('Cho agent của project này dùng tab'));
         return true;
       }
     );
@@ -387,6 +390,63 @@ describe('Advanced Inspection Browser Capabilities', () => {
         assert.strictEqual(err.code, 'TARGET_MISMATCH');
         assert.ok(err.message.includes('does not match target tabId "tab-123"'));
         assert.ok(err.message.includes('Note: In split review mode, use the bound tabId with paneId: "mobile"'));
+        assert.ok(err.message.includes('Cho agent của project này dùng tab'));
+        return true;
+      }
+    );
+  });
+
+  it('omits the split-pane hint when the tab is not in split review mode and names the share menu entry', async () => {
+    const mockHost: BrowserHostPort = {
+      getTabList: () => [{ id: 'tab-123' }, { id: 'tab-456' }],
+      navigate: () => true,
+      reload: () => true,
+      getDom: async () => '<html></html>',
+      captureScreenshot: async () => 'base64img',
+      evalJs: async () => ({}),
+      agentClick: async () => true,
+      isTabAllowed: () => false,
+      isTabSplit: () => false,
+    };
+    const catalogue = new CapabilityCatalogue({
+      ...catalogueOptions,
+      isTabAllowed: () => false,
+      isTabSplit: () => false,
+    });
+    const controlPort = new BrowserControlPort(mockHost);
+    registerBrowserCapabilities(catalogue, controlPort);
+    const authContext: AuthenticatedCapabilityContext = {
+      ...mockContext,
+      runId: 'run-123',
+      attemptId: 'att-1',
+      attachmentId: 'att-123',
+      backendId: 'be-123',
+      hostEpoch: 1,
+      invocationId: 'inv-123',
+      browserTarget: { ...mockTarget, tabId: 'tab-123' },
+    };
+    const shareLabel = 'Cho agent của project này dùng tab';
+    await assert.rejects(
+      async () => {
+        await catalogue.dispatchAuthenticated('browser.inspect_layout', { tabId: 'tab-456' }, authContext);
+      },
+      (err: unknown) => {
+        assert.ok(err instanceof CapabilityError);
+        assert.strictEqual(err.code, 'TARGET_MISMATCH');
+        assert.ok(!err.message.includes('split review mode'));
+        assert.ok(err.message.includes(shareLabel));
+        return true;
+      }
+    );
+    await assert.rejects(
+      async () => {
+        await controlPort.agentClick({ selector: 'button', tabId: 'tab-456' }, { ...mockTarget, tabId: 'tab-123' });
+      },
+      (err: unknown) => {
+        assert.ok(err instanceof CapabilityError);
+        assert.strictEqual(err.code, 'TARGET_MISMATCH');
+        assert.ok(!err.message.includes('split review mode'));
+        assert.ok(err.message.includes(shareLabel));
         return true;
       }
     );

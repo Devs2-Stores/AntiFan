@@ -45,6 +45,10 @@ import { checkRouteIdentity } from '../verification/visual-capture';
 import { ReceiptStore } from '../session/receipt-store';
 import { VerificationCircuitBreaker } from '../verification/circuit-breaker';
 import { DEADLINES } from '../../shared/deadline-chain';
+import { DEFAULT_SWEEP_BREAKPOINTS } from '../browser/sweep-viewports';
+
+const SWEEP_WIDTHS_LABEL = DEFAULT_SWEEP_BREAKPOINTS.map((bp) => bp.width).join(', ');
+
 function resolveRepoRoot(): string {
   let dir = __dirname;
   for (let i = 0; i < 8; i++) {
@@ -466,14 +470,46 @@ export function parseQaValidateOptions(params: Record<string, unknown>): QaValid
   return out;
 }
 
+/** The most baseline ids a refusal message lists; the full count travels beside them. */
+export const GREENFIELD_BASELINE_ID_LIMIT = 3;
+
+/** Origin of a live tab URL; null for about:blank and other opaque origins. */
+export function originOfUrl(url: string | undefined | null): string | null {
+  if (!url) return null;
+  try {
+    const origin = new URL(url).origin;
+    return origin === 'null' ? null : origin;
+  } catch {
+    return null;
+  }
+}
+
+/** Origin of the page a baseline was captured on, or null when its manifest recorded none usable. */
+function baselineManifestOrigin(manifest: { captureStateMini?: unknown }): string | null {
+  const mini = manifest.captureStateMini;
+  if (!mini || typeof mini !== 'object' || !('observedUrl' in mini)) return null;
+  return typeof mini.observedUrl === 'string' ? originOfUrl(mini.observedUrl) : null;
+}
+
+/** At most `GREENFIELD_BASELINE_ID_LIMIT` ids plus the total, for refusal messages and details. */
+export function summarizeBaselineIds(ids: readonly string[]): { baselineIds: string[]; total: number; listed: string } {
+  const baselineIds = ids.slice(0, GREENFIELD_BASELINE_ID_LIMIT);
+  const total = ids.length;
+  const listed = total > baselineIds.length ? `${baselineIds.join(', ')} and ${total - baselineIds.length} more` : baselineIds.join(', ');
+  return { baselineIds, total, listed };
+}
+
 /**
- * Ids of the promoted visual baselines on record for the caller's workspace. A greenfield run is only
- * legitimate when this list is empty, so a store that cannot be read refuses the run instead of
+ * Ids of the promoted visual baselines that stand in the way of a greenfield run for the caller's
+ * workspace. A workspace belongs to one platform, so the remaining scope is the page origin:
+ * when `context.origin` is known, a baseline whose manifest records a different origin is not a
+ * baseline for this storefront and is skipped. A baseline with no recorded origin could be for
+ * any origin, so it keeps blocking. A store that cannot be read refuses the run instead of
  * reading as "no baselines".
  */
 export function listPromotedBaselineIds(
   browser: BrowserControlPort,
-  context: { workspaceId?: string; projectId?: string }
+  context: { workspaceId?: string; projectId?: string; origin?: string | null }
 ): string[] {
   const authority = browser.baselineAuthority;
   if (!authority || typeof authority.getBaselineDir !== 'function') {
@@ -497,16 +533,120 @@ export function listPromotedBaselineIds(
   for (const name of names) {
     const id = name.slice(0, -'.json'.length);
     try {
-      const manifest = JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8')) as { workspaceId?: unknown; projectId?: unknown };
+      const manifest = JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8')) as { workspaceId?: unknown; projectId?: unknown; captureStateMini?: unknown };
       const sameWorkspace = manifest.workspaceId === undefined || manifest.workspaceId === context.workspaceId;
       const sameProject = typeof manifest.projectId !== 'string' || !context.projectId || manifest.projectId === context.projectId;
-      if (sameWorkspace && sameProject) found.push(id);
+      if (!sameWorkspace || !sameProject) continue;
+      const recordedOrigin = baselineManifestOrigin(manifest);
+      if (context.origin && recordedOrigin && recordedOrigin !== context.origin) continue;
+      found.push(id);
     } catch {
       // An unreadable manifest still names a baseline that was promoted here: never read it as absence.
       found.push(id);
     }
   }
   return found.sort();
+}
+
+/** Arguments of the agent type capability and its aliases. */
+interface AgentTypeParams {
+  selector?: string;
+  ref?: string;
+  text?: string;
+  fromEnv?: string;
+  secret?: boolean;
+  clear?: boolean;
+  trusted?: boolean;
+  force?: boolean;
+  tabId?: string;
+  paneId?: 'desktop' | 'mobile';
+}
+
+function agentTypeInputSchema(): Record<string, unknown> {
+  return {
+    type: 'object',
+    properties: {
+      selector: { type: 'string' },
+      ref: { type: 'string' },
+      text: { type: 'string' },
+      fromEnv: { type: 'string', description: 'Name of a main-process environment variable (ANTIFAN_SECRET_ prefix only) whose value is typed instead of `text`, so a password or token never passes through tool arguments, receipts or logs. Mutually exclusive with `text`; implies secret' },
+      secret: { type: 'boolean', description: 'Mark the typed text as sensitive: the field is masked in screenshots and snapshots and the value is kept out of receipts' },
+      clear: { type: 'boolean' },
+      trusted: { type: 'boolean' },
+      force: { type: 'boolean', description: 'Skip the occlusion and animation-stability gates for a knowingly covered or endlessly animating target' },
+      tabId: { type: 'string' },
+      paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+    },
+    oneOf: [{ required: ['text'] }, { required: ['fromEnv'] }],
+  };
+}
+
+/** Arguments of the file upload capability and its aliases. */
+interface FileUploadParams {
+  refOrSelector: string;
+  filePaths: string[];
+  workspaceRoot?: string;
+  viaFileChooser?: boolean;
+  tabId?: string;
+  paneId?: 'desktop' | 'mobile';
+}
+
+function fileUploadInputSchema(): Record<string, unknown> {
+  return {
+    type: 'object',
+    properties: {
+      refOrSelector: { type: 'string', description: 'CSS selector or @ref of the file input, or of the button/label/dropzone that opens the file chooser' },
+      filePaths: { type: 'array', items: { type: 'string' }, description: 'Array of local file paths' },
+      workspaceRoot: { type: 'string', description: 'Explicit workspace root directory validated against authorized project roots' },
+      viaFileChooser: { type: 'boolean', description: 'Click the target and answer the native file chooser it opens. Used automatically when the target is not an <input type=file> (custom upload buttons, hidden inputs created on click)' },
+      tabId: { type: 'string' },
+      paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+    },
+    required: ['refOrSelector', 'filePaths'],
+  };
+}
+
+/** How a child frame is chosen: URL substring, frame id, position among child frames, or the <iframe> element's selector. */
+export interface FrameSelectorParams {
+  frameUrl?: string;
+  frameId?: number;
+  frameIndex?: number;
+  frameSelector?: string;
+}
+
+/**
+ * The frame argument handed to the port. A bare `frameUrl` stays a string, which is what every
+ * existing caller sends; any other selector produces the object form. Exactly one selector is required.
+ */
+export function resolveFrameSelector(params: FrameSelectorParams): string | { frameId?: number; index?: number; selector?: string; frameUrl?: string } {
+  const given: string[] = [];
+  if (params.frameUrl !== undefined) given.push('frameUrl');
+  if (params.frameId !== undefined) given.push('frameId');
+  if (params.frameIndex !== undefined) given.push('frameIndex');
+  if (params.frameSelector !== undefined) given.push('frameSelector');
+  if (given.length !== 1) {
+    throw new CapabilityError(
+      'INVALID_ARGUMENT',
+      given.length === 0
+        ? 'Name the child frame with exactly one of frameUrl (URL substring), frameId (number), frameIndex (0-based position among child frames) or frameSelector (CSS selector of the <iframe> element)'
+        : `Name the child frame with exactly one selector; received ${given.join(', ')}`,
+      { validFields: ['frameUrl', 'frameId', 'frameIndex', 'frameSelector'], received: given }
+    );
+  }
+  if (params.frameUrl !== undefined) {
+    if (typeof params.frameUrl !== 'string' || !params.frameUrl.trim()) throw new CapabilityError('INVALID_ARGUMENT', 'frameUrl must be a non-empty string');
+    return params.frameUrl;
+  }
+  if (params.frameId !== undefined) {
+    if (typeof params.frameId !== 'number' || !Number.isInteger(params.frameId) || params.frameId < 0) throw new CapabilityError('INVALID_ARGUMENT', 'frameId must be a non-negative integer');
+    return { frameId: params.frameId };
+  }
+  if (params.frameIndex !== undefined) {
+    if (typeof params.frameIndex !== 'number' || !Number.isInteger(params.frameIndex) || params.frameIndex < 0) throw new CapabilityError('INVALID_ARGUMENT', 'frameIndex must be a non-negative integer');
+    return { index: params.frameIndex };
+  }
+  if (typeof params.frameSelector !== 'string' || !params.frameSelector.trim()) throw new CapabilityError('INVALID_ARGUMENT', 'frameSelector must be a non-empty CSS selector string');
+  return { selector: params.frameSelector };
 }
 
 const SEQUENCE_ACTION_TYPES = ['navigate', 'click', 'type', 'scroll', 'hover', 'pressKey', 'wait', 'screenshot', 'snapshot'];
@@ -713,7 +853,10 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         projectId: { type: 'string', description: 'Scope selector: must equal this session\'s authenticated projectId. A foreign or unbound selector is refused before allocation; it never widens authority.' },
       },
     },
-    execute: (params: { url?: string; activate?: boolean; anchorTabId?: string; ephemeral?: boolean; userFacing?: boolean; devicePresetId?: string; mobile?: boolean; projectId?: string }, context) => browser.openTab(params, { target: context?.browserTarget, authenticatedProjectId: context?.projectId }),
+    execute: async (params: { url?: string; activate?: boolean; anchorTabId?: string; ephemeral?: boolean; userFacing?: boolean; devicePresetId?: string; mobile?: boolean; projectId?: string }, context) => {
+      await browser.ensureHostForNewTab({ target: context?.browserTarget, authenticatedProjectId: context?.projectId });
+      return browser.openTab(params, { target: context?.browserTarget, authenticatedProjectId: context?.projectId });
+    },
   });
   catalogue.register({
     name: 'browser.close-tab',
@@ -1064,8 +1207,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'write',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
-    inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, text: { type: 'string' }, clear: { type: 'boolean' }, trusted: { type: 'boolean' }, force: { type: 'boolean', description: 'Skip the occlusion and animation-stability gates for a knowingly covered or endlessly animating target' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, required: ['text'] },
-    execute: (params: { selector?: string; ref?: string; text: string; clear?: boolean; trusted?: boolean; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentType(params, context.browserTarget, context.signal),
+    inputSchema: agentTypeInputSchema(),
+    execute: (params: AgentTypeParams, context) => browser.agentType(params, context.browserTarget, context.signal),
   });
 
   catalogue.register({
@@ -1174,18 +1317,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'write',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
-    inputSchema: {
-      type: 'object',
-      properties: {
-        refOrSelector: { type: 'string', description: 'CSS selector or @ref of target file input' },
-        filePaths: { type: 'array', items: { type: 'string' }, description: 'Array of local file paths' },
-        workspaceRoot: { type: 'string', description: 'Explicit workspace root directory validated against authorized project roots' },
-        tabId: { type: 'string' },
-        paneId: { type: 'string', enum: ['desktop', 'mobile'] },
-      },
-      required: ['refOrSelector', 'filePaths'],
-    },
-    execute: (params: { refOrSelector: string; filePaths: string[]; workspaceRoot?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => {
+    inputSchema: fileUploadInputSchema(),
+    execute: (params: FileUploadParams, context) => {
       let wsRoot = params.workspaceRoot;
       if (!wsRoot && context?.projectId && context?.workspaceId) {
         try {
@@ -1362,7 +1495,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
 
   catalogue.register({
     name: 'anti.browser.evaluate_frame',
-    description: 'Execute JavaScript inside a child frame (cross-origin iframe) selected by frameUrl substring',
+    description: 'Execute JavaScript inside a child frame (cross-origin iframe) selected by frameUrl substring, frameId, frameIndex, or the frameSelector of its <iframe> element',
     risk: 'eval',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'eval', requiresBrowserTarget: true, lane: 'viewport-gate' }),
@@ -1372,14 +1505,17 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         expression: { type: 'string', description: 'JavaScript expression to evaluate; mutually exclusive with expressionFile' },
         expressionFile: { type: 'string', description: 'Workspace-relative path to a file containing the JavaScript expression; mutually exclusive with expression' },
         frameUrl: { type: 'string', description: 'Substring of the child frame URL to target (e.g. "web.haravan.app")' },
+        frameId: { type: 'number', description: 'Frame id as listed by a previous frame-not-found refusal' },
+        frameIndex: { type: 'number', description: '0-based position among the page\'s child frames (the main frame is not counted)' },
+        frameSelector: { type: 'string', description: 'CSS selector of the <iframe> element in the top document; its src or name picks the frame' },
         tabId: { type: 'string' },
         paneId: { type: 'string', enum: ['desktop', 'mobile'] },
       },
-      required: ['frameUrl'],
+      description: 'Provide exactly one of frameUrl, frameId, frameIndex, frameSelector',
       oneOf: [{ required: ['expression'] }, { required: ['expressionFile'] }],
     },
-    execute: (params: { expression?: string; expressionFile?: string; frameUrl: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
-      browser.evalInFrame(context.browserTarget as BrowserTarget, resolveExpressionInput('anti.browser.evaluate_frame', params, context), params.frameUrl, params.tabId, params.paneId),
+    execute: (params: { expression?: string; expressionFile?: string; tabId?: string; paneId?: 'desktop' | 'mobile' } & FrameSelectorParams, context) =>
+      browser.evalInFrame(context.browserTarget as BrowserTarget, resolveExpressionInput('anti.browser.evaluate_frame', params, context), resolveFrameSelector(params), params.tabId, params.paneId),
   });
 
   catalogue.register({
@@ -1418,8 +1554,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'write',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
-    inputSchema: { type: 'object', properties: { refOrSelector: { type: 'string' }, filePaths: { type: 'array', items: { type: 'string' } }, workspaceRoot: { type: 'string', description: 'Explicit workspace root directory validated against authorized project roots' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, required: ['refOrSelector', 'filePaths'] },
-    execute: (params: { refOrSelector: string; filePaths: string[]; workspaceRoot?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => {
+    inputSchema: fileUploadInputSchema(),
+    execute: (params: FileUploadParams, context) => {
       let wsRoot = params.workspaceRoot;
       if (!wsRoot && context?.projectId && context?.workspaceId) {
         try {
@@ -1447,8 +1583,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'write',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
-    inputSchema: { type: 'object', properties: { refOrSelector: { type: 'string' }, filePaths: { type: 'array', items: { type: 'string' } }, workspaceRoot: { type: 'string', description: 'Explicit workspace root directory validated against authorized project roots' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, required: ['refOrSelector', 'filePaths'] },
-    execute: (params: { refOrSelector: string; filePaths: string[]; workspaceRoot?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => {
+    inputSchema: fileUploadInputSchema(),
+    execute: (params: FileUploadParams, context) => {
       let wsRoot = params.workspaceRoot;
       if (!wsRoot && context?.projectId && context?.workspaceId) {
         try {
@@ -1647,7 +1783,10 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'write',
     policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
     inputSchema: { type: 'object', properties: { url: { type: 'string' }, activate: { type: 'boolean' }, anchorTabId: { type: 'string', description: 'Live same-project tab selecting the window for creation' }, ephemeral: { type: 'boolean' }, userFacing: { type: 'boolean', description: 'Open tab directly on the visible user plane (non-ephemeral) for interactive inspection/debugging' }, projectId: { type: 'string', description: 'Scope selector: must equal this session\'s authenticated projectId. A foreign or unbound selector is refused before allocation; it never widens authority.' } } },
-    execute: (params: { url?: string; activate?: boolean; anchorTabId?: string; ephemeral?: boolean; userFacing?: boolean; projectId?: string }, context) => browser.openTab(params, { target: context?.browserTarget, authenticatedProjectId: context?.projectId }),
+    execute: async (params: { url?: string; activate?: boolean; anchorTabId?: string; ephemeral?: boolean; userFacing?: boolean; projectId?: string }, context) => {
+      await browser.ensureHostForNewTab({ target: context?.browserTarget, authenticatedProjectId: context?.projectId });
+      return browser.openTab(params, { target: context?.browserTarget, authenticatedProjectId: context?.projectId });
+    },
   });
 
   catalogue.register({
@@ -1789,8 +1928,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'write',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
-    inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, text: { type: 'string' }, clear: { type: 'boolean' }, trusted: { type: 'boolean' }, force: { type: 'boolean', description: 'Skip the occlusion and animation-stability gates for a knowingly covered or endlessly animating target' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, required: ['text'] },
-    execute: (params: { selector?: string; ref?: string; text: string; clear?: boolean; trusted?: boolean; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentType(params, context.browserTarget, context.signal),
+    inputSchema: agentTypeInputSchema(),
+    execute: (params: AgentTypeParams, context) => browser.agentType(params, context.browserTarget, context.signal),
   });
 
   catalogue.register({
@@ -1984,7 +2123,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         workspaceRoot: { type: 'string', description: 'Workspace root path. Must equal or sit inside the bound workspace; an outside root is refused with WORKSPACE_MISMATCH and no receipt is written. Confines the QA receipt directory (.antifan/qa-receipts/) and matches the QA Binding workspaceRoot emitted in the annotation markdown' },
         annotationId: { type: 'string', description: 'Annotation ID this QA run verifies (from the annotation markdown). Recorded on the workspace receipt so consuming-runtime gates can match evidence to the task' },
         expectedUrl: { type: 'string', description: 'Expected route URL of the bound tab (annotation Page URL). Fail-closed: mismatch throws the route-gate code (URL_HOST_MISMATCH/URL_THEME_MISMATCH/URL_PATH_MISMATCH) instead of silently QA-ing the wrong page or theme' },
-        multiBreakpoint: { type: 'boolean', description: 'Enable multi-breakpoint responsive testing (320, 375, 768, 1024, 1440). Defaults to true inside workflow; pass false to opt out.' },
+        multiBreakpoint: { type: 'boolean', description: `Enable multi-breakpoint responsive testing (${SWEEP_WIDTHS_LABEL}). Defaults to true inside workflow; pass false to opt out.` },
         profile: { type: 'string', enum: ['audit', 'build-strict'], description: 'build-strict (default) fails on contrast below WCAG AA, sub-24px tap targets, invisible click blockers, floating widgets over controls and the contract-threshold registry rules, and treats unmeasured scans as evidence gaps; audit reports visual-quality findings without affecting the verdict' },
         thresholds: { type: 'object', description: 'Contract thresholds the registry rules grade against (kit registry/thresholds.json shape). Optional: when omitted the workspace contract typeScale, else the built-in defaults (12/24) apply automatically and the receipt records thresholdsSource', properties: { minTextPx: { type: 'number' }, minTapHitPx: { type: 'number' }, titleScale: { type: 'object', description: 'Allowed [min,max] px per heading level at <=768px', properties: { h1: { type: 'array', items: { type: 'number' } }, h2: { type: 'array', items: { type: 'number' } }, h3: { type: 'array', items: { type: 'number' } }, h4: { type: 'array', items: { type: 'number' } } } }, inputHeightBandPx: { type: 'number', description: 'Maximum height spread between inputs of one form (default 4)' } } },
         coverageFloor: { type: 'number', description: 'Minimum measured/expected scan-family share (0..1). Below it a green run is QA_INCONCLUSIVE. Defaults to 1 under build-strict, 0 under audit' },
@@ -2100,10 +2239,15 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
           throw new CapabilityError('CAPABILITY_NOT_FOUND', 'Theme QA workflow is not available');
         }
         if (qaOptions.greenfield) {
-          const existingBaselines = listPromotedBaselineIds(browser, context);
+          const greenfieldOrigin = originOfUrl(await browser.getLiveTabUrl(target.tabId).catch(() => ''));
+          const existingBaselines = listPromotedBaselineIds(browser, { workspaceId: context?.workspaceId, projectId: context?.projectId, origin: greenfieldOrigin });
           if (existingBaselines.length > 0) {
-            throw new CapabilityError('GREENFIELD_BASELINE_EXISTS', `A promoted visual baseline already exists for this workspace (${existingBaselines.join(', ')}); a greenfield run cannot replace it`, {
-              baselineIds: existingBaselines,
+            const summary = summarizeBaselineIds(existingBaselines);
+            const scopeText = greenfieldOrigin ? `for ${greenfieldOrigin} (or recorded without an origin)` : 'for this workspace';
+            throw new CapabilityError('GREENFIELD_BASELINE_EXISTS', `A promoted visual baseline already exists ${scopeText} (${summary.listed}; ${summary.total} total); a greenfield run cannot replace it`, {
+              baselineIds: summary.baselineIds,
+              total: summary.total,
+              ...(greenfieldOrigin ? { origin: greenfieldOrigin } : {}),
               recovery: 'compare against the promoted baseline with anti.visual.compare and pass the results as viewports, or delete the old baseline deliberately',
             });
           }
@@ -2927,7 +3071,10 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         projectId: { type: 'string', description: 'Scope selector: must equal this session\'s authenticated projectId. A foreign or unbound selector is refused before allocation; it never widens authority.' },
       },
     },
-    execute: (params: { url?: string; activate?: boolean; anchorTabId?: string; ephemeral?: boolean; userFacing?: boolean; devicePresetId?: string; mobile?: boolean; projectId?: string }, context) => browser.openTab(params, { target: context?.browserTarget, authenticatedProjectId: context?.projectId }),
+    execute: async (params: { url?: string; activate?: boolean; anchorTabId?: string; ephemeral?: boolean; userFacing?: boolean; devicePresetId?: string; mobile?: boolean; projectId?: string }, context) => {
+      await browser.ensureHostForNewTab({ target: context?.browserTarget, authenticatedProjectId: context?.projectId });
+      return browser.openTab(params, { target: context?.browserTarget, authenticatedProjectId: context?.projectId });
+    },
   });
   catalogue.register({
     name: 'anti.browser.tabs.activate',
@@ -3104,8 +3251,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'write',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
-    inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, text: { type: 'string' }, clear: { type: 'boolean' }, trusted: { type: 'boolean' }, force: { type: 'boolean', description: 'Skip the occlusion and animation-stability gates for a knowingly covered or endlessly animating target' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, required: ['text'] },
-    execute: (params: { selector?: string; ref?: string; text: string; clear?: boolean; trusted?: boolean; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentType(params, context.browserTarget, context.signal),
+    inputSchema: agentTypeInputSchema(),
+    execute: (params: AgentTypeParams, context) => browser.agentType(params, context.browserTarget, context.signal),
   });
 
   catalogue.register({
@@ -3159,7 +3306,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
   });
   catalogue.register({
     name: 'anti.browser.dialog',
-    description: "Read or answer the JavaScript dialog (alert / confirm / beforeunload) the bound tab shows. While one is open every other operation on the tab is refused with DIALOG_OPEN; action 'get' reads it, 'accept' / 'dismiss' answer it. The native box left on screen is closed only when it is provably this dialog's (result nativeBox says which); a background tab's box is never closed.",
+    description: "Read or answer the JavaScript dialog (alert / confirm / beforeunload) the bound tab shows. While one is open every other operation on the tab is refused with DIALOG_OPEN; action 'get' (alias 'read') reads it, 'accept' / 'dismiss' answer it. The native box left on screen is closed only when it is provably this dialog's (result nativeBox says which); a background tab's box is never closed.",
     risk: 'write',
     requiresBrowserTarget: true,
     // Unbounded, not viewport-gate: the click that opened the dialog may still hold the viewport lock.
@@ -3167,14 +3314,14 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     inputSchema: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['get', 'accept', 'dismiss'] },
+        action: { type: 'string', enum: ['get', 'read', 'accept', 'dismiss'] },
         tabId: { type: 'string' },
         paneId: { type: 'string', enum: ['desktop', 'mobile'] },
       },
       required: ['action'],
     },
-    execute: (params: { action: 'get' | 'accept' | 'dismiss'; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
-      browser.jsDialog(params, context.browserTarget as BrowserTarget),
+    execute: (params: { action: 'get' | 'read' | 'accept' | 'dismiss'; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
+      browser.jsDialog({ ...params, action: params.action === 'read' ? 'get' : params.action }, context.browserTarget as BrowserTarget),
   });
 
   catalogue.register({
@@ -3460,7 +3607,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
 
   catalogue.register({
     name: 'anti.inspect.responsive_matrix',
-    description: 'Probe 5 standard responsive breakpoints (320, 375, 768, 1024, 1440px) in one atomic call, disambiguating documentOverflowX from targetOverflowX',
+    description: `Probe ${DEFAULT_SWEEP_BREAKPOINTS.length} standard responsive breakpoints (${SWEEP_WIDTHS_LABEL}px) in one atomic call, disambiguating documentOverflowX from targetOverflowX`,
     risk: 'read',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'viewport-gate' }),
@@ -3568,7 +3715,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         ? (typedRaw.breakpoints as Record<string, Record<string, unknown>>)
         : {};
       const bpEntries = Object.values(breakpoints);
-      const expectedCount = normalizedCustomBreakpoints ? normalizedCustomBreakpoints.length : 5 + (viewports?.length ?? 0);
+      const expectedCount = normalizedCustomBreakpoints ? normalizedCustomBreakpoints.length : DEFAULT_SWEEP_BREAKPOINTS.length + (viewports?.length ?? 0);
 
       const hasDocOverflow = bpEntries.some((b) => b.documentOverflowX === true || b.hasHorizontalOverflow === true);
       const hasTargetOverflow = bpEntries.some((b) => b.targetOverflowX === true);
@@ -4051,10 +4198,10 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
   });
   catalogue.register({
     name: 'anti.qa.visual_quality',
-    description: 'Measure WCAG AA text contrast (text over images/gradients reported as indeterminate), mobile tap targets (<24px WCAG 2.2 minimum, pseudo-element hit area included; inline links exempt) and floating widgets or transparent fixed layers covering text/controls at page top and page end. Findings are warnings with selector, rect and measured values; scroll position is restored.',
+    description: 'Measure WCAG AA text contrast (text over images/gradients reported as indeterminate), mobile tap targets (<24px WCAG 2.2 minimum, pseudo-element hit area included; inline links exempt) and floating widgets or transparent fixed layers covering text/controls at page top and page end. A timer-driven popup (toast, pop-sale card) that is still hidden when the scan starts is waited for (timedWidgetWaitMs) and graded once shown; one that never shows is reported in stats.timedWidgets and truncatedReasons, not as clean. Findings are warnings with selector, rect and measured values; scroll position is restored.',
     risk: 'read',
     requiresBrowserTarget: true,
-    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive' }),
+    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive', timeoutMs: 45_000 }),
     inputSchema: {
       type: 'object',
       properties: {
@@ -4062,11 +4209,12 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         paneId: { type: 'string', enum: ['desktop', 'mobile'] },
         mobile: { type: 'boolean', description: 'Force mobile tap-target rules on/off (default: viewport width <= 767px)' },
         skipPageEnd: { type: 'boolean', description: 'Check floating widgets only at the current scroll position, so the scan never scrolls' },
+        timedWidgetWaitMs: { type: 'number', minimum: 0, maximum: 9000, description: 'Wait this long for a hidden timer-driven popup to show before grading it (default 9000; 0 disables)' },
         scopeSelector: { type: 'string', description: 'Grade contrast and tap targets inside this subtree only (e.g. an open drawer)' },
         allowDegradedSurface: { type: 'boolean', description: 'Run even when the tab reports a 0x0 surface (diagnostic escape hatch)' },
       },
     },
-    execute: (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; mobile?: boolean; skipPageEnd?: boolean; scopeSelector?: string; allowDegradedSurface?: boolean }, context) =>
+    execute: (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; mobile?: boolean; skipPageEnd?: boolean; scopeSelector?: string; timedWidgetWaitMs?: number; allowDegradedSurface?: boolean }, context) =>
       browser.visualQuality(context.browserTarget as BrowserTarget, params),
   });
   catalogue.register({
@@ -4952,7 +5100,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
               }
             } else if (obl.metric === THEME_METRICS.RESPONSIVE_NO_TARGET_OVERFLOW || obl.metric === THEME_METRICS.RESPONSIVE_NO_DOC_OVERFLOW) {
               const res = await browser.responsiveCheck({ selector: claim.scope.selector, tabId }, target);
-              const standardWidths = [320, 375, 768, 1024, 1440];
+              const standardWidths = DEFAULT_SWEEP_BREAKPOINTS.map((bp) => bp.width);
               let hasTargetOverflow = false;
               let hasDocOverflow = false;
               let complete = false;
@@ -4995,7 +5143,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
                   actual: 'missing',
                   expected: true,
                   passed: false,
-                  message: 'Incomplete responsive telemetry: not all 5 standard breakpoints (320, 375, 768, 1024, 1440) have explicit boolean overflow signals',
+                  message: `Incomplete responsive telemetry: not all ${standardWidths.length} standard breakpoints (${SWEEP_WIDTHS_LABEL}) have explicit boolean overflow signals`,
                 });
               } else if (obl.metric === THEME_METRICS.RESPONSIVE_NO_TARGET_OVERFLOW) {
                 samples.push({
@@ -5003,7 +5151,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
                   actual: !hasTargetOverflow,
                   expected: true,
                   passed: !hasTargetOverflow,
-                  message: !hasTargetOverflow ? 'Zero target horizontal overflow across all 5 standard breakpoints' : 'Target horizontal overflow detected',
+                  message: !hasTargetOverflow ? `Zero target horizontal overflow across all ${standardWidths.length} standard breakpoints` : 'Target horizontal overflow detected',
                 });
               } else {
                 samples.push({
@@ -5011,7 +5159,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
                   actual: !hasDocOverflow,
                   expected: true,
                   passed: !hasDocOverflow,
-                  message: !hasDocOverflow ? 'Zero document horizontal overflow across all 5 standard breakpoints' : 'Document horizontal overflow detected',
+                  message: !hasDocOverflow ? `Zero document horizontal overflow across all ${standardWidths.length} standard breakpoints` : 'Document horizontal overflow detected',
                 });
               }
             }
@@ -5153,7 +5301,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       type: 'object',
       properties: {
         routes: { type: 'array', items: { type: 'string' }, description: 'Storefront URLs or paths to scan sequentially in the bound tab' },
-        breakpoints: { type: 'array', items: { type: 'number' }, description: 'Viewport widths in CSS px (default [320, 375, 768, 1024, 1440])' },
+        breakpoints: { type: 'array', items: { type: 'number' }, description: `Viewport widths in CSS px (default [${SWEEP_WIDTHS_LABEL}])` },
         viewports: VIEWPORTS_SCHEMA,
         tabId: { type: 'string' },
       },

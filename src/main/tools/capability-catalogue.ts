@@ -14,6 +14,7 @@ import {
   computePolicyDigest,
   DeviceBinding,
   DeviceTarget,
+  type TargetStaleCause,
 } from '../../shared/control-plane-contracts';
 import { WorkspaceRegistry } from '../project/workspace-registry';
 import { DEVICE_ERROR_REMEDIATION } from '../../shared/device-control-contracts';
@@ -26,6 +27,36 @@ import { dialogOpenError, type JsDialogDescription } from '../browser/js-dialog-
  * refuse them: the dialog capability itself, and showing the tab to the user.
  */
 const DIALOG_EXEMPT_CAPABILITIES: Record<string, true> = { 'anti.browser.dialog': true, 'browser.switch-tab': true };
+
+/** Exact label of the tab context-menu entry that lets the user grant this project's agents a tab. */
+export const SHARE_TAB_MENU_LABEL = 'Cho agent của project này dùng tab';
+
+/**
+ * Guidance appended to refusals that name a tab outside the session's authority. The owner of
+ * the browser (not the agent) is the only one who can widen that authority, and the grant is a
+ * context-menu entry on the tab itself, so a user who pastes a tab id is told where to find it.
+ */
+export const SHARE_TAB_GUIDANCE =
+  `To work in a tab this session does not manage (for example one the user opened), the user must right-click that tab and choose '${SHARE_TAB_MENU_LABEL}'; then call anti.browser.rebind_target with its tabId.`;
+
+/** The mobile-pane hint only applies to a tab that really is in split review mode. */
+export function splitReviewNote(isSplit: boolean | undefined): string {
+  return isSplit === true
+    ? ' Note: In split review mode, use the bound tabId with paneId: "mobile" to target the mobile pane.'
+    : '';
+}
+
+function withValidFields(err: unknown, inputSchema: Record<string, unknown> | undefined): unknown {
+  if (!(err instanceof CapabilityError) || err.code !== 'INVALID_ARGUMENT' || !err.details || typeof err.details.capability !== 'string') return err;
+  const properties = inputSchema && typeof inputSchema.properties === 'object' && inputSchema.properties !== null
+    ? Object.keys(inputSchema.properties)
+    : [];
+  if (properties.length === 0) return err;
+  return new CapabilityError('INVALID_ARGUMENT', `${err.message} Valid fields for '${err.details.capability}': ${properties.join(', ')}.`, {
+    ...err.details,
+    validFields: properties,
+  });
+}
 
 export interface SessionCapabilityFilter {
   allowedCapabilityNames?: string[];
@@ -173,6 +204,16 @@ export interface CapabilityCatalogueOptions {
    * refused with DIALOG_OPEN at once instead of hanging until its own timeout.
    */
   getOpenJsDialog?: (tabId: string) => JsDialogDescription | undefined;
+  /**
+   * Whether a tab is in split review mode. Absent, the mobile-pane hint is never shown: the
+   * hint is only true for a tab that really has a mobile pane.
+   */
+  isTabSplit?: (tabId: string) => boolean | undefined;
+  /**
+   * Why a tab is (not) among the tabs a session may drive: liveness, owner relation and the
+   * session's managed tab ids. Diagnostic only; it never feeds an authorization decision.
+   */
+  describeTabOwnership?: (boundTabId: string, targetTabId: string) => Record<string, unknown> | undefined;
 }
 
 export class CapabilityCatalogue {
@@ -511,7 +552,11 @@ export class CapabilityCatalogue {
     // never silently defaulted from ambient session state. Measured before this gate
     // existed, tabs.activate / rebind_target / set_automation_target all accepted an
     // omitted required `tabId` and acted on the session's bound tab.
-    assertRequiredArgs(definition.name, definition.inputSchema, params);
+    try {
+      assertRequiredArgs(definition.name, definition.inputSchema, params);
+    } catch (err) {
+      throw withValidFields(err, definition.inputSchema);
+    }
 
     if (definition.requiresBrowserTarget) {
       this.authorizeAndResolveEffectiveTarget(params, context, authoritativeWs, definition.name, definition.policy);
@@ -811,14 +856,22 @@ export class CapabilityCatalogue {
                   }
                   return;
                 }
+                let ownership: Record<string, unknown> | undefined;
+                try {
+                  ownership = this.options.describeTabOwnership?.(context.browserTarget.tabId, canonicalId);
+                } catch {
+                  ownership = undefined;
+                }
                 throw new CapabilityError(
                   'TARGET_MISMATCH',
-                  `Tab ID mismatch: expected ${context.browserTarget.tabId}, got ${reqTabId}. Note: In split review mode, use the bound tabId with paneId: "mobile" to target the mobile pane.`,
+                  `Tab ID mismatch: expected ${context.browserTarget.tabId}, got ${reqTabId}.${splitReviewNote(this.options.isTabSplit?.(context.browserTarget.tabId))} ${SHARE_TAB_GUIDANCE}`,
                   {
                     boundTabId: context.browserTarget.tabId,
                     requestedTabId: reqTabId,
                     candidateTabIds: [context.browserTarget.tabId],
-                    recovery: `Retry with tabId '${context.browserTarget.tabId}' (this session's bound tab), or call anti.browser.rebind_target {tabId} with a tab this session manages, or anti.browser.tabs.create {url} to reopen the page in an agent tab.`,
+                    cause: 'not-in-session-pool',
+                    ...(ownership ? { ownership } : {}),
+                    recovery: `Retry with tabId '${context.browserTarget.tabId}' (this session's bound tab), or call anti.browser.rebind_target {tabId} with a tab this session manages, or anti.browser.tabs.create {url} to reopen the page in an agent tab. ${SHARE_TAB_GUIDANCE}`,
                   }
                 );
               }
@@ -830,7 +883,12 @@ export class CapabilityCatalogue {
           ? this.options.getDocumentGeneration(canonicalId)
           : context.browserTarget.documentGeneration;
         if (typeof liveDocGen !== 'number' || liveDocGen < 1) {
-          throw new CapabilityError('TARGET_STALE', `Cannot target tab '${reqTabId}': live document generation is unavailable.`);
+          throw new CapabilityError('TARGET_STALE', `Cannot target tab '${reqTabId}': live document generation is unavailable.`, {
+            tabId: canonicalId,
+            cause: 'tab-gone' satisfies TargetStaleCause,
+            canRebind: true,
+            recovery: 'anti.browser.tabs.list, then anti.browser.rebind_target to a live tab',
+          });
         }
 
         context.browserTarget = {

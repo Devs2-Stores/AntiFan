@@ -157,3 +157,66 @@ describe('attachment session quota release', () => {
     assert.deepStrictEqual(calls.pools, [TAB_A], 'expiry frees the bound tab pool');
   });
 });
+
+function makeRegistryWithOwnership(
+  calls: ReleaseCalls,
+  isTabAllowed: (record: { tabId?: string }, tabId: string) => boolean
+): AttachmentRegistry {
+  return new AttachmentRegistry({
+    isTabAllowed,
+    releaseSessionTab: (sessionId, tabId) => {
+      calls.tabs.push({ sessionId, tabId });
+      return true;
+    },
+    releaseSessionTabPool: (sessionId) => {
+      calls.pools.push(sessionId);
+      return true;
+    },
+  });
+}
+
+describe('attachment rebind onto a co-managed tab', () => {
+  test('keeps the old tab owned when the new tab is already managed by the session', async () => {
+    const calls: ReleaseCalls = { tabs: [], pools: [] };
+    const seen: Array<{ boundTabId: string | undefined; tabId: string }> = [];
+    const registry = makeRegistryWithOwnership(calls, (record, tabId) => {
+      seen.push({ boundTabId: record.tabId, tabId });
+      return true;
+    });
+    const record = await mint(registry, { tabId: TAB_A });
+
+    const next = await registry.updateAttachmentTab(record.id, TAB_B, 2);
+    assert.ok(next, 'rotation succeeds');
+
+    assert.deepStrictEqual(calls.tabs, [], 'a co-managed rebind releases no slot');
+    assert.deepStrictEqual(
+      seen,
+      [{ boundTabId: TAB_A, tabId: TAB_B }],
+      'ownership is asked before the rotation, while the record still names the old tab'
+    );
+  });
+
+  test('still releases the old tab when the new tab is outside the managed set', async () => {
+    const calls: ReleaseCalls = { tabs: [], pools: [] };
+    const registry = makeRegistryWithOwnership(calls, () => false);
+    const record = await mint(registry, { tabId: TAB_A });
+
+    const next = await registry.updateAttachmentTab(record.id, TAB_B, 2);
+    assert.ok(next, 'rotation succeeds');
+
+    assert.deepStrictEqual(calls.tabs, [{ sessionId: TAB_A, tabId: TAB_A }]);
+  });
+
+  test('a throwing ownership check is treated as not co-managed and never fails the rotation', async () => {
+    const calls: ReleaseCalls = { tabs: [], pools: [] };
+    const registry = makeRegistryWithOwnership(calls, () => {
+      throw new Error('ownership probe failed');
+    });
+    const record = await mint(registry, { tabId: TAB_A });
+
+    const next = await registry.updateAttachmentTab(record.id, TAB_B, 2);
+    assert.ok(next, 'rotation succeeds');
+
+    assert.deepStrictEqual(calls.tabs, [{ sessionId: TAB_A, tabId: TAB_A }]);
+  });
+});

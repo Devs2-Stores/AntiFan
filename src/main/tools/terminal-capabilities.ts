@@ -7,6 +7,7 @@ import {
   AuthenticatedCapabilityContext,
   TerminalWaitInput,
   TerminalWaitResult,
+  type TargetStaleCause,
 } from '../../shared/control-plane-contracts';
 
 /**
@@ -60,7 +61,23 @@ export interface TerminalWaitSleepingResult extends TerminalWaitResult {
   wakeHint: string;
 }
 
-export type TerminalWaitOutcome = TerminalWaitResult | TerminalWaitSleepingResult;
+/**
+ * A `terminal.wait` whose caller asked for longer than one call may block. The session is fine and
+ * nothing was lost: `lastSeq` is the cursor to continue from with `afterSeq`.
+ */
+export interface TerminalWaitTimedOutResult extends TerminalWaitResult {
+  satisfied: false;
+  timedOut: true;
+  sessionId: string;
+  /** The deadline this call actually ran with. */
+  timeoutMs: number;
+  requestedTimeoutMs: number;
+  /** The largest deadline one call may use. */
+  maxTimeoutMs: number;
+  message: string;
+}
+
+export type TerminalWaitOutcome = TerminalWaitResult | TerminalWaitSleepingResult | TerminalWaitTimedOutResult;
 
 export interface TerminalWriteResult {
   /** Whether the input was handed to a live shell. */
@@ -77,6 +94,44 @@ const SESSION_SLEEPING_CODE = 'SESSION_SLEEPING' as const;
 
 /** Deadline of a `terminal.create` call; also how long a queued reuse create waits on a stuck predecessor. */
 const CREATE_POLICY_TIMEOUT_MS = 15_000;
+
+/** Invocation budget of `terminal.wait`; the platform aborts the call when it is spent. */
+export const TERMINAL_WAIT_BUDGET_MS = 30_000;
+/** Headroom so the wait's own deadline fires, and answers, before the platform aborts the call. */
+const TERMINAL_WAIT_BUDGET_MARGIN_MS = 2_000;
+/** The largest deadline a single `terminal.wait` call runs with. */
+export const TERMINAL_WAIT_MAX_TIMEOUT_MS = TERMINAL_WAIT_BUDGET_MS - TERMINAL_WAIT_BUDGET_MARGIN_MS;
+
+/**
+ * The deadline a `terminal.wait` call runs with: the caller's own up to the per-call maximum.
+ * `clamped` is set only when the caller asked for more than one call may block, which is the one
+ * case where running out of time is the cap's doing rather than the caller's.
+ */
+export function planTerminalWaitTimeout(requested: number | undefined): { timeoutMs: number; clamped: boolean } {
+  if (typeof requested !== 'number' || !Number.isFinite(requested)) return { timeoutMs: TERMINAL_WAIT_MAX_TIMEOUT_MS, clamped: false };
+  if (requested > TERMINAL_WAIT_MAX_TIMEOUT_MS) return { timeoutMs: TERMINAL_WAIT_MAX_TIMEOUT_MS, clamped: true };
+  return { timeoutMs: requested, clamped: false };
+}
+
+function clampedWaitTimedOutResult(sessionId: string, requestedTimeoutMs: number, err: CapabilityError): TerminalWaitTimedOutResult {
+  const details = err.details ?? {};
+  const lastSeq = typeof details.lastSeq === 'number' ? details.lastSeq : 0;
+  const sessionGeneration = typeof details.sessionGeneration === 'number' ? details.sessionGeneration : 0;
+  return {
+    satisfied: false,
+    timedOut: true,
+    sessionId,
+    sessionGeneration,
+    lastSeq,
+    ...(typeof details.outputTail === 'string' ? { outputTail: details.outputTail } : {}),
+    timeoutMs: TERMINAL_WAIT_MAX_TIMEOUT_MS,
+    requestedTimeoutMs,
+    maxTimeoutMs: TERMINAL_WAIT_MAX_TIMEOUT_MS,
+    message:
+      `terminal.wait runs at most ${TERMINAL_WAIT_MAX_TIMEOUT_MS}ms per call (the capability budget is ${TERMINAL_WAIT_BUDGET_MS}ms), so the requested ${requestedTimeoutMs}ms was shortened and elapsed without the condition. ` +
+      `The session is unaffected: call terminal.wait again with afterSeq=${lastSeq} and the same condition and pattern, and repeat until it is satisfied.`,
+  };
+}
 
 function sleepingWaitResult(sessionId: string, record: TerminalLifecycleProbe): TerminalWaitSleepingResult {
   const sessionGeneration = typeof record.sessionGeneration === 'number' ? record.sessionGeneration : 0;
@@ -395,7 +450,7 @@ export function registerTerminalCapabilities(
       duplicateMode: 'in-process-join',
       recordedVisibility: 'tenant-scoped',
       receiptReadPermission: 'read',
-      timeoutMs: 30_000,
+      timeoutMs: TERMINAL_WAIT_BUDGET_MS,
       retentionPolicy: 'run-durable',
       ownerCancellationBehavior: 'abort-immediate',
       subscriberDisconnectBehavior: 'abort-when-unobserved',
@@ -411,11 +466,11 @@ export function registerTerminalCapabilities(
         sessionGeneration: { type: 'number', description: 'Expected session incarnation' },
         afterSeq: { type: 'number', description: 'Sequence cursor' },
         silenceMs: { type: 'number', description: 'Silence duration threshold in milliseconds' },
-        timeoutMs: { type: 'number', description: 'Wait deadline in milliseconds' },
+        timeoutMs: { type: 'number', description: `Wait deadline in milliseconds (default and maximum ${TERMINAL_WAIT_MAX_TIMEOUT_MS} per call; a longer request is shortened and, when it elapses, answers timedOut=true with lastSeq to continue from through afterSeq)` },
       },
       required: ['sessionId', 'condition'],
     },
-    execute: (
+    execute: async (
       params: TerminalWaitInput,
       context?: CapabilityRequestContext | AuthenticatedCapabilityContext
     ) => {
@@ -429,7 +484,17 @@ export function registerTerminalCapabilities(
       if (lifecycle && lifecycle.disposed !== true && lifecycle.state === 'sleeping') {
         return sleepingWaitResult(params.sessionId, lifecycle);
       }
-      return terminal.waitTerminal(params, signal);
+      // The wait must end by its own deadline, inside the invocation budget: a deadline at or past
+      // the budget is aborted by the platform and reads as an unexplained failure.
+      const plan = planTerminalWaitTimeout(params.timeoutMs);
+      try {
+        return await terminal.waitTerminal({ ...params, timeoutMs: plan.timeoutMs }, signal);
+      } catch (err) {
+        if (plan.clamped && err instanceof CapabilityError && err.code === 'WAIT_TIMEOUT') {
+          return clampedWaitTimedOutResult(params.sessionId, params.timeoutMs as number, err);
+        }
+        throw err;
+      }
     },
   });
 
@@ -608,7 +673,12 @@ export function registerTerminalCapabilities(
         throw new CapabilityError(
           'TARGET_STALE',
           `Target tab "${scope.tabId}" is not owned by any live window`,
-          { tabId: scope.tabId }
+          {
+            tabId: scope.tabId,
+            cause: 'unowned' satisfies TargetStaleCause,
+            canRebind: true,
+            recovery: 'anti.browser.tabs.list then anti.browser.rebind_target',
+          }
         );
       }
       // The pane is filed under the caller's own agent key, never the user's or a project window's.

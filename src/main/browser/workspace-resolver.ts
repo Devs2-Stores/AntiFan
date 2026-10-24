@@ -7,6 +7,8 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { CapabilityError } from '../../shared/control-plane-contracts';
+import { StorageLocations } from '../config/storage-locations';
+import { recordLifecycleEvent } from '../diagnostics/main-lifecycle-log';
 export const DEFAULT_WORKSPACE_ROOTS = [
   path.join('e:\\Work', 'customizes'),
   path.join('e:\\Work', 'themes'),
@@ -14,17 +16,155 @@ export const DEFAULT_WORKSPACE_ROOTS = [
 ];
 
 /**
- * Roots an explicit caller-supplied workspaceRoot may name. Extends the project
+ * Built-in roots an explicit caller-supplied workspaceRoot may name. Extends the project
  * roots with media folders that hold upload assets but are not URL-routed
  * projects, so resolveWorkspaceFromUrl keeps scanning DEFAULT_WORKSPACE_ROOTS only.
- * Gác is the omp session root for the Tường channels; the user allowed agent
- * uploads from it on 23/10/2026 instead of DataTransfer injection.
+ * Further roots are added without a code change through WORKSPACE_ROOTS_FILE, see
+ * resolveAuthorizedWorkspaceRoots.
  */
 export const AUTHORIZED_WORKSPACE_ROOTS = [
   ...DEFAULT_WORKSPACE_ROOTS,
   path.join('e:\\Work', 'shopee-reels'),
   path.join('e:\\Work', 'Gác'),
 ];
+
+/**
+ * `<data root>/workspace-roots.json`: a JSON array of absolute directory paths (or an object with
+ * a `roots` array) that extend AUTHORIZED_WORKSPACE_ROOTS. It widens which directories an agent
+ * may read from and write to, so every entry is validated and a bad entry is dropped, never
+ * repaired.
+ */
+export const WORKSPACE_ROOTS_FILE = 'workspace-roots.json';
+
+export type WorkspaceRootJournal = (event: string, fields: Record<string, unknown>) => void;
+
+export interface WorkspaceRootsOptions {
+  /** Data root holding WORKSPACE_ROOTS_FILE; defaults to ANTIFAN_DATA_ROOT, then the install default. */
+  dataRoot?: string;
+  /** Receives one line per ignored entry or unreadable file; defaults to the lifecycle log. */
+  journal?: WorkspaceRootJournal;
+}
+
+export interface ConfiguredWorkspaceRoots {
+  roots: string[];
+  rejected: Array<{ entry: string; reason: string }>;
+}
+
+export type ConfiguredRootCheck = { ok: true; root: string } | { ok: false; reason: string };
+
+function rootKey(root: string): string {
+  return process.platform === 'win32' ? root.toLowerCase() : root;
+}
+
+/**
+ * Accepts only an absolute, normalized, existing directory: no `..` segment, no UNC or device
+ * path, no drive or filesystem root (a root would authorize the whole disk).
+ */
+export function validateConfiguredWorkspaceRoot(entry: unknown): ConfiguredRootCheck {
+  if (typeof entry !== 'string' || !entry.trim()) return { ok: false, reason: 'not a non-empty string' };
+  const raw = entry.trim();
+  if (/^[\\/]{2}/.test(raw)) return { ok: false, reason: 'UNC and device paths are not allowed' };
+  if (process.platform === 'win32' ? !/^[a-zA-Z]:[\\/]/.test(raw) : !path.isAbsolute(raw)) {
+    return { ok: false, reason: 'not an absolute path' };
+  }
+  if (raw.split(/[\\/]+/).includes('..')) return { ok: false, reason: 'contains a ".." segment' };
+  const resolved = path.resolve(raw);
+  if (resolved === path.parse(resolved).root) return { ok: false, reason: 'a drive or filesystem root is not allowed' };
+  let isDirectory = false;
+  try {
+    isDirectory = fs.statSync(resolved).isDirectory();
+  } catch {
+    return { ok: false, reason: 'does not exist' };
+  }
+  if (!isDirectory) return { ok: false, reason: 'not a directory' };
+  return { ok: true, root: resolved };
+}
+
+/** Parses the file text; duplicates collapse (case-insensitively on Windows). Throws on invalid JSON or shape. */
+export function parseWorkspaceRootsConfig(text: string): ConfiguredWorkspaceRoots {
+  const parsed: unknown = JSON.parse(text);
+  const entries = Array.isArray(parsed)
+    ? parsed
+    : parsed && typeof parsed === 'object' && 'roots' in parsed && Array.isArray(parsed.roots)
+      ? (parsed.roots as unknown[])
+      : null;
+  if (!entries) throw new Error('expected a JSON array of paths or an object with a "roots" array');
+  const roots: string[] = [];
+  const seen = new Set<string>();
+  const rejected: ConfiguredWorkspaceRoots['rejected'] = [];
+  for (const entry of entries) {
+    const check = validateConfiguredWorkspaceRoot(entry);
+    if (!check.ok) {
+      rejected.push({ entry: typeof entry === 'string' ? entry.slice(0, 260) : JSON.stringify(entry)?.slice(0, 260) ?? String(entry), reason: check.reason });
+      continue;
+    }
+    const key = rootKey(check.root);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    roots.push(check.root);
+  }
+  return { roots, rejected };
+}
+
+interface RootsCacheEntry {
+  file: string;
+  mtimeMs: number;
+  size: number;
+  result: ConfiguredWorkspaceRoots;
+}
+let rootsCache: RootsCacheEntry | null = null;
+
+function resolveDataRoot(options: WorkspaceRootsOptions | undefined): string | null {
+  if (options?.dataRoot) return options.dataRoot;
+  try {
+    return process.env.ANTIFAN_DATA_ROOT?.trim() || StorageLocations.getDataRoot();
+  } catch {
+    return null;
+  }
+}
+
+/** Roots from WORKSPACE_ROOTS_FILE, re-read only when the file's mtime or size changes. */
+export function loadConfiguredWorkspaceRoots(options?: WorkspaceRootsOptions): ConfiguredWorkspaceRoots {
+  const none: ConfiguredWorkspaceRoots = { roots: [], rejected: [] };
+  const dataRoot = resolveDataRoot(options);
+  if (!dataRoot) return none;
+  const file = path.join(dataRoot, WORKSPACE_ROOTS_FILE);
+  let stat: fs.Stats;
+  try {
+    stat = fs.statSync(file);
+  } catch {
+    rootsCache = null;
+    return none;
+  }
+  if (rootsCache && rootsCache.file === file && rootsCache.mtimeMs === stat.mtimeMs && rootsCache.size === stat.size) {
+    return rootsCache.result;
+  }
+  const journal = options?.journal ?? recordLifecycleEvent;
+  let result = none;
+  try {
+    result = parseWorkspaceRootsConfig(fs.readFileSync(file, 'utf8'));
+  } catch (err) {
+    journal('workspaceRoots.unreadable', { file, reason: err instanceof Error ? err.message : String(err) });
+  }
+  for (const rejected of result.rejected) {
+    journal('workspaceRoots.entryIgnored', { file, entry: rejected.entry, reason: rejected.reason });
+  }
+  rootsCache = { file, mtimeMs: stat.mtimeMs, size: stat.size, result };
+  return result;
+}
+
+/** Built-in roots plus the validated roots from WORKSPACE_ROOTS_FILE. */
+export function resolveAuthorizedWorkspaceRoots(options?: WorkspaceRootsOptions): string[] {
+  const merged: string[] = [];
+  const seen = new Set<string>();
+  for (const root of [...AUTHORIZED_WORKSPACE_ROOTS, ...loadConfiguredWorkspaceRoots(options).roots]) {
+    const key = rootKey(path.resolve(root));
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(root);
+  }
+  return merged;
+}
 
 function cleanProjectName(name: string): string {
   return name.toLowerCase().replace(/[-_\s]/g, '');
@@ -107,7 +247,7 @@ export function resolveWorkspaceFromUrl(tabUrl?: string, roots: string[] = DEFAU
  */
 export function validateAuthorizedWorkspaceRoot(
   candidateRoot: string,
-  authorizedRoots: string[] = AUTHORIZED_WORKSPACE_ROOTS
+  authorizedRoots: string[] = resolveAuthorizedWorkspaceRoots()
 ): string {
   if (typeof candidateRoot !== 'string' || !candidateRoot.trim()) {
     throw new CapabilityError('INVALID_ARGUMENT', 'workspaceRoot must be a non-empty string');

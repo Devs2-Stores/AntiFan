@@ -49,6 +49,10 @@ export interface ControlPlaneRuntimeOptions {
   getOpenJsDialog?: (tabId: string) => JsDialogDescription | undefined;
   getAutomationTabId?: () => string | null;
   isTabAllowed?: (primaryTabId: string, requestedTabId: string) => boolean;
+  /** Diagnostic only: why a tab is (not) among the tabs the session bound to `primaryTabId` may drive. */
+  describeTabOwnership?: (boundTabId: string, targetTabId: string) => Record<string, unknown> | undefined;
+  /** Whether the tab is in split review mode (has a mobile pane). */
+  isTabSplit?: (tabId: string) => boolean | undefined;
   resolveTabId?: (tabIdOrIdentifier: string) => string | undefined;
   resolveFailoverTabId?: (staleTabId: string) => string | undefined;
   releaseSessionTab?: (sessionId: string, tabId: string) => boolean;
@@ -235,6 +239,8 @@ export class ControlPlaneRuntime {
       getActiveLease: () => this.getLease(),
       workspaceRegistry: this.workspaces,
       isTabAllowed: options.isTabAllowed,
+      describeTabOwnership: options.describeTabOwnership,
+      isTabSplit: options.isTabSplit,
       resolveTabAffiliation: options.resolveTabAffiliation,
       resolveTabId: options.resolveTabId,
       resolveFailoverTabId: options.resolveFailoverTabId,

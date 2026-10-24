@@ -11,6 +11,9 @@ import { CapabilityError } from '../../shared/control-plane-contracts';
 import { dialogOfError, isDialogOpenError } from './js-dialog-tracker';
 import { AGENT_BROWSER_SCRIPT, sanitizeHighlightColor } from './agent-browser';
 import { SemanticRefRegistry, makeTargetKey, SnapshotFindResult } from './semantic-ref-registry';
+import { fileChooserTarget } from './file-chooser-intercept';
+import { buildSecretFieldMarkScript } from './screenshot-guard-css';
+import { sequenceProgress } from './sequence-progress';
 import {
   buildIsolatedExecutorScript,
   buildIsolatedCollectorScript,
@@ -118,6 +121,10 @@ export interface ActionSequenceResult {
   success: boolean;
   executedCount: number;
   totalCount: number;
+  /** Steps that ran and succeeded; `executedCount` also counts the step that failed. */
+  completedSteps: number;
+  /** Index of the first step that failed; absent when none did. */
+  failedStepIndex?: number;
   navigatedEarly?: boolean;
   results: Array<{
     actionIndex: number;
@@ -545,7 +552,8 @@ export class TabAutomationHost {
     wc: Electron.WebContents,
     focusScript: string,
     text: string,
-    clear?: boolean
+    clear?: boolean,
+    secret?: boolean
   ): Promise<{ success: boolean; data?: unknown; reason?: string; executionTier?: 'cdp_trusted' | 'isolated_synthetic' }> {
     // 1. Focus element and select in isolated world
     const rawRes = await this.executeInIsolatedWorld(wc, focusScript);
@@ -557,6 +565,14 @@ export class TabAutomationHost {
         executionTier: 'isolated_synthetic',
         data: { ok: false, error: res.error, code: res.code, metadata: res.metadata, executionTier: 'isolated_synthetic' },
       };
+    }
+    // A secret is marked before any text lands, so no frame of it is ever on screen unmasked.
+    if (secret) {
+      try {
+        await this.executeInIsolatedWorld(wc, buildSecretFieldMarkScript());
+      } catch (markErr) {
+        return { success: false, reason: `Could not mask the secret field before typing: ${markErr instanceof Error ? markErr.message : String(markErr)}` };
+      }
     }
 
     // 2. Attach debugger if needed
@@ -1026,6 +1042,8 @@ export class TabAutomationHost {
       x?: number;
       y?: number;
       text?: string;
+      /** The text is a secret: the field is masked in screenshots before it is typed, and typing is always trusted. */
+      secret?: boolean;
       clear?: boolean;
       trusted?: boolean;
       force?: boolean;
@@ -1140,7 +1158,7 @@ export class TabAutomationHost {
               }
               this.warnTrustedDowngrade(trustedRes, action);
             }
-            if (params.trusted && action === 'type' && typeof params.text === 'string') {
+            if ((params.trusted || params.secret === true) && action === 'type' && typeof params.text === 'string') {
               const focusScript = buildIsolatedExecutorScript({
                 action: 'focus',
                 ref: refToken,
@@ -1150,7 +1168,7 @@ export class TabAutomationHost {
                 documentUrl: curUrl,
                 nonce: descriptor.nonce,
               });
-              const trustedRes = await this.executeTrustedType(wc, focusScript, params.text, params.clear);
+              const trustedRes = await this.executeTrustedType(wc, focusScript, params.text, params.clear, params.secret === true);
               if (this.documentGenerationOf(targetId, effectivePane) !== curDocGen || wc.isDestroyed()) {
                 return { success: false, reason: 'Document navigated during action execution' };
               }
@@ -1308,7 +1326,7 @@ export class TabAutomationHost {
             }
             this.warnTrustedDowngrade(trustedRes, action);
           }
-          if (params.trusted && action === 'type' && typeof params.text === 'string') {
+          if ((params.trusted || params.secret === true) && action === 'type' && typeof params.text === 'string') {
             const focusScript = buildIsolatedExecutorScript({
               action: 'focus',
               selector: params.selector,
@@ -1322,7 +1340,7 @@ export class TabAutomationHost {
               nonce: generateCollectionNonce(),
             });
             const curGen = this.documentGenerationOf(targetId, effectivePane);
-            const trustedRes = await this.executeTrustedType(wc, focusScript, params.text, params.clear);
+            const trustedRes = await this.executeTrustedType(wc, focusScript, params.text, params.clear, params.secret === true);
             if (this.documentGenerationOf(targetId, effectivePane) !== curGen || wc.isDestroyed()) {
               return { success: false, reason: 'Document navigated during action execution' };
             }
@@ -1388,7 +1406,7 @@ export class TabAutomationHost {
     return res.success;
   }
 
-  public async agentType(params: { selector?: string; ref?: string; text: string; clear?: boolean; trusted?: boolean; force?: boolean; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
+  public async agentType(params: { selector?: string; ref?: string; text: string; clear?: boolean; secret?: boolean; trusted?: boolean; force?: boolean; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
     const res = await this.dispatchAgentAction('type', params);
     return res.success;
   }
@@ -1434,22 +1452,22 @@ export class TabAutomationHost {
   public async executeActionSequence(params: ActionSequenceParams): Promise<ActionSequenceResult> {
     const rawActions = params?.actions;
     if (!Array.isArray(rawActions) || rawActions.length === 0) {
-      return { success: false, executedCount: 0, totalCount: 0, results: [], reason: 'Actions array is required and must not be empty' };
+      return { success: false, executedCount: 0, completedSteps: 0, totalCount: 0, results: [], reason: 'Actions array is required and must not be empty' };
     }
     if (rawActions.length > 30) {
-      return { success: false, executedCount: 0, totalCount: rawActions.length, results: [], reason: 'Actions array exceeds maximum batch cap (30)' };
+      return { success: false, executedCount: 0, completedSteps: 0, totalCount: rawActions.length, results: [], reason: 'Actions array exceeds maximum batch cap (30)' };
     }
 
     const targetId = this.resolveAutomationTargetId(params.tabId, 'executeActionSequence');
     const target = this.ctx.getTabRecord(targetId);
     if (!target) {
-      return { success: false, executedCount: 0, totalCount: rawActions.length, results: [], reason: `Target tab not found: ${targetId}` };
+      return { success: false, executedCount: 0, completedSteps: 0, totalCount: rawActions.length, results: [], reason: `Target tab not found: ${targetId}` };
     }
 
     const effectivePane = params.paneId || (target.state?.splitMode ? (target.focusedPane || target.state.splitFocusedPane || 'desktop') : 'desktop');
     const wc = this.ctx.getTabWebContents(targetId, effectivePane);
     if (!wc || wc.isDestroyed()) {
-      return { success: false, executedCount: 0, totalCount: rawActions.length, results: [], reason: 'Target webContents is unavailable' };
+      return { success: false, executedCount: 0, completedSteps: 0, totalCount: rawActions.length, results: [], reason: 'Target webContents is unavailable' };
     }
 
     const results: Array<{ actionIndex: number; type: string; success: boolean; data?: unknown; error?: string }> = [];
@@ -1464,7 +1482,7 @@ export class TabAutomationHost {
         const error = `Action at index ${i} is invalid`;
         results.push({ actionIndex: i, type: 'unknown', success: false, error });
         if (params.stopOnError !== false) {
-          return { success: false, executedCount: i + 1, totalCount: rawActions.length, results, reason: error };
+          return { success: false, executedCount: i + 1, ...sequenceProgress(results), totalCount: rawActions.length, results, reason: error };
         }
         continue;
       }
@@ -1478,6 +1496,7 @@ export class TabAutomationHost {
             return {
               success: true,
               executedCount: i,
+              ...sequenceProgress(results),
               totalCount: rawActions.length,
               navigatedEarly: true,
               results,
@@ -1704,6 +1723,7 @@ export class TabAutomationHost {
         return {
           success: false,
           executedCount: i + 1,
+          ...sequenceProgress(results),
           totalCount: rawActions.length,
           results,
           reason: stepError || `Action at index ${i} (${action.type}) failed`,
@@ -1716,6 +1736,7 @@ export class TabAutomationHost {
     return {
       success: true,
       executedCount: rawActions.length,
+      ...sequenceProgress(results),
       totalCount: rawActions.length,
       results,
       finalSnapshot,
@@ -1897,14 +1918,14 @@ export class TabAutomationHost {
     const targetId = this.resolveAutomationTargetId(params.tabId, 'agentFind');
     const target = this.ctx.getTabRecord(targetId);
     if (!target) {
-      throw new CapabilityError('TARGET_STALE', `Target tab not found: ${targetId}`);
+      throw new CapabilityError('TARGET_STALE', `Target tab not found: ${targetId}`, { cause: 'tab-gone', tabId: targetId });
     }
 
     const splitHasLiveMobile = Boolean(target.state.splitMode && target.mobileView && !target.mobileView.webContents.isDestroyed());
     const effectivePane: SplitPaneId = params.paneId || (splitHasLiveMobile ? (target.focusedPane || target.state.splitFocusedPane || 'desktop') : 'desktop');
     const wc = this.ctx.getTabWebContents(targetId, effectivePane);
     if (!wc || wc.isDestroyed()) {
-      throw new CapabilityError('TARGET_STALE', `WebContents destroyed for tab ${targetId}`);
+      throw new CapabilityError('TARGET_STALE', `WebContents destroyed for tab ${targetId}`, { cause: 'tab-gone', tabId: targetId });
     }
 
     return await this.ctx.runTargetOperation(targetId, effectivePane, async () => {
@@ -1935,12 +1956,62 @@ export class TabAutomationHost {
     });
   }
 
+  /** True only when the page confirms the resolved element is not an `<input type=file>`; an unreadable answer keeps the direct path. */
+  private async isResolvedNonFileInput(wc: Electron.WebContents, objectId: string): Promise<boolean> {
+    try {
+      const res = await this.ctx.tabDevToolsHost!.sendCdpCommand<{ result?: { value?: { isFileInput?: boolean } } }>(wc, 'Runtime.callFunctionOn', {
+        objectId,
+        returnByValue: true,
+        functionDeclaration: `function() { return { isFileInput: this instanceof HTMLInputElement && String(this.type).toLowerCase() === 'file' }; }`,
+      });
+      return res?.result?.value?.isFileInput === false;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Attach files through the native chooser the element opens: scroll it into view, click it with
+   * trusted input while the chooser is intercepted, and hand the files to the input the page names.
+   */
+  private async uploadViaFileChooser(
+    wc: Electron.WebContents,
+    objectId: string,
+    filePaths: string[],
+    targetRef: string
+  ): Promise<{ success: boolean; uploadedCount: number }> {
+    const devTools = this.ctx.tabDevToolsHost!;
+    const measured = await devTools.sendCdpCommand<{ result?: { value?: { x: number; y: number; width: number; height: number } } }>(wc, 'Runtime.callFunctionOn', {
+      objectId,
+      returnByValue: true,
+      functionDeclaration: `function() {
+        if (typeof this.scrollIntoView === 'function') this.scrollIntoView({ block: 'center', inline: 'center' });
+        const r = this.getBoundingClientRect();
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2, width: r.width, height: r.height };
+      }`,
+    });
+    const box = measured?.result?.value;
+    if (!box || !(box.width > 0) || !(box.height > 0)) {
+      throw new CapabilityError('ELEMENT_NOT_ACTIONABLE', `${targetRef} has no visible box to click, so it cannot open the page's file chooser`);
+    }
+    const opened = await devTools.captureFileChooser(wc, async () => {
+      const click = await this.executeTrustedClick(wc, undefined, box.x, box.y);
+      if (!click.success) {
+        throw new CapabilityError('EXECUTION_ERROR', `Clicking ${targetRef} to open the file chooser failed: ${click.reason || 'no reason reported'}`);
+      }
+    });
+    const backendNodeId = fileChooserTarget(opened, filePaths.length);
+    await devTools.sendCdpCommand(wc, 'DOM.setFileInputFiles', { files: filePaths, backendNodeId });
+    return { success: true, uploadedCount: filePaths.length };
+  }
+
   public async uploadFileInput(
-    refOrSelectorOrOptions: string | { refOrSelector: string; filePaths: string[]; workspaceRoot?: string; tabId?: string; paneId?: SplitPaneId },
+    refOrSelectorOrOptions: string | { refOrSelector: string; filePaths: string[]; workspaceRoot?: string; tabId?: string; paneId?: SplitPaneId; viaFileChooser?: boolean },
     filePathsParam?: string[],
     tabIdParam?: string,
     paneIdParam?: SplitPaneId,
-    workspaceRootParam?: string
+    workspaceRootParam?: string,
+    viaFileChooserParam?: boolean
   ): Promise<{ success: boolean; uploadedCount: number; reason?: string }> {
     const isOptionsObj = typeof refOrSelectorOrOptions === 'object' && refOrSelectorOrOptions !== null;
     const refOrSelector = isOptionsObj ? refOrSelectorOrOptions.refOrSelector : refOrSelectorOrOptions;
@@ -1948,6 +2019,7 @@ export class TabAutomationHost {
     const tabId = isOptionsObj ? refOrSelectorOrOptions.tabId : tabIdParam;
     const paneId = isOptionsObj ? refOrSelectorOrOptions.paneId : paneIdParam;
     const explicitWorkspaceRoot = isOptionsObj ? refOrSelectorOrOptions.workspaceRoot : workspaceRootParam;
+    const viaFileChooser = (isOptionsObj ? refOrSelectorOrOptions.viaFileChooser : viaFileChooserParam) === true;
 
     const targetId = this.resolveAutomationTargetId(tabId, 'uploadFileInput');
     const target = this.ctx.getTabRecord(targetId);
@@ -2101,6 +2173,11 @@ export class TabAutomationHost {
         }
       }
 
+      // A target that is not itself an <input type=file> (a button, label or drop zone the page wires to a
+      // chooser, often creating the input only on click) is reached through the chooser it opens.
+      if (resolvedObjectId && (viaFileChooser || await this.isResolvedNonFileInput(wc, resolvedObjectId))) {
+        return await this.uploadViaFileChooser(wc, resolvedObjectId, resolvedPaths, targetRef);
+      }
       if (!resolvedNodeId || !resolvedObjectId) {
         throw new CapabilityError('REF_NOT_FOUND', `Could not resolve target file input element: ${refOrSelector}`);
       }
@@ -2594,7 +2671,7 @@ export class TabAutomationHost {
     const targetId = this.resolveAutomationTargetId(params.tabId, 'inspectStyles');
     const target = this.ctx.getTabRecord(targetId);
     if (!target) {
-      throw new CapabilityError('TARGET_STALE', `Tab '${targetId}' not found`);
+      throw new CapabilityError('TARGET_STALE', `Tab '${targetId}' not found`, { cause: 'tab-gone', tabId: targetId });
     }
 
     const splitHasLiveMobile = Boolean(target.state.splitMode && target.mobileView && !target.mobileView.webContents.isDestroyed());
@@ -2603,7 +2680,7 @@ export class TabAutomationHost {
     return await this.ctx.runTargetOperation(targetId, effectivePane, async () => {
       const wc = this.ctx.getTabWebContents(targetId, effectivePane);
       if (!wc || wc.isDestroyed()) {
-        throw new CapabilityError('TARGET_STALE', 'Target WebContents is destroyed or unavailable');
+        throw new CapabilityError('TARGET_STALE', 'Target WebContents is destroyed or unavailable', { cause: 'tab-gone', tabId: targetId });
       }
 
       let descriptor: SemanticElementDescriptor | undefined;
@@ -2645,7 +2722,7 @@ export class TabAutomationHost {
           : res?.code === 'INVALID_SELECTOR' ? 'INVALID_ARGUMENT'
           : res?.code === 'REF_DOCUMENT_MUTATED' ? 'TARGET_STALE'
           : 'NODE_DETACHED';
-        throw new CapabilityError(errCode, res?.error || 'Failed to inspect element styles');
+        throw new CapabilityError(errCode, res?.error || 'Failed to inspect element styles', errCode === 'TARGET_STALE' ? { cause: 'dom-drift', tabId: targetId } : undefined);
       }
 
       return res.data || {};
@@ -2665,7 +2742,7 @@ export class TabAutomationHost {
     const targetId = this.resolveAutomationTargetId(params.tabId, 'inspectRegion');
     const target = this.ctx.getTabRecord(targetId);
     if (!target) {
-      throw new CapabilityError('TARGET_STALE', `Tab '${targetId}' not found`);
+      throw new CapabilityError('TARGET_STALE', `Tab '${targetId}' not found`, { cause: 'tab-gone', tabId: targetId });
     }
 
     const splitHasLiveMobile = Boolean(target.state.splitMode && target.mobileView && !target.mobileView.webContents.isDestroyed());
@@ -2674,7 +2751,7 @@ export class TabAutomationHost {
     return await this.ctx.runTargetOperation(targetId, effectivePane, async () => {
       const wc = this.ctx.getTabWebContents(targetId, effectivePane);
       if (!wc || wc.isDestroyed()) {
-        throw new CapabilityError('TARGET_STALE', 'Target WebContents is destroyed or unavailable');
+        throw new CapabilityError('TARGET_STALE', 'Target WebContents is destroyed or unavailable', { cause: 'tab-gone', tabId: targetId });
       }
 
       let descriptor: SemanticElementDescriptor | undefined;
@@ -2719,7 +2796,7 @@ export class TabAutomationHost {
           : res?.code === 'INVALID_SELECTOR' ? 'INVALID_ARGUMENT'
           : res?.code === 'REF_DOCUMENT_MUTATED' ? 'TARGET_STALE'
           : 'NODE_DETACHED';
-        throw new CapabilityError(errCode, res?.error || 'Failed to inspect spatial region');
+        throw new CapabilityError(errCode, res?.error || 'Failed to inspect spatial region', errCode === 'TARGET_STALE' ? { cause: 'dom-drift', tabId: targetId } : undefined);
       }
 
       return res.data || {};
@@ -2735,7 +2812,7 @@ export class TabAutomationHost {
     const targetId = this.resolveAutomationTargetId(params.tabId, 'inspectFont');
     const target = this.ctx.getTabRecord(targetId);
     if (!target) {
-      throw new CapabilityError('TARGET_STALE', `Tab '${targetId}' not found`);
+      throw new CapabilityError('TARGET_STALE', `Tab '${targetId}' not found`, { cause: 'tab-gone', tabId: targetId });
     }
 
     const splitHasLiveMobile = Boolean(target.state.splitMode && target.mobileView && !target.mobileView.webContents.isDestroyed());
@@ -2744,7 +2821,7 @@ export class TabAutomationHost {
     return await this.ctx.runTargetOperation(targetId, effectivePane, async () => {
       const wc = this.ctx.getTabWebContents(targetId, effectivePane);
       if (!wc || wc.isDestroyed()) {
-        throw new CapabilityError('TARGET_STALE', 'Target WebContents is destroyed or unavailable');
+        throw new CapabilityError('TARGET_STALE', 'Target WebContents is destroyed or unavailable', { cause: 'tab-gone', tabId: targetId });
       }
 
       let descriptor: SemanticElementDescriptor | undefined;
@@ -2785,7 +2862,7 @@ export class TabAutomationHost {
           : res?.code === 'INVALID_SELECTOR' ? 'INVALID_ARGUMENT'
           : res?.code === 'REF_DOCUMENT_MUTATED' ? 'TARGET_STALE'
           : 'NODE_DETACHED';
-        throw new CapabilityError(errCode, res?.error || 'Failed to inspect element font');
+        throw new CapabilityError(errCode, res?.error || 'Failed to inspect element font', errCode === 'TARGET_STALE' ? { cause: 'dom-drift', tabId: targetId } : undefined);
       }
 
       const inPageData = res.data || {};
@@ -2860,7 +2937,7 @@ export class TabAutomationHost {
     const targetId = this.resolveAutomationTargetId(params.tabId, 'inspectPageGlobal');
     const target = this.ctx.getTabRecord(targetId);
     if (!target) {
-      throw new CapabilityError('TARGET_STALE', `Tab '${targetId}' not found`);
+      throw new CapabilityError('TARGET_STALE', `Tab '${targetId}' not found`, { cause: 'tab-gone', tabId: targetId });
     }
 
     const splitHasLiveMobile = Boolean(target.state.splitMode && target.mobileView && !target.mobileView.webContents.isDestroyed());
@@ -2869,7 +2946,7 @@ export class TabAutomationHost {
     return await this.ctx.runTargetOperation(targetId, effectivePane, async () => {
       const wc = this.ctx.getTabWebContents(targetId, effectivePane);
       if (!wc || wc.isDestroyed()) {
-        throw new CapabilityError('TARGET_STALE', 'Target WebContents is destroyed or unavailable');
+        throw new CapabilityError('TARGET_STALE', 'Target WebContents is destroyed or unavailable', { cause: 'tab-gone', tabId: targetId });
       }
 
       // Sanitize property chain: must be a safe identifier or dot-separated path

@@ -312,10 +312,13 @@ export function computeStructuralMetrics(
  * Builds the in-page DOM query script for collecting elements and their structural selectors.
  * Supports arbitrary CSS selectors in trackedSelectors (nested, compound, attribute, etc.),
  * class attributes on HTML and SVG, and deterministic fallback when untracked.
+ * Elements matching excludeSelector (platform preview chrome, not page content)
+ * are left out, so a bar shown on only one side of a pair is not a cardinality change.
  */
 export function buildStructuralQueryScript(
   rootSel: string = 'body',
-  trackedSelectors: string[] = []
+  trackedSelectors: string[] = [],
+  excludeSelector: string = ''
 ): string {
   const trackedList = Array.isArray(trackedSelectors) ? trackedSelectors : [];
   return `(() => {
@@ -323,6 +326,11 @@ export function buildStructuralQueryScript(
     const root = document.querySelector(${JSON.stringify(rootSel)});
     if (!root) return [];
     const tracked = ${JSON.stringify(trackedList)};
+    const exclude = ${JSON.stringify(excludeSelector)};
+    const excluded = (el) => {
+      if (!exclude || typeof el.closest !== 'function') return false;
+      try { return Boolean(el.closest(exclude)); } catch { return false; }
+    };
 
     const matchedMap = new Map();
     if (tracked.length > 0) {
@@ -342,9 +350,9 @@ export function buildStructuralQueryScript(
       }
     }
 
-    const candidateElements = tracked.length > 0
+    const candidateElements = (tracked.length > 0
       ? Array.from(matchedMap.keys())
-      : [root, ...Array.from(root.children)];
+      : [root, ...Array.from(root.children)]).filter((el) => el === root || !excluded(el));
 
     return candidateElements.map((el, i) => {
       const r = el.getBoundingClientRect();

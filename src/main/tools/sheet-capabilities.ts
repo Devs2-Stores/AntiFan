@@ -10,7 +10,13 @@
  *      refuses the write, and the header row is protected unless the caller opts in;
  *   4. the value is typed and committed, the cell is selected again and the formula bar is read
  *      back; a value that cannot be confirmed is reported as unverified together with the previous
- *      value, never assumed to have landed.
+ *      value, never assumed to have landed;
+ *   5. the formula bar and the Name Box belong to the editor, so a draft that never committed still
+ *      reads back there. `verified: true` therefore also requires the committed value to be read
+ *      from the spreadsheet's GViz CSV (an authenticated in-tab fetch, independent of the editor).
+ *      A differing, empty or unreachable read-back is `SHEET_WRITE_UNVERIFIED`. A formula's GViz
+ *      value is its evaluated result, which cannot be compared with the formula text, so a formula
+ *      is reported as `verified: false` with the reason `formula-not-comparable`.
  *
  * The editor selectors below are candidates for Sheets' own markup, which this module cannot
  * observe at build time. When none of them is present the call is refused (`SHEET_NOT_EDITABLE`)
@@ -34,6 +40,10 @@ const FORMULA_BAR_SELECTORS = ['#t-formula-bar-input', '.cell-input'] as const;
 const SHEET_EDIT_URL = /^https:\/\/docs\.google\.com\/spreadsheets\/d\/[A-Za-z0-9_-]+\/edit/;
 const CELL_NOTATION = /^[A-Za-z]{1,3}[1-9][0-9]{0,6}$/;
 const HEADER_ROW = 1;
+
+const GVIZ_ATTEMPTS = 3;
+/** Sheets autosaves shortly after a commit, so the first GViz read can still show the old value. */
+const GVIZ_RETRY_DELAY_MS = 700;
 
 type CellScalar = string | number | boolean;
 
@@ -116,6 +126,108 @@ function readScalar(field: string, value: unknown, required: boolean): string | 
   if (typeof value === 'string' || typeof value === 'boolean') return String(value);
   if (typeof value === 'number' && Number.isFinite(value)) return String(value);
   throw invalid(`${field} must be a string, a finite number or a boolean`);
+}
+
+/** One GViz read: the observed cell text, or why it could not be read. */
+type GvizRead = { ok: true; observed: string } | { ok: false; error: string; status?: number };
+
+/**
+ * In-page async expression: fetches the sheet tab's GViz CSV with the page's own credentials and
+ * returns only the requested cell. `headers=0` keeps row N equal to sheet row N.
+ */
+function readCellFromGvizScript(sheetId: string, gid: string, cell: string): string {
+  return `(async () => {
+    try {
+      const sheetId = ${JSON.stringify(sheetId)};
+      const gid = ${JSON.stringify(gid)};
+      const cell = ${JSON.stringify(cell)};
+      const href = window.location.href;
+      const openId = (href.match(/\\/spreadsheets\\/d\\/([A-Za-z0-9_-]+)/) || [])[1];
+      const openGid = (href.match(/[#&?]gid=([0-9]+)/) || [])[1] || '0';
+      if (openId !== sheetId || openGid !== gid) {
+        return { ok: false, error: 'the open sheet tab is no longer ' + sheetId + ' gid ' + gid };
+      }
+      const res = await fetch('/spreadsheets/d/' + sheetId + '/gviz/tq?tqx=out:csv&headers=0&gid=' + gid, { credentials: 'include' });
+      if (!res.ok) return { ok: false, status: res.status, error: 'GViz request returned HTTP ' + res.status };
+      const csv = await res.text();
+      if (/^\\s*<(!doctype|html)/i.test(csv)) return { ok: false, error: 'GViz returned an HTML page instead of CSV' };
+      const rows = [];
+      let row = [];
+      let cur = '';
+      let inQuotes = false;
+      for (let i = 0; i < csv.length; i++) {
+        const c = csv[i];
+        if (c === '"') {
+          if (inQuotes && csv[i + 1] === '"') { cur += '"'; i++; }
+          else { inQuotes = !inQuotes; }
+        } else if (c === ',' && !inQuotes) {
+          row.push(cur);
+          cur = '';
+        } else if ((c === '\\r' || c === '\\n') && !inQuotes) {
+          if (c === '\\r' && csv[i + 1] === '\\n') i++;
+          row.push(cur);
+          cur = '';
+          rows.push(row);
+          row = [];
+        } else {
+          cur += c;
+        }
+      }
+      if (cur.length > 0 || row.length > 0) { row.push(cur); rows.push(row); }
+      const letters = cell.replace(/[0-9]+$/, '');
+      let col = 0;
+      for (const ch of letters) col = col * 26 + (ch.charCodeAt(0) - 64);
+      const rowIndex = parseInt(cell.slice(letters.length), 10) - 1;
+      const record = rows[rowIndex] || [];
+      return { ok: true, observed: record[col - 1] === undefined ? '' : record[col - 1] };
+    } catch (err) {
+      return { ok: false, error: err && err.message ? err.message : String(err) };
+    }
+  })()`;
+}
+
+function parseGvizRead(raw: unknown): GvizRead {
+  const value = raw as Record<string, unknown> | null;
+  if (value && typeof value === 'object' && value.ok === true && typeof value.observed === 'string') {
+    return { ok: true, observed: value.observed };
+  }
+  const error = value && typeof value === 'object' && typeof value.error === 'string' ? value.error : 'the GViz probe returned no result';
+  return { ok: false, error, ...(value && typeof value.status === 'number' ? { status: value.status } : {}) };
+}
+
+/**
+ * GViz returns display-formatted values, so the comparison is exact after trimming, with two
+ * normalizations Sheets itself applies on commit: booleans are upper-cased and plain numbers may
+ * gain thousands separators.
+ */
+export function committedValueMatches(expected: string, observed: string): boolean {
+  const want = expected.trim();
+  const got = observed.trim();
+  if (want === got) return true;
+  if (/^(true|false)$/i.test(want)) return want.toLowerCase() === got.toLowerCase();
+  if (/^[-+]?\d+(\.\d+)?$/.test(want) && got !== '') {
+    const gotNumber = Number(got.replace(/,/g, ''));
+    return Number.isFinite(gotNumber) && gotNumber === Number(want);
+  }
+  return false;
+}
+
+function pause(ms: number, signal: AbortSignal | undefined): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new CapabilityError('WAIT_ABORTED', 'anti.sheet.write_cell was aborted while waiting for the sheet to save'));
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      reject(new CapabilityError('WAIT_ABORTED', 'anti.sheet.write_cell was aborted while waiting for the sheet to save'));
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
 }
 
 export function registerSheetCapabilities(catalogue: CapabilityCatalogue, browser: BrowserControlPort): void {
@@ -264,7 +376,49 @@ export function registerSheetCapabilities(catalogue: CapabilityCatalogue, browse
     if (actual !== value) {
       throw unverified(`${cell} reads back ${JSON.stringify(actual)} after the write, not the value that was written`, { actual });
     }
-    return { success: true, cell, previous, value, gid: openGid, selectionConfirmed: true, verified: true };
+
+    // 5. Independent read-back: the editor echoing the draft proves nothing about the saved cell.
+    const sheetId = (/\/spreadsheets\/d\/([A-Za-z0-9_-]+)/.exec(opening.href) || [])[1] as string;
+    const readGviz = async (): Promise<GvizRead> => {
+      try {
+        return parseGvizRead(await browser.eval(target, readCellFromGvizScript(sheetId, openGid, cell), tabId));
+      } catch (err) {
+        if (signal?.aborted) throw err;
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    };
+    const base = { success: true, cell, previous, value, gid: openGid, selectionConfirmed: true, committedSource: 'gviz' };
+    if (value.startsWith('=')) {
+      const evaluated = await readGviz();
+      return {
+        ...base,
+        verified: false,
+        reason: 'formula-not-comparable',
+        observed: evaluated.ok ? evaluated.observed : null,
+        note: 'the formula text is confirmed in the editor only; the spreadsheet stores its evaluated result, which cannot be compared with the formula',
+      };
+    }
+    let lastRead: GvizRead = { ok: false, error: 'the spreadsheet was never read back' };
+    for (let attempt = 1; attempt <= GVIZ_ATTEMPTS; attempt += 1) {
+      lastRead = await readGviz();
+      if (lastRead.ok && committedValueMatches(value, lastRead.observed)) {
+        return { ...base, verified: true, observed: lastRead.observed };
+      }
+      if (attempt < GVIZ_ATTEMPTS) await pause(GVIZ_RETRY_DELAY_MS, signal);
+    }
+    if (!lastRead.ok) {
+      throw unverified(`${cell} could not be read back from the spreadsheet (${lastRead.error}); the value is not confirmed as saved`, {
+        observed: null,
+        source: 'gviz',
+        unavailable: lastRead.error,
+        ...(lastRead.status !== undefined ? { status: lastRead.status } : {}),
+        attempts: GVIZ_ATTEMPTS,
+      });
+    }
+    throw unverified(
+      `${cell} reads ${JSON.stringify(lastRead.observed)} in the saved spreadsheet, not the value that was written; the editor still shows the draft`,
+      { observed: lastRead.observed, source: 'gviz', actual, attempts: GVIZ_ATTEMPTS }
+    );
   };
 
   const inputSchema = (): Record<string, unknown> => ({
@@ -285,7 +439,7 @@ export function registerSheetCapabilities(catalogue: CapabilityCatalogue, browse
   catalogue.register({
     name: 'anti.sheet.write_cell',
     description:
-      'Write one cell of a Google Sheet through its authenticated in-tab editor: the cell is selected through the Name Box and the selection is confirmed before typing, the header row is protected unless allowHeader is set, a supplied expectedPrevious must equal the live cell value, and the written value is read back and returned with the previous one',
+      'Write one cell of a Google Sheet through its authenticated in-tab editor: the cell is selected through the Name Box and the selection is confirmed before typing, the header row is protected unless allowHeader is set, a supplied expectedPrevious must equal the live cell value, and the written value is read back from the spreadsheet itself (GViz CSV, not the editor) and returned with the previous one. verified is true only when that independent read-back matches; a mismatch or an unreachable read-back fails with SHEET_WRITE_UNVERIFIED, and a formula returns verified:false with reason formula-not-comparable',
     risk: 'write',
     requiresBrowserTarget: true,
     policy: policy(),
