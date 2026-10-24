@@ -101,6 +101,7 @@ import { isBenchmarkEnabled, recordBenchmark } from '../benchmark/telemetry';
 import { AsyncThemeQaQueue } from '../qa/async-qa-job-queue';
 import { confineWorkspaceRoot, confineWorkspaceRootStrict } from '../qa/diagnostics-filter';
 import { assessWorkspaceRoot } from '../qa/workspace-markers';
+import { buildSweepOverflowCulpritScript, type SweepOverflowCulprit } from '../qa/sweep-overflow-culprits';
 import type { CockpitThemeQaOptions } from '../tools/cockpit-port';
 import { requestedViewportWidth } from './viewport-request';
 import { resolveSweepBreakpoints } from './sweep-viewports';
@@ -15197,6 +15198,7 @@ export class NativeTabHost extends EventEmitter {
         let resent = false;
         let evaluation: Record<string, unknown> = {};
         let emulationApplied = false;
+        let grownSeen: number | null = null;
         for (;;) {
           // The document reports the emulated width before the page's own resize handlers have run, and
           // a reading taken in that gap describes script state left over from the previous width.
@@ -15214,6 +15216,33 @@ export class NativeTabHost extends EventEmitter {
             Math.abs(innerW - bp.width) <= 1
             || (fixedWidthMeta && evaluation.screenWidth === bp.width)
           );
+          // A touch emulation grows the layout viewport to fit content wider than the emulated
+          // width, so the document reports a wider window than was asked for although the override
+          // took effect. The screen size the override sets is the witness that it did; the wider
+          // window is then the page's own overflow, to be measured, not an application failure. The
+          // same wider reading twice in a row separates it from a relayout still catching up.
+          const grownCandidate = bp.mobile && typeof innerW === 'number' && innerW > bp.width + 1
+            && evaluation.screenWidth === bp.width
+            && typeof evaluation.scrollWidth === 'number' && evaluation.scrollWidth >= innerW - 1;
+          // A page without a device-width meta is already taken as applied by the screen size alone;
+          // the grown window is recorded for it at once, a stricter witness is needed only when the
+          // window width is the sole evidence.
+          if (grownCandidate && (emulationApplied || grownSeen === innerW)) {
+            emulationApplied = true;
+            // The window Chrome grew is not the width under test: overflow is measured against the
+            // width that was asked for, and the grown window is kept as a diagnostic.
+            evaluation = {
+              ...evaluation,
+              layoutExceedsViewport: true,
+              emulatedWidth: bp.width,
+              layoutWidth: innerW,
+              layoutClientWidth: evaluation.clientWidth,
+              clientWidth: bp.width,
+              documentOverflowX: true,
+              hasHorizontalOverflow: true,
+            };
+          }
+          grownSeen = grownCandidate ? innerW as number : null;
           if (emulationApplied || Date.now() >= appliedDeadline) break;
           if (!resent && Date.now() >= resendAt) {
             resent = true;
@@ -15238,6 +15267,13 @@ export class NativeTabHost extends EventEmitter {
             ? { measured: false, unmeasuredReason: 'per-width script timed out after 5000ms' }
             : scriptRaced;
         }
+        // A width whose document is wider than its window names the elements that make it so; a
+        // failed probe leaves the finding page-level rather than blocking the reading.
+        let overflowCulprits: SweepOverflowCulprit[] = [];
+        if (emulationApplied && evaluation.hasHorizontalOverflow === true) {
+          const probed = await wc.executeJavaScript(buildSweepOverflowCulpritScript()).catch(() => []);
+          if (Array.isArray(probed)) overflowCulprits = probed as SweepOverflowCulprit[];
+        }
 
         let resultKey = bp.id;
         if (Object.prototype.hasOwnProperty.call(results, resultKey)) {
@@ -15255,6 +15291,7 @@ export class NativeTabHost extends EventEmitter {
           emulationApplied,
           ...(emulationApplied ? {} : { documentOverflowX: null, hasHorizontalOverflow: null, targetOverflowX: null }),
           ...(integrity !== undefined ? { integrity } : {}),
+          ...(overflowCulprits.length > 0 ? { overflowCulprits } : {}),
         };
       }
     };

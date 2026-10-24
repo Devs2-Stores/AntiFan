@@ -1143,7 +1143,7 @@ describe('Responsive sweep surface', () => {
       on: () => void;
       sendCommand: (method: string, params: Record<string, unknown>) => Promise<void>;
     };
-    executeJavaScript: (script: string) => Promise<Record<string, unknown>>;
+    executeJavaScript: (script: string) => Promise<Record<string, unknown> | unknown[]>;
   }
 
   interface SweepView {
@@ -1180,6 +1180,7 @@ describe('Responsive sweep surface', () => {
     updateLayoutCount: () => number;
     perWidthReads: number[];
     timeline: string[];
+    culpritProbes: () => number;
   }
 
   // Deliberately not the 1440x900 the background viewport path once invented, so a box
@@ -1194,7 +1195,8 @@ describe('Responsive sweep surface', () => {
   const BREAKPOINT_WIDTHS = [320, 375, 768, 1024, 1440, 1920, 2560];
   const PER_WIDTH_SCRIPT = 'per-width-probe';
 
-  function createSweepHarness(options: { staleReadsPerEmulation?: number; ignoreFirstOverrideAt?: number[] } = {}): SweepHarness {
+  function createSweepHarness(options: { staleReadsPerEmulation?: number; ignoreFirstOverrideAt?: number[]; growthContentWidth?: number } = {}): SweepHarness {
+    const growthContentWidth = options.growthContentWidth;
     const staleReadsPerEmulation = options.staleReadsPerEmulation ?? 0;
     const ignoreOnce = new Set(options.ignoreFirstOverrideAt ?? []);
     const children: unknown[] = [];
@@ -1205,6 +1207,8 @@ describe('Responsive sweep surface', () => {
     // relayout lands still describes this one, which is what a real tab does.
     let laidOut: EmulatedBox = { width: WINDOW_BOX.width, height: WINDOW_BOX.height - TOOLBAR_HEIGHT };
     let staleReadsLeft = 0;
+    let liveMobile = false;
+    let culpritProbes = 0;
     let disableCount = 0;
     let updateLayoutCount = 0;
     let childrenDuringFirstReading: unknown[] = [];
@@ -1237,6 +1241,7 @@ describe('Responsive sweep surface', () => {
               emulationCalls.push({ width: box.width, height: box.height, attached: children.includes(view) });
               if (ignoreOnce.delete(box.width)) return;
               liveEmulation = box;
+              liveMobile = params.mobile === true;
               staleReadsLeft = staleReadsPerEmulation;
             } else if (method === 'Runtime.evaluate') {
               timeline.push('settle');
@@ -1247,6 +1252,10 @@ describe('Responsive sweep surface', () => {
           },
         },
         executeJavaScript: async (script: string) => {
+          if (script.includes('getComputedStyle') && script.includes('hits')) {
+            culpritProbes += 1;
+            return [{ selector: 'div.col > h3.label', neededPx: 186, availablePx: 160 }];
+          }
           if (script === PER_WIDTH_SCRIPT) {
             const widthSeen = liveEmulation?.width ?? 0;
             perWidthReads.push(widthSeen);
@@ -1259,7 +1268,10 @@ describe('Responsive sweep surface', () => {
           else laidOut = current;
           const clientWidth = box.width;
           const clientHeight = box.height;
-          const scrollWidth = Math.max(PAGE_CONTENT_WIDTH, clientWidth);
+          // Touch emulation grows the layout viewport to the widest content; the screen keeps
+          // the emulated size and the document's client width stays at the asked-for width.
+          const grown = growthContentWidth !== undefined && liveMobile && growthContentWidth > clientWidth + 1;
+          const scrollWidth = grown ? growthContentWidth : Math.max(PAGE_CONTENT_WIDTH, clientWidth);
           const documentOverflowX = scrollWidth > clientWidth + 1;
           attachedDuringReadings.push(children.includes(view));
           timeline.push(`read:${box.width}`);
@@ -1271,14 +1283,14 @@ describe('Responsive sweep surface', () => {
             clientWidth,
             scrollHeight: clientHeight,
             clientHeight,
-            innerWidth: clientWidth,
+            innerWidth: grown ? scrollWidth : clientWidth,
             screenWidth: clientWidth,
             documentOverflowX,
             hasHorizontalOverflow: documentOverflowX,
             targetOverflowX: false,
             target: null,
-            hasViewportMeta: false,
-            viewportContent: null,
+            hasViewportMeta: growthContentWidth !== undefined,
+            viewportContent: growthContentWidth !== undefined ? 'width=device-width, initial-scale=1' : null,
           };
         },
       },
@@ -1362,6 +1374,7 @@ describe('Responsive sweep surface', () => {
       updateLayoutCount: () => updateLayoutCount,
       perWidthReads,
       timeline,
+      culpritProbes: () => culpritProbes,
     };
   }
 
@@ -1503,6 +1516,48 @@ describe('Responsive sweep surface', () => {
     for (const id of BREAKPOINT_IDS) {
       assert.ok(!('integrity' in plainReadings[id]!), `${id}: no integrity key without the option`);
     }
+  });
+
+  it('measures a width where touch emulation grew the layout viewport and names the overflowing element', async () => {
+    const harness = createSweepHarness({ growthContentWidth: 346 });
+    const host = harness.host;
+    const backgroundTab = createTestTabRecord('tab-bg');
+    backgroundTab.view = harness.view as unknown as NativeTabRecord['view'];
+    const activeTab = createTestTabRecord('tab-active');
+    activeTab.view = harness.activeView as unknown as NativeTabRecord['view'];
+    host.tabs.set('tab-active', activeTab);
+    host.tabs.set('tab-bg', backgroundTab);
+    host.tabByWebContents.set(harness.view.webContents, { tabId: 'tab-bg', tab: backgroundTab });
+
+    const payload = await host.runResponsiveCheck({ tabId: 'tab-bg', perWidthScript: PER_WIDTH_SCRIPT });
+    const readings = payload.breakpoints as Record<string, BreakpointReading & Record<string, unknown>>;
+
+    const narrow = readings['mobile-small']!;
+    assert.strictEqual(narrow.emulationApplied, true, 'the override took effect: the wider window is the page, not a failed emulation');
+    assert.strictEqual(narrow.hasHorizontalOverflow, true);
+    assert.strictEqual(narrow.layoutExceedsViewport, true);
+    assert.strictEqual(narrow.layoutWidth, 346);
+    assert.strictEqual(narrow.clientWidth, 320, 'overflow is graded against the width asked for');
+    assert.deepStrictEqual(narrow.overflowCulprits, [{ selector: 'div.col > h3.label', neededPx: 186, availablePx: 160 }]);
+    assert.ok(narrow.integrity, 'the per-width integrity scan still runs at this width');
+    // A width the content fits stays clean and is not probed.
+    assert.strictEqual(readings['tablet-portrait']?.hasHorizontalOverflow, false);
+    assert.strictEqual(readings['tablet-portrait']?.overflowCulprits, undefined);
+  });
+
+  it('still reports an emulation that never took effect as unmeasured', async () => {
+    const harness = createSweepHarness({ ignoreFirstOverrideAt: [320] });
+    const host = harness.host;
+    const backgroundTab = createTestTabRecord('tab-bg');
+    backgroundTab.view = harness.view as unknown as NativeTabRecord['view'];
+    const activeTab = createTestTabRecord('tab-active');
+    activeTab.view = harness.activeView as unknown as NativeTabRecord['view'];
+    host.tabs.set('tab-active', activeTab);
+    host.tabs.set('tab-bg', backgroundTab);
+    host.tabByWebContents.set(harness.view.webContents, { tabId: 'tab-bg', tab: backgroundTab });
+    const payload = await host.runResponsiveCheck({ tabId: 'tab-bg' });
+    const readings = payload.breakpoints as Record<string, BreakpointReading & Record<string, unknown>>;
+    assert.notStrictEqual(readings['mobile-small']?.layoutExceedsViewport, true);
   });
 
   it('lets the page run its resize handlers before every reading of a width', async () => {

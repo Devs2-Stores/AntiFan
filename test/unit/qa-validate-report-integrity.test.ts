@@ -144,3 +144,31 @@ describe('boundQaReportResponse', () => {
     assert.equal(JSON.parse(text).summary.verdict, 'FAIL');
   });
 });
+
+describe('responsive overflow receipt entry', () => {
+  it('names the widest culprit and the grown layout viewport', () => {
+    const findings = {
+      responsive: {
+        '320': {
+          documentOverflow: true,
+          criticalOverflow: 1,
+          layoutWidth: 347,
+          overflowCulprits: [{ selector: 'div.col > h3.ep-inn-bond__label', neededPx: 186, availablePx: 160 }],
+        },
+      },
+    } as unknown as ThemeQaDetailedFindings;
+    const [entry] = collectReceiptFindings(findings);
+    assert.equal(entry!.rule, 'overflow@320');
+    assert.equal(entry!.severity, 'critical');
+    assert.equal(entry!.selector, 'div.col > h3.ep-inn-bond__label');
+    assert.match(entry!.message, /grows the viewport to 347px/);
+    assert.match(entry!.message, /needs 186px of 160px/);
+  });
+
+  it('keeps the page-level entry when no culprit was named', () => {
+    const findings = { responsive: { '320': { documentOverflow: true, criticalOverflow: 1 } } } as unknown as ThemeQaDetailedFindings;
+    const [entry] = collectReceiptFindings(findings);
+    assert.equal(entry!.selector, null);
+    assert.equal(entry!.message, 'Horizontal page overflow at 320px (responsive sweep)');
+  });
+});

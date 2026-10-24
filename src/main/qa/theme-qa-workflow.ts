@@ -12,6 +12,7 @@ import { ServerCrashScanner, ServerCrashScanResult, ServerCrashFinding } from '.
 import { BrokenAssetScanner, BrokenAssetScanResult, BrokenAssetFinding } from './scanners/broken-asset-scanner';
 import { LayoutOverflowEngine, ViewportOverflowResult } from './scanners/layout-overflow-engine';
 import { LayoutIntegrityEngine, type LayoutIntegrityResult, type LayoutIntegrityFinding } from './scanners/layout-integrity-engine';
+import { describeSweepOverflowCulprits, type SweepOverflowCulprit } from './sweep-overflow-culprits';
 import type { QaVerification, QaExecution, QaRecovery } from './qa-state';
 import { HsGateRules, HsEvaluationResult, HsRuleViolation } from './rules/hs-gate-rules';
 import { classifyDiagnostics, extractCorrelatableAssetFailures, extractDocumentHttpStatus, DiagnosticsInput, DiagnosticIssue } from './diagnostics-filter';
@@ -95,6 +96,10 @@ export interface ThemeQaDetailedFindings {
   /** Per-breakpoint finding counts keyed by CSS width ("320","375","768","1024","1440","1920","2560"). */
   responsive?: Record<string, {
     documentOverflow: boolean | null;
+    /** Widest elements that make the layout wider than this width; the first is the worst. */
+    overflowCulprits?: SweepOverflowCulprit[];
+    /** Layout viewport Chrome grew to when the content did not fit the emulated width. */
+    layoutWidth?: number;
     criticalOverflow: number | null;
     criticalOverlap: number | null;
     criticalClipping: number | null;
@@ -565,12 +570,18 @@ export function collectReceiptFindings(
         if (!rEntry) continue;
         const wNum = Number(wKey);
         if (rEntry.documentOverflow === true && wNum !== overflowWidth) {
+          const culprits = Array.isArray(rEntry.overflowCulprits) ? rEntry.overflowCulprits : [];
+          const widest = culprits[0];
           criticals.push({
             rule: `overflow@${wKey}`,
             severity: 'critical',
-            selector: null,
+            selector: widest?.selector ?? null,
             rect: null,
-            message: truncateReceiptMessage(`Horizontal page overflow at ${wKey}px (responsive sweep)`),
+            message: truncateReceiptMessage(
+              `Horizontal page overflow at ${wKey}px (responsive sweep)` +
+              (typeof rEntry.layoutWidth === 'number' ? `: the layout grows the viewport to ${rEntry.layoutWidth}px` : '') +
+              (culprits.length > 0 ? `; ${describeSweepOverflowCulprits(culprits)}` : '')
+            ),
           });
         }
         if (!Array.isArray(rEntry.findings)) continue;
@@ -2307,6 +2318,8 @@ export class ThemeQaWorkflow {
         criticalOffscreen: atWidth ? countKind(atWidth, 'offscreen', 'critical') + countKind(atWidth, 'zero-size', 'critical') : null,
         spacingWarnings: atWidth ? countKind(atWidth, 'spacing', 'warning') : null,
         ...(atWidth && atWidth.length > 0 ? { findings: atWidth } : {}),
+        ...(bp && Array.isArray(bp.overflowCulprits) && bp.overflowCulprits.length > 0 ? { overflowCulprits: bp.overflowCulprits as SweepOverflowCulprit[] } : {}),
+        ...(bp && typeof bp.layoutWidth === 'number' ? { layoutWidth: bp.layoutWidth } : {}),
       };
     }
     if (unmeasuredIntegrityWidths.length > 0 && sweepGaps) {
