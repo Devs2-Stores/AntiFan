@@ -3253,7 +3253,15 @@ function getFileMeta(fileName) {
     case 'bwt':
       return { icon: '🌐', color: '#f97316', label: 'HTML/Liquid' };
     case 'md':
+    case 'markdown':
       return { icon: '📝', color: '#94a3b8', label: 'Markdown' };
+    case 'mp4':
+    case 'm4v':
+    case 'mov':
+    case 'webm':
+    case 'ogv':
+    case 'mkv':
+      return { icon: '🎬', color: '#fb7185', label: 'Video' };
     case 'sh':
     case 'bash':
     case 'zsh':
@@ -3398,6 +3406,10 @@ function ensureFileQuickLookModal() {
         <div class="file-quick-look-actions">
           <span class="file-quick-look-meta" id="fileQuickLookMeta">0 dòng • 0 KB</span>
           <span class="file-quick-look-meta-target" id="fileQuickLookTargetBadge" style="display:none;">📍 Dòng 1</span>
+          <div class="file-quick-look-modes" id="fileQuickLookModes" role="group" aria-label="Chế độ xem Markdown" style="display:none;">
+            <button type="button" class="file-quick-look-mode" data-mode="rendered" aria-pressed="false" title="Xem bản đã dựng (Phím M)">Xem đẹp</button>
+            <button type="button" class="file-quick-look-mode" data-mode="source" aria-pressed="false" title="Xem mã nguồn Markdown (Phím M)">Mã nguồn</button>
+          </div>
           <button type="button" class="file-quick-look-btn file-quick-look-btn-copy" id="btnFileQuickLookCopy" title="Sao chép toàn bộ nội dung (Copy All)">
             <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8">
               <rect x="5" y="5" width="9" height="9" rx="1.5"></rect>
@@ -3431,6 +3443,10 @@ function ensureFileQuickLookModal() {
         <div class="file-quick-look-image-wrap" id="fileQuickLookImageWrap" title="Click: vừa khung / kích thước thật">
           <img class="file-quick-look-image" id="fileQuickLookImage" alt="" />
         </div>
+        <article class="file-quick-look-markdown" id="fileQuickLookMarkdown"></article>
+        <div class="file-quick-look-video-wrap" id="fileQuickLookVideoWrap" tabindex="-1">
+          <video class="file-quick-look-video" id="fileQuickLookVideo" controls preload="metadata" tabindex="-1"></video>
+        </div>
       </div>
       <div class="file-quick-look-footer" id="fileQuickLookFooter">
         <span id="fileQuickLookFooterInfo">📍 Bấm Esc để đóng • Click số dòng để copy path:line</span>
@@ -3442,13 +3458,7 @@ function ensureFileQuickLookModal() {
   document.body.appendChild(modal);
   fileQuickLookModalEl = modal;
 
-  const close = () => {
-    modal.style.display = 'none';
-    if (activeFileQuickLookClose) {
-      document.removeEventListener('keydown', activeFileQuickLookClose);
-      activeFileQuickLookClose = null;
-    }
-  };
+  const close = () => hideFileQuickLook(modal);
 
   modal.querySelector('#fileQuickLookBackdrop')?.addEventListener('click', close);
   modal.querySelector('#btnFileQuickLookClose')?.addEventListener('click', close);
@@ -3459,6 +3469,22 @@ function ensureFileQuickLookModal() {
     e.stopPropagation();
     dialogEl?.classList.toggle('is-expanded');
   });
+
+  modal.querySelectorAll('.file-quick-look-mode').forEach((button) => {
+    button.addEventListener('click', (e) => {
+      e.stopPropagation();
+      applyQuickLookMarkdownMode(modal, button.dataset.mode === 'source' ? 'source' : 'rendered');
+    });
+  });
+  // `error` does not bubble: capture it to swap a broken Markdown image for its alt text.
+  modal.querySelector('#fileQuickLookMarkdown')?.addEventListener('error', (e) => {
+    const img = e.target;
+    if (!img || img.tagName !== 'IMG' || !img.classList.contains('md-img')) return;
+    const missing = document.createElement('span');
+    missing.className = 'md-img-missing';
+    missing.textContent = img.getAttribute('data-md-alt') || 'image';
+    img.replaceWith(missing);
+  }, true);
 
   return modal;
 }
@@ -3566,6 +3592,251 @@ function renderQuickLookImage(modal, result, sessionId) {
   }
 }
 
+const QUICK_LOOK_HIGHLIGHT_LANGS = {
+  js: 'js', javascript: 'js', jsx: 'js', mjs: 'js', cjs: 'js', ts: 'js', typescript: 'js', tsx: 'js',
+  json: 'json', jsonc: 'json', json5: 'json',
+  css: 'css', scss: 'css', less: 'css',
+  html: 'html', xml: 'html', svg: 'html', liquid: 'html',
+};
+const QUICK_LOOK_MARKDOWN_MODE_KEY = 'antifan.quickLook.markdownMode';
+
+/** Stops playback and releases the file: a paused `<video>` otherwise keeps it open (Windows lock). */
+function stopQuickLookMedia(modal) {
+  const videoEl = modal.querySelector('#fileQuickLookVideo');
+  if (!videoEl) return;
+  videoEl.onloadedmetadata = null;
+  videoEl.onerror = null;
+  try { videoEl.pause(); } catch {}
+  if (videoEl.getAttribute('src')) {
+    videoEl.removeAttribute('src');
+    try { videoEl.load(); } catch {}
+  }
+  videoEl.dataset.filePath = '';
+}
+
+function hideFileQuickLook(modal) {
+  stopQuickLookMedia(modal);
+  modal.style.display = 'none';
+  if (activeFileQuickLookClose) {
+    document.removeEventListener('keydown', activeFileQuickLookClose);
+    activeFileQuickLookClose = null;
+  }
+}
+
+function readQuickLookMarkdownMode() {
+  try {
+    return localStorage.getItem(QUICK_LOOK_MARKDOWN_MODE_KEY) === 'source' ? 'source' : 'rendered';
+  } catch {
+    return 'rendered';
+  }
+}
+
+function applyQuickLookMarkdownMode(modal, mode, options) {
+  const remember = !options || options.remember !== false;
+  const contentEl = modal.querySelector('#fileQuickLookContent');
+  const footerInfoEl = modal.querySelector('#fileQuickLookFooterInfo');
+  const rendered = mode === 'rendered';
+  modal.dataset.markdownMode = mode;
+  if (contentEl) {
+    contentEl.classList.toggle('file-quick-look-content--markdown', rendered);
+    contentEl.scrollTop = 0;
+    contentEl.scrollLeft = 0;
+  }
+  modal.querySelectorAll('.file-quick-look-mode').forEach((button) => {
+    const active = button.dataset.mode === mode;
+    button.classList.toggle('is-active', active);
+    button.setAttribute('aria-pressed', String(active));
+  });
+  if (footerInfoEl && !footerInfoEl.classList.contains('file-quick-look-footer-warn')) {
+    footerInfoEl.textContent = rendered
+      ? '📝 Bản đã dựng • Phím M xem mã nguồn • Phím I chèn Prompt • Phím V mở VS Code • Esc để đóng'
+      : '📍 Phím M xem bản đã dựng • Phím I chèn Prompt • Phím V mở VS Code • Click số dòng để copy • Esc để đóng';
+  }
+  if (remember) {
+    try { localStorage.setItem(QUICK_LOOK_MARKDOWN_MODE_KEY, mode); } catch {}
+  }
+}
+
+function renderQuickLookMarkdown(modal, result, targetLine, sessionId) {
+  const markdownEl = modal.querySelector('#fileQuickLookMarkdown');
+  const modesEl = modal.querySelector('#fileQuickLookModes');
+  if (!markdownEl || typeof renderMarkdown !== 'function') return;
+
+  markdownEl.innerHTML = renderMarkdown(result.content, {
+    resolveImage: (href) => markdownAssetUrl(result.filePath, href),
+    highlight: (code, lang) => {
+      const grammar = QUICK_LOOK_HIGHLIGHT_LANGS[lang];
+      return grammar ? highlightSyntax(code, grammar) : null;
+    },
+  });
+  markdownEl.onclick = (e) => {
+    const link = e.target instanceof Element ? e.target.closest('a[data-md-href]') : null;
+    if (!link) return;
+    // Never let the viewer window itself navigate: every link is routed by hand.
+    e.preventDefault();
+    const href = link.getAttribute('data-md-href') || '';
+    if (href.startsWith('#')) {
+      let slug = href.slice(1);
+      try { slug = decodeURIComponent(slug); } catch {}
+      slug = slug.toLowerCase();
+      const heading = Array.from(markdownEl.querySelectorAll('[data-md-id]')).find((el) => el.getAttribute('data-md-id') === slug);
+      if (heading) heading.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    } else if (/^(https?:|mailto:)/i.test(href)) {
+      if (!/^mailto:/i.test(href)) api?.openExternal?.(href);
+    } else {
+      const target = resolveMarkdownPath(result.filePath, href);
+      if (target) openFileQuickLook(target, sessionId);
+    }
+  };
+  if (modesEl) modesEl.style.display = 'inline-flex';
+  applyQuickLookMarkdownMode(modal, targetLine ? 'source' : readQuickLookMarkdownMode(), { remember: false });
+}
+
+function formatQuickLookDuration(seconds) {
+  if (!Number.isFinite(seconds) || seconds < 0) return '';
+  const total = Math.round(seconds);
+  const pad = (n) => String(n).padStart(2, '0');
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  return hours > 0 ? `${hours}:${pad(minutes)}:${pad(total % 60)}` : `${minutes}:${pad(total % 60)}`;
+}
+
+/**
+ * The `<video>` never keeps keyboard focus: its native key handling (arrows move volume 5%, Space and
+ * K toggle) would stack on the viewer's own, so focus goes to the wrapper and
+ * `handleQuickLookVideoKey` is the single owner of every key. Mouse use of the controls is unaffected.
+ */
+function releaseQuickLookVideoFocus(e) {
+  const wrap = e.currentTarget.parentElement;
+  if (!wrap) return;
+  const release = () => {
+    const active = document.activeElement;
+    if (active && active !== wrap && wrap.contains(active)) {
+      if (typeof active.blur === 'function') active.blur();
+      wrap.focus({ preventScroll: true });
+    }
+  };
+  wrap.focus({ preventScroll: true });
+  // The controls take focus again while finishing a press or a drag, after these events have fired.
+  setTimeout(release, 0);
+}
+
+function renderQuickLookVideo(modal, result, sessionId) {
+  const contentEl = modal.querySelector('#fileQuickLookContent');
+  const videoEl = modal.querySelector('#fileQuickLookVideo');
+  const codeEl = modal.querySelector('#fileQuickLookCode');
+  const metaEl = modal.querySelector('#fileQuickLookMeta');
+  const targetBadgeEl = modal.querySelector('#fileQuickLookTargetBadge');
+  const footerInfoEl = modal.querySelector('#fileQuickLookFooterInfo');
+  const copyBtn = modal.querySelector('#btnFileQuickLookCopy');
+  const insertPromptBtn = modal.querySelector('#btnFileQuickLookInsertPrompt');
+  const vsCodeBtn = modal.querySelector('#btnFileQuickLookVSCode');
+  const formatLabel = (result.fileName.split('.').pop() || '').toUpperCase();
+  const sizeStr = formatQuickLookSize(result.size);
+
+  if (metaEl) metaEl.textContent = `${formatLabel} • ${sizeStr}`;
+  if (targetBadgeEl) targetBadgeEl.style.display = 'none';
+  if (footerInfoEl) {
+    footerInfoEl.className = '';
+    footerInfoEl.textContent = '🎬 Space phát/tạm dừng • ←/→ tua 5 giây • ↑/↓ âm lượng • M tắt tiếng • F toàn màn hình • Phím I chèn Prompt • Phím V mở VS Code • Esc để đóng';
+  }
+  if (codeEl) codeEl.innerHTML = '';
+  if (contentEl) {
+    contentEl.classList.add('file-quick-look-content--video');
+    contentEl.scrollTop = 0;
+    contentEl.scrollLeft = 0;
+  }
+
+  if (videoEl) {
+    videoEl.dataset.filePath = result.filePath;
+    videoEl.onloadedmetadata = () => {
+      if (videoEl.dataset.filePath !== result.filePath) return;
+      const parts = [formatLabel];
+      if (videoEl.videoWidth && videoEl.videoHeight) parts.push(`${videoEl.videoWidth}×${videoEl.videoHeight}`);
+      const duration = formatQuickLookDuration(videoEl.duration);
+      if (duration) parts.push(duration);
+      parts.push(sizeStr);
+      if (metaEl) metaEl.textContent = parts.join(' • ');
+    };
+    videoEl.onerror = () => {
+      if (videoEl.dataset.filePath !== result.filePath) return;
+      contentEl?.classList.remove('file-quick-look-content--video');
+      if (metaEl) metaEl.textContent = 'Lỗi';
+      const code = videoEl.error ? videoEl.error.code : 0;
+      const reason = code === 4
+        ? 'Định dạng hoặc codec không được hỗ trợ (ví dụ HEVC/H.265, hoặc file hỏng).'
+        : code === 3
+          ? 'Không giải mã được video (file hỏng hoặc codec không hỗ trợ).'
+          : 'Không đọc được video này.';
+      if (codeEl) {
+        codeEl.innerHTML = `<div style="padding:24px;color:#f87171;line-height:1.6;">${escapeQuickLookHtml(reason)}<div style="margin-top:6px;color:#64748b;font-size:11px;">${escapeQuickLookHtml(result.filePath)}</div></div>`;
+      }
+    };
+    for (const type of ['focusin', 'pointerup', 'mouseup', 'click']) {
+      videoEl.addEventListener(type, releaseQuickLookVideoFocus);
+    }
+    videoEl.src = result.fileUrl;
+    videoEl.parentElement?.focus({ preventScroll: true });
+  }
+
+  if (copyBtn) {
+    copyBtn.onclick = (e) => {
+      e.stopPropagation();
+      writeClipboard(result.filePath);
+      showQuickLookToast(modal, '✓ Đã sao chép đường dẫn video');
+    };
+  }
+
+  if (insertPromptBtn) {
+    insertPromptBtn.onclick = (e) => {
+      e.stopPropagation();
+      const targetSessionId = typeof sessionId === 'function' ? sessionId() : (sessionId || activeId);
+      const refText = `@${result.filePath} `;
+      if (targetSessionId) sendTerminalInputFor(targetSessionId, refText);
+      writeClipboard(refText.trim());
+      showQuickLookToast(modal, `✓ Đã chèn @${result.fileName} vào Prompt!`);
+    };
+  }
+
+  if (vsCodeBtn) {
+    vsCodeBtn.onclick = (e) => {
+      e.stopPropagation();
+      api?.openInVSCode?.(result.filePath);
+    };
+  }
+}
+
+/** Keys for the playing video; the single owner of Space, K, the arrows, M and F while the viewer is open. */
+function handleQuickLookVideoKey(e, videoEl) {
+  const key = e.key;
+  if (key === 'f' || key === 'F') {
+    e.preventDefault();
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    else videoEl.requestFullscreen().catch(() => {});
+    return;
+  }
+  if (e.repeat && (key === ' ' || key === 'k' || key === 'K' || key === 'm' || key === 'M')) {
+    e.preventDefault();
+    return;
+  }
+  if (key === ' ' || key === 'k' || key === 'K') {
+    e.preventDefault();
+    if (videoEl.paused) videoEl.play().catch(() => {});
+    else videoEl.pause();
+  } else if (key === 'ArrowLeft' || key === 'ArrowRight') {
+    e.preventDefault();
+    const delta = key === 'ArrowLeft' ? -5 : 5;
+    const limit = Number.isFinite(videoEl.duration) ? videoEl.duration : Infinity;
+    videoEl.currentTime = Math.min(limit, Math.max(0, videoEl.currentTime + delta));
+  } else if (key === 'ArrowUp' || key === 'ArrowDown') {
+    e.preventDefault();
+    videoEl.volume = Math.min(1, Math.max(0, videoEl.volume + (key === 'ArrowUp' ? 0.1 : -0.1)));
+  } else if (key === 'm' || key === 'M') {
+    e.preventDefault();
+    videoEl.muted = !videoEl.muted;
+  }
+}
+
 async function openFileQuickLook(rawPath, sessionId) {
   if (!rawPath || typeof rawPath !== 'string') return;
   const modal = ensureFileQuickLookModal();
@@ -3608,6 +3879,16 @@ async function openFileQuickLook(rawPath, sessionId) {
   if (codeEl) codeEl.innerHTML = '<div style="padding:12px;color:#94a3b8;">Đang tải nội dung file...</div>';
   if (gutterEl) gutterEl.innerHTML = '';
   modal.querySelector('#fileQuickLookContent')?.classList.remove('file-quick-look-content--image');
+  modal.querySelector('#fileQuickLookContent')?.classList.remove('file-quick-look-content--markdown', 'file-quick-look-content--video');
+  stopQuickLookMedia(modal);
+  const markdownEl = modal.querySelector('#fileQuickLookMarkdown');
+  if (markdownEl) {
+    markdownEl.innerHTML = '';
+    markdownEl.onclick = null;
+  }
+  const modesEl = modal.querySelector('#fileQuickLookModes');
+  if (modesEl) modesEl.style.display = 'none';
+  delete modal.dataset.markdownMode;
   modal.querySelector('#fileQuickLookImageWrap')?.classList.remove('is-actual-size');
   const previousImageEl = modal.querySelector('#fileQuickLookImage');
   if (previousImageEl) {
@@ -3625,17 +3906,24 @@ async function openFileQuickLook(rawPath, sessionId) {
     document.removeEventListener('keydown', activeFileQuickLookClose);
   }
   const onKeydown = (e) => {
+    const plain = !e.ctrlKey && !e.metaKey && !e.altKey;
+    const videoEl = modal.querySelector('#fileQuickLookContent')?.classList.contains('file-quick-look-content--video')
+      ? modal.querySelector('#fileQuickLookVideo')
+      : null;
     if (e.key === 'Escape') {
       e.preventDefault();
-      modal.style.display = 'none';
-      document.removeEventListener('keydown', onKeydown);
-      activeFileQuickLookClose = null;
-    } else if ((e.key === 'i' || e.key === 'I') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      hideFileQuickLook(modal);
+    } else if ((e.key === 'i' || e.key === 'I') && plain) {
       e.preventDefault();
       insertPromptBtn?.click();
-    } else if ((e.key === 'v' || e.key === 'V') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    } else if ((e.key === 'v' || e.key === 'V') && plain) {
       e.preventDefault();
       vsCodeBtn?.click();
+    } else if (videoEl && plain) {
+      handleQuickLookVideoKey(e, videoEl);
+    } else if ((e.key === 'm' || e.key === 'M') && plain && modal.dataset.markdownMode) {
+      e.preventDefault();
+      applyQuickLookMarkdownMode(modal, modal.dataset.markdownMode === 'rendered' ? 'source' : 'rendered');
     }
   };
   activeFileQuickLookClose = onKeydown;
@@ -3677,6 +3965,10 @@ async function openFileQuickLook(rawPath, sessionId) {
       }
       if (result.kind === 'image') {
         renderQuickLookImage(modal, result, sessionId);
+        return;
+      }
+      if (result.kind === 'video') {
+        renderQuickLookVideo(modal, result, sessionId);
         return;
       }
       const sizeStr = result.size < 1024 ? `${result.size} B` : `${(result.size / 1024).toFixed(1)} KB`;
@@ -3796,6 +4088,10 @@ async function openFileQuickLook(rawPath, sessionId) {
             targetRow.scrollIntoView({ block: 'center', behavior: 'smooth' });
           }
         }, 80);
+      }
+
+      if (/\.(md|markdown)$/i.test(result.fileName || '')) {
+        renderQuickLookMarkdown(modal, result, targetLine, sessionId);
       }
     } else {
       if (iconEl) iconEl.textContent = '⚠️';

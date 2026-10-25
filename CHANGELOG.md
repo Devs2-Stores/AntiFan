@@ -6,6 +6,12 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 
 ## [v1.3.6] - Unreleased
 
+### Thêm — Xem Markdown đã dựng và phát video ngay trong Terminal File Viewer
+
+- **Markdown (`.md`/`.markdown`):** mở từ link trong terminal giờ hiện bản đã dựng (tiêu đề có anchor, bảng, danh sách lồng/task, trích dẫn, code fence có tô màu, ảnh cục bộ, link tương đối). Nút "Xem đẹp / Mã nguồn" hoặc phím `M` đổi chế độ, lựa chọn được nhớ; mở theo `path:dòng` vẫn vào mã nguồn để nhảy đúng dòng. Bộ dựng `src/shared/markdown-render.ts` không phụ thuộc thư viện, escape toàn bộ HTML thô, bỏ `javascript:`/`data:`/UNC, ảnh chỉ nạp qua `file://` đã resolve. Link web mở bằng `openExternal`, link `.md` tương đối mở trong chính viewer, link `#anchor` cuộn trong viewer.
+- **Video (`.mp4 .m4v .mov .webm .ogv .mkv`):** `readFilePreview` trả `kind:'video'` kèm `file://` URL (byte không đi qua IPC, Chromium tự seek); nhận dạng bằng chữ ký container nên file text đổi đuôi `.mp4` vẫn hiện như text. Viewer có player với `Space`/`K` phát-dừng, `←/→` tua 5 giây, `↑/↓` âm lượng, `M` tắt tiếng, `F` toàn màn hình; `Esc` dừng và nhả file (không khoá file trên Windows). Codec không hỗ trợ (vd. HEVC) hiện thông báo lỗi.
+- **Link terminal:** `.mp4 .webm .mov .m4v .ogv .mkv` được nhận là đường dẫn file.
+
 ### Sửa — Các điểm yếu rút từ chat OMP ngày 21–24/10 (P0/P1/P2)
 
 - **Tab bound không còn bị nhả khi session tạo thêm tab (K2):** `updateAttachmentTab` chỉ gọi `releaseSessionTab(tabCũ)` khi tab mới KHÔNG nằm trong tập tab quản lý của session; đóng tab neo của pool thì pool được re-key sang tab sống đầu tiên thay vì bị xoá. Mọi `TARGET_MISMATCH` kèm `details.cause`, `managedTabIds`, `ownership` và đúng nhãn menu "Cho agent của project này dùng tab".

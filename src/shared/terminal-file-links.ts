@@ -31,6 +31,7 @@ const VALID_FILE_EXTENSIONS: Record<string, true> = {
   md: true, markdown: true, txt: true, rtf: true,
   yaml: true, yml: true, toml: true, ini: true, conf: true, config: true,
   svg: true, png: true, jpg: true, jpeg: true, webp: true, gif: true, ico: true, avif: true, bmp: true,
+  mp4: true, webm: true, mov: true, m4v: true, ogv: true, mkv: true,
   sh: true, bash: true, zsh: true, ps1: true, bat: true, cmd: true,
   py: true, rs: true, go: true, c: true, cpp: true, h: true, hpp: true, cs: true, java: true, kt: true, swift: true, rb: true, php: true,
   lock: true, log: true, sql: true, csv: true, tsv: true, xml: true, vue: true, svelte: true, astro: true,

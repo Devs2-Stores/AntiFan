@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import type { ReadFilePreviewResult } from '../../shared/contracts';
 
 const MAX_TEXT_READ_BYTES = 512 * 1024;
@@ -8,6 +9,36 @@ const MAX_IMAGE_FILE_BYTES = 25 * 1024 * 1024;
 const BINARY_SNIFF_BYTES = 4096;
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const RASTER_IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'bmp', 'ico']);
+// `.mov` is played as MP4: Chromium demuxes the QuickTime container through its MP4 parser.
+const VIDEO_MIME_BY_EXTENSION: Record<string, string> = {
+  mp4: 'video/mp4',
+  m4v: 'video/mp4',
+  mov: 'video/mp4',
+  webm: 'video/webm',
+  mkv: 'video/webm',
+  ogv: 'video/ogg',
+};
+const VIDEO_SNIFF_BYTES = 16;
+const MP4_BOX_TYPES: Record<string, true> = { ftyp: true, moov: true, mdat: true, free: true, skip: true, wide: true, pnot: true };
+
+function readHead(filePath: string, length: number): Buffer {
+  const fd = fs.openSync(filePath, 'r');
+  try {
+    const buffer = Buffer.alloc(length);
+    const read = fs.readSync(fd, buffer, 0, length, 0);
+    return buffer.subarray(0, read);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+/** A text file renamed `.mp4` must not reach a `<video>`; only a real container header does. */
+function hasVideoContainerSignature(head: Buffer, mimeType: string): boolean {
+  if (mimeType === 'video/mp4') return head.length >= 8 && MP4_BOX_TYPES[head.toString('latin1', 4, 8)] === true;
+  if (mimeType === 'video/webm') return head.length >= 4 && head.readUInt32BE(0) === 0x1a45dfa3;
+  if (mimeType === 'video/ogg') return head.toString('latin1', 0, 4) === 'OggS';
+  return false;
+}
 
 function sniffImageMime(bytes: Buffer): string | null {
   const ascii = (start: number, end: number) => bytes.toString('latin1', start, end);
@@ -84,6 +115,11 @@ export function readFilePreview(targetPath: string): ReadFilePreviewResult {
           size: stat.size,
         };
       }
+    }
+
+    const videoMime = VIDEO_MIME_BY_EXTENSION[path.extname(targetPath).slice(1).toLowerCase()];
+    if (videoMime && stat.size > 0 && hasVideoContainerSignature(readHead(targetPath, VIDEO_SNIFF_BYTES), videoMime)) {
+      return { ok: true, kind: 'video', filePath: targetPath, fileName, mimeType: videoMime, fileUrl: pathToFileURL(targetPath).href, size: stat.size };
     }
 
     if (stat.size > MAX_TEXT_FILE_BYTES) {

@@ -815,6 +815,16 @@ export type ReadFilePreviewResult =
       size: number;
     }
   | {
+      ok: true;
+      kind: 'video';
+      filePath: string;
+      fileName: string;
+      mimeType: string;
+      /** `file:///` URL the viewer plays directly; Chromium streams and seeks it, so the bytes never cross IPC. */
+      fileUrl: string;
+      size: number;
+    }
+  | {
       ok: false;
       filePath: string;
       fileName: string;

@@ -180,6 +180,46 @@ describe('Terminal File Quick-Look & Link Provider Contracts', () => {
     assert.strictEqual(dirRes.reason, 'IS_DIRECTORY');
   });
 
+  it('readFilePreview serves a real video container by file URL and refuses a renamed text file', () => {
+    const mp4Bytes = Buffer.concat([Buffer.from([0x00, 0x00, 0x00, 0x18]), Buffer.from('ftypisom', 'latin1'), Buffer.alloc(16)]);
+    const mp4Path = path.join(tempDir, 'reel final.mp4');
+    fs.writeFileSync(mp4Path, mp4Bytes);
+    const mp4Res = readFilePreview(mp4Path);
+    assert.ok(mp4Res.ok && mp4Res.kind === 'video');
+    assert.strictEqual(mp4Res.mimeType, 'video/mp4');
+    assert.strictEqual(mp4Res.size, mp4Bytes.length);
+    assert.strictEqual(new URL(mp4Res.fileUrl).protocol, 'file:');
+    assert.ok(mp4Res.fileUrl.endsWith('/reel%20final.mp4'), mp4Res.fileUrl);
+
+    const hashedPath = path.join(tempDir, 'a #1 Gác 100%.mp4');
+    fs.writeFileSync(hashedPath, mp4Bytes);
+    const hashedRes = readFilePreview(hashedPath);
+    assert.ok(hashedRes.ok && hashedRes.kind === 'video');
+    const hashedUrl = new URL(hashedRes.fileUrl);
+    assert.strictEqual(hashedUrl.hash, '', 'a # in the name must not start a fragment');
+    assert.strictEqual(decodeURIComponent(hashedUrl.pathname).endsWith('/a #1 Gác 100%.mp4'), true, hashedRes.fileUrl);
+
+    const webmPath = path.join(tempDir, 'CLIP.WEBM');
+    fs.writeFileSync(webmPath, Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0x01, 0x00]));
+    const webmRes = readFilePreview(webmPath);
+    assert.ok(webmRes.ok && webmRes.kind === 'video');
+    assert.strictEqual(webmRes.mimeType, 'video/webm');
+
+    const fakeMp4Path = path.join(tempDir, 'notes.mp4');
+    fs.writeFileSync(fakeMp4Path, 'plain text, not a video\n', 'utf8');
+    const fakeRes = readFilePreview(fakeMp4Path);
+    assert.ok(fakeRes.ok && fakeRes.kind === 'text');
+
+    const emptyMp4Path = path.join(tempDir, 'empty.mp4');
+    fs.writeFileSync(emptyMp4Path, '');
+    const emptyRes = readFilePreview(emptyMp4Path);
+    assert.ok(!(emptyRes.ok && emptyRes.kind === 'video'));
+  });
+
+  it('turns a video path in terminal output into a link', () => {
+    assert.deepStrictEqual(linkTexts('Đã xuất E:/Work/Gác/channels/ttb/videos/reel-01/out/r1.mp4 xong'), ['E:/Work/Gác/channels/ttb/videos/reel-01/out/r1.mp4']);
+  });
+
   it('verifies openInVSCode logic correctly strips line:col, resolves relative path, and generates -r -g arguments', () => {
     function computeVSCodeArgs(targetPath?: string, workspaceFallback?: string): { args: string[]; target: string } {
       let cleanPath = typeof targetPath === 'string' ? targetPath.trim() : '';

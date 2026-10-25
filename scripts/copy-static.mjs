@@ -116,10 +116,13 @@ for (const spec of GENERATED_RENDERER_ASSETS) {
   const sharedSrc = path.join(sharedSrcDir, spec.file);
   if (!fs.existsSync(sharedSrc)) continue;
   const sharedRaw = fs.readFileSync(sharedSrc, 'utf8');
-  const sharedWrapped =
-    'var exports = exports || {};\nvar module = { exports: exports };\n' +
-    sharedRaw +
-    spec.globals.map((name) => `\nwindow.${name} = exports.${name};`).join('') + '\n';
+  // `scoped` modules keep their helpers out of the page's global scope: a classic script shares
+  // one top-level lexical scope with standalone.js, where a duplicate `const` is a SyntaxError.
+  const sharedWrapped = spec.scoped
+    ? `(function () {\n'use strict';\nvar exports = {};\nvar module = { exports: exports };\n${sharedRaw}${spec.globals.map((name) => `\nwindow.${name} = exports.${name};`).join('')}\n})();\n`
+    : 'var exports = exports || {};\nvar module = { exports: exports };\n' +
+      sharedRaw +
+      spec.globals.map((name) => `\nwindow.${name} = exports.${name};`).join('') + '\n';
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       fs.writeFileSync(sharedDst, sharedWrapped, 'utf8');

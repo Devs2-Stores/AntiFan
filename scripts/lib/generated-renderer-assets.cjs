@@ -8,4 +8,5 @@ module.exports = Object.freeze([
   Object.freeze({ file: 'terminal-write-dispatcher.js', globals: ['TerminalWriteDispatcher', 'globalTerminalWriteDispatcher'] }),
   Object.freeze({ file: 'session-activity.js', globals: ['SessionActivityTracker', 'sessionActivityLevel'] }),
   Object.freeze({ file: 'terminal-file-links.js', globals: ['findTerminalFileLinks', 'findTerminalFileLinkRanges'] }),
+  Object.freeze({ file: 'markdown-render.js', globals: ['renderMarkdown', 'resolveMarkdownPath', 'markdownAssetUrl'], scoped: true }),
 ]);
