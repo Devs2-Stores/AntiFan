@@ -3695,6 +3695,10 @@ body.is-project-dragging .terminal-tab-category-header {
 .file-quick-look-markdown th,
 .file-quick-look-markdown td {
   padding: 7px 13px;
+  /* `anywhere` (inherited from the article) would let a cell's minimum width shrink to one character,
+     so an automatic table layout crushes columns in a narrow viewer; `break-word` keeps word-level
+     minimums and still breaks a word that cannot fit. */
+  overflow-wrap: break-word;
   vertical-align: top;
   border: 1px solid rgba(255, 255, 255, 0.13);
 }
@@ -3707,6 +3711,38 @@ body.is-project-dragging .terminal-tab-category-header {
 
 .file-quick-look-markdown tbody tr:nth-child(even) td {
   background: rgba(255, 255, 255, 0.025);
+}
+
+/* More than 8 columns: natural column widths, scrolled sideways, first column pinned. */
+.file-quick-look-markdown .md-table-wide table {
+  width: max-content;
+  min-width: 0;
+}
+
+.file-quick-look-markdown .md-table-wide th,
+.file-quick-look-markdown .md-table-wide td {
+  min-width: 7ch;
+  max-width: 26em;
+}
+
+.file-quick-look-markdown .md-table-wide th:first-child,
+.file-quick-look-markdown .md-table-wide td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: #0f172a;
+}
+
+/* Hundreds of rows: fixed layout, columns sized from the header; many columns still scroll. */
+.file-quick-look-markdown .md-table-big table {
+  table-layout: fixed;
+  width: 100%;
+  min-width: calc(var(--md-cols, 1) * 9em);
+}
+
+.file-quick-look-markdown .md-table-big th,
+.file-quick-look-markdown .md-table-big td {
+  overflow-wrap: anywhere;
 }
 
 .file-quick-look-markdown img.md-img {

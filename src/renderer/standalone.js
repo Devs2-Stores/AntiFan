@@ -3637,6 +3637,11 @@ function applyQuickLookMarkdownMode(modal, mode, options) {
   const footerInfoEl = modal.querySelector('#fileQuickLookFooterInfo');
   const rendered = mode === 'rendered';
   modal.dataset.markdownMode = mode;
+  if (mode === 'source' && typeof modal._quickLookBuildSource === 'function') {
+    const build = modal._quickLookBuildSource;
+    modal._quickLookBuildSource = null;
+    build();
+  }
   if (contentEl) {
     contentEl.classList.toggle('file-quick-look-content--markdown', rendered);
     contentEl.scrollTop = 0;
@@ -3777,6 +3782,9 @@ function renderQuickLookVideo(modal, result, sessionId) {
     }
     videoEl.src = result.fileUrl;
     videoEl.parentElement?.focus({ preventScroll: true });
+    // Opening the viewer on a video starts it. A rejected play() (autoplay policy, undecodable file)
+    // leaves the paused player, and the onerror panel above covers the undecodable case.
+    videoEl.play().catch(() => {});
   }
 
   if (copyBtn) {
@@ -4042,39 +4050,51 @@ async function openFileQuickLook(rawPath, sessionId) {
       const lines = result.content.split('\n');
       const lineCount = lines.length;
 
-      const gutterHtml = lines.map((_, idx) => {
-        const lineNum = idx + 1;
-        const isTarget = targetLine && targetLine === lineNum;
-        return `<div class="file-quick-look-line-num${isTarget ? ' highlight-line' : ''}" data-line="${lineNum}" title="Click để copy ${escapeQuickLookHtml(result.fileName)}:${lineNum}">${lineNum}</div>`;
-      }).join('');
-      if (gutterEl) {
-        gutterEl.innerHTML = gutterHtml;
-        gutterEl.onclick = (e) => {
-          const lineNumEl = e.target.closest('.file-quick-look-line-num');
-          if (!lineNumEl) return;
-          const lineNum = lineNumEl.getAttribute('data-line');
-          if (!lineNum) return;
-          const fullRef = `${result.filePath}:${lineNum}`;
-          try {
-            if (navigator.clipboard?.writeText) {
-              navigator.clipboard.writeText(fullRef);
-            } else if (api?.writeClipboard) {
-              api.writeClipboard(fullRef);
-            }
-            showQuickLookToast(modal, `✓ Đã copy ${result.fileName}:${lineNum}`);
-          } catch {}
-        };
-      }
-
       const fileExt = (result.fileName || rawPath || '').split('.').pop().toLowerCase();
-      // Syntax highlight lines (fast regex tokenizer)
-      const codeHtml = lines.map((line, idx) => {
-        const lineNum = idx + 1;
-        const isTarget = targetLine && targetLine === lineNum;
-        const highlighted = highlightSyntax(line, fileExt);
-        return `<div class="file-quick-look-code-row${isTarget ? ' highlight-line' : ''}" data-line="${lineNum}">${highlighted || ' '}</div>`;
-      }).join('');
-      if (codeEl) codeEl.innerHTML = codeHtml;
+      // Gutter + syntax-highlighted rows. For a large file this costs far more than the rendered view,
+      // so a Markdown file that opens rendered builds it only when the user switches to the source.
+      const buildSource = () => {
+        const gutterHtml = lines.map((_, idx) => {
+          const lineNum = idx + 1;
+          const isTarget = targetLine && targetLine === lineNum;
+          return `<div class="file-quick-look-line-num${isTarget ? ' highlight-line' : ''}" data-line="${lineNum}" title="Click để copy ${escapeQuickLookHtml(result.fileName)}:${lineNum}">${lineNum}</div>`;
+        }).join('');
+        if (gutterEl) {
+          gutterEl.innerHTML = gutterHtml;
+          gutterEl.onclick = (e) => {
+            const lineNumEl = e.target.closest('.file-quick-look-line-num');
+            if (!lineNumEl) return;
+            const lineNum = lineNumEl.getAttribute('data-line');
+            if (!lineNum) return;
+            const fullRef = `${result.filePath}:${lineNum}`;
+            try {
+              if (navigator.clipboard?.writeText) {
+                navigator.clipboard.writeText(fullRef);
+              } else if (api?.writeClipboard) {
+                api.writeClipboard(fullRef);
+              }
+              showQuickLookToast(modal, `✓ Đã copy ${result.fileName}:${lineNum}`);
+            } catch {}
+          };
+        }
+        // Syntax highlight lines (fast regex tokenizer)
+        const codeHtml = lines.map((line, idx) => {
+          const lineNum = idx + 1;
+          const isTarget = targetLine && targetLine === lineNum;
+          const highlighted = highlightSyntax(line, fileExt);
+          return `<div class="file-quick-look-code-row${isTarget ? ' highlight-line' : ''}" data-line="${lineNum}">${highlighted || ' '}</div>`;
+        }).join('');
+        if (codeEl) codeEl.innerHTML = codeHtml;
+      };
+      const isMarkdownFile = /\.(md|markdown)$/i.test(result.fileName || '');
+      modal._quickLookBuildSource = null;
+      if (isMarkdownFile && !targetLine && typeof renderMarkdown === 'function' && readQuickLookMarkdownMode() === 'rendered') {
+        if (gutterEl) gutterEl.innerHTML = '';
+        if (codeEl) codeEl.innerHTML = '';
+        modal._quickLookBuildSource = buildSource;
+      } else {
+        buildSource();
+      }
 
       if (result.isTruncated && footerInfoEl) {
         footerInfoEl.className = 'file-quick-look-footer-warn';

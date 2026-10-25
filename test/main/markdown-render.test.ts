@@ -35,6 +35,20 @@ describe('Markdown renderer', () => {
     assert.match(html, /<h1 data-md-id="setext">Setext<\/h1>/);
   });
 
+  it('marks tables by size: a normal table is plain, many columns scroll sideways, many rows use a fixed layout', () => {
+    const table = (columns: number, rows: number): string => {
+      const row = (cell: string): string => `| ${Array.from({ length: columns }, () => cell).join(' | ')} |`;
+      return [row('h'), `|${'---|'.repeat(columns)}`, ...Array.from({ length: rows }, () => row('c'))].join('\n');
+    };
+    assert.match(render(table(3, 5)), /<div class="md-table-wrap"><table>/);
+    assert.match(render(table(9, 5)), /<div class="md-table-wrap md-table-wide"><table>/);
+    assert.match(render(table(8, 5)), /<div class="md-table-wrap"><table>/);
+    const big = render(table(6, 401));
+    assert.match(big, /<div class="md-table-wrap md-table-big"><table style="--md-cols:6">/);
+    assert.match(render(table(6, 400)), /<div class="md-table-wrap"><table>/);
+    assert.match(render(table(12, 401)), /md-table-wrap md-table-wide md-table-big/);
+  });
+
   it('renders the pricing-report shape: a table whose cells carry code, bold and pipes in code', () => {
     const source = [
       '| Mẫu | Giá `model_price` | Ghi chú |',

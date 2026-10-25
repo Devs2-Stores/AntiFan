@@ -25,6 +25,10 @@ exports.markdownAssetUrl = markdownAssetUrl;
 exports.renderMarkdown = renderMarkdown;
 /** Block quotes and lists nest by recursion; past this depth the rest is shown as text. */
 const MAX_DEPTH = 24;
+/** Tables with more columns than this scroll sideways rather than squeezing into the viewer. */
+const WIDE_TABLE_COLUMNS = 8;
+/** Tables with more body rows than this use a fixed column layout (see renderTable). */
+const BIG_TABLE_ROWS = 400;
 const ENTITY_TAIL = '(?:#\\d{1,7}|#[xX][0-9a-fA-F]{1,6}|[A-Za-z][A-Za-z0-9]{1,31});';
 const BARE_AMPERSAND = new RegExp(`&(?!${ENTITY_TAIL})`, 'g');
 function escapeHtml(text) {
@@ -645,7 +649,18 @@ function renderTable(lines, start, context) {
         i++;
     }
     const body = rows.length ? `<tbody>${rows.join('')}</tbody>` : '';
-    return { html: `<div class="md-table-wrap"><table>${head}${body}</table></div>`, end: i };
+    // Past this many columns the browser would squeeze every column to its longest word and wrap the
+    // rest character by character; such a table keeps natural column widths and scrolls sideways.
+    const classes = ['md-table-wrap'];
+    if (header.length > WIDE_TABLE_COLUMNS)
+        classes.push('md-table-wide');
+    // Automatic layout measures every cell of every row (about 1.4 s for 4000 rows in a narrow viewer);
+    // a fixed layout sizes the columns from the first row only.
+    const big = rows.length > BIG_TABLE_ROWS;
+    if (big)
+        classes.push('md-table-big');
+    const tableStyle = big ? ` style="--md-cols:${header.length}"` : '';
+    return { html: `<div class="${classes.join(' ')}"><table${tableStyle}>${head}${body}</table></div>`, end: i };
 }
 function renderList(lines, start, context) {
     const first = LIST_MARKER.exec(lines[start]);
