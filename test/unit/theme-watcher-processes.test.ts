@@ -91,6 +91,23 @@ describe('snapshotProcesses', () => {
     }
   });
 
+  it('starts a single probe for callers that arrive while one is running, and forgets a failed one', async () => {
+    let probes = 0;
+    let release: (rows: ProcessRow[] | null) => void = () => {};
+    const slow = (): Promise<ProcessRow[] | null> => {
+      probes += 1;
+      return new Promise((resolve) => { release = resolve; });
+    };
+    const calls = [snapshotProcessesCached(-1, undefined, slow), snapshotProcessesCached(-1, undefined, slow), snapshotProcessesCached(-1, undefined, slow)];
+    assert.equal(probes, 1, 'three concurrent callers share one probe');
+    release(null);
+    assert.deepEqual(await Promise.all(calls), [null, null, null]);
+    const rows: ProcessRow[] = [{ pid: 1, ppid: 0, command: '' }];
+    const next = snapshotProcessesCached(60_000, undefined, async () => { probes += 1; return rows; });
+    assert.equal(await next, rows, 'a failed probe leaves nothing cached, so the next caller probes again');
+    assert.equal(probes, 2);
+  });
+
   it('serves one probe to every caller within the age window, and probes again after it', async () => {
     const first = await snapshotProcessesCached(60_000);
     assert.ok(first, 'the process table was readable');

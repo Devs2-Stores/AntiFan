@@ -144,15 +144,29 @@ export async function snapshotProcesses(timeoutMs = 15000): Promise<ProcessRow[]
 }
 
 let cachedSnapshot: { at: number; rows: ProcessRow[] } | null = null;
+let inflight: Promise<ProcessRow[] | null> | null = null;
 
 /**
  * A snapshot no older than `maxAgeMs`. Several windows restoring together each need the answer, and
- * a watcher typed by hand does not appear within seconds, so one probe serves the whole burst.
- * A failed probe is never cached.
+ * a watcher typed by hand does not appear within seconds, so one probe serves the whole burst: a
+ * caller arriving while a probe is running joins it instead of starting another. A failed probe is
+ * never cached. `probe` is injectable so the sharing can be tested without spawning anything.
  */
-export async function snapshotProcessesCached(maxAgeMs: number, timeoutMs?: number): Promise<ProcessRow[] | null> {
-  if (cachedSnapshot && Date.now() - cachedSnapshot.at <= maxAgeMs) return cachedSnapshot.rows;
-  const rows = await snapshotProcesses(timeoutMs);
-  cachedSnapshot = rows ? { at: Date.now(), rows } : null;
-  return rows;
+export function snapshotProcessesCached(
+  maxAgeMs: number,
+  timeoutMs?: number,
+  probe: (timeoutMs?: number) => Promise<ProcessRow[] | null> = snapshotProcesses,
+): Promise<ProcessRow[] | null> {
+  if (cachedSnapshot && Date.now() - cachedSnapshot.at <= maxAgeMs) return Promise.resolve(cachedSnapshot.rows);
+  if (inflight) return inflight;
+  const running = probe(timeoutMs)
+    .then((rows) => {
+      cachedSnapshot = rows ? { at: Date.now(), rows } : null;
+      return rows;
+    })
+    .finally(() => {
+      if (inflight === running) inflight = null;
+    });
+  inflight = running;
+  return running;
 }
