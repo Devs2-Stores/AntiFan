@@ -49,6 +49,8 @@ const AGENT_PROJECT = 'project-00000000-0000-4000-8000-0000000000d4';
 const RESTORED_PROJECT = 'project-00000000-0000-4000-8000-0000000000e5';
 const VISIBLE_PROJECT = 'project-00000000-0000-4000-8000-0000000000f6';
 const REVEAL_PROJECT = 'project-00000000-0000-4000-8000-000000000107';
+const DEFAULT_PAGE_AGENT_PROJECT = 'project-00000000-0000-4000-8000-000000000118';
+const DEFAULT_PAGE_USER_PROJECT = 'project-00000000-0000-4000-8000-000000000129';
 
 /** The native window as Main drives it: hidden when built, shown only by a presenter. */
 class WindowDouble extends EventEmitter {
@@ -78,11 +80,19 @@ class WindowDouble extends EventEmitter {
   }
 }
 
+/** What each window's host was asked to restore: `restoreTabs(launchUrl, options)` per owner key. */
+const restoreCalls = new Map<string, Array<{ fallbackUrl?: string; options?: { emptyWindowOk?: boolean } }>>();
+
 /** A tab host that takes every wiring call the creation path makes and hosts no tab. */
-function hostDouble(): NativeTabHost {
+function hostDouble(key: string): NativeTabHost {
   const answers: Record<string, unknown> = {
     resolveTerminalCreationTarget: () => ({ cwd: '', source: 'test' }),
     getTabList: () => [],
+    restoreTabs: (fallbackUrl?: string, options?: { emptyWindowOk?: boolean }) => {
+      const calls = restoreCalls.get(key) ?? [];
+      calls.push({ fallbackUrl, options });
+      restoreCalls.set(key, calls);
+    },
   };
   return new Proxy({}, {
     get: (_target, prop) => {
@@ -106,12 +116,14 @@ describe('open-window ledger lists only windows a person could see', () => {
       [RESTORED_PROJECT, 'restored'],
       [VISIBLE_PROJECT, 'agent-visible'],
       [REVEAL_PROJECT, 'agent-reveal'],
+      [DEFAULT_PAGE_AGENT_PROJECT, 'default-page-agent'],
+      [DEFAULT_PAGE_USER_PROJECT, 'default-page-user'],
     ] as const) {
       const workspaceDir = path.join(pinnedRoot, 'workspaces', name);
       fs.mkdirSync(workspaceDir, { recursive: true });
       projectRegistry.ensureInitialWorkspace(projectId, projectId.replace('project-', 'workspace-'), workspaceDir, pinnedRoot);
     }
-    setProjectWindowHostFactoryForTesting(() => hostDouble());
+    setProjectWindowHostFactoryForTesting((shell) => hostDouble(ownerKey(shell.owner)));
     setProjectWindowManagerForTesting(new ProjectWindowManager({
       createShell: (owner: WindowOwner) => {
         const window = new WindowDouble(windows.size + 1);
@@ -183,5 +195,20 @@ describe('open-window ledger lists only windows a person could see', () => {
     assert.equal(windows.get(key)?.isVisible(), true, 'joining with agent-visible intent surfaces the hidden window');
     assert.equal(windows.get(key)?.shownVia, 'showInactive', 'the reveal does not activate the window');
     assert.equal(windows.get(key)?.focusCalls, 0, 'the reveal never steals focus');
+  });
+
+  it('leaves a window opened for agent work without a default page, and gives a person one', async () => {
+    const agentKey = `project:${DEFAULT_PAGE_AGENT_PROJECT}`;
+    const userKey = `project:${DEFAULT_PAGE_USER_PROJECT}`;
+
+    await projectWindowAuthority.ensureProjectWindow({ kind: 'project', projectId: DEFAULT_PAGE_AGENT_PROJECT }, 'agent');
+    await projectWindowAuthority.ensureProjectWindow({ kind: 'project', projectId: DEFAULT_PAGE_USER_PROJECT }, 'user');
+
+    assert.equal(restoreCalls.get(agentKey)?.length, 1, 'the window restored once');
+    assert.equal(restoreCalls.get(agentKey)?.[0]?.options?.emptyWindowOk, true, 'an agent window waits for the tab the agent mints');
+    assert.equal(restoreCalls.get(userKey)?.[0]?.options?.emptyWindowOk, false, 'a person never sees a window with no page');
+
+    await projectWindowAuthority.ensureProjectWindow({ kind: 'project', projectId: DEFAULT_PAGE_AGENT_PROJECT }, 'agent-visible');
+    assert.equal(restoreCalls.get(agentKey)?.length, 1, 'joining an open window restores nothing again');
   });
 });

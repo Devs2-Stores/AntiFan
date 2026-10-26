@@ -591,15 +591,25 @@ so an unrelated event can never push a close through.
 
 **Project window closed, its terminal still asking.** An agent mint claimed by a project (a
 terminal stamped `project:<id>`, or a validated `projectId`) whose window is closed reopens that
-window once with `agent-visible` intent: created and shown unfocused on its first paint, so the
-user sees the page without a click on the sidebar's open-window arrow and focus stays where they
-are typing (`project-window.opened-for-agent` in the lifecycle log). `anti.browser.tabs.create`
-for a project with no window does the same. The `agent` intent (created, never presented) remains
-for callers that must stay invisible. When it cannot be reopened the mint
+window once with `agent` intent: created, never presented, so a session start (bookkeeping, not
+web work) puts nothing on screen (`project-window.reopened-off-screen` in the lifecycle log).
+Real web work - `anti.browser.tabs.create` or `anti.browser.navigate` to an `http(s)` URL - opens
+the window with `agent-visible` intent instead: created and shown unfocused on its first paint,
+so the user sees the page without a click on the sidebar's open-window arrow and focus stays where
+they are typing (`project-window.opened-for-agent`). A window an earlier `agent` call left hidden
+is surfaced the same way when the agent opens a web page in it; a blank tab never raises a window.
+When it cannot be reopened the mint
 refuses `TERMINAL_SCOPE_UNRESOLVED` with the reason and a recovery, and never lands in another
 project's window. A terminal no project claims answers on the ambient window, which refuses
 `TARGET_REQUIRED` when several windows make it ambiguous. A mint for a bound tab that is gone
 never reopens anything.
+
+A window opened with `agent` or `agent-visible` intent starts without the default Google page
+(`restoreTabs(..., { emptyWindowOk })`; a launch URL still opens): the tab the agent mints is its
+first. A window a person opens is never left empty. A blank tab minted by an automation caller
+(`NativeTabRecord.mintedByAutomation`, the session anchor) is not written to `saved-tabs.json`
+while it is blank, and a restore drops blank tabs that sit beside real pages, so closing and
+reopening a window does not leave one stray New Tab per session.
 
 ## Screenshot Matrix
 

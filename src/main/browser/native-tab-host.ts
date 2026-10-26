@@ -967,6 +967,11 @@ export interface BookmarkItem {
 
 
 export interface NativeTabRecord {
+/** A tab with no page: `about:blank`, or no URL at all. */
+function isBlankTabUrl(url: string | undefined): boolean {
+  return !url || url === 'about:blank';
+}
+
   /**
    * The presented WebContentsView. Absent while the tab is hibernated — the
    * record (id, state) survives, and `ensureTabAwake`/`switchTab`/`navigate`
@@ -997,6 +1002,13 @@ export interface NativeTabRecord {
    * `lastActiveAt` (which feeds hibernation); reported in close telemetry. */
   agentActivityAt?: number;
 }
+  /**
+   * Set when an automation caller (one that declared a `plane`) minted this tab. A session
+   * anchor is minted blank and exists only for the session that asked for it, so while it is
+   * still blank it is not saved: restored later it would be a stray New Tab that no session
+   * owns, and every new session would add another beside it. Never persisted.
+   */
+  mintedByAutomation?: boolean;
 
 /**
  * One terminal's agent ownership record: the tabs it may address, the tab its agent
@@ -8641,7 +8653,7 @@ export class NativeTabHost extends EventEmitter {
 
     const effectivePreset = initialPreset || (options?.mobile ? findDevicePreset('iphone-15') : undefined);
 
-    const tabEntry: NativeTabRecord = { view, state, focusedPane: 'desktop', lastActiveAt: Date.now() };
+    const tabEntry: NativeTabRecord = { view, state, focusedPane: 'desktop', lastActiveAt: Date.now(), ...(options?.plane !== undefined ? { mintedByAutomation: true } : {}) };
     // Mint-time stamp, strip tabs only: a `project:<id>` window stamps the project that
     // owns it (the host's owner key is the project's identity). Other shells and
     // ephemeral agent surfaces stamp nothing.
@@ -14354,6 +14366,7 @@ export class NativeTabHost extends EventEmitter {
       terminalId: string;
       primaryTabId: string;
       managedTabIds: string[];
+      if (tab.mintedByAutomation === true && isBlankTabUrl(tab.state.url)) return null;
     }> = [];
 
     if (this.terminalAgentAffinity) {
@@ -14392,7 +14405,8 @@ export class NativeTabHost extends EventEmitter {
     let persistedActiveTabId: string | undefined = this.activeTabId;
     if (persistedActiveTabId) {
       const activeTab = this.tabs.get(persistedActiveTabId);
-      if (!activeTab || activeTab.state.ephemeral === true || activeTab.state.popupOf) {
+      if (!activeTab || activeTab.state.ephemeral === true || activeTab.state.popupOf
+        || (activeTab.mintedByAutomation === true && isBlankTabUrl(activeTab.state.url))) {
         persistedActiveTabId = undefined;
       }
     }
@@ -14564,7 +14578,7 @@ export class NativeTabHost extends EventEmitter {
   }
 
 
-  public restoreTabs(fallbackUrl?: string, options?: { safeStart?: boolean }): void {
+  public restoreTabs(fallbackUrl?: string, options?: { safeStart?: boolean; emptyWindowOk?: boolean }): void {
     try {
       // Migrates a legacy flat file on first read; shared preferences apply to every
       // window, while tabs/popouts/affinities belong to this window's owner record.
@@ -14611,6 +14625,10 @@ export class NativeTabHost extends EventEmitter {
             for (const aff of record.terminalAffinities) {
               const newPrimaryId = oldIdToNewId.get(aff.primaryTabId);
               if (newPrimaryId && this.hasTab(newPrimaryId)) {
+          // A blank page next to real ones is a leftover (an agent's session anchor saved by an
+          // older build, or an abandoned New Tab): it carries nothing to come back to. A window
+          // whose saved pages are all blank keeps them, so a lone New Tab still returns.
+          const dropBlank = record.tabs.some((row) => row && !row.ephemeral && !isBlankTabUrl(migratePersistedTab(row as Partial<AntiFanTab>).url));
                 this.bindTerminalAgentAffinity(aff.terminalId, undefined, newPrimaryId);
                 if (Array.isArray(aff.managedTabIds)) {
                   for (const oldChildId of aff.managedTabIds) {
@@ -14625,7 +14643,7 @@ export class NativeTabHost extends EventEmitter {
           }
 
           if (this.tabOrder.length === 0) {
-            this.createTab(fallbackUrl || 'https://www.google.com');
+            if (!options?.emptyWindowOk) this.createTab(fallbackUrl || 'https://www.google.com');
           } else if (restoredActiveId && this.tabs.has(restoredActiveId)) {
             const activeCandidate = this.tabs.get(restoredActiveId);
             if (activeCandidate && activeCandidate.state.ephemeral !== true) {
@@ -14646,8 +14664,10 @@ export class NativeTabHost extends EventEmitter {
       this.sharedDocumentPrefBaseline ??= this.serializeSharedDocumentPrefs(this.sharedDocumentPrefValues());
     }
 
-    // Default fallback: a browser window is never empty. The Terminal Manager has no tabs.
-    if (this.isTerminalOnlyWindow()) {
+    // Default fallback: a browser window is never empty. The Terminal Manager has no tabs, and a
+    // window opened only to give an agent a tab (`emptyWindowOk`) gets that tab next, not a page
+    // nobody asked for.
+    if (this.isTerminalOnlyWindow() || options?.emptyWindowOk) {
       this.updateLayout();
     } else {
       this.createTab(fallbackUrl || 'https://www.google.com');
@@ -14730,7 +14750,7 @@ export class NativeTabHost extends EventEmitter {
    */
   private ingestTabRow(
     rawTab: Record<string, unknown>,
-    opts: { oldIdToNewId: Map<string, string>; stubUnlessActiveId?: string },
+    opts: { oldIdToNewId: Map<string, string>; stubUnlessActiveId?: string; dropBlank?: boolean },
   ): { id: string; sourceIds: string[] } | null {
     // Persisted entries were written from AntiFanTab states, and migratePersistedTab
     // re-validates every field it reads, so the shape assertion ends at this call.
@@ -14754,6 +14774,7 @@ export class NativeTabHost extends EventEmitter {
       // The persisted stamp decides, not the mint-time default: a row restored without
       // a stamp stays a shared tab.
       tab.projectId = persistedProjectId;
+    if (opts.dropBlank === true && isBlankTabUrl(migrated.url)) return null;
       tab.state.url = safeUrl;
       if (isUnloadedStub) {
         tab.state.isLoading = false;

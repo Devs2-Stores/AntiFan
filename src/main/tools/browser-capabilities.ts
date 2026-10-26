@@ -857,7 +857,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       },
     },
     execute: async (params: { url?: string; activate?: boolean; anchorTabId?: string; ephemeral?: boolean; userFacing?: boolean; devicePresetId?: string; mobile?: boolean; projectId?: string }, context) => {
-      await browser.ensureHostForNewTab({ target: context?.browserTarget, authenticatedProjectId: context?.projectId });
+      await browser.ensureHostForNewTab({ target: context?.browserTarget, authenticatedProjectId: context?.projectId, url: params.url });
       return browser.openTab(params, { target: context?.browserTarget, authenticatedProjectId: context?.projectId });
     },
   });
@@ -1787,7 +1787,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
     inputSchema: { type: 'object', properties: { url: { type: 'string' }, activate: { type: 'boolean' }, anchorTabId: { type: 'string', description: 'Live same-project tab selecting the window for creation' }, ephemeral: { type: 'boolean' }, userFacing: { type: 'boolean', description: 'Open tab directly on the visible user plane (non-ephemeral) for interactive inspection/debugging' }, projectId: { type: 'string', description: 'Scope selector: must equal this session\'s authenticated projectId. A foreign or unbound selector is refused before allocation; it never widens authority.' } } },
     execute: async (params: { url?: string; activate?: boolean; anchorTabId?: string; ephemeral?: boolean; userFacing?: boolean; projectId?: string }, context) => {
-      await browser.ensureHostForNewTab({ target: context?.browserTarget, authenticatedProjectId: context?.projectId });
+      await browser.ensureHostForNewTab({ target: context?.browserTarget, authenticatedProjectId: context?.projectId, url: params.url });
       return browser.openTab(params, { target: context?.browserTarget, authenticatedProjectId: context?.projectId });
     },
   });
@@ -3089,7 +3089,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       },
     },
     execute: async (params: { url?: string; activate?: boolean; anchorTabId?: string; ephemeral?: boolean; userFacing?: boolean; devicePresetId?: string; mobile?: boolean; projectId?: string }, context) => {
-      await browser.ensureHostForNewTab({ target: context?.browserTarget, authenticatedProjectId: context?.projectId });
+      await browser.ensureHostForNewTab({ target: context?.browserTarget, authenticatedProjectId: context?.projectId, url: params.url });
       return browser.openTab(params, { target: context?.browserTarget, authenticatedProjectId: context?.projectId });
     },
   });

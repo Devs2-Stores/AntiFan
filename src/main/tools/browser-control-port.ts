@@ -125,6 +125,11 @@ function antiBotRefusal(url: string | undefined, tabId: string, requestedUrl?: s
   return antiBotChallengeError(challenge, { tabId });
 }
 
+/** True for a real http(s) page; empty, `about:blank` and anything else is not web work. */
+function isWebUrl(url: string | undefined): boolean {
+  return typeof url === 'string' && /^https?:\/\//i.test(url.trim());
+}
+
 /** What a failed or timed-out load left behind: whether the URL committed, and that no load-complete document exists. */
 function navigationOutcomeDetails(urlBefore: string | undefined, liveUrl: string | undefined, tabId: string): Record<string, unknown> {
   return {
@@ -285,7 +290,9 @@ export interface BrowserHostPort {
    * Opens (hidden, without taking focus) the window of a known project that has none, so a
    * session that never started a window can still create its first tab. A no-op when a host exists.
    */
-  ensureProjectTabHost?(projectId: string): Promise<void>;
+  ensureProjectTabHost?(projectId: string, options?: { visible?: boolean }): Promise<void>;
+  /** Shows (unfocused) the window holding a tab when it is off-screen; a window on screen is untouched. */
+  surfaceTabWindow?(tabId: string): void;
   getFailoverTargetTab?(staleTabId: string): string | undefined;
   getTabList(): unknown[];
   getBrowserEpoch?(): number;
@@ -2695,13 +2702,8 @@ export class BrowserControlPort {
         { tabId, recovery: 'anti.browser.tabs.list' }
       );
     }
-    // Session records first so an owned tab resolves even when the
-    // strip cannot see it; the strip covers affiliated tabs this session does
-    // not own.
-    const sessionRecords = boundTabId && this.host.getSessionTabList ? this.host.getSessionTabList(boundTabId) : [];
-    const records: unknown[] = [...(sessionRecords ?? []), ...(this.host.getTabList() || [])];
-    const tab = records.find((row) => isTabRecord(row) && row.id === tabId);
-    if (!tab || !isTabRecord(tab)) {
+    const tab = this.tabRecord(tabId, boundTabId);
+    if (!tab) {
       throw new CapabilityError('TARGET_STALE', `Tab '${tabId}' exists but no tab record is available for it`, staleDetails('tab-gone', { tabId }));
     }
     return {
@@ -2789,14 +2791,22 @@ export class BrowserControlPort {
 
   /**
    * Makes sure a session that has not bound a tab yet still has a window to create its first tab
-   * in: the project's window is opened (hidden) when it has none. A session already bound to a
-   * tab has a host by definition, and a call with no known project has nothing to open.
+   * in. A request for a real http(s) page is web work: the project's window is opened (or the
+   * hidden one holding the bound tab surfaced) without taking focus. A blank tab is bookkeeping,
+   * not a reason to put a window on screen, so it opens the window hidden or leaves it alone.
+   * A session already bound to a tab has a host by definition, and a call with no known project
+   * has nothing to open.
    */
-  async ensureHostForNewTab(context?: { target?: BrowserTarget; authenticatedProjectId?: string }): Promise<void> {
-    if (context?.target?.tabId) return;
+  async ensureHostForNewTab(context?: { target?: BrowserTarget; authenticatedProjectId?: string; url?: string }): Promise<void> {
+    const visible = isWebUrl(context?.url);
+    const boundTabId = context?.target?.tabId;
+    if (boundTabId) {
+      if (visible) this.host.surfaceTabWindow?.(boundTabId);
+      return;
+    }
     const projectId = context?.authenticatedProjectId ?? context?.target?.projectId;
     if (!projectId || typeof this.host.ensureProjectTabHost !== 'function') return;
-    await this.host.ensureProjectTabHost(projectId);
+    await this.host.ensureProjectTabHost(projectId, { visible });
   }
 
   async navigate(target: BrowserTarget, url: string, explicitTabId?: string, options?: { timeoutMs?: number }): Promise<{ navigated: boolean; target: BrowserTarget; dialog?: JsDialogDescription }> {
@@ -2807,6 +2817,8 @@ export class BrowserControlPort {
     if (!navigationUrl || !(navigationUrl === 'about:blank' || /^https?:\/\//i.test(navigationUrl))) {
       throw new CapabilityError('INVALID_ARGUMENT', 'Navigation requires an http(s) URL or about:blank');
     }
+    // Navigating to a real page is web work: a window that holds the tab off-screen is shown.
+    if (isWebUrl(navigationUrl)) this.host.surfaceTabWindow?.(tabId);
     const requestedTimeoutMs = options?.timeoutMs;
     const navigationTimeoutMs = typeof requestedTimeoutMs === 'number' && Number.isFinite(requestedTimeoutMs) && requestedTimeoutMs > 0
       ? Math.min(Math.floor(requestedTimeoutMs), NAVIGATE_TIMEOUT_CEILING_MS)
@@ -4920,9 +4932,7 @@ export class BrowserControlPort {
     if (!this.host.setAutomationTabId || !this.host.getTabList) {
       throw new CapabilityError('CAPABILITY_NOT_FOUND', 'setAutomationTabId is not supported by host');
     }
-    const tabs = this.host.getTabList() || [];
-    const exists = tabs.some(t => Boolean(t && typeof t === 'object' && 'id' in t && (t as { id: unknown }).id === cleanId));
-    if (!exists) {
+    if (!this.isTabLive(cleanId)) {
       throw new CapabilityError('INVALID_ARGUMENT', `Tab with id '${cleanId}' not found`);
     }
     const boundId = this.host.getAutomationTabId ? this.host.getAutomationTabId() : null;
@@ -4963,8 +4973,7 @@ export class BrowserControlPort {
     if (!this.host.getFailoverTargetTab) return undefined;
     const candidate = this.host.getFailoverTargetTab(staleTabId);
     if (typeof candidate !== 'string' || candidate.trim().length === 0) return undefined;
-    const exists = this.host.hasTab ? this.host.hasTab(candidate.trim()) : (this.host.getTabList?.() || []).some((t) => isTabRecord(t) && t.id === candidate.trim());
-    return exists ? candidate.trim() : undefined;
+    return this.isTabLive(candidate.trim()) ? candidate.trim() : undefined;
   }
   rebindTarget(options: { tabId?: string } = {}, target?: BrowserTarget): { success: boolean; tabId: string; documentGeneration: number; browserEpoch: number; url?: string; title?: string } {
     let effectiveTabId = options.tabId && typeof options.tabId === 'string' ? options.tabId.trim() : (target?.tabId ? target.tabId.trim() : '');
@@ -4975,14 +4984,12 @@ export class BrowserControlPort {
       }
       effectiveTabId = candidate;
     }
-    if (this.host.getTabList) {
-      const tabs = (this.host.getTabList() || []).filter(isTabRecord);
+    if (typeof this.host.getTabList === 'function') {
       if (!effectiveTabId) {
         // Never default to tabs[0]: an implicit pick can name a user tab.
         throw new CapabilityError('TARGET_REQUIRED', 'Browser target tabId is required to rebind');
       }
-      const matched = tabs.find(t => t.id === effectiveTabId);
-      if (!matched) {
+      if (!this.isTabLive(effectiveTabId)) {
         throw new CapabilityError('TARGET_STALE', `Target tab '${effectiveTabId}' no longer exists`, {
           cause: 'tab-gone',
           tabId: effectiveTabId,
@@ -5044,13 +5051,14 @@ export class BrowserControlPort {
       const epoch = typeof target?.browserEpoch === 'number' && Number.isFinite(target.browserEpoch) && target.browserEpoch > 0
         ? Math.floor(target.browserEpoch)
         : 1;
+      const record = this.tabRecord(effectiveTabId, target?.tabId);
       return {
         success: true,
         tabId: effectiveTabId,
         documentGeneration: liveDocGen,
         browserEpoch: epoch,
-        url: matched.url,
-        title: matched.title,
+        url: record?.url,
+        title: record?.title,
       };
     }
     if (!effectiveTabId) {
@@ -5588,17 +5596,13 @@ export class BrowserControlPort {
 
   private revalidateTargetInsideLock(target?: BrowserTarget, tabId?: string): void {
     if (!target) return;
-    if (tabId && this.host.getTabList) {
-      const tabs = this.host.getTabList() || [];
-      const exists = tabs.some((t: any) => t && typeof t === 'object' && t.id === tabId);
-      if (!exists) {
-        throw new CapabilityError('TARGET_STALE', `Target tab '${tabId}' no longer exists`, {
-          cause: 'tab-gone',
-          tabId,
-          canRebind: false,
-          recovery: 'anti.browser.tabs.list, then anti.browser.rebind_target to a live tab',
-        });
-      }
+    if (tabId && !this.isTabLive(tabId)) {
+      throw new CapabilityError('TARGET_STALE', `Target tab '${tabId}' no longer exists`, {
+        cause: 'tab-gone',
+        tabId,
+        canRebind: false,
+        recovery: 'anti.browser.tabs.list, then anti.browser.rebind_target to a live tab',
+      });
     }
     const liveDocGen = this.host.getDocumentGeneration ? this.host.getDocumentGeneration(tabId) : target.documentGeneration;
     if (typeof target.documentGeneration === 'number' && typeof liveDocGen === 'number' && target.documentGeneration !== liveDocGen) {
@@ -9525,18 +9529,30 @@ export class BrowserControlPort {
       { cause: 'tab-gone', boundTabId, canRebind: true, recovery: 'anti.browser.rebind_target', ...(autoBindCandidate ? { autoBindCandidate } : {}) }
     );
   }
+  /**
+   * Tab liveness, read from the host's tab map. `getTabList` is the user's tab strip and leaves
+   * ephemeral tabs out, so a row missing from it never proves a tab gone.
+   */
+  private isTabLive(id?: string | null): id is string {
+    if (!id) return false;
+    if (typeof this.host.hasTab === 'function') return this.host.hasTab(id);
+    return (this.host.getTabList?.() || []).some((tab) => isTabRecord(tab) && tab.id === id);
+  }
+
+  /** A tab's record: the tab's own session records carry it when the strip leaves it out. */
+  private tabRecord(tabId: string, boundTabId?: string): AntiFanTab | undefined {
+    const owners = boundTabId && boundTabId !== tabId ? [tabId, boundTabId] : [tabId];
+    const records: unknown[] = [
+      ...(this.host.getSessionTabList ? owners.flatMap((id) => this.host.getSessionTabList?.(id) ?? []) : []),
+      ...(this.host.getTabList?.() || []),
+    ];
+    return records.find((row): row is AntiFanTab => isTabRecord(row) && row.id === tabId);
+  }
+
   private resolveTargetTab(target?: BrowserTarget, explicitTabId?: string, operationType: 'read' | 'lifecycle' | 'write' = 'read', params?: Record<string, unknown>): string {
     if (target) {
       assertTarget(target, true);
     }
-    const tabExists = (id?: string | null): id is string => {
-      if (!id) return false;
-      if (typeof this.host.hasTab === 'function') {
-        return this.host.hasTab(id);
-      }
-      const list = this.host.getTabList();
-      return Boolean(list && list.some((tab: unknown) => Boolean(tab && typeof tab === 'object' && 'id' in tab && tab.id === id)));
-    };
     let resolved: string | undefined;
 
     const boundId = target?.tabId && target.tabId.trim().length > 0 ? target.tabId.trim() : '';
@@ -9586,7 +9602,7 @@ export class BrowserControlPort {
           }
         }
       }
-      if (!tabExists(candidate)) {
+      if (!this.isTabLive(candidate)) {
         if (boundId && (isMobileSibling(candidate, boundId) || isMobileSibling(explicitTabId, boundId))) {
           candidate = boundId;
           if (params && typeof params === 'object') {
@@ -9595,7 +9611,7 @@ export class BrowserControlPort {
           }
         } else if (boundId && candidate === boundId) {
           const failoverTab = this.host.getFailoverTargetTab ? this.host.getFailoverTargetTab(boundId) : undefined;
-          if (failoverTab && tabExists(failoverTab)) {
+          if (failoverTab && this.isTabLive(failoverTab)) {
             candidate = failoverTab;
           } else {
             throw this.boundTabGoneError(boundId, target);
@@ -9625,9 +9641,9 @@ export class BrowserControlPort {
       }
       resolved = candidate;
     } else if (target?.tabId && target.tabId.trim().length > 0) {
-      if (!tabExists(target.tabId)) {
+      if (!this.isTabLive(target.tabId)) {
         const failoverTab = this.host.getFailoverTargetTab ? this.host.getFailoverTargetTab(target.tabId) : undefined;
-        if (failoverTab && tabExists(failoverTab)) {
+        if (failoverTab && this.isTabLive(failoverTab)) {
           resolved = failoverTab;
         } else {
           throw this.boundTabGoneError(target.tabId, target);
@@ -9637,7 +9653,7 @@ export class BrowserControlPort {
       }
     } else {
       const currentAutoTab = this.host.getAutomationTabId ? this.host.getAutomationTabId() : undefined;
-      if (tabExists(currentAutoTab)) {
+      if (this.isTabLive(currentAutoTab)) {
         resolved = currentAutoTab;
       } else if (this.host.createTab) {
         // Dual-Plane Runtime Isolation: dedicated agent tab renders in the background so

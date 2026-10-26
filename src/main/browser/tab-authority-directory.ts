@@ -59,6 +59,16 @@ export class TabAuthorityDirectory {
     }
     return undefined;
   }
+
+  /** The live window shell presenting a tab, or undefined when none does. */
+  public shellForTab(tabId: string): ProjectWindowShell | undefined {
+    for (const [shell, host] of this.hostsByShell) {
+      if (shell.window.isDestroyed()) continue;
+      if (host.hasTab(tabId)) return shell;
+    }
+    return undefined;
+  }
+
   /** The host for a project window, or undefined when no live window owns that project. */
   public hostForProject(projectId: string): NativeTabHost | undefined {
     if (!projectId) return undefined;

@@ -209,6 +209,30 @@ describe('ensureHostForNewTab (K8)', () => {
     assert.equal(calls, 0);
   });
 
+  it('asks for a visible window only for a real http(s) page, never for a blank tab', async () => {
+    const seen: Array<boolean | undefined> = [];
+    const port = new BrowserControlPort(buildHost({
+      ensureProjectTabHost: async (_projectId, options) => {
+        seen.push(options?.visible);
+      },
+    }));
+    await port.ensureHostForNewTab({ authenticatedProjectId: 'proj-9' });
+    await port.ensureHostForNewTab({ authenticatedProjectId: 'proj-9', url: '' });
+    await port.ensureHostForNewTab({ authenticatedProjectId: 'proj-9', url: 'about:blank' });
+    await port.ensureHostForNewTab({ authenticatedProjectId: 'proj-9', url: 'https://example.com/a' });
+    assert.deepEqual(seen, [false, false, false, true]);
+  });
+
+  it('surfaces the window holding a bound tab for web work only', async () => {
+    const surfaced: string[] = [];
+    const port = new BrowserControlPort(buildHost({ surfaceTabWindow: (tabId) => { surfaced.push(tabId); } }));
+    await port.ensureHostForNewTab({ target: TARGET, authenticatedProjectId: 'proj-9' });
+    await port.ensureHostForNewTab({ target: TARGET, authenticatedProjectId: 'proj-9', url: 'about:blank' });
+    assert.deepEqual(surfaced, []);
+    await port.ensureHostForNewTab({ target: TARGET, authenticatedProjectId: 'proj-9', url: 'http://example.com' });
+    assert.deepEqual(surfaced, [TARGET.tabId]);
+  });
+
   it('is a no-op when the host has no seam', async () => {
     await new BrowserControlPort(buildHost()).ensureHostForNewTab({ authenticatedProjectId: 'proj-9' });
   });

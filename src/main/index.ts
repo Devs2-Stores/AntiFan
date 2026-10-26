@@ -1884,7 +1884,12 @@ async function ensureProjectWindow(
   // Restore this owner's tabs immediately so pages start loading and the layout is
   // established. Saved tabs are owner-scoped, so a new window can never inherit another
   // window's pages; the launch URL is consumed once, by a window that can host a page.
-  host.restoreTabs(owner.kind === 'project' ? consumeLaunchUrlArgument() : undefined);
+  // A window an agent opened gets the tab the agent is about to mint, not a default page; a
+  // person opening a window still never sees it empty, and a launch URL is always opened.
+  const launchUrl = owner.kind === 'project' ? consumeLaunchUrlArgument() : undefined;
+  host.restoreTabs(launchUrl, {
+    emptyWindowOk: !launchUrl && (intent === 'agent' || intent === 'agent-visible'),
+  });
   recordBenchmark({ surface: 'startup', name: 'tabsRestored' });
   attachSharedServices(host);
   // The bridge answers requests that name no window from one fallback host; the first
@@ -2344,19 +2349,22 @@ export function createBridgeMintHostResolver(deps: BridgeMintResolverDeps): Brid
 export interface EnsureProjectTabHostDeps {
   isKnownProjectId(projectId: string): boolean;
   hasProjectHost(projectId: string): boolean;
-  /** Opens the project's window (shown unfocused when it was closed); resolves whether it was created. */
-  openProjectWindow(projectId: string): Promise<boolean>;
+  /** Opens the project's window; `visible` shows it unfocused, otherwise it stays off-screen. Resolves whether it was created. */
+  openProjectWindow(projectId: string, visible: boolean): Promise<boolean>;
   journal(event: string, fields: Record<string, unknown>): void;
 }
 
 /**
  * The window a project's agent tab lands on is opened before `createTab` runs, because
  * creation itself is synchronous and a project with no live window would refuse with
- * TARGET_REQUIRED. A project that already has a host is left alone, and an unknown
- * project is refused rather than guessed at.
+ * TARGET_REQUIRED. The window is shown (unfocused) only when the call is real web work
+ * (`visible`); a blank tab never raises a window, and a project that already has a host is
+ * left alone. An unknown project is refused rather than guessed at.
  */
-export function createEnsureProjectTabHost(deps: EnsureProjectTabHostDeps): (projectId: string) => Promise<void> {
-  return async (projectId) => {
+export function createEnsureProjectTabHost(
+  deps: EnsureProjectTabHostDeps,
+): (projectId: string, options?: { visible?: boolean }) => Promise<void> {
+  return async (projectId, options) => {
     if (!deps.isKnownProjectId(projectId)) {
       throw new CapabilityError(
         'TARGET_REQUIRED',
@@ -2367,9 +2375,12 @@ export function createEnsureProjectTabHost(deps: EnsureProjectTabHostDeps): (pro
         },
       );
     }
-    if (deps.hasProjectHost(projectId)) return;
-    const created = await deps.openProjectWindow(projectId);
-    if (created) deps.journal('project-window.opened-for-agent', { projectId, reason: 'agent-tab-create' });
+    const visible = options?.visible === true;
+    if (!visible && deps.hasProjectHost(projectId)) return;
+    const created = await deps.openProjectWindow(projectId, visible);
+    if (created) {
+      deps.journal(visible ? 'project-window.opened-for-agent' : 'project-window.reopened-off-screen', { projectId, reason: 'agent-tab-create' });
+    }
   };
 }
 
@@ -4101,7 +4112,8 @@ async function createWindow(): Promise<void> {
     ensureProjectTabHost: createEnsureProjectTabHost({
       isKnownProjectId,
       hasProjectHost: (projectId) => tabAuthorities.hostForProject(projectId) !== undefined,
-      openProjectWindow: async (projectId) => (await ensureProjectWindow({ kind: 'project', projectId }, 'agent-visible')).created,
+      openProjectWindow: async (projectId, visible) =>
+        (await ensureProjectWindow({ kind: 'project', projectId }, visible ? 'agent-visible' : 'agent')).created,
       journal: recordLifecycleEvent,
     }),
     closeTab: (tabId, source) => hostForTabOrBootstrap(tabId).closeTab(tabId, source),
@@ -4187,6 +4199,12 @@ async function createWindow(): Promise<void> {
       : hostForTabOrBootstrap(tabId).endTrackerIsolation(tabId, paneId).then((receipt) => (receipt.released
         ? { active: false, reason: receipt.reason }
         : { active: true, reason: receipt.reason }))),
+    // Real web work (a tab on a real URL, a navigation) shows the window that holds the tab
+    // without taking focus; a window already on screen is left exactly as it is.
+    surfaceTabWindow: (tabId) => {
+      const shell = tabAuthorities.shellForTab(tabId);
+      if (shell && !shellIsOnScreen(shell)) presentShellUnfocused(shell);
+    },
     // Forward every filter the port contract declares: dropping selector/viewportOnly here
     // silently turned a scoped snapshot into a whole-document one.
     agentSnapshot: (tabId, paneId, selector, viewportOnly) => hostForTabOrBootstrap(tabId).agentSnapshot(tabId, paneId, selector, viewportOnly),
@@ -4449,7 +4467,8 @@ async function createWindow(): Promise<void> {
     // Mint routing: a terminal's agent anchor must be created on the window that owns
     // the terminal and stamped with the terminal's own capsule — never the bootstrap
     // host or the process-wide ambient capsule. A `project:<id>` claim routes to the
-    // project's own window, reopened and shown unfocused when it is closed, and is
+    // project's own window, reopened off-screen when it is closed (a session start is not web
+    // work; `tabs.create`/`navigate` on a real URL surface it), and is
     // refused (typed) when no window can own it. See `createBridgeMintHostResolver`.
     bridgeServer.setMintHostResolver(createBridgeMintHostResolver({
       hostForTab: (tabId) => tabAuthorities.hostForTab(tabId) ?? null,
@@ -4461,8 +4480,8 @@ async function createWindow(): Promise<void> {
       capsuleProjectId: (capsuleId) => capsuleManager?.list().find((c) => c.id === capsuleId)?.projectId || undefined,
       ensureProjectHost: async (projectId) => {
         if (!isKnownProjectId(projectId)) return null;
-        const { host, created } = await ensureProjectWindow({ kind: 'project', projectId }, 'agent-visible');
-        if (created) recordLifecycleEvent('project-window.opened-for-agent', { projectId, reason: 'agent-mint' });
+        const { host, created } = await ensureProjectWindow({ kind: 'project', projectId }, 'agent');
+        if (created) recordLifecycleEvent('project-window.reopened-off-screen', { projectId, reason: 'agent-mint' });
         return host;
       },
       ambientHost: () => ambientHostOrThrow(),
