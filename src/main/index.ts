@@ -29,6 +29,7 @@ import { WorkspaceCapsuleManager, findReusableCapsule, type WorkspaceCapsule } f
 import { ProjectRegistry } from './project/project-registry';
 import { ProjectPreferences, PROJECT_PREFERENCES_FILE } from './project/project-preferences';
 import { reconcileProjectRecords } from './project/project-reconcile';
+import { classifyProjectTerminals, createProjectInactivityCloser, type ProjectTerminalFacts, type ProjectTerminalStates } from './project/project-inactivity-closer';
 import {
   hasValidatedAffiliation,
   parseOwnerKey,
@@ -1643,6 +1644,7 @@ function handleShellClosed(shell: ProjectWindowShell): void {
   if (closeCoordinator.applicationPhase() === 'open' && !isShuttingDown && !osSessionEnding) {
     updateOpenWindowLedger('user-close', (filePath) => markWindowClosed(filePath, ownerKey(shell.owner)));
     journalProjectShellClosedWithLiveTerminals(shell.owner);
+    if (shell.owner.kind === 'unassigned') projectInactivity.closeIdleWindows();
   }
   // Electron fires `closed` before `window-all-closed`, so the keep-alive there never
   // gets its turn: a benchmark run that loses its window — to an incidental close, a
@@ -1693,6 +1695,49 @@ function journalProjectShellClosedWithLiveTerminals(owner: WindowOwner): void {
   } catch {
     // A journal line must never disturb the close it describes.
   }
+}
+
+/**
+ * Closes a project's Web window when the project stops running (its last terminal sleeps, exits
+ * or is closed) and, when the Terminal Manager is closed, the windows of projects whose
+ * terminals all sleep. It goes through the same close gate as the window's own close button, so
+ * an unload veto or live use keeps the window and says why.
+ */
+const projectInactivity = createProjectInactivityCloser({
+  windowProjectIds: () =>
+    liveProjectShells().flatMap((shell) => (shell.owner.kind === 'project' && !shell.window.isDestroyed() ? [shell.owner.projectId] : [])),
+  terminalStates: () => projectTerminalStates(),
+  isLastVisibleWindow: (projectId) => {
+    const onScreen = liveProjectShells().filter(shellIsOnScreen);
+    return onScreen.length <= 1 && onScreen.every((shell) => shell.owner.kind === 'project' && shell.owner.projectId === projectId);
+  },
+  closeWindow: (projectId, reason) => {
+    const key = ownerKey({ kind: 'project', projectId });
+    recordLifecycleEvent('project-window.close-on-inactive', { projectId, reason });
+    closeCoordinator.attemptClose(key, 'user').then(recordCloseReport, (err) => {
+      recordLifecycleEvent('window-close.failed', { owner: key, detail: String(err) });
+      console.warn(`[antifan] Closing inactive project window '${key}' failed:`, err);
+    });
+  },
+});
+
+let projectInactivityTimer: NodeJS.Timeout | undefined;
+/**
+ * Terminal state changes arrive in bursts (a sleep also touches its panes), so the check runs once
+ * the burst has settled and reads the state as it is then.
+ */
+function scheduleProjectInactivityCheck(): void {
+  clearTimeout(projectInactivityTimer);
+  projectInactivityTimer = setTimeout(() => {
+    projectInactivityTimer = undefined;
+    if (isShuttingDown || closeCoordinator.applicationPhase() !== 'open') return;
+    try {
+      projectInactivity.evaluate();
+    } catch (err) {
+      console.warn('[antifan] Project inactivity check failed:', err);
+    }
+  }, 600);
+  projectInactivityTimer.unref();
 }
 
 /**
@@ -1903,6 +1948,7 @@ async function ensureProjectWindow(
     bridgeServer?.setTabHost(host);
   }
   recordLifecycleEvent('project-window.created', { owner: key });
+  if (owner.kind === 'project') projectInactivity.windowOpened(owner.projectId);
   return { shell, host, created: true };
 }
 
@@ -2816,6 +2862,40 @@ function projectTerminalSessions(projectId: string): { live: string[]; open: str
     }
   }
   return { live, open };
+}
+
+/**
+ * Which projects have terminals, and whether any runs: one pass over the sessions, each tied to
+ * its project by the owner key it was stamped with or by the project's own capsule. Sync
+ * watchers are not counted (see `classifyProjectTerminals`).
+ */
+function projectTerminalStates(): ProjectTerminalStates {
+  let manager: TerminalManager;
+  try {
+    manager = TerminalManager.getInstance();
+  } catch {
+    return new Map();
+  }
+  const projectIds = new Set<string>(listRegisteredProjects().filter((project) => project.state === 'open').map((project) => project.id));
+  for (const shell of liveProjectShells()) {
+    if (shell.owner.kind === 'project') projectIds.add(shell.owner.projectId);
+  }
+  const projectOfCapsule = new Map<string, string>();
+  for (const projectId of projectIds) {
+    const capsuleId = resolveWindowRecord({ kind: 'project', projectId }).capsuleId;
+    if (capsuleId) projectOfCapsule.set(capsuleId, projectId);
+  }
+  const facts: ProjectTerminalFacts[] = [];
+  for (const summary of manager.listSessions()) {
+    const sessionId = summary?.id;
+    if (typeof sessionId !== 'string' || !sessionId) continue;
+    const sessionOwner = manager.sessionOwnerKey(sessionId);
+    const capsuleId = manager.sessionCapsuleId(sessionId);
+    const projectId = sessionOwner?.startsWith('project:') ? sessionOwner.slice('project:'.length) : capsuleId ? projectOfCapsule.get(capsuleId) : undefined;
+    if (!projectId) continue;
+    facts.push({ projectId, state: summary.state ?? '', role: summary.role, idlePolicy: summary.idlePolicy });
+  }
+  return classifyProjectTerminals(facts);
 }
 
 /**
@@ -3812,6 +3892,10 @@ async function createWindow(): Promise<void> {
   // sessionId→host map and hands each chunk to the windows that present it,
   // replacing the per-host listener+filter fan-out.
   TerminalOutputRouter.getInstance().attach(terminalManager as unknown as EventEmitter);
+  terminalManager.on('session', scheduleProjectInactivityCheck);
+  // Seed the baseline from the terminals that exist right now, so a stop that is the first
+  // event this process sees still has a "was running" to compare against.
+  scheduleProjectInactivityCheck();
 
   const workspaceId = validateControlPlaneId(process.env.ANTIFAN_WORKSPACE_ID || CONTROL_PLANE_DEFAULT_WORKSPACE_ID, 'workspace');
   /**

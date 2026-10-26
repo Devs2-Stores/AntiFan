@@ -6,6 +6,13 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 
 ## [v1.3.6] - Unreleased
 
+### Thêm — Project ngưng chạy thì cửa sổ Web đóng theo
+
+- Khi terminal cuối cùng đang chạy của một project chuyển sang sleep, thoát (`exit`) hoặc bị đóng, cửa sổ Web của project đó tự đóng. Quy tắc chạy theo cạnh chuyển trạng thái (đang chạy → không chạy): cửa sổ người dùng mở cho một project vốn đã ngủ, hoặc chưa từng có terminal, được giữ nguyên cho đến khi project chạy lại rồi dừng lần nữa. Kiểm tra gộp theo nhịp 600 ms để một lần sleep kéo theo các pane không bị đọc giữa chừng.
+- Đóng cửa sổ Terminal Manager thì cửa sổ Web của mọi project có terminal nhưng không terminal nào đang chạy cũng đóng; project không có terminal nào không bị đụng tới.
+- Watcher đồng bộ theme (`role: sync`, `idlePolicy: never`) không tính là terminal của project: nó tự chạy cùng cửa sổ và từ chối sleep, nên nếu tính thì project theme không bao giờ "ngưng". Watcher vẫn chạy khi cửa sổ Web đóng.
+- Đóng đi qua đúng cổng đóng của nút X trên cửa sổ (`closeCoordinator.attemptClose(key, 'user')`): unload veto hoặc tab đang dùng thì cửa sổ ở lại và hiện lý do. Cửa sổ Web là cửa sổ hiện cuối cùng thì đóng nó theo luật cũ cũng thoát app. Journal `project-window.close-on-inactive` (`terminals-stopped` | `terminal-manager-closed`). Mã: `src/main/project/project-inactivity-closer.ts`, nối ở `index.ts` (`projectInactivity`, `projectTerminalState`); test `test/unit/project-inactivity-closer.test.ts`.
+
 ### Thêm — QA bắt ảnh bị kéo giãn/méo tỉ lệ (`image-distorted`)
 
 - `image-frame-scanner` có rule mới `image-distorted`: `<img>` dùng `object-fit: fill` (mặc định) mà tỉ lệ khung (đã trừ padding/border) lệch quá 6% so với tỉ lệ file gốc thì bị báo. Bắt đúng lỗi logo header bị bóp ngang khi thẻ `<a>` cha là flex item `flex-shrink: 1` còn ảnh giữ `height` cố định. `object-fit: cover/contain/none/scale-down`, SVG, ảnh chưa tải xong và khung dưới 32px không bị chấm.
@@ -18,6 +25,7 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 - Cửa sổ do agent mở (`agent`, `agent-visible`) không tự chạy watcher: đó là việc đẩy theme lên remote mà không ai yêu cầu. Thư mục có `.antifan/space.json` khai báo terminal `sync` hoặc terminal gõ lệnh watcher (`theme dev` / `theme watch`) được nhường cho Space đó; Space chỉ có shell trần hoặc agent (`omp`) không chặn việc tự chạy.
 - Lệnh cố định trong code app, không đọc từ thư mục dự án nên không cần bước xác nhận như Space. Việc chống trùng watcher giờ tính theo từng remote (`theme-sync-<platform>`): pane Sapo của thư mục có cả hai binding không còn bị coi là trùng với pane Haravan.
 - Sửa: cửa sổ project mở khi cửa sổ khác đã có terminal nhận terminal đầu tiên muộn hơn lúc start; lần thử được giữ lại đến khi cửa sổ có terminal gốc, không bỏ cuộc im lặng.
+- Không chạy trùng watcher đã có: nếu người dùng đã gõ `hrv theme dev` / `sapo theme dev` bằng tay trong một shell thường (hoặc watcher chạy ở cửa sổ khác), app đọc bảng tiến trình của hệ điều hành và không mở thêm pane cho remote đó; hai watcher cùng remote sẽ ghi đè file upload của nhau. Một lần dò dùng chung cho mọi cửa sổ khôi phục cùng lúc (12 giây). Không đọc được bảng tiến trình, hoặc một terminal đang chạy không báo `shellPid` (terminal daemon cũ hơn bản này, cần khởi động lại daemon) thì không tự chạy gì.
 
 ### Đổi — Agent cần mở web thì cửa sổ Project tự hiện
 
