@@ -966,12 +966,12 @@ export interface BookmarkItem {
 }
 
 
-export interface NativeTabRecord {
 /** A tab with no page: `about:blank`, or no URL at all. */
 function isBlankTabUrl(url: string | undefined): boolean {
   return !url || url === 'about:blank';
 }
 
+export interface NativeTabRecord {
   /**
    * The presented WebContentsView. Absent while the tab is hibernated — the
    * record (id, state) survives, and `ensureTabAwake`/`switchTab`/`navigate`
@@ -1001,7 +1001,6 @@ function isBlankTabUrl(url: string | undefined): boolean {
   /** Last time an agent operation resolved this tab as its target. Distinct from
    * `lastActiveAt` (which feeds hibernation); reported in close telemetry. */
   agentActivityAt?: number;
-}
   /**
    * Set when an automation caller (one that declared a `plane`) minted this tab. A session
    * anchor is minted blank and exists only for the session that asked for it, so while it is
@@ -1009,6 +1008,7 @@ function isBlankTabUrl(url: string | undefined): boolean {
    * owns, and every new session would add another beside it. Never persisted.
    */
   mintedByAutomation?: boolean;
+}
 
 /**
  * One terminal's agent ownership record: the tabs it may address, the tab its agent
@@ -14350,6 +14350,7 @@ export class NativeTabHost extends EventEmitter {
       const tab = this.tabs.get(id);
       if (!tab) return null;
       if (tab.state.ephemeral === true) return null;
+      if (tab.mintedByAutomation === true && isBlankTabUrl(tab.state.url)) return null;
       // A popup is bound to its opener's page through window.opener; reloaded alone after a
       // restart it would be a stale sign-in page that can never hand its result back.
       if (tab.state.popupOf) return null;
@@ -14366,7 +14367,6 @@ export class NativeTabHost extends EventEmitter {
       terminalId: string;
       primaryTabId: string;
       managedTabIds: string[];
-      if (tab.mintedByAutomation === true && isBlankTabUrl(tab.state.url)) return null;
     }> = [];
 
     if (this.terminalAgentAffinity) {
@@ -14609,10 +14609,15 @@ export class NativeTabHost extends EventEmitter {
             }
           }
 
+          // A blank page next to real ones is a leftover (an agent's session anchor saved by an
+          // older build, or an abandoned New Tab): it carries nothing to come back to. A window
+          // whose saved pages are all blank keeps them, so a lone New Tab still returns.
+          const dropBlank = record.tabs.some((row) => row && !row.ephemeral && !isBlankTabUrl(migratePersistedTab(row as Partial<AntiFanTab>).url));
           for (const rawTab of record.tabs) {
             const ingested = this.ingestTabRow(rawTab, {
               oldIdToNewId,
               stubUnlessActiveId: options?.safeStart === true ? targetActiveOldId : undefined,
+              dropBlank,
             });
             if (!ingested) continue;
             if (record.activeTabId !== undefined && ingested.sourceIds.includes(record.activeTabId)) {
@@ -14625,10 +14630,6 @@ export class NativeTabHost extends EventEmitter {
             for (const aff of record.terminalAffinities) {
               const newPrimaryId = oldIdToNewId.get(aff.primaryTabId);
               if (newPrimaryId && this.hasTab(newPrimaryId)) {
-          // A blank page next to real ones is a leftover (an agent's session anchor saved by an
-          // older build, or an abandoned New Tab): it carries nothing to come back to. A window
-          // whose saved pages are all blank keeps them, so a lone New Tab still returns.
-          const dropBlank = record.tabs.some((row) => row && !row.ephemeral && !isBlankTabUrl(migratePersistedTab(row as Partial<AntiFanTab>).url));
                 this.bindTerminalAgentAffinity(aff.terminalId, undefined, newPrimaryId);
                 if (Array.isArray(aff.managedTabIds)) {
                   for (const oldChildId of aff.managedTabIds) {
@@ -14757,6 +14758,7 @@ export class NativeTabHost extends EventEmitter {
     const migrated = migratePersistedTab(rawTab as Partial<AntiFanTab>);
     if (rawTab.ephemeral === true) return null;
     if (migrated.ephemeral === true) return null;
+    if (opts.dropBlank === true && isBlankTabUrl(migrated.url)) return null;
     const sourceIds: string[] = [];
     const rawId = typeof rawTab.id === 'string' ? rawTab.id : undefined;
     if (rawId) sourceIds.push(rawId);
@@ -14774,7 +14776,6 @@ export class NativeTabHost extends EventEmitter {
       // The persisted stamp decides, not the mint-time default: a row restored without
       // a stamp stays a shared tab.
       tab.projectId = persistedProjectId;
-    if (opts.dropBlank === true && isBlankTabUrl(migrated.url)) return null;
       tab.state.url = safeUrl;
       if (isUnloadedStub) {
         tab.state.isLoading = false;
