@@ -28,7 +28,8 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 - **Triệu chứng:** cửa sổ project mà agent mở hiện ra với 3-4 tab `Google` / `New Tab` trước tab thật (đo trên project `b44b07ba`: `Google`, `New Tab`, `New Tab`, rồi Dashboard agent mở).
 - **Nguyên nhân (đọc log `main.log` + `saved-tabs.json`):** (1) cửa sổ mới chưa có bản ghi thì `restoreTabs` luôn tạo tab Google mặc định, kể cả khi cửa sổ chỉ được mở để agent có chỗ mint tab; (2) mỗi `antifan.cli.startSession` mint một tab `about:blank` thường trong thanh tab, nó được lưu như tab bình thường, lần mở lại được khôi phục thành tab trống không phiên nào sở hữu, rồi session mới lại mint thêm một tab nữa. Mỗi vòng đóng/mở cửa sổ cộng thêm một tab (07:11 → 2 tab, 08:03 → 3 tab, 08:12 → 4 tab). Trước đây các cửa sổ này ẩn nên không ai thấy.
 - **Sửa:** cửa sổ mở bằng intent `agent`/`agent-visible` không tạo tab Google mặc định (không áp dụng khi có URL khởi động; cửa sổ người dùng mở vẫn không bao giờ rỗng). Tab `about:blank` do caller automation mint (`mintedByAutomation`) không được lưu khi còn trống; tab đó mà đã navigate tới trang thật thì vẫn lưu. Khi khôi phục, tab `about:blank` nằm cạnh tab có trang thật bị bỏ (dọn các tab mồ côi đã lưu từ trước); cửa sổ chỉ còn toàn tab trống vẫn giữ lại chúng. Tab New Tab người dùng tự mở cạnh các trang thật cũng không còn quay lại sau khi khởi động lại.
-- Test: `native-tab-host-blank-tabs` (restore/save trên host thật), `project-window-ledger-presentation` (intent → `emptyWindowOk`), e2e `project-windows`.
+- **Còn lại:** tab `https://www.google.com/` đã lưu từ các lần mở trước là URL thật nên vẫn được khôi phục một lần (đóng tay là hết); chỉ các tab trống `about:blank` bị dọn. Bản ghi toàn tab trống vẫn khôi phục nguyên.
+- Test: `native-tab-host-blank-tabs` (restore/save trên host thật), `project-window-ledger-presentation` (intent → `emptyWindowOk`).
 
 ### Thêm — Xem Markdown đã dựng và phát video ngay trong Terminal File Viewer
 
