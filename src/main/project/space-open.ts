@@ -48,10 +48,10 @@ export interface SpaceOpenDeps {
   mintSplit(directory: string, capsuleId: string, parentSessionId: string, spec: SpaceTerminalSpec): Promise<string | null>;
   /**
    * The live sync watcher (a base shell or a split pane) that already pushes to the same remote as
-   * a `sync` terminal minted in `directory`, or undefined. Opening a Space never acknowledges a
-   * duplicate on the user's behalf.
+   * the `sync` terminal `spec` would mint in `directory`, or undefined. Opening a Space never
+   * acknowledges a duplicate on the user's behalf.
    */
-  findSyncDuplicate(directory: string, capsuleId: string): { id: string; label: string } | undefined;
+  findSyncDuplicate(directory: string, capsuleId: string, spec: SpaceTerminalSpec): { id: string; label: string } | undefined;
   typeCommand(sessionId: string, text: string): Promise<unknown> | unknown;
   /** Wake a sleeping session (a fresh shell in the same cwd); false when it could not be woken. */
   wake(sessionId: string): Promise<boolean> | boolean;
@@ -62,6 +62,9 @@ export interface SpaceOpenDeps {
  * and no base shell is minted, so neither dependency exists here.
  */
 export type SpaceSplitDeps = Omit<SpaceOpenDeps, 'openWindow' | 'mint'>;
+
+/** What minting terminals needs, without the confirmation store: the app's own splits never confirm. */
+export type SpaceTerminalDeps = Omit<SpaceSplitDeps, 'isConfirmed' | 'recordConfirmed'>;
 
 /** The live base terminal a Space's declared splits open under. */
 export interface SpaceSplitAnchor {
@@ -265,6 +268,42 @@ async function runOpenSplits(
   return { ...summarize(opened.tally), tabsOpened: 0, tabsReused: 0 };
 }
 
+/** The seeded id the app's own splits attach to: never a manifest entry, so it matches no file. */
+const BUILTIN_BASE_ID = '__builtin-base__';
+
+/**
+ * Open splits the APP built under a terminal that is already open, with no `space.json` involved.
+ * Reuse, wake, duplicate-watcher refusal and the per-folder lock are exactly a full open's; only the
+ * confirmation gate is absent, because the command comes from app code, never from the folder. A
+ * caller MUST NOT pass a spec whose command it read from the project.
+ */
+export function openBuiltinSplits(
+  deps: SpaceTerminalDeps,
+  realFolder: string,
+  anchor: SpaceSplitAnchor,
+  specs: readonly SpaceTerminalSpec[],
+): Promise<SpaceOpenResult> {
+  const key = deps.folderKey(realFolder);
+  return withFolderLock(key, async () => {
+    try {
+      deps.admit();
+    } catch (err) {
+      return { ok: false, reason: 'SENDER_NOT_ADMITTED', message: String(err instanceof Error ? err.message : err) };
+    }
+    // Checked under the lock: a closed tab has no row to carry the panes.
+    const base = deps.sessions().find((s) => s.id === anchor.sessionId);
+    if (!base || base.splitOf || (base.state !== 'running' && base.state !== 'sleeping')) {
+      return { ok: false, reason: 'SESSION_INVALID', message: `'${anchor.sessionId}' is not an open base terminal` };
+    }
+    const splits = specs.map((spec) => ({ ...spec, splitOf: BUILTIN_BASE_ID }));
+    const directories = resolveDirectories(realFolder, splits);
+    if (!(directories instanceof Map)) return directories;
+    const opened = await openTerminals(deps, undefined, splits, directories, anchor.capsuleId, new Map([[BUILTIN_BASE_ID, anchor.sessionId]]));
+    if (!opened.ok) return opened.result;
+    return { ...summarize(opened.tally), tabsOpened: 0, tabsReused: 0 };
+  });
+}
+
 async function runOpen(
   deps: SpaceOpenDeps,
   realFolder: string,
@@ -369,7 +408,7 @@ async function applyManifest(
  * only splits are opened.
  */
 async function openTerminals(
-  deps: SpaceSplitDeps,
+  deps: SpaceTerminalDeps,
   mint: SpaceOpenDeps['mint'] | undefined,
   specs: readonly SpaceTerminalSpec[],
   directories: Map<string, string>,
@@ -429,7 +468,7 @@ async function openTerminals(
         // folders bound to one remote must not both see "no watcher yet" and each mint one.
         const outcome = await withSyncMintLock(
           async (): Promise<{ duplicate: { id: string; label: string } } | { id: string | null }> => {
-            const duplicate = deps.findSyncDuplicate(directory, capsuleId);
+            const duplicate = deps.findSyncDuplicate(directory, capsuleId, spec);
             if (duplicate) return { duplicate };
             return { id: await mintOne() };
           },

@@ -244,6 +244,22 @@ whose parent is gone leaves no orphan tab behind.
   `role: 'sync'` or `idlePolicy: 'never'` (a theme watcher) is refused by `sleepSession`
   (`SLEEP_REFUSED_WATCHER`), because sleeping kills its process tree; identity for duplicate
   watchers comes from `src/main/project/sync-identity.ts`.
+  **Theme watchers start by themselves** (`planThemeSyncAutostart` in
+  `src/main/project/theme-sync-autostart.ts`, started by `NativeTabHost.armThemeSyncAutostart`):
+  a project window that a person opened (`user` intent) or the boot restored (`restore`) - never one
+  an agent created - runs the watcher its folder is bound to in a split pane under a terminal the
+  window already has: `hrv theme dev` for a readable `.haravan-cli_local.json`, `sapo theme dev`
+  for `.sapo-cli_local.json`, `shopify theme dev` for `shopify.theme.toml` or an intake
+  `platform: "shopify"`; a folder bound to both runs two panes, Haravan beside Sapo. The command is
+  fixed in app code, never read from the folder, so this path has no confirmation
+  (`openBuiltinSplits`, the same reuse / wake / duplicate refusal as a Space open). It runs once per
+  window, after both Main's arming and the window's own terminal start or first new-session (a window
+  opened beside others gets its first terminal later, so the attempt stays armed until a base exists).
+  A folder whose `space.json` declares a `sync` terminal or any `command` is left to that Space; a
+  Space of bare shells does not count. Each app-minted watcher carries the entry id
+  `theme-sync-<platform>`, so its duplicate identity is that platform's own remote
+  (`platformSyncIdentity`) and a dual-bound folder does not read the Sapo pane as the Haravan
+  pane's duplicate.
   Both pickers read `PROJECT_LIST`: one row per project, and the transfer names that
   `projectId` — never a capsule the renderer inferred. Main resolves the destination
   itself (`resolveProjectAssignment` in `src/main/index.ts`): exactly one capsule with

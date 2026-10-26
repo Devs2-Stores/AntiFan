@@ -6,6 +6,19 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 
 ## [v1.3.6] - Unreleased
 
+### Thêm — QA bắt ảnh bị kéo giãn/méo tỉ lệ (`image-distorted`)
+
+- `image-frame-scanner` có rule mới `image-distorted`: `<img>` dùng `object-fit: fill` (mặc định) mà tỉ lệ khung (đã trừ padding/border) lệch quá 6% so với tỉ lệ file gốc thì bị báo. Bắt đúng lỗi logo header bị bóp ngang khi thẻ `<a>` cha là flex item `flex-shrink: 1` còn ảnh giữ `height` cố định. `object-fit: cover/contain/none/scale-down`, SVG, ảnh chưa tải xong và khung dưới 32px không bị chấm.
+- Mức `warning`, nhưng nằm trong `STRICT_REGISTRY_RULES` nên fail run `build-strict` (waive được). `measuredRules` của receipt có thêm `image-distorted`.
+- Test: `image-frame-scanner` + `theme-qa-bare-call` + `theme-qa-fail-closed-adjudication` + `qa-validate-report-integrity` 76/76; fixture Electron `image-distorted-bad/good/contain-good` pass ở 375 và 1440.
+
+### Thêm — Mở cửa sổ project thì tự chạy theme watcher
+
+- Khi người dùng mở một cửa sổ project (hoặc app khôi phục cửa sổ lúc khởi động), app tự chạy watcher của theme trong một pane split riêng bên dưới terminal sẵn có của cửa sổ: `hrv theme dev` nếu thư mục có `.haravan-cli_local.json` hợp lệ, `sapo theme dev` nếu có `.sapo-cli_local.json`, `shopify theme dev` nếu có `shopify.theme.toml` hoặc intake ghi `platform: "shopify"`. Thư mục có cả hrv lẫn sapo thì mở hai pane cạnh nhau. Pane mang role `sync`, `idlePolicy: never` nên không bị sleep, và mở lại cửa sổ không chạy thêm bản thứ hai (pane đang chạy được dùng lại, pane đang ngủ được đánh thức và gõ lại lệnh).
+- Cửa sổ do agent mở (`agent`, `agent-visible`) không tự chạy watcher: đó là việc đẩy theme lên remote mà không ai yêu cầu. Thư mục có `.antifan/space.json` khai báo terminal `sync` hoặc có `command` được nhường cho Space đó; Space chỉ có shell trần (loại `Space init` sinh ra) không chặn việc tự chạy.
+- Lệnh cố định trong code app, không đọc từ thư mục dự án nên không cần bước xác nhận như Space. Việc chống trùng watcher giờ tính theo từng remote (`theme-sync-<platform>`): pane Sapo của thư mục có cả hai binding không còn bị coi là trùng với pane Haravan.
+- Sửa: cửa sổ project mở khi cửa sổ khác đã có terminal nhận terminal đầu tiên muộn hơn lúc start; lần thử được giữ lại đến khi cửa sổ có terminal gốc, không bỏ cuộc im lặng.
+
 ### Đổi — Agent cần mở web thì cửa sổ Project tự hiện
 
 - Khi agent mint tab (`anti.browser.tabs.create`, `antifan.cli.startSession`) cho một project chưa có cửa sổ, cửa sổ project giờ được mở bằng intent mới `agent-visible`: tạo và hiện ở lần paint đầu bằng `showInactive` (không cướp focus), thay vì mở ẩn chờ người dùng bấm mũi tên ↗ ở sidebar. Cửa sổ đã hiện hoặc đang minimize được giữ nguyên; cửa sổ đang ẩn (do intent `agent` cũ) được hiện lên. Intent `agent` (không bao giờ hiện) vẫn còn cho caller cần vô hình. Journal đổi `project-window.reopened-off-screen` thành `project-window.opened-for-agent`. Vì cửa sổ nay hiện nên `open-windows.json` ghi nó và lần khởi động sau sẽ mở lại, như mọi cửa sổ người dùng thấy.

@@ -90,14 +90,60 @@ export function readSapoBinding(folder: string): { store: string; themeId: strin
   return store && themeId ? { store, themeId } : undefined;
 }
 
+/**
+ * The remotes a theme-sync terminal the app mints itself can push to. Each one is its own watcher
+ * with its own remote, so a folder bound to both Haravan and Sapo runs two without either counting
+ * as the other's duplicate.
+ */
+export type ThemeSyncPlatform = 'haravan' | 'sapo' | 'shopify';
+
+/** Space entry ids the app mints for its own watchers: `theme-sync-<platform>`. */
+export const THEME_SYNC_ID_PREFIX = 'theme-sync-';
+
+export function themeSyncSpecId(platform: ThemeSyncPlatform): string {
+  return `${THEME_SYNC_ID_PREFIX}${platform}`;
+}
+
+/** The platform an app-minted watcher entry id names, or undefined for any other terminal. */
+export function themeSyncPlatformOfSpecId(specId: string | undefined): ThemeSyncPlatform | undefined {
+  if (!specId || !specId.startsWith(THEME_SYNC_ID_PREFIX)) return undefined;
+  const platform = specId.slice(THEME_SYNC_ID_PREFIX.length);
+  return platform === 'haravan' || platform === 'sapo' || platform === 'shopify' ? platform : undefined;
+}
+
+function unboundIdentity(folder: string, brief?: { themeId?: unknown } | null): SyncIdentity {
+  const briefThemeId = remoteId(brief?.themeId);
+  if (briefThemeId) return { kind: 'brief', key: `brief:${briefThemeId}` };
+  return { kind: 'folder', key: `folder:${canonicalFolderKey(folder)}` };
+}
+
 export function syncIdentity(folder: string, brief?: { themeId?: unknown } | null): SyncIdentity {
   const haravan = readHaravanBinding(folder);
   if (haravan) return { kind: 'haravan', key: `haravan:${haravan.orgId}:${haravan.themeId}` };
   const sapo = readSapoBinding(folder);
   if (sapo) return { kind: 'sapo', key: `sapo:${sapo.store}:${sapo.themeId}` };
-  const briefThemeId = remoteId(brief?.themeId);
-  if (briefThemeId) return { kind: 'brief', key: `brief:${briefThemeId}` };
-  return { kind: 'folder', key: `folder:${canonicalFolderKey(folder)}` };
+  return unboundIdentity(folder, brief);
+}
+
+/**
+ * The identity of the one remote `platform` pushes to, ignoring the other platform's binding in the
+ * same folder. `syncIdentity` answers "the strongest remote this folder has", which is right for a
+ * terminal whose command the app cannot see and wrong for a watcher that names its platform.
+ */
+export function platformSyncIdentity(
+  folder: string,
+  platform: ThemeSyncPlatform,
+  brief?: { themeId?: unknown } | null,
+): SyncIdentity {
+  if (platform === 'haravan') {
+    const haravan = readHaravanBinding(folder);
+    if (haravan) return { kind: 'haravan', key: `haravan:${haravan.orgId}:${haravan.themeId}` };
+  }
+  if (platform === 'sapo') {
+    const sapo = readSapoBinding(folder);
+    if (sapo) return { kind: 'sapo', key: `sapo:${sapo.store}:${sapo.themeId}` };
+  }
+  return unboundIdentity(folder, brief);
 }
 
 /** A live sync-role session as the duplicate check sees it. */
@@ -106,6 +152,8 @@ export interface LiveSyncSession {
   label: string;
   folder: string;
   brief?: { themeId?: unknown } | null;
+  /** Set for a watcher the app minted: it pushes to this platform's remote only. */
+  platform?: ThemeSyncPlatform;
 }
 
 /**
@@ -118,5 +166,9 @@ export function findSyncDuplicate(
   live: readonly LiveSyncSession[],
   excludeId?: string,
 ): LiveSyncSession | undefined {
-  return live.find((s) => s.id !== excludeId && syncIdentity(s.folder, s.brief).key === identity.key);
+  return live.find((s) => {
+    if (s.id === excludeId) return false;
+    const theirs = s.platform ? platformSyncIdentity(s.folder, s.platform, s.brief) : syncIdentity(s.folder, s.brief);
+    return theirs.key === identity.key;
+  });
 }

@@ -3,7 +3,7 @@ import * as assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { openSpace, openSpaceSplits, describeSpaceSplits, createConfirmationStore, type SpaceOpenDeps, type SpaceSessionView } from '../../src/main/project/space-open';
+import { openSpace, openSpaceSplits, openBuiltinSplits, describeSpaceSplits, createConfirmationStore, type SpaceOpenDeps, type SpaceSessionView } from '../../src/main/project/space-open';
 import { parseSpaceManifest, antifanDirUnignoredInGit, type SpaceTabSpec } from '../../src/main/project/space-manifest';
 
 function folderWith(manifest: unknown, files: Record<string, string> = {}): string {
@@ -439,5 +439,90 @@ describe('createConfirmationStore', () => {
     assert.equal(createConfirmationStore(file).isConfirmed('k', 'h1'), true);
     store.recordConfirmed('k', 'h2');
     assert.equal(store.isConfirmed('k', 'h1'), false);
+  });
+});
+
+describe('openBuiltinSplits', () => {
+  const watcher = (id: string, command: string) =>
+    ({ id, label: command, command, role: 'sync', idlePolicy: 'never' }) as const;
+  const SPECS = [watcher('theme-sync-haravan', 'hrv theme dev'), watcher('theme-sync-sapo', 'sapo theme dev')];
+  const anchor = { sessionId: 'base', capsuleId: 'cap1' };
+  const withBase = (sessions: SpaceSessionView[], folder: string): void => {
+    sessions.push({ id: 'base', cwd: folder, state: 'running' });
+  };
+
+  it('mints one split per watcher under the base and types each command without asking for confirmation', async () => {
+    const h = harness();
+    const folder = folderWith({ version: 1 });
+    withBase(h.sessions, folder);
+    const result = await openBuiltinSplits(h.deps, folder, anchor, SPECS);
+    assert.equal(result.ok, true);
+    assert.deepEqual(
+      h.minted.map((m) => [m.kind, m.specId, m.parent, m.role, m.idlePolicy]),
+      [
+        ['split', 'theme-sync-haravan', 'base', 'sync', 'never'],
+        ['split', 'theme-sync-sapo', 'base', 'sync', 'never'],
+      ],
+    );
+    assert.deepEqual(h.typed.map((t) => t.text), ['hrv theme dev\r', 'sapo theme dev\r']);
+  });
+
+  it('starts nothing a second time: a running watcher is reused, not re-typed or re-minted', async () => {
+    const h = harness();
+    const folder = folderWith({ version: 1 });
+    withBase(h.sessions, folder);
+    await openBuiltinSplits(h.deps, folder, anchor, SPECS);
+    const again = await openBuiltinSplits(h.deps, folder, anchor, SPECS);
+    assert.equal(again.ok && again.terminalsReused, 2);
+    assert.equal(h.minted.length, 2);
+    assert.equal(h.typed.length, 2);
+  });
+
+  it('wakes a sleeping watcher and types its command again instead of minting a twin', async () => {
+    const h = harness();
+    const folder = folderWith({ version: 1 });
+    withBase(h.sessions, folder);
+    h.sessions.push({ id: 'old', cwd: folder, state: 'sleeping', spaceTerminalId: 'theme-sync-haravan', splitOf: 'base' });
+    await openBuiltinSplits(h.deps, folder, anchor, [SPECS[0]!]);
+    assert.equal(h.minted.length, 0);
+    assert.equal(h.sessions.find((s) => s.id === 'old')?.state, 'running');
+    assert.deepEqual(h.typed, [{ id: 'old', text: 'hrv theme dev\r' }]);
+  });
+
+  it('mints nothing and reports it when another watcher already pushes to that remote', async () => {
+    const h = harness();
+    const folder = folderWith({ version: 1 });
+    withBase(h.sessions, folder);
+    h.setDuplicate({ id: 'hand', label: 'hrv watch' });
+    const result = await openBuiltinSplits(h.deps, folder, anchor, [SPECS[0]!]);
+    assert.equal(result.ok && result.syncDuplicates?.[0]?.duplicate.id, 'hand');
+    assert.equal(h.minted.length, 0);
+    assert.equal(h.typed.length, 0);
+  });
+
+  it('refuses a missing base and a base that is itself a split, minting nothing', async () => {
+    const h = harness();
+    const folder = folderWith({ version: 1 });
+    const missing = await openBuiltinSplits(h.deps, folder, anchor, SPECS);
+    assert.equal(missing.ok === false && missing.reason, 'SESSION_INVALID');
+    h.sessions.push({ id: 'base', cwd: folder, state: 'running', splitOf: 'root' });
+    const nested = await openBuiltinSplits(h.deps, folder, anchor, SPECS);
+    assert.equal(nested.ok === false && nested.reason, 'SESSION_INVALID');
+    assert.equal(h.minted.length, 0);
+  });
+
+  it('refuses once the application stops admitting work', async () => {
+    const h = harness();
+    const folder = folderWith({ version: 1 });
+    withBase(h.sessions, folder);
+    const draining = {
+      ...h.deps,
+      admit: () => {
+        throw new Error('RUNTIME_DRAINING');
+      },
+    };
+    const result = await openBuiltinSplits(draining, folder, anchor, SPECS);
+    assert.equal(result.ok === false && result.reason, 'SENDER_NOT_ADMITTED');
+    assert.equal(h.minted.length, 0);
   });
 });

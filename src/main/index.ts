@@ -1848,6 +1848,9 @@ async function ensureProjectWindow(
     // A window an earlier `agent` call left hidden is surfaced (unfocused) by an `agent-visible`
     // one. A window already shown, minimized, or armed to show is left exactly as it is.
     if (intent === 'agent-visible' && !shellIsOnScreen(shell)) presentShellUnfocused(shell);
+    // A person opening a window that is already up (or a restore reaching it) is also "opened":
+    // the watcher start is once per window, so a repeat is a no-op.
+    if (intent === 'user' || intent === 'restore') existingHost.armThemeSyncAutostart();
     return { shell, host: existingHost, created: false };
   }
 
@@ -1872,6 +1875,9 @@ async function ensureProjectWindow(
   // A project window's terminals run in its own verified workspace, established before any
   // tab is restored so restored or minted tabs never see the window under no project.
   if (owner.kind === 'project') applyProjectWorkspace(host, owner);
+  // Theme watchers belong to windows a person opened or the boot restored; an `agent` or
+  // `agent-visible` creation is work nobody asked to push to a remote.
+  if (owner.kind === 'project' && (intent === 'user' || intent === 'restore')) host.armThemeSyncAutostart();
 
   windowStateManager?.manage(shell.window, key);
   attachShellLifecycle(shell);

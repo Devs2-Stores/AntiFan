@@ -16,7 +16,7 @@ import { EventEmitter } from 'node:events';
 import { performance } from 'node:perf_hooks';
 import { StorageLocations } from '../config/storage-locations';
 import { parseOwnerKey } from '../project/project-context';
-import { openSpace, openSpaceSplits, describeSpaceSplits, createConfirmationStore, type SpaceOpenDeps, type SpaceSplitAnchor, type SpaceSplitDeps } from '../project/space-open';
+import { openSpace, openSpaceSplits, openBuiltinSplits, describeSpaceSplits, createConfirmationStore, type SpaceOpenDeps, type SpaceSplitAnchor, type SpaceSplitDeps } from '../project/space-open';
 import { buildSpaceTemplate, writeSpaceManifestExclusive, antifanDirUnignoredInGit } from '../project/space-manifest';
 import type { SpaceInitResult, SpaceOpenReason, SpaceSplitsInfo, ReadFilePreviewResult, CaptureFullPageResult } from '../../shared/contracts';
 import { AntiFanTab, SplitPaneId, AntiFanPickedElement, TOOLBAR_CHANNELS, SIDEBAR_CHANNELS, TERMINAL_CHANNELS, FRAME_BACKDROP_CHANNELS, PROJECT_WINDOW_CHANNELS, TerminalAckPayload, TerminalDataPayload, TerminalNewInFolderResult, SpaceOpenResult, TerminalTabLayout, TerminalTabPrefs, TERMINAL_TAB_LAYOUT_DEFAULT_WIDTH, clampTerminalTabSidebarWidth, TERMINAL_CATEGORY_COLORS_MAX, TERMINAL_CATEGORY_COLOR_PATTERN, ToolbarPhoneStatus, TerminalAgentAffinityInfo, ProjectWindowIdentity, BRIDGE_CHANNELS, RunCardState, RunControlOp, RunControlReason, RunControlResult, CapsuleBrief, CapsuleBriefResult, CapsuleBriefReason } from '../../shared/contracts';
@@ -46,7 +46,8 @@ import type { CaptureViewportTransaction, RenderSurfaceSnapshot, VerificationCap
 import { buildKeyboardInputEvents } from './keyboard-normalizer';
 import { FirstPartyNetworkTracker, type NetworkTrackerStats } from './first-party-network-tracker';
 import { WorkspaceCapsuleManager, canonicalFolderKey, findCapsuleByRoot, findReusableCapsule, workspaceDialogDefaultPath, type WorkspaceCapsule, type CapsuleAffiliation } from '../project/workspace-capsule';
-import { findSyncDuplicate, syncIdentity } from '../project/sync-identity';
+import { findSyncDuplicate, syncIdentity, platformSyncIdentity, themeSyncPlatformOfSpecId } from '../project/sync-identity';
+import { planThemeSyncAutostart } from '../project/theme-sync-autostart';
 import { PreviewWatcherPool, type PreviewChangeEvent } from '../server/preview-watcher-pool';
 import { buildPreviewUrl, parsePreviewUrl } from '../server/preview-url-codec';
 import type { ControlPlaneResourceStats, ControlPlaneRuntime } from '../control-plane/control-plane-runtime';
@@ -3155,17 +3156,23 @@ export class NativeTabHost extends EventEmitter {
               host.bindTerminalAgentAffinity(sessionId, session?.sessionGeneration, senderInfo.tabId);
             }
           };
+          // A project window's own sidebar starting its terminals is the moment its saved sessions
+          // exist, so it is also when a theme watcher can find the base terminal it splits under.
+          const onStarted = (): void => {
+            bindAffinity();
+            if (!isAgent) host.noteTerminalsStarted();
+          };
           const thenable = started as { then?: unknown } | null | undefined;
           if (thenable && typeof thenable.then === 'function') {
             // The session the affinity names does not exist until the RPC resolves, so
             // the bind must ride the settlement: reading active state now would still
             // describe the previous session.
             return Promise.resolve(started).then((value) => {
-              if (value) bindAffinity();
+              if (value) onStarted();
               return value;
             });
           }
-          if (started) bindAffinity();
+          if (started) onStarted();
           return started;
         }
       );
@@ -3472,6 +3479,8 @@ export class NativeTabHost extends EventEmitter {
           const s = TerminalManager.getInstance().getSession(id);
           host.bindTerminalAgentAffinity(id, s?.sessionGeneration, senderInfo.tabId);
         }
+        // A window opened beside others gets its first terminal here, not from the start route.
+        if (id && !isAgent) host.noteTerminalsStarted();
         return id;
       } finally {
         release();
@@ -14011,9 +14020,11 @@ export class NativeTabHost extends EventEmitter {
           });
           return typeof sessionId === 'string' && sessionId ? sessionId : null;
         }),
-      findSyncDuplicate: (directory, capsuleId) => {
+      findSyncDuplicate: (directory, capsuleId, spec) => {
         const briefOf = (id: string) => (id ? this.capsuleManager.get(id)?.brief : undefined);
         // Splits count: a watcher in a lower pane pushes to its remote exactly like a base shell.
+        // A watcher the app minted names its platform, so a folder bound to two platforms runs one
+        // watcher per remote instead of the second counting as the first's duplicate.
         const live = (manager.listSessions() as SessionSummary[])
           .filter((s) => s.role === 'sync' && s.state === 'running')
           .map((s) => ({
@@ -14021,13 +14032,93 @@ export class NativeTabHost extends EventEmitter {
             label: String(s.displayLabel || s.name || s.id),
             folder: String(s.cwd || ''),
             brief: briefOf(typeof s.capsuleId === 'string' ? s.capsuleId : ''),
+            platform: themeSyncPlatformOfSpecId(s.spaceTerminalId),
           }));
-        const duplicate = findSyncDuplicate(syncIdentity(directory, briefOf(capsuleId)), live);
+        const wanted = themeSyncPlatformOfSpecId(spec.id);
+        const brief = briefOf(capsuleId);
+        const identity = wanted ? platformSyncIdentity(directory, wanted, brief) : syncIdentity(directory, brief);
+        const duplicate = findSyncDuplicate(identity, live);
         return duplicate ? { id: duplicate.id, label: duplicate.label } : undefined;
       },
       typeCommand: (sessionId, text) => manager.writeTo(sessionId, text),
       wake: async (sessionId) => (await manager.wakeSession(sessionId)) !== false,
     };
+  }
+
+  /**
+   * Theme watchers start once per window, after Main says a person (or the boot restore) opened it
+   * AND the window's own sidebar has started its terminals. `idle` -> `armed` -> `done`; neither
+   * half alone is enough, because an agent-created window must stay quiet and a freshly created one
+   * has no saved terminals to split under until its sidebar asks for them.
+   */
+  private themeSyncAutostart: 'idle' | 'armed' | 'running' | 'done' = 'idle';
+  private terminalsStarted = false;
+
+  public armThemeSyncAutostart(): void {
+    if (this.themeSyncAutostart !== 'idle') return;
+    this.themeSyncAutostart = 'armed';
+    this.runThemeSyncAutostartWhenReady();
+  }
+
+  /**
+   * This window's sidebar started or minted a terminal. Called from the start and new-session
+   * routes: a window opened beside others finds its saved sessions already restored by the first
+   * start in the process, so its own first terminal can arrive later, from a new-session.
+   */
+  public noteTerminalsStarted(): void {
+    this.terminalsStarted = true;
+    this.runThemeSyncAutostartWhenReady();
+  }
+
+  private runThemeSyncAutostartWhenReady(): void {
+    if (this.themeSyncAutostart !== 'armed' || !this.terminalsStarted) return;
+    this.themeSyncAutostart = 'running';
+    this.startThemeSyncWatchers().then(
+      (settled) => {
+        // No base terminal yet is not an answer: stay armed for this window's first one.
+        this.themeSyncAutostart = settled ? 'done' : 'armed';
+      },
+      (err) => {
+        this.themeSyncAutostart = 'done';
+        console.warn('[native-tab-host] theme sync autostart failed:', err);
+      },
+    );
+  }
+
+  /** Resolves true once there is nothing more to do for this window, false while it has no base terminal. */
+  private async startThemeSyncWatchers(): Promise<boolean> {
+    // The shared Terminal Manager and a project with no verified workspace have no folder to watch.
+    const workspace = this.resolveWindowWorkspaceRoot();
+    if (!workspace) return true;
+    let folder = '';
+    try {
+      folder = fs.realpathSync.native(workspace);
+      if (!fs.statSync(folder).isDirectory()) return true;
+    } catch {
+      return true;
+    }
+    const specs = planThemeSyncAutostart(folder);
+    if (specs.length === 0) return true;
+    const owner = this.windowOwnerKey();
+    const rows = (TerminalManager.getInstance().listSessions() as SessionSummary[]).filter((s) => s.ownerKey === owner);
+    // Stable base: the tab a watcher already hangs under, else a running tab, else any open tab.
+    // None yet means the window has not made its first terminal: the caller tries again when it does.
+    const watcherParents = new Set(
+      rows.filter((s) => s.splitOf && themeSyncPlatformOfSpecId(s.spaceTerminalId)).map((s) => s.splitOf),
+    );
+    const bases = rows.filter((s) => !s.splitOf && (s.state === 'running' || s.state === 'sleeping'));
+    const base = bases.find((s) => watcherParents.has(s.id)) ?? bases.find((s) => s.state === 'running') ?? bases[0];
+    if (!base) return false;
+    const result = await openBuiltinSplits(
+      this.spaceTerminalDeps(TERMINAL_CHANNELS.SPACE_OPEN_SPLITS, () => owner),
+      folder,
+      { sessionId: base.id, capsuleId: base.capsuleId ?? '' },
+      specs,
+    );
+    if (!result.ok) {
+      console.warn(`[native-tab-host] theme sync autostart refused (${result.reason}): ${'message' in result ? result.message : ''}`);
+    }
+    return true;
   }
 
   /**

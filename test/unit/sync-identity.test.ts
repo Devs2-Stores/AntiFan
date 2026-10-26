@@ -3,7 +3,15 @@ import * as assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { HARAVAN_LOCAL_BINDING_FILE, SAPO_LOCAL_BINDING_FILE, findSyncDuplicate, syncIdentity } from '../../src/main/project/sync-identity';
+import {
+  HARAVAN_LOCAL_BINDING_FILE,
+  SAPO_LOCAL_BINDING_FILE,
+  findSyncDuplicate,
+  platformSyncIdentity,
+  syncIdentity,
+  themeSyncPlatformOfSpecId,
+  themeSyncSpecId,
+} from '../../src/main/project/sync-identity';
 import { canonicalFolderKey } from '../../src/main/project/workspace-capsule';
 
 function folderWith(binding?: string): string {
@@ -132,4 +140,45 @@ describe('sapo sync identity', () => {
       assert.deepEqual(syncIdentity(sapoFolder(content), { themeId: 'abc_1' }), { kind: 'brief', key: 'brief:abc_1' });
     });
   }
+});
+
+describe('app-minted theme watchers', () => {
+  const dualFolder = (): string => {
+    const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-dual-id-'));
+    fs.writeFileSync(path.join(folder, HARAVAN_LOCAL_BINDING_FILE), JSON.stringify({ org_id: '7', theme_id: '8' }), 'utf8');
+    fs.writeFileSync(path.join(folder, SAPO_LOCAL_BINDING_FILE), JSON.stringify({ store_prefix: 'shop', theme_id: 9 }), 'utf8');
+    return folder;
+  };
+
+  it('names its platform in the Space entry id and reads it back, and only that', () => {
+    for (const platform of ['haravan', 'sapo', 'shopify'] as const) {
+      assert.equal(themeSyncPlatformOfSpecId(themeSyncSpecId(platform)), platform);
+    }
+    for (const other of [undefined, '', 'sync', 'theme-sync-', 'theme-sync-other', 'x-theme-sync-sapo']) {
+      assert.equal(themeSyncPlatformOfSpecId(other), undefined, String(other));
+    }
+  });
+
+  it('keys each remote of a dual-bound folder on its own, where syncIdentity always answers Haravan', () => {
+    const folder = dualFolder();
+    assert.equal(platformSyncIdentity(folder, 'haravan').key, 'haravan:7:8');
+    assert.equal(platformSyncIdentity(folder, 'sapo').key, 'sapo:shop:9');
+    assert.equal(syncIdentity(folder).key, 'haravan:7:8');
+  });
+
+  it('lets the Sapo watcher start beside a running Haravan one in the same folder, and refuses a second of either', () => {
+    const folder = dualFolder();
+    const live = [{ id: 'hrv', label: 'hrv theme dev', folder, platform: 'haravan' as const }];
+    assert.equal(findSyncDuplicate(platformSyncIdentity(folder, 'sapo'), live), undefined);
+    assert.equal(findSyncDuplicate(platformSyncIdentity(folder, 'haravan'), live)?.id, 'hrv');
+    const both = [...live, { id: 'sapo', label: 'sapo theme dev', folder, platform: 'sapo' as const }];
+    assert.equal(findSyncDuplicate(platformSyncIdentity(folder, 'sapo'), both)?.id, 'sapo');
+  });
+
+  it('still counts a watcher the user started by hand: it pushes to the folder\'s strongest remote', () => {
+    const folder = dualFolder();
+    const byHand = [{ id: 'hand', label: 'hrv watch', folder }];
+    assert.equal(findSyncDuplicate(platformSyncIdentity(folder, 'haravan'), byHand)?.id, 'hand');
+    assert.equal(findSyncDuplicate(platformSyncIdentity(folder, 'sapo'), byHand), undefined);
+  });
 });

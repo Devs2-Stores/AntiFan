@@ -111,6 +111,8 @@ const LIFECYCLE_ROWS: readonly string[] = [
   'window.agent-ensure-opens-the-project-window-unpresented',
   'window.user-open-presents-and-restores-the-windows-own-tabs',
   'window.agent-visible-ensure-shows-the-window-without-focus',
+  'window.user-open-starts-theme-watchers-and-agent-open-does-not',
+  'window.user-created-window-starts-theme-watchers-after-its-first-terminal',
   'window.close-terminal-manager-keeps-project-windows',
   'window.survivor-toolbar-and-accelerator-after-sibling-close',
   'window.terminal-manager-menu-reopens-it-beside-project-windows',
@@ -1663,6 +1665,105 @@ async function runLifecycle() {
         BrowserWindow.prototype[method] = original;
       }
     }
+  });
+
+  // ---- (18c) a user's open starts the theme watchers its project needs; an agent's never did
+  await check('window.user-open-starts-theme-watchers-and-agent-open-does-not', async function () {
+    const { TerminalManager } = require(compiledModule('browser/terminal-manager.js'));
+    const manager = TerminalManager.getInstance();
+    const rowsOf = function (project) {
+      return manager.listSessions().filter(function (row) { return row.ownerKey === keyOf(project); });
+    };
+    const watchersOf = function (project) {
+      return rowsOf(project).filter(function (row) { return String(row.spaceTerminalId || '').indexOf('theme-sync-') === 0; });
+    };
+    // hrv and sapo resolve to stubs that only record their arguments: nothing here may reach a
+    // real remote, and the marker is what proves the command was typed into a live shell.
+    const stubDir = path.join(tempRoot, 'cli-stubs');
+    fs.mkdirSync(stubDir, { recursive: true });
+    const markerOf = function (name) { return path.join(tempRoot, name + '.marker'); };
+    // No backslash escapes in this block: the driver is an ordinary template literal.
+    for (const name of ['hrv', 'sapo']) {
+      if (process.platform === 'win32') {
+        fs.writeFileSync(path.join(stubDir, name + '.cmd'), ['@echo ' + name + ' %* > "' + markerOf(name) + '"', ''].join(os.EOL));
+      } else {
+        fs.writeFileSync(path.join(stubDir, name), ['#!/bin/sh', 'echo ' + name + ' "$@" > "' + markerOf(name) + '"', ''].join(os.EOL), { mode: 0o755 });
+      }
+    }
+    process.env.PATH = stubDir + path.delimiter + process.env.PATH;
+    fs.writeFileSync(path.join(DELTA.path, '.haravan-cli_local.json'), JSON.stringify({ org_id: '1', theme_id: '2' }));
+    fs.writeFileSync(path.join(DELTA.path, '.sapo-cli_local.json'), JSON.stringify({ store_prefix: 'e2e', theme_id: 3 }));
+
+    // The window an agent surfaces, created AFTER the project is bound to its remotes: the case
+    // where an autostart that ignored who opened the window would have something to start. It is
+    // up, its sidebar has started a terminal, and nobody opened it: no watcher.
+    await closeWindowAndWait(keyOf(DELTA));
+    await authority.ensureProjectWindow({ kind: 'project', projectId: DELTA.projectId }, 'agent-visible');
+    // The new window's own sidebar must be loaded: it is what starts the terminals.
+    await chromeOf(keyOf(DELTA), 'sidebar');
+    await waitFor(function () { return rowsOf(DELTA).some(function (row) { return !row.splitOf; }); }, 'the agent-visible window to start its first terminal', 60000);
+    // A real wait, not a guess at a condition: the claim is that nothing starts, and an event that
+    // never happens cannot be awaited. The first terminal exists, so a start would be under way.
+    await sleep(1500);
+    expect(watchersOf(DELTA).length === 0, 'an agent-visible window started watchers: ' + JSON.stringify(watchersOf(DELTA)));
+
+    const opened = await openProjectFromSidebar(DELTA);
+    expect(opened.result && opened.result.status === 'FOCUSED', 'the user open returned ' + JSON.stringify(opened.result));
+    await waitFor(function () { return watchersOf(DELTA).length === 2 ? true : false; }, 'both theme watchers to be minted', 60000);
+    const base = rowsOf(DELTA).filter(function (row) { return !row.splitOf; })[0];
+    const watchers = watchersOf(DELTA);
+    const byId = {};
+    for (const row of watchers) byId[row.spaceTerminalId] = row;
+    expect(byId['theme-sync-haravan'] && byId['theme-sync-sapo'], 'the watchers were ' + JSON.stringify(watchers.map(function (w) { return w.spaceTerminalId; })));
+    for (const row of watchers) {
+      expect(row.splitOf === base.id, row.spaceTerminalId + ' split ' + String(row.splitOf) + ', not the base ' + base.id);
+      expect(row.role === 'sync' && row.idlePolicy === 'never', row.spaceTerminalId + ' was ' + String(row.role) + '/' + String(row.idlePolicy));
+      expect(samePath(row.cwd, DELTA.path), row.spaceTerminalId + ' ran in ' + String(row.cwd));
+    }
+    await waitFor(function () { return fs.existsSync(markerOf('hrv')) && fs.existsSync(markerOf('sapo')) ? true : false; }, 'both commands to reach a live shell', 60000);
+    expect(fs.readFileSync(markerOf('hrv'), 'utf8').trim() === 'hrv theme dev', 'hrv got ' + fs.readFileSync(markerOf('hrv'), 'utf8'));
+    expect(fs.readFileSync(markerOf('sapo'), 'utf8').trim() === 'sapo theme dev', 'sapo got ' + fs.readFileSync(markerOf('sapo'), 'utf8'));
+
+    // A second open of the same window starts nothing more.
+    const sessionsBefore = rowsOf(DELTA).length;
+    await openProjectFromSidebar(DELTA);
+    await sleep(1500);
+    expect(watchersOf(DELTA).length === 2 && rowsOf(DELTA).length === sessionsBefore, 'a repeat open changed the sessions: ' + sessionsBefore + ' -> ' + rowsOf(DELTA).length);
+  });
+
+  // ---- (18d) the window a user creates while other windows hold terminals: its first terminal comes later
+  await check('window.user-created-window-starts-theme-watchers-after-its-first-terminal', async function () {
+    const { TerminalManager } = require(compiledModule('browser/terminal-manager.js'));
+    const manager = TerminalManager.getInstance();
+    const rowsOf = function (project) {
+      return manager.listSessions().filter(function (row) { return row.ownerKey === keyOf(project); });
+    };
+    const watchersOf = function (project) {
+      return rowsOf(project).filter(function (row) { return String(row.spaceTerminalId || '').indexOf('theme-sync-') === 0; });
+    };
+    const markerOf = function (name) { return path.join(tempRoot, name + '.marker'); };
+
+    // Nothing the previous row left may satisfy this one: the window goes, every terminal it owned
+    // goes, and the markers its watchers wrote go. Other windows still hold their terminals, so the
+    // process-wide start finds sessions and mints none for the window created below. (Terminal ids
+    // are reused after a close, so "new" is proved by the project owning nothing in between.)
+    await closeWindowAndWait(keyOf(DELTA));
+    for (const row of rowsOf(DELTA).filter(function (item) { return !item.splitOf; })) {
+      await manager.closeSession(row.id);
+    }
+    expect(rowsOf(DELTA).length === 0, 'the project still owned terminals: ' + JSON.stringify(rowsOf(DELTA)));
+    expect(manager.listSessions().some(function (row) { return row.state === 'running' && row.ownerKey !== keyOf(DELTA); }), 'no other window held a terminal, so this row would not be the case it names');
+    for (const name of ['hrv', 'sapo']) fs.rmSync(markerOf(name), { force: true });
+
+    const opened = await openProjectFromSidebar(DELTA);
+    expect(opened.result && opened.result.status === 'OPENED', 'the user open returned ' + JSON.stringify(opened.result));
+    await waitFor(function () { return watchersOf(DELTA).length === 2 ? true : false; }, 'both theme watchers to be minted in the new window', 60000);
+    const base = rowsOf(DELTA).filter(function (row) { return !row.splitOf && row.state === 'running'; })[0];
+    expect(base, 'the new window has no base terminal: ' + JSON.stringify(rowsOf(DELTA)));
+    for (const row of watchersOf(DELTA)) {
+      expect(row.splitOf === base.id, row.spaceTerminalId + ' was ' + JSON.stringify(row));
+    }
+    await waitFor(function () { return fs.existsSync(markerOf('hrv')) && fs.existsSync(markerOf('sapo')) ? true : false; }, 'both commands to reach the new window shells', 60000);
   });
 
   // ---------- (19) closing the Terminal Manager keeps every project window and its tabs

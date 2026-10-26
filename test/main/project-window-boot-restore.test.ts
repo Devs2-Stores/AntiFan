@@ -221,12 +221,14 @@ function makeShell(owner: WindowOwner): ProjectWindowShell {
 describe('boot window plan and restore', () => {
   const created: Array<{ key: string; intent: OpenIntent }> = [];
   const releases: Array<() => void> = [];
+  const armed: string[] = [];
   let failFor = new Set<string>();
   const savedProjectEnv = process.env.ANTIFAN_PROJECT_ID;
 
   beforeEach(() => {
     created.length = 0;
     failFor = new Set();
+    armed.length = 0;
     delete process.env.ANTIFAN_PROJECT_ID;
     setProjectWindowManagerForTesting(new ProjectWindowManager({
       createShell: (owner, intent) => {
@@ -235,7 +237,9 @@ describe('boot window plan and restore', () => {
         created.push({ key, intent });
         const shell = makeShell(owner);
         // Registered with a host so `ensureProjectWindow` joins instead of wiring a native window.
-        releases.push(installShellForTesting(shell, {} as unknown as NativeTabHost));
+        // The host records the one thing a restored window is told about theme watchers: arm.
+        const host = { armThemeSyncAutostart: () => void armed.push(key) } as unknown as NativeTabHost;
+        releases.push(installShellForTesting(shell, host));
         return shell;
       },
     }));
@@ -284,6 +288,7 @@ describe('boot window plan and restore', () => {
       { key: `project:${GAMMA}`, intent: 'restore' },
     ]);
     assert.deepEqual(outcomes.map((row) => [row.projectId, row.status]), [[ALPHA, 'restored'], [BETA, 'restored'], [GAMMA, 'restored']]);
+    assert.deepEqual(armed, [`project:${ALPHA}`, `project:${BETA}`, `project:${GAMMA}`], 'a restored window is armed for its theme watchers');
   });
 
   it('skips an unknown project and keeps restoring the windows behind a failing one', async () => {
