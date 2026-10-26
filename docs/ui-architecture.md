@@ -574,8 +574,11 @@ so an unrelated event can never push a close through.
 
 **Project window closed, its terminal still asking.** An agent mint claimed by a project (a
 terminal stamped `project:<id>`, or a validated `projectId`) whose window is closed reopens that
-window once with agent intent: created, never presented, focus untouched
-(`project-window.reopened-off-screen` in the lifecycle log). When it cannot be reopened the mint
+window once with `agent-visible` intent: created and shown unfocused on its first paint, so the
+user sees the page without a click on the sidebar's open-window arrow and focus stays where they
+are typing (`project-window.opened-for-agent` in the lifecycle log). `anti.browser.tabs.create`
+for a project with no window does the same. The `agent` intent (created, never presented) remains
+for callers that must stay invisible. When it cannot be reopened the mint
 refuses `TERMINAL_SCOPE_UNRESOLVED` with the reason and a recovery, and never lands in another
 project's window. A terminal no project claims answers on the ambient window, which refuses
 `TARGET_REQUIRED` when several windows make it ambiguous. A mint for a bound tab that is gone

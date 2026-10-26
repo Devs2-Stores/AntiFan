@@ -34,7 +34,7 @@ describe('ensureProjectTabHost', () => {
     await h.ensure(PROJECT);
     assert.deepEqual(h.calls, [PROJECT]);
     assert.deepEqual(h.journal, [
-      { event: 'project-window.reopened-off-screen', fields: { projectId: PROJECT, reason: 'agent-tab-create' } },
+      { event: 'project-window.opened-for-agent', fields: { projectId: PROJECT, reason: 'agent-tab-create' } },
     ]);
   });
 

@@ -23,11 +23,14 @@ import { ownerKey, ProjectWindowShell, type WindowOwner } from './project-window
 /**
  * `user`: an explicit user action — the shell is presented and focused.
  * `agent`: background work — the shell is created but never presented.
+ * `agent-visible`: background work the user has allowed to surface its window — the shell is
+ * created like `agent`, and Main presents it unfocused (`showInactive`, no focus steal) on its
+ * first paint. The manager itself never presents it; Main reveals a hidden one it joins.
  * `restore`: boot-time resurrection — the shell is presented unfocused
  * (`showInactive` semantics: visible, placement restored, no focus steal). A
  * shell restored unfocused can still be focused by a later `user` intent.
  */
-export type OpenIntent = 'user' | 'agent' | 'restore';
+export type OpenIntent = 'user' | 'agent' | 'agent-visible' | 'restore';
 
 export interface ProjectWindowManagerOptions {
   /** Builds the native shell. The manager never constructs BrowserWindow itself. */
@@ -97,7 +100,7 @@ export class ProjectWindowManager {
       // whichever request won, so an agent-driven creation stays hidden. The
       // same rule drives `restore`: joining an in-flight open surfaces the
       // shell unfocused rather than leaving a boot-restored window invisible.
-      if (intent === 'agent') return inFlight;
+      if (intent === 'agent' || intent === 'agent-visible') return inFlight;
       return inFlight.then((shell) => {
         if (intent === 'restore') this.presentInactive(shell);
         else this.present(shell);

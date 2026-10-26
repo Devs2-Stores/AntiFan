@@ -110,6 +110,7 @@ const LIFECYCLE_ROWS: readonly string[] = [
   'window.close-project-window-keeps-the-others',
   'window.agent-ensure-opens-the-project-window-unpresented',
   'window.user-open-presents-and-restores-the-windows-own-tabs',
+  'window.agent-visible-ensure-shows-the-window-without-focus',
   'window.close-terminal-manager-keeps-project-windows',
   'window.survivor-toolbar-and-accelerator-after-sibling-close',
   'window.terminal-manager-menu-reopens-it-beside-project-windows',
@@ -1607,6 +1608,61 @@ async function runLifecycle() {
     }, 'the ledger to list the window the user presented');
     expect(authority.browserShellCount() === 6, 'browserShellCount() was ' + authority.browserShellCount());
     expect(JSON.stringify(localTabUrls(hostOf(DELTA))) === JSON.stringify(deltaLocalUrlsBeforeClose), 'the presented window lost its tabs');
+  });
+
+  // ---- (18b) an agent-visible ensure shows the project's window on first paint without activating it
+  await check('window.agent-visible-ensure-shows-the-window-without-focus', async function () {
+    await closeWindowAndWait(keyOf(DELTA));
+    const presentationCalls = [];
+    const patched = [];
+    for (const method of ['show', 'showInactive', 'focus', 'moveTop']) {
+      const original = BrowserWindow.prototype[method];
+      if (typeof original !== 'function') continue;
+      patched.push([method, original]);
+      BrowserWindow.prototype[method] = function patchedMethod() {
+        presentationCalls.push({ method: method, windowId: this.id });
+        return original.apply(this, arguments);
+      };
+    }
+    const callsFor = function (windowId) {
+      return presentationCalls.filter(function (call) { return call.windowId === windowId; }).map(function (call) { return call.method; });
+    };
+
+    try {
+      expect(!entryOf(authority.snapshot(), keyOf(DELTA)), 'the window the agent asks for is still open');
+      const entry = await authority.ensureProjectWindow({ kind: 'project', projectId: DELTA.projectId }, 'agent-visible');
+      const win = authority.windowFor(keyOf(DELTA));
+      await waitFor(function () { return win.isVisible() ? true : false; }, 'the agent-visible window to be presented');
+      expect(
+        JSON.stringify(callsFor(entry.windowId)) === JSON.stringify(['showInactive']),
+        'the agent-visible window was presented through ' + JSON.stringify(callsFor(entry.windowId)),
+      );
+      await waitFor(function () {
+        const parsed = readJson(legacyEnvelope().ledger);
+        return parsed && Array.isArray(parsed.owners) && parsed.owners.indexOf(keyOf(DELTA)) !== -1 ? parsed : false;
+      }, 'the ledger to list the window an agent surfaced');
+
+      // A window an earlier call left hidden is surfaced by the next agent-visible join.
+      win.hide();
+      expect(win.isVisible() === false, 'the window did not hide');
+      presentationCalls.length = 0;
+      await authority.ensureProjectWindow({ kind: 'project', projectId: DELTA.projectId }, 'agent-visible');
+      expect(win.isVisible() === true, 'the hidden window stayed hidden');
+      expect(
+        JSON.stringify(callsFor(entry.windowId)) === JSON.stringify(['showInactive']),
+        'the hidden window was revealed through ' + JSON.stringify(callsFor(entry.windowId)),
+      );
+
+      // A window that is already on screen is left alone by a repeated agent call.
+      presentationCalls.length = 0;
+      await authority.ensureProjectWindow({ kind: 'project', projectId: DELTA.projectId }, 'agent-visible');
+      expect(callsFor(entry.windowId).length === 0, 'a visible window was presented again: ' + JSON.stringify(callsFor(entry.windowId)));
+      expect(authority.browserShellCount() === 6, 'browserShellCount() was ' + authority.browserShellCount());
+    } finally {
+      for (const [method, original] of patched) {
+        BrowserWindow.prototype[method] = original;
+      }
+    }
   });
 
   // ---------- (19) closing the Terminal Manager keeps every project window and its tabs

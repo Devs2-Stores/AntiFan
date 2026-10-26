@@ -47,10 +47,14 @@ import {
 
 const AGENT_PROJECT = 'project-00000000-0000-4000-8000-0000000000d4';
 const RESTORED_PROJECT = 'project-00000000-0000-4000-8000-0000000000e5';
+const VISIBLE_PROJECT = 'project-00000000-0000-4000-8000-0000000000f6';
+const REVEAL_PROJECT = 'project-00000000-0000-4000-8000-000000000107';
 
 /** The native window as Main drives it: hidden when built, shown only by a presenter. */
 class WindowDouble extends EventEmitter {
   private visible = false;
+  public focusCalls = 0;
+  public shownVia: 'show' | 'showInactive' | null = null;
 
   public constructor(public readonly id: number) {
     super();
@@ -63,9 +67,9 @@ class WindowDouble extends EventEmitter {
   public center(): void {}
   public maximize(): void {}
   public restore(): void {}
-  public focus(): void {}
-  public show(): void { this.present(); }
-  public showInactive(): void { this.present(); }
+  public focus(): void { this.focusCalls += 1; }
+  public show(): void { this.shownVia ??= 'show'; this.present(); }
+  public showInactive(): void { this.shownVia ??= 'showInactive'; this.present(); }
 
   private present(): void {
     if (this.visible) return;
@@ -97,7 +101,12 @@ function listedForNextBoot(key: string): boolean {
 
 describe('open-window ledger lists only windows a person could see', () => {
   before(() => {
-    for (const [projectId, name] of [[AGENT_PROJECT, 'agent-work'], [RESTORED_PROJECT, 'restored']] as const) {
+    for (const [projectId, name] of [
+      [AGENT_PROJECT, 'agent-work'],
+      [RESTORED_PROJECT, 'restored'],
+      [VISIBLE_PROJECT, 'agent-visible'],
+      [REVEAL_PROJECT, 'agent-reveal'],
+    ] as const) {
       const workspaceDir = path.join(pinnedRoot, 'workspaces', name);
       fs.mkdirSync(workspaceDir, { recursive: true });
       projectRegistry.ensureInitialWorkspace(projectId, projectId.replace('project-', 'workspace-'), workspaceDir, pinnedRoot);
@@ -147,5 +156,32 @@ describe('open-window ledger lists only windows a person could see', () => {
 
     assert.equal(windows.get(key)?.isVisible(), true, 'the boot presenter shows a restored window');
     assert.equal(listedForNextBoot(key), true, 'the presented window is listed for the next boot');
+  });
+
+  it('shows a window created for agent-visible work on its first paint without taking focus', async () => {
+    const key = `project:${VISIBLE_PROJECT}`;
+    const entry = await projectWindowAuthority.ensureProjectWindow({ kind: 'project', projectId: VISIBLE_PROJECT }, 'agent-visible');
+    assert.equal(entry.ownerKey, key);
+    assert.equal(windows.get(key)?.isVisible(), false, 'nothing is shown before the first paint');
+
+    windows.get(key)?.emit('ready-to-show');
+
+    assert.equal(windows.get(key)?.isVisible(), true, 'the window the agent needs is shown');
+    assert.equal(windows.get(key)?.shownVia, 'showInactive', 'the window is shown without activating it');
+    assert.equal(windows.get(key)?.focusCalls, 0, 'agent-visible work never steals focus');
+    assert.equal(listedForNextBoot(key), true, 'a window a person can see is listed for the next boot');
+  });
+
+  it('reveals a window an earlier agent call left hidden when agent-visible work joins it', async () => {
+    const key = `project:${REVEAL_PROJECT}`;
+    await projectWindowAuthority.ensureProjectWindow({ kind: 'project', projectId: REVEAL_PROJECT }, 'agent');
+    await delay(350);
+    assert.equal(windows.get(key)?.isVisible(), false, 'agent intent leaves the window hidden');
+
+    await projectWindowAuthority.ensureProjectWindow({ kind: 'project', projectId: REVEAL_PROJECT }, 'agent-visible');
+
+    assert.equal(windows.get(key)?.isVisible(), true, 'joining with agent-visible intent surfaces the hidden window');
+    assert.equal(windows.get(key)?.shownVia, 'showInactive', 'the reveal does not activate the window');
+    assert.equal(windows.get(key)?.focusCalls, 0, 'the reveal never steals focus');
   });
 });

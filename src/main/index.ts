@@ -588,8 +588,8 @@ const shellsAwaitingFirstPaint = new WeakSet<ProjectWindowShell>();
 
 /**
  * Whether a person can see this shell, or is about to: shown (minimized counts — it sits
- * on the taskbar) or armed to show on its first paint. A shell created for agent work is
- * never presented, so a hub an agent reopened stays off-screen until someone opens it.
+ * on the taskbar) or armed to show on its first paint. A shell created with `agent` intent is
+ * never presented, so a window an agent reopened that way stays off-screen until someone opens it.
  */
 function shellIsOnScreen(shell: ProjectWindowShell): boolean {
   const win = shell.window;
@@ -1844,15 +1844,20 @@ async function ensureProjectWindow(
   // host. Only the creation path wires one, and it does so with no await between the
   // check and the registration, so two callers cannot both build a host for one shell.
   const existingHost = tabAuthorities.hostForShell(shell);
-  if (existingHost) return { shell, host: existingHost, created: false };
+  if (existingHost) {
+    // A window an earlier `agent` call left hidden is surfaced (unfocused) by an `agent-visible`
+    // one. A window already shown, minimized, or armed to show is left exactly as it is.
+    if (intent === 'agent-visible' && !shellIsOnScreen(shell)) presentShellUnfocused(shell);
+    return { shell, host: existingHost, created: false };
+  }
 
   // A window the user asked for must be shown; the manager only presents a shell it joins, and
   // construction never presents, so a creation with no presenter would leave the window alive,
-  // answering its chrome and invisible. Agent intent is excluded: nothing here may raise a window
-  // a caller created for work the user did not request. `restore` presents unfocused — the boot
-  // leg's shells surface without stealing focus.
-  if (intent === 'user' || intent === 'restore') {
-    presentShellOnFirstPaint(shell, options?.onFirstPresented, intent === 'restore' ? 'unfocused' : 'focused');
+  // answering its chrome and invisible. `agent` intent is excluded: nothing here may raise a
+  // window a caller created for work the user did not request. `agent-visible` and `restore`
+  // present unfocused — the window surfaces without stealing focus from where the user is typing.
+  if (intent === 'user' || intent === 'restore' || intent === 'agent-visible') {
+    presentShellOnFirstPaint(shell, options?.onFirstPresented, intent === 'user' ? 'focused' : 'unfocused');
   }
 
   const host = projectWindowHostFactoryForTesting?.(shell) ?? new NativeTabHost(shell, capsuleManager || undefined);
@@ -2333,7 +2338,7 @@ export function createBridgeMintHostResolver(deps: BridgeMintResolverDeps): Brid
 export interface EnsureProjectTabHostDeps {
   isKnownProjectId(projectId: string): boolean;
   hasProjectHost(projectId: string): boolean;
-  /** Opens the project's window unfocused and unpresented; resolves whether it was created. */
+  /** Opens the project's window (shown unfocused when it was closed); resolves whether it was created. */
   openProjectWindow(projectId: string): Promise<boolean>;
   journal(event: string, fields: Record<string, unknown>): void;
 }
@@ -2358,7 +2363,7 @@ export function createEnsureProjectTabHost(deps: EnsureProjectTabHostDeps): (pro
     }
     if (deps.hasProjectHost(projectId)) return;
     const created = await deps.openProjectWindow(projectId);
-    if (created) deps.journal('project-window.reopened-off-screen', { projectId, reason: 'agent-tab-create' });
+    if (created) deps.journal('project-window.opened-for-agent', { projectId, reason: 'agent-tab-create' });
   };
 }
 
@@ -4090,7 +4095,7 @@ async function createWindow(): Promise<void> {
     ensureProjectTabHost: createEnsureProjectTabHost({
       isKnownProjectId,
       hasProjectHost: (projectId) => tabAuthorities.hostForProject(projectId) !== undefined,
-      openProjectWindow: async (projectId) => (await ensureProjectWindow({ kind: 'project', projectId }, 'agent')).created,
+      openProjectWindow: async (projectId) => (await ensureProjectWindow({ kind: 'project', projectId }, 'agent-visible')).created,
       journal: recordLifecycleEvent,
     }),
     closeTab: (tabId, source) => hostForTabOrBootstrap(tabId).closeTab(tabId, source),
@@ -4438,7 +4443,7 @@ async function createWindow(): Promise<void> {
     // Mint routing: a terminal's agent anchor must be created on the window that owns
     // the terminal and stamped with the terminal's own capsule — never the bootstrap
     // host or the process-wide ambient capsule. A `project:<id>` claim routes to the
-    // project's own window, reopened without being raised when it is closed, and is
+    // project's own window, reopened and shown unfocused when it is closed, and is
     // refused (typed) when no window can own it. See `createBridgeMintHostResolver`.
     bridgeServer.setMintHostResolver(createBridgeMintHostResolver({
       hostForTab: (tabId) => tabAuthorities.hostForTab(tabId) ?? null,
@@ -4450,8 +4455,8 @@ async function createWindow(): Promise<void> {
       capsuleProjectId: (capsuleId) => capsuleManager?.list().find((c) => c.id === capsuleId)?.projectId || undefined,
       ensureProjectHost: async (projectId) => {
         if (!isKnownProjectId(projectId)) return null;
-        const { host, created } = await ensureProjectWindow({ kind: 'project', projectId }, 'agent');
-        if (created) recordLifecycleEvent('project-window.reopened-off-screen', { projectId, reason: 'agent-mint' });
+        const { host, created } = await ensureProjectWindow({ kind: 'project', projectId }, 'agent-visible');
+        if (created) recordLifecycleEvent('project-window.opened-for-agent', { projectId, reason: 'agent-mint' });
         return host;
       },
       ambientHost: () => ambientHostOrThrow(),
