@@ -224,6 +224,7 @@ describe('refusal notice delivery', () => {
     assert.deepEqual(presentedRow(journal, 'toolbar')?.fields, {
       kind: 'quit',
       reasonCount: 1,
+      reasons: ['busy'],
       surface: 'toolbar',
       delivered: 2,
       failed: 0,
@@ -243,10 +244,27 @@ describe('refusal notice delivery', () => {
       kind: 'close',
       ownerKey: 'project:acme',
       reasonCount: 2,
+      reasons: ['busy', 'busy'],
       surface: 'toolbar',
       delivered: 1,
       failed: 0,
     });
+  });
+
+  it('names the refusal codes in the presented row, in report order and capped', () => {
+    const { surfaces } = recordingSurfaces('project:acme');
+    const { port, journal } = recordingPort({ surfaces });
+    const codes = ['busy', 'unknown-live-use', 'unload-veto', 'unknown-outcome', 'native-close-failed', 'ownership-changed', 'new-arrival', 'surface-missing', 'shutdown-failed', 'busy', 'busy', 'busy'] as const;
+    const many: CloseReport = {
+      ...REFUSED_CLOSE,
+      refusals: codes.map((code) => ({ ...BUSY_REFUSAL, code })),
+    };
+
+    presentCloseRefusalNotice(buildCloseRefusalNotice(many, 'close'), port);
+
+    const fields = presentedRow(journal, 'toolbar')?.fields;
+    assert.equal(fields?.reasonCount, 12, 'the count still reports every refusal');
+    assert.deepEqual(fields?.reasons, codes.slice(0, 8));
   });
 
   it('falls back to the native dialog when a refused quit has no browser shell to show it in', async () => {
@@ -263,6 +281,7 @@ describe('refusal notice delivery', () => {
     assert.deepEqual(presentedRow(journal, 'dialog')?.fields, {
       kind: 'quit',
       reasonCount: 1,
+      reasons: ['busy'],
       surface: 'dialog',
       failed: 0,
     });
@@ -287,6 +306,7 @@ describe('refusal notice delivery', () => {
     assert.deepEqual(presentedRow(journal, 'dialog')?.fields, {
       kind: 'quit',
       reasonCount: 1,
+      reasons: ['busy'],
       surface: 'dialog',
       failed: 2,
     });
@@ -329,6 +349,7 @@ describe('refusal notice delivery', () => {
     assert.deepEqual(presentedRow(journal, 'toolbar')?.fields, {
       kind: 'quit',
       reasonCount: 1,
+      reasons: ['busy'],
       surface: 'toolbar',
       delivered: 1,
       failed: 1,

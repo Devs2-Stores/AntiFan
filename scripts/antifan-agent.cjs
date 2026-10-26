@@ -18,11 +18,16 @@ function printUsage() {
   console.log(`
 AntiFan Agent Launcher (v1.0.0)
 Usage:
-  antifan [--tab=<tabId>] <command> [args...]
-  antifan-agent [--tab=<tabId>] <command> [args...]
+  antifan [--tab=<tabId> | --project=<id|name>] <command> [args...]
+  antifan-agent [--tab=<tabId> | --project=<id|name>] <command> [args...]
 
 Options:
   --tab=<tabId>, -t <tabId>   Explicitly bind to a Chromium tab ID
+  --project=<id|name>         Open the session in this project (exact project id first, then a
+                              unique case-insensitive project name); an ambiguous name is an error
+                              that lists the candidates. Not combinable with --tab
+                              Launcher options are read only before <command>; flags after it
+                              (e.g. npx playwright test --project=chromium) go to the command
 
 Examples:
   antifan mcp
@@ -465,7 +470,7 @@ function resolveForbiddenCapabilities() {
   return undefined;
 }
 
-async function acquireBridgeSession(candidates, boundPid, explicitTabId) {
+async function acquireBridgeSession(candidates, boundPid, explicitTabId, projectId) {
   const errors = [];
   // Refusals a bridge answered with. A bridge that answered is up: reporting its refusal as
   // "offline" sends the caller to restart a desktop app that is running fine.
@@ -518,6 +523,7 @@ async function acquireBridgeSession(candidates, boundPid, explicitTabId) {
         ownerPid: boundPid,
         ttlMs: 3600000,
         tabId: explicitTabId || undefined,
+        projectId: !explicitTabId && projectId ? projectId : undefined,
         terminalSessionId: rawTerminalId ? String(rawTerminalId).trim() : undefined,
         terminalGeneration: rawGen ? String(rawGen).trim() : undefined,
         attachmentId: pairedExchange?.attachmentId || undefined,
@@ -541,6 +547,24 @@ async function acquireBridgeSession(candidates, boundPid, explicitTabId) {
           throw timeoutErr;
         }
         throw startErr;
+      }
+      if (projectId && !explicitTabId && session && session.projectId && session.projectId !== projectId) {
+        // A terminal-attributed or attachment-owned session keeps its own project; the selector
+        // only steers a fresh provision. Silently running in another project is worse than refusing.
+        try {
+          await rpcCall(ws, 'antifan.cli.endSession', {
+            runId: session.runId,
+            attemptId: session.attemptId,
+            attachmentId: session.attachmentId,
+            secret: session.secret,
+            outcome: 'failed',
+            error: 'PROJECT_MISMATCH',
+          }, 3000);
+        } catch {}
+        const mismatch = new Error(`PROJECT_MISMATCH: --project resolved to '${projectId}' but the bridge opened the session in project '${session.projectId}' (a session started from a terminal stays in that terminal's project; use --tab to name a tab explicitly)`);
+        mismatch.code = 'PROJECT_MISMATCH';
+        mismatch.bridgeAnswered = true;
+        throw mismatch;
       }
       const targetTabId = session?.tabId || explicitTabId;
       if (!session || !session.attachmentId || !session.secret || !session.authorityRevision || !targetTabId) {
@@ -680,11 +704,96 @@ function rpcCall(ws, method, params = {}, timeoutMs = 10000) {
   });
 }
 
+// Project selector sources: the config directories the bridge discovery reads, led by the directory of
+// the bridge file that was found (that instance's own capsule registry), then the pinned dirs.
+function projectConfigDirs(candidates) {
+  const dirs = [];
+  for (const candidate of candidates || []) {
+    if (candidate && candidate.file) dirs.push(path.dirname(candidate.file));
+  }
+  if (process.env.ANTIFAN_CONFIG_DIR) dirs.push(process.env.ANTIFAN_CONFIG_DIR);
+  if (process.env.ANTIFAN_DATA_ROOT) dirs.push(path.join(process.env.ANTIFAN_DATA_ROOT, 'config'));
+  return [...new Set(dirs.map((dir) => path.resolve(dir)))];
+}
+
+// Distinct projects known to this instance: capsule rows that carry a projectId, grouped by it.
+function listKnownProjects(configDirs) {
+  const byId = new Map();
+  for (const dir of configDirs) {
+    let rows;
+    try {
+      const parsed = JSON.parse(fs.readFileSync(path.join(dir, 'workspace-capsules.json'), 'utf8'));
+      rows = Array.isArray(parsed) ? parsed : parsed && Array.isArray(parsed.capsules) ? parsed.capsules : [];
+    } catch {
+      continue;
+    }
+    for (const row of rows) {
+      if (!row || typeof row.projectId !== 'string' || !row.projectId) continue;
+      const entry = byId.get(row.projectId) || { projectId: row.projectId, names: new Set(), paths: new Set() };
+      if (typeof row.name === 'string' && row.name.trim()) entry.names.add(row.name.trim());
+      if (typeof row.workspacePath === 'string' && row.workspacePath) entry.paths.add(row.workspacePath);
+      byId.set(row.projectId, entry);
+    }
+  }
+  return [...byId.values()];
+}
+
+function describeProject(project) {
+  const names = [...project.names].join(' / ') || '(unnamed)';
+  const folders = [...project.paths].join(' ; ');
+  return `${project.projectId} (${names}${folders ? `, ${folders}` : ''})`;
+}
+
+// `--project=<id|name>`: an exact project id wins; otherwise a case-insensitive name must match
+// exactly one project. Zero or several matches are errors that name what was found.
+function resolveProjectSelector(selector, configDirs) {
+  const wanted = String(selector || '').trim();
+  if (!wanted) throw new Error('--project requires a non-empty project id or name.');
+  const projects = listKnownProjects(configDirs);
+  const byId = projects.find((project) => project.projectId === wanted);
+  if (byId) return byId.projectId;
+  const lowered = wanted.toLowerCase();
+  const byName = projects.filter((project) => [...project.names].some((name) => name.toLowerCase() === lowered));
+  if (byName.length === 1) return byName[0].projectId;
+  if (byName.length > 1) {
+    const err = new Error(`--project '${wanted}' is ambiguous; pass the project id of one of:\n  - ${byName.map(describeProject).join('\n  - ')}`);
+    err.code = 'PROJECT_AMBIGUOUS';
+    throw err;
+  }
+  const err = new Error(
+    projects.length === 0
+      ? `--project '${wanted}': no project registry was found next to the bridge (searched: ${configDirs.join(', ') || 'none'}).`
+      : `--project '${wanted}' matches no known project id or name. Known projects:\n  - ${projects.map(describeProject).join('\n  - ')}`
+  );
+  err.code = 'PROJECT_NOT_FOUND';
+  throw err;
+}
+
+function isCapabilityLauncherFlag(arg) {
+  return (
+    arg === '--fixer' ||
+    arg.startsWith('--grant=') ||
+    arg.startsWith('--allowed-capabilities=') ||
+    arg.startsWith('--allow-capabilities=') ||
+    arg.startsWith('--forbidden-capabilities=')
+  );
+}
+
+// Launcher selectors (`--tab`/`-t`, `--project`) are read only BEFORE the wrapped command. The
+// first token that is not a launcher flag starts the command and everything after it is passed
+// verbatim, so `antifan npx playwright test --project=chromium` keeps the wrapped tool's own flag.
+// `--fixer` / `--grant=` / `--*-capabilities=` stay consumed anywhere: resolveSessionGrant and the
+// capability resolvers scan process.argv for them regardless of position.
 function parseLauncherArgs(argv) {
   let explicitTabId = undefined;
+  let project = undefined;
   const commandArgs = [];
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
+    if (commandArgs.length > 0) {
+      if (!isCapabilityLauncherFlag(arg)) commandArgs.push(arg);
+      continue;
+    }
     if (arg.startsWith('--tab=')) {
       const val = arg.slice('--tab='.length).trim();
       if (!val) {
@@ -698,19 +807,27 @@ function parseLauncherArgs(argv) {
       } else {
         throw new Error('--tab requires a non-empty tabId.');
       }
-    } else if (
-      arg === '--fixer' ||
-      arg.startsWith('--grant=') ||
-      arg.startsWith('--allowed-capabilities=') ||
-      arg.startsWith('--allow-capabilities=') ||
-      arg.startsWith('--forbidden-capabilities=')
-    ) {
+    } else if (arg.startsWith('--project=')) {
+      const val = arg.slice('--project='.length).trim();
+      if (!val) throw new Error('--project requires a non-empty project id or name.');
+      project = val;
+    } else if (arg === '--project') {
+      if (i + 1 < argv.length && !argv[i + 1].startsWith('-') && argv[i + 1].trim()) {
+        project = argv[i + 1].trim();
+        i++;
+      } else {
+        throw new Error('--project requires a non-empty project id or name.');
+      }
+    } else if (isCapabilityLauncherFlag(arg)) {
       // Launcher flags handled by resolveSessionGrant / resolveAllowedCapabilities / resolveForbiddenCapabilities
     } else {
       commandArgs.push(arg);
     }
   }
-  return { tabId: explicitTabId, commandArgs };
+  if (explicitTabId && project) {
+    throw new Error('--tab and --project cannot be combined: a tab already belongs to exactly one project.');
+  }
+  return { tabId: explicitTabId, project, commandArgs };
 }
 let activeCleanup = null;
 // The spawned agent/MCP child is part of this session, so it dies with it. Without this the child
@@ -747,10 +864,20 @@ async function main() {
     process.exit(1);
   }
 
+  let projectId;
+  if (parsed.project) {
+    try {
+      projectId = resolveProjectSelector(parsed.project, projectConfigDirs(candidates));
+    } catch (err) {
+      console.error(`\x1b[31m[antifan-agent] ${err.code ? `${err.code}: ` : ''}${err.message}\x1b[0m`);
+      process.exit(1);
+    }
+  }
+
   const boundPid = process.pid;
   let bridgeAcquisition;
   try {
-    bridgeAcquisition = await acquireBridgeSession(candidates, boundPid, explicitTabId);
+    bridgeAcquisition = await acquireBridgeSession(candidates, boundPid, explicitTabId, projectId);
   } catch (err) {
     if (err.code === 'BRIDGE_SESSION_REFUSED') {
       console.error(`BRIDGE_SESSION_REFUSED${Array.isArray(err.refusalCodes) && err.refusalCodes.length > 0 ? ` (${err.refusalCodes.join(', ')})` : ''}: ${err.message}`);
@@ -952,6 +1079,8 @@ if (require.main === module) {
     spawnAgentChild,
     resolveAgentCommand,
     parseLauncherArgs,
+    resolveProjectSelector,
+    projectConfigDirs,
   };
 }
 

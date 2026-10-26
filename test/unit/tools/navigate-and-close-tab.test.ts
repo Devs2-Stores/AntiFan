@@ -92,6 +92,53 @@ describe('BrowserControlPort.navigate url and timeout contract', () => {
   });
 });
 
+describe('BrowserControlPort.navigate waitUntil', () => {
+  function makePort(): { port: BrowserControlPort; waits: unknown[] } {
+    const waits: unknown[] = [];
+    const host = {
+      hasTab: (id: string) => id === 'tab-1',
+      getTabList: () => [{ id: 'tab-1', url: 'https://shop.test/slow' }],
+      getTabUrl: () => 'https://shop.test/slow',
+      getDocumentGeneration: () => 1,
+      navigate: () => true,
+      navigateAndWait: async (_tabId: string, _url: string, wait?: number | { timeoutMs?: number; waitUntil?: string }) => {
+        waits.push(wait);
+        return true;
+      },
+    } as unknown as BrowserHostPort;
+    return { port: new BrowserControlPort(host), waits };
+  }
+
+  it('hands an earlier lifecycle point to the host waiter and reports the state it stopped at', async () => {
+    const { port, waits } = makePort();
+    const commit = await port.navigate(target, 'https://shop.test/slow', undefined, { timeoutMs: 8_000, waitUntil: 'commit' });
+    assert.deepEqual(waits[0], { timeoutMs: 8_000, waitUntil: 'commit' });
+    assert.equal(commit.loadState, 'committed');
+    assert.equal(commit.committedUrl, 'https://shop.test/slow');
+    const dcl = await port.navigate(target, 'https://shop.test/slow', undefined, { waitUntil: 'domcontentloaded' });
+    assert.deepEqual(waits[1], { timeoutMs: undefined, waitUntil: 'domcontentloaded' });
+    assert.equal(dcl.loadState, 'domcontentloaded');
+  });
+
+  it('keeps the plain timeout argument for the default load wait', async () => {
+    const { port, waits } = makePort();
+    const res = await port.navigate(target, 'https://shop.test/slow', undefined, { timeoutMs: 5_000 });
+    assert.deepEqual(waits, [5_000]);
+    assert.equal(res.loadState, 'loaded');
+    await port.navigate(target, 'https://shop.test/slow', undefined, { timeoutMs: 5_000, waitUntil: 'load' });
+    assert.deepEqual(waits[1], 5_000);
+  });
+
+  it('refuses an unknown waitUntil before touching the host', async () => {
+    const { port, waits } = makePort();
+    await assert.rejects(
+      port.navigate(target, 'https://shop.test/slow', undefined, { waitUntil: 'idle' as never }),
+      (err: unknown) => err instanceof CapabilityError && err.code === 'INVALID_ARGUMENT'
+    );
+    assert.deepEqual(waits, []);
+  });
+});
+
 describe('BrowserControlPort.closeTab idempotence', () => {
   function makePort(initialTabs: string[], allowed: (bound: string, requested: string) => boolean = () => true): {
     port: BrowserControlPort;
@@ -139,5 +186,62 @@ describe('BrowserControlPort.closeTab idempotence', () => {
       (err: unknown) => err instanceof CapabilityError && err.code === 'TARGET_MISMATCH' && typeof err.details?.recovery === 'string'
     );
     assert.deepEqual(closed, []);
+  });
+
+  it('lets the creating attachment close a tab outside the bound tab pool, and nobody else', () => {
+    const { port, closed } = makePort(['tab-1', 'tab-created'], (bound, requested) => bound === requested);
+    assert.throws(
+      () => port.closeTab('tab-created', { target }),
+      (err: unknown) => err instanceof CapabilityError && err.code === 'TARGET_MISMATCH'
+    );
+    assert.throws(
+      () => port.closeTab('tab-created', { target, creatorTabId: 'tab-other' }),
+      (err: unknown) => err instanceof CapabilityError && err.code === 'TARGET_MISMATCH'
+    );
+    assert.deepEqual(closed, []);
+    const res = port.closeTab('tab-created', { target, creatorTabId: 'tab-created' });
+    assert.equal(res.closed, true);
+    assert.deepEqual(closed, ['tab-created']);
+  });
+
+  it('waives the pool check only for the creator tab itself: a #N alias resolving to another tab stays refused', () => {
+    const { port, closed } = makePort(['tab-1', 'tab-user', 'tab-created'], (bound, requested) => bound === requested);
+    // The surface resolved '#2' against ITS list to the creator-owned tab; this port resolves '#2'
+    // against its own list to a user tab. The creator waiver must not follow the alias.
+    assert.throws(
+      () => port.closeTab('#2', { target, creatorTabId: 'tab-created' }),
+      (err: unknown) => err instanceof CapabilityError && err.code === 'TARGET_MISMATCH' && err.details?.tabId === 'tab-user'
+    );
+    assert.deepEqual(closed, []);
+    const res = port.closeTab('#3', { target, creatorTabId: 'tab-created' });
+    assert.equal(res.closed, true);
+    assert.equal(res.tabId, 'tab-created');
+    assert.deepEqual(closed, ['tab-created']);
+  });
+});
+
+describe('BrowserControlPort.openTab quota refusal', () => {
+  it('names the tabs this session may close, never the bound tab or a foreign one', () => {
+    const managed = new Set(['tab-1', ...Array.from({ length: 9 }, (_, index) => `tab-owned-${index + 1}`)]);
+    const host = {
+      hasTab: (id: string) => managed.has(id) || id === 'tab-user',
+      getTabList: () => [...managed, 'tab-user'].map((id) => ({ id })),
+      getManagedTabIds: () => managed,
+      isTabAllowed: (_bound: string, requested: string) => requested !== 'tab-user',
+      createTab: () => { throw new Error('a full session must be refused before a tab is created'); },
+    } as unknown as BrowserHostPort;
+    const port = new BrowserControlPort(host);
+    assert.throws(
+      () => port.openTab({}, { target }),
+      (err: unknown) => {
+        if (!(err instanceof CapabilityError) || err.code !== 'POLICY_DENIED') return false;
+        const closable = err.details?.closableTabIds as string[];
+        return closable.length === 8
+          && !closable.includes('tab-1')
+          && !closable.includes('tab-user')
+          && closable.every((id) => id.startsWith('tab-owned-'))
+          && err.message.includes(closable[0]!);
+      }
+    );
   });
 });

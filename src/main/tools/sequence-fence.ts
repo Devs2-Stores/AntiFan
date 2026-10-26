@@ -1,32 +1,37 @@
 /**
- * Document-generation fence classification for `anti.agent.sequence`.
+ * Document-generation fence classification for `anti.agent.sequence` and the single-step
+ * agent actions.
  *
- * A sequence is fenced on the document generation its caller observed because a step that
- * addresses the page by `selector`, `@eN` ref or coordinates acts on the DOM the caller
- * inspected; a newer document makes those addresses meaningless. A sequence whose steps
- * never touch that document (it navigates first, or only waits / screenshots) has nothing
- * to be stale against, so the fence would only refuse it for no reason.
+ * A call is fenced on the document generation its caller observed only when it addresses an
+ * element through a semantic `@eN` ref: that ref was minted by a snapshot of one specific
+ * document, and a newer document makes it meaningless. Everything else (a CSS selector, a
+ * coordinate pair, key presses, waits, screenshots) resolves against the live page when it runs,
+ * so refusing it for a generation bump only forces the caller to repeat the same call. Such a
+ * call is rebased onto the live generation instead and reports the rebase.
  *
  * Step kinds are the host's `SequenceActionItem['type']` values:
  * navigate | click | type | scroll | hover | pressKey | wait | screenshot | snapshot |
  * awaitNetwork | dismissModals.
  */
+import { isSemanticRef } from '../browser/semantic-ref-types.js';
 
-type SequenceStep = Record<string, unknown>;
+/** Every argument field that can carry an `@eN` ref (a bare ref, or a ref-or-selector union). */
+export const REF_CARRYING_FIELDS = ['ref', 'selector', 'refOrSelector', 'fromRef', 'toRef', 'fromSelector', 'toSelector'] as const;
 
-function hasValue(value: unknown): boolean {
-  if (typeof value === 'string') return value.trim().length > 0;
-  return value !== undefined && value !== null;
-}
-
-function addressesPage(step: SequenceStep): boolean {
-  return hasValue(step.selector) || hasValue(step.ref) || hasValue(step.x) || hasValue(step.y);
+/** True when any ref-carrying field of `args` holds a semantic `@eN` ref. */
+export function carriesSemanticRef(args: unknown): boolean {
+  if (!args || typeof args !== 'object') return false;
+  const record = args as Record<string, unknown>;
+  return REF_CARRYING_FIELDS.some((field) => {
+    const value = record[field];
+    return typeof value === 'string' && isSemanticRef(value.trim());
+  });
 }
 
 /**
  * True when some step that runs against the document the caller observed (before the first
- * navigation) depends on it. Fail-closed: a step of any kind not listed as independent, a
- * malformed step, and `dismissModals` (which inspects the live DOM) all count as dependent.
+ * navigation) depends on it. Fail-closed: a step of any kind not listed below and a malformed
+ * step count as dependent.
  */
 export function sequenceDependsOnPriorDocument(actions: ReadonlyArray<Record<string, unknown>>): boolean {
   for (const step of actions) {
@@ -39,11 +44,14 @@ export function sequenceDependsOnPriorDocument(actions: ReadonlyArray<Record<str
       case 'screenshot':
       case 'awaitNetwork':
         break;
+      case 'click':
+      case 'hover':
+      case 'type':
+      case 'scroll':
       case 'pressKey':
-        if (addressesPage(step)) return true;
-        break;
       case 'snapshot':
-        if (typeof step.ref === 'string' && /^@e\d+$/.test(step.ref.trim())) return true;
+      case 'dismissModals':
+        if (carriesSemanticRef(step)) return true;
         break;
       default:
         return true;
@@ -51,3 +59,8 @@ export function sequenceDependsOnPriorDocument(actions: ReadonlyArray<Record<str
   }
   return false;
 }
+
+/** The eleven step kinds the sequence host executes. */
+export const SEQUENCE_STEP_TYPES: readonly string[] = Object.freeze([
+  'navigate', 'click', 'type', 'scroll', 'hover', 'pressKey', 'wait', 'screenshot', 'snapshot', 'awaitNetwork', 'dismissModals',
+]);

@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
-import { classifyAntiBotUrl, antiBotChallengeError } from '../../src/main/tools/anti-bot-challenge';
+import { classifyAntiBotUrl, antiBotChallengeError, AntiBotLatch, ANTI_BOT_LATCH_TTL_MS } from '../../src/main/tools/anti-bot-challenge';
 import { BrowserControlPort, type BrowserHostPort } from '../../src/main/tools/browser-control-port';
 import { CapabilityError, type BrowserTarget } from '../../src/shared/control-plane-contracts';
 
@@ -103,13 +103,95 @@ describe('anti-bot challenge detection (K13)', () => {
     );
   });
 
+  it('a stale generation on a verification page is still the challenge for an @eN ref', async () => {
+    const url = 'https://shopee.vn/verify/traffic/error?a=1';
+    const host = buildHost(() => url, { getDocumentGeneration: () => 5 });
+    const port = new BrowserControlPort(host);
+    await assert.rejects(
+      () => port.agentClick({ ref: '@e1' }, TARGET),
+      (err: unknown) => err instanceof CapabilityError && err.code === 'ANTI_BOT_CHALLENGE'
+    );
+  });
+
+  it('a selector call on an ordinary page is rebased onto the live generation and reports it', async () => {
+    const host = buildHost(() => 'https://shopee.vn/product-i.1.2', { getDocumentGeneration: () => 5 });
+    const port = new BrowserControlPort(host);
+    const result = await port.agentClick({ selector: 'button' }, TARGET);
+    assert.deepEqual(result.documentGenerationRebased, { from: TARGET.documentGeneration, to: 5 });
+  });
+
   it('the same stale generation on an ordinary page stays TARGET_STALE with cause dom-drift', async () => {
     const host = buildHost(() => 'https://shopee.vn/product-i.1.2', { getDocumentGeneration: () => 5 });
     const port = new BrowserControlPort(host);
     await assert.rejects(
-      () => port.agentClick({ selector: 'button' }, TARGET),
+      () => port.agentClick({ ref: '@e1' }, TARGET),
       (err: unknown) => err instanceof CapabilityError && err.code === 'TARGET_STALE' && err.details?.cause === 'dom-drift'
     );
+  });
+});
+
+describe('anti-bot latch', () => {
+  const challenge = classifyAntiBotUrl('https://shopee.vn/verify/traffic/error?a=1')!;
+
+  it('refuses a host that already served the partition a challenge, and only that partition', () => {
+    const latch = new AntiBotLatch();
+    latch.set('persist:profile-a', challenge, 'tab-1');
+    assert.ok(latch.check('persist:profile-a', 'https://shopee.vn/product-i.1.2'));
+    assert.equal(latch.check('persist:profile-b', 'https://shopee.vn/product-i.1.2'), undefined, 'another partition is another visitor');
+    assert.equal(latch.check('persist:profile-a', 'https://other.example/'), undefined, 'another host is unaffected');
+    assert.equal(latch.check('persist:profile-a', 'about:blank'), undefined);
+  });
+
+  it('expires after the TTL', () => {
+    let now = 1_000;
+    const latch = new AntiBotLatch(() => now);
+    latch.set('default', challenge, 'tab-1');
+    now += ANTI_BOT_LATCH_TTL_MS - 1;
+    assert.equal(latch.check('default', 'https://shopee.vn/')?.retryAfterMs, 1);
+    now += 1;
+    assert.equal(latch.check('default', 'https://shopee.vn/'), undefined);
+  });
+
+  it('a second navigate to the latched host fails fast without touching the host', async () => {
+    let url = 'https://shopee.vn/';
+    let navigations = 0;
+    const host = buildHost(() => url, {
+      navigateAndWait: async (_tab, next) => {
+        navigations += 1;
+        url = next.includes('/verify/') ? next : 'https://shopee.vn/verify/traffic/error?a=1';
+        return true;
+      },
+    });
+    const port = new BrowserControlPort(host);
+    await assert.rejects(() => port.navigate(TARGET, 'https://shopee.vn/product-i.1.2', 'tab-1'), (err: unknown) => err instanceof CapabilityError && err.code === 'ANTI_BOT_CHALLENGE' && err.details?.latched === undefined);
+    assert.equal(navigations, 1);
+    await assert.rejects(
+      () => port.navigate(TARGET, 'https://shopee.vn/product-i.9.9', 'tab-1'),
+      (err: unknown) => err instanceof CapabilityError
+        && err.code === 'ANTI_BOT_CHALLENGE'
+        && err.details?.latched === true
+        && typeof err.details?.retryAfterMs === 'number'
+        && err.details.retryAfterMs > 0
+    );
+    assert.equal(navigations, 1, 'the latched refusal never reached the host');
+  });
+
+  it('lifts when the tab that met the challenge shows an ordinary page again (the user cleared it)', async () => {
+    let url = 'https://shopee.vn/';
+    let navigations = 0;
+    const host = buildHost(() => url, {
+      navigateAndWait: async (_tab, next) => {
+        navigations += 1;
+        url = navigations === 1 ? 'https://shopee.vn/verify/traffic/error?a=1' : next;
+        return true;
+      },
+    });
+    const port = new BrowserControlPort(host);
+    await assert.rejects(() => port.navigate(TARGET, 'https://shopee.vn/product-i.1.2', 'tab-1'), (err: unknown) => err instanceof CapabilityError && err.code === 'ANTI_BOT_CHALLENGE');
+    url = 'https://shopee.vn/';
+    const res = await port.navigate(TARGET, 'https://shopee.vn/product-i.2.2', 'tab-1');
+    assert.equal(res.navigated, true);
+    assert.equal(navigations, 2);
   });
 });
 

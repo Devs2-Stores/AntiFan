@@ -96,14 +96,57 @@ describe('state matrix orchestration', () => {
     assert.ok(!steps.some((s) => s.detail.includes('antifan-sm-trigger="1"')), 'the second overlay must never be touched');
   });
 
+  it('does not charge the run-wide close-poll budget for closes that were observed, however slow', async () => {
+    // Trigger 0 only reads closed on the 6th read after the close input; the waits between reads are long
+    // enough that those polls take 8.5 s in total, more than the whole 8 s budget. Triggers 1 and 2 close on
+    // the 3rd read, which needs polling: a budget eaten by trigger 0 would leave them one sample each.
+    const closeAtRead = [6, 3, 3];
+    let clock = 0;
+    let open = -1;
+    let reads = 0;
+    const { deps } = fakeDeps((s) => {
+      if (isDiscover(s)) {
+        return { ok: true, viewport: { width: 1280, height: 800 }, skipped: [], triggers: [0, 1, 2].map((i) => ({ index: i, trigger: `button.t${i}`, panel: `#p${i}`, kind: 'modal', label: `T${i}`, closeSelector: null })) };
+      }
+      if (isMeasureOpen(s)) return openDialog;
+      if (isMeasureClosed(s)) {
+        reads += 1;
+        const closed = reads >= (closeAtRead[open] ?? 1);
+        return { closed, bodyRestored: true, focusReturned: true };
+      }
+      if (s.includes('__antifanSmKey') && !s.includes('addEventListener')) return { seen: true, key: 'Escape', hasFocus: true };
+      return { ok: true };
+    });
+    const baseClick = deps.click;
+    deps.click = async (selector) => {
+      const m = /antifan-sm-trigger="(\d+)"/.exec(selector);
+      if (m) { open = Number(m[1]); reads = 0; }
+      return baseClick(selector);
+    };
+    const basePress = deps.pressKey;
+    deps.pressKey = async (key) => { reads = 0; return basePress(key); };
+    deps.now = () => clock;
+    deps.wait = async () => { clock += 1700; };
+    const res = await runStateMatrix(deps, { gradeVisualQuality: false, closeMethods: ['escape'] });
+    assert.strictEqual(res.triggers.length, 3);
+    for (const t of res.triggers) {
+      assert.notStrictEqual(t.status, 'NOT_RUN', `trigger ${t.index} was never exercised`);
+      const codes = t.failures.map((f) => f.code);
+      assert.ok(!codes.includes('STATE_STUCK_OPEN') && !codes.includes('CLOSE_ESCAPE_FAILED') && !codes.includes('CLOSE_ESCAPE_FLAKY'), `trigger ${t.index}: ${codes.join(',')}`);
+      assert.strictEqual(t.closes[0]?.closed, true, `trigger ${t.index} closed`);
+    }
+  });
+
   it('closes menus with Escape, then pointer-leave, without demanding a close control', async () => {
-    let closedAfter = 0;
+    let pointerLeft = false;
     const { deps, steps } = fakeDeps((s) => {
       if (isDiscover(s)) return { ok: true, viewport: { width: 1280, height: 800 }, skipped: [], triggers: [{ index: 0, trigger: 'a.nav', panel: 'div.sub', kind: 'dropdown', label: 'Menu', closeSelector: null }] };
       if (isMeasureOpen(s)) return { opened: true, rect: { x: 0, y: 60, w: 220, h: 160 }, effectiveOpacity: 1, visibility: 'visible', pointerEvents: 'auto', withinViewport: true, clippedByAncestor: false, occluded: false, overflowingChildren: [], scrollLocked: false, focusInside: false, closeControl: null, backdropPoint: { x: 640, y: 500 }, tooSmall: false };
-      if (isMeasureClosed(s)) { closedAfter++; return { closed: closedAfter >= 2, bodyRestored: true, focusReturned: false }; }
+      if (isMeasureClosed(s)) return { closed: pointerLeft, bodyRestored: true, focusReturned: false };
       return { ok: true };
     });
+    const realHoverAt = deps.hoverAt;
+    deps.hoverAt = async (x, y) => { pointerLeft = true; return realHoverAt(x, y); };
     const res = await runStateMatrix(deps, { gradeVisualQuality: false });
     const t = res.triggers[0];
     assert.ok(t);

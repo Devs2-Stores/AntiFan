@@ -85,7 +85,7 @@ describe('Annotation prompt self-QA directive', () => {
     assert.ok(SELF_QA_DIRECTIVE.includes('certification: CERTIFIED'));
     assert.ok(SELF_QA_DIRECTIVE.includes('certification: STRUCTURAL'));
     assert.ok(SELF_QA_DIRECTIVE.includes('anti.visual.promote_baseline'));
-    assert.ok(SELF_QA_DIRECTIVE.includes('viewports'));
+    assert.ok(SELF_QA_DIRECTIVE.includes('baselineViewports'));
     assert.ok(SELF_QA_DIRECTIVE.includes('ignoreSelectors'));
     const closing = SELF_QA_DIRECTIVE.split('\n').find((line) => line.startsWith('MỌI đường kết thúc'));
     assert.ok(closing?.includes('`QA_STRUCTURAL_ONLY`'), 'the terminal token list names QA_STRUCTURAL_ONLY');

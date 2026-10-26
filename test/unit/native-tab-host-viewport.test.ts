@@ -67,10 +67,12 @@ interface TestHostShape {
   touchEmulationPromise: Promise<void>;
   applyCdpTouchEmulation: (wc: unknown, enabled: boolean) => Promise<void>;
   applyDeviceCornerClipping: (wc: unknown, radius: number) => void;
-  setViewportSize: (options: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; tabId?: string; reload?: boolean }) => Promise<boolean>;
+  setViewportSize: (options: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; tabId?: string; reload?: boolean; hideScrollbar?: boolean }) => Promise<boolean>;
   setDevicePreset: (tabId: string, presetId: string) => boolean;
   broadcastCount: number;
   broadcastState: () => void;
+  isScrollbarsHidden: (tabId?: string) => boolean;
+  applyCdpDeviceEmulationState: (wc: unknown, preset?: unknown, scale?: number) => Promise<void>;
 }
 
 function createTestTabRecord(id: string): NativeTabRecord & { backgroundColors: string[]; cdpCalls: CdpEmulationCall[] } {
@@ -211,6 +213,118 @@ describe('Phase 1: Viewport Emulation & CDP Matched Styles Gateway', () => {
       false,
       'Must NOT fall back to clearing the device metrics override'
     );
+  });
+
+  describe('hideScrollbar', () => {
+    const scrollbarCalls = (tab: { cdpCalls: CdpEmulationCall[] }) => tab.cdpCalls.filter((call) => call.method === 'Emulation.setScrollbarsHidden');
+
+    it('hides the scrollbars through Emulation.setScrollbarsHidden and restores them on false', async () => {
+      const host = createTestHost();
+      const tab = createTestTabRecord('tab-1');
+      host.tabs.set('tab-1', tab);
+
+      assert.strictEqual(await host.setViewportSize({ width: 1440, height: 900, hideScrollbar: true }), true);
+      assert.deepStrictEqual(scrollbarCalls(tab), [{ method: 'Emulation.setScrollbarsHidden', params: { hidden: true } }]);
+
+      tab.cdpCalls.length = 0;
+      assert.strictEqual(await host.setViewportSize({ width: 1440, height: 900, hideScrollbar: false }), true);
+      assert.deepStrictEqual(scrollbarCalls(tab), [{ method: 'Emulation.setScrollbarsHidden', params: { hidden: false } }]);
+    });
+
+    it('leaves the scrollbar override alone when the caller did not ask', async () => {
+      const host = createTestHost();
+      const tab = createTestTabRecord('tab-1');
+      host.tabs.set('tab-1', tab);
+
+      await host.setViewportSize({ width: 1440, height: 900 });
+      await flushCdp();
+      assert.deepStrictEqual(scrollbarCalls(tab), []);
+    });
+
+    it('refuses with VIEWPORT_NOT_APPLIED instead of reporting an override the renderer rejected', async () => {
+      const host = createTestHost();
+      const tab = createTestTabRecord('tab-1');
+      host.tabs.set('tab-1', tab);
+      const wcDebugger = tab.view?.webContents.debugger;
+      assert.ok(wcDebugger);
+      wcDebugger.sendCommand = async (method: string, params?: Record<string, unknown>) => {
+        if (method === 'Emulation.setScrollbarsHidden') throw new Error('boom');
+        tab.cdpCalls.push({ method, params: { ...params } });
+        return {};
+      };
+
+      await assert.rejects(
+        () => host.setViewportSize({ width: 1440, height: 900, hideScrollbar: true }),
+        (err: unknown) => err instanceof CapabilityError && err.code === 'VIEWPORT_NOT_APPLIED' && err.details?.hideScrollbar === true
+      );
+    });
+
+    describe('restoring the override', () => {
+      const hiddenCalls = (tab: { cdpCalls: CdpEmulationCall[] }) => scrollbarCalls(tab).map((call) => call.params.hidden);
+      const hideOn = async () => {
+        const host = createTestHost();
+        const tab = createTestTabRecord('tab-1');
+        host.tabs.set('tab-1', tab);
+        await host.setViewportSize({ width: 1440, height: 900, hideScrollbar: true });
+        assert.strictEqual(host.isScrollbarsHidden('tab-1'), true);
+        tab.cdpCalls.length = 0;
+        return { host, tab };
+      };
+
+      it('releases the scrollbar override when the device metrics override is cleared', async () => {
+        const { host, tab } = await hideOn();
+        await host.applyCdpDeviceEmulationState(tab.view?.webContents, null);
+        assert.deepStrictEqual(hiddenCalls(tab), [false]);
+        const methods = tab.cdpCalls.map((call) => call.method);
+        assert.ok(methods.indexOf('Emulation.clearDeviceMetricsOverride') < methods.indexOf('Emulation.setScrollbarsHidden'));
+        assert.strictEqual(host.isScrollbarsHidden('tab-1'), false);
+      });
+
+      it('releases the scrollbar override when a device preset replaces the custom viewport', async () => {
+        const { host, tab } = await hideOn();
+        assert.strictEqual(host.setDevicePreset('tab-1', 'desktop-laptop'), true);
+        await flushCdp();
+        await flushCdp();
+        assert.deepStrictEqual(hiddenCalls(tab), [false]);
+        assert.strictEqual(host.isScrollbarsHidden('tab-1'), false);
+      });
+
+      it('keeps the override and reports it hidden when a later viewport does not mention scrollbars', async () => {
+        const { host, tab } = await hideOn();
+        await host.setViewportSize({ width: 768, height: 1024 });
+        await flushCdp();
+        assert.deepStrictEqual(hiddenCalls(tab), []);
+        assert.strictEqual(host.isScrollbarsHidden('tab-1'), true);
+      });
+
+      it('sends nothing when the scrollbars were never hidden', async () => {
+        const host = createTestHost();
+        const tab = createTestTabRecord('tab-1');
+        host.tabs.set('tab-1', tab);
+        await host.setViewportSize({ width: 1440, height: 900 });
+        host.setDevicePreset('tab-1', 'desktop-laptop');
+        await host.applyCdpDeviceEmulationState(tab.view?.webContents, null);
+        await flushCdp();
+        assert.deepStrictEqual(scrollbarCalls(tab), []);
+        assert.strictEqual(host.isScrollbarsHidden('tab-1'), false);
+      });
+
+      it('keeps the flag when the restore is rejected so a later reset retries', async () => {
+        const { host, tab } = await hideOn();
+        const wcDebugger = tab.view?.webContents.debugger;
+        assert.ok(wcDebugger);
+        const original = wcDebugger.sendCommand;
+        wcDebugger.sendCommand = async (method: string, params?: Record<string, unknown>) => {
+          if (method === 'Emulation.setScrollbarsHidden') throw new Error('boom');
+          return original(method, params as Record<string, unknown>);
+        };
+        await host.applyCdpDeviceEmulationState(tab.view?.webContents, null);
+        assert.strictEqual(host.isScrollbarsHidden('tab-1'), true);
+        wcDebugger.sendCommand = original;
+        await host.applyCdpDeviceEmulationState(tab.view?.webContents, null);
+        assert.strictEqual(host.isScrollbarsHidden('tab-1'), false);
+      });
+    });
   });
 
   it('clears customViewport when switching to a standard device preset', async () => {

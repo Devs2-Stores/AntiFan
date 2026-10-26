@@ -17,11 +17,14 @@ import * as path from 'node:path';
 import * as vm from 'node:vm';
 // @ts-ignore jsdom ships no type declarations (same as theme-qa-automation-stack.test.ts)
 import { JSDOM } from 'jsdom';
+import { DEFAULT_DOM_QUIET_IGNORE } from '../../src/main/verification/capture-settle';
+import { DEFAULT_STOREFRONT_WIDGETS } from '../../src/main/tools/browser-control-port';
 
 const PRELOAD = path.join(__dirname, '..', '..', 'src', 'preload', 'tab-preload.js');
 
 let dom: { window: any; getInternalVMContext(): vm.Context };
 let sent: string[];
+let samples: Array<{ sample?: string }>;
 let timers: Map<number, () => void>;
 
 /** Deliver pending MutationObserver records, then run every queued timer until none remain. */
@@ -43,6 +46,7 @@ beforeEach(async () => {
     runScripts: 'outside-only',
   });
   sent = [];
+  samples = [];
   timers = new Map();
   let nextTimer = 1;
   dom.window.setTimeout = (fn: () => void) => {
@@ -53,7 +57,16 @@ beforeEach(async () => {
   dom.window.clearTimeout = (id: number) => {
     timers.delete(id);
   };
-  const electron = { ipcRenderer: { send: (channel: string) => sent.push(channel), invoke: async () => undefined, on: () => undefined } };
+  const electron = {
+    ipcRenderer: {
+      send: (channel: string, payload?: { sample?: string }) => {
+        sent.push(channel);
+        if (channel === 'antifan:dom-mutation') samples.push(payload ?? {});
+      },
+      invoke: async () => undefined,
+      on: () => undefined,
+    },
+  };
   const wrapped = vm.runInContext(`(function (require, exports, module) {\n${fs.readFileSync(PRELOAD, 'utf8')}\n})`, dom.getInternalVMContext());
   const mod = { exports: {} };
   wrapped((name: string) => {
@@ -62,6 +75,7 @@ beforeEach(async () => {
   }, mod.exports, mod);
   await drain();
   sent.length = 0;
+  samples.length = 0;
 });
 
 afterEach(async () => {
@@ -150,5 +164,77 @@ describe('tab preload DOM mutation report', () => {
     doc.querySelector('header').classList.add('is-scrolled');
     await drain();
     assert.strictEqual(mutationReports(), 1);
+  });
+
+  it('does not report a toast, a social-proof pop-up or a masked storefront widget changing', async () => {
+    const doc = dom.window.document;
+    const fixtures: Array<[string, string]> = [
+      ['div', 'toast'],
+      ['div', 'sale pop-sale-card'],
+      ['div', 'chat-widget'],
+    ];
+    for (const [tag, className] of fixtures) {
+      const el = doc.createElement(tag);
+      el.className = className;
+      el.innerHTML = '<span>one</span>';
+      doc.body.appendChild(el);
+    }
+    const popup = doc.createElement('div');
+    popup.id = 'fake-order-popup';
+    popup.innerHTML = '<b>a</b>';
+    doc.body.appendChild(popup);
+    const visitors = doc.createElement('span');
+    visitors.setAttribute('data-live-visitor', '');
+    visitors.textContent = '12';
+    doc.body.appendChild(visitors);
+    await drain();
+    sent.length = 0;
+    for (const el of Array.from(doc.body.querySelectorAll('span, b')) as Array<{ textContent: string | null }>) el.textContent = 'changed';
+    doc.querySelector('#fake-order-popup')!.appendChild(doc.createElement('i'));
+    await drain();
+    assert.strictEqual(mutationReports(), 0);
+  });
+
+  it('reports the element that moved, bounded and without page-controlled control characters', async () => {
+    const doc = dom.window.document;
+    const el = doc.createElement('section');
+    el.id = 'cart-drawer';
+    el.className = 'drawer is-open';
+    doc.body.appendChild(el);
+    await drain();
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(samples)), [{ sample: 'body.page + section#cart-drawer.drawer.is-open' }]);
+
+    samples.length = 0;
+    const long = doc.createElement('div');
+    long.className = 'x'.repeat(400);
+    doc.body.appendChild(long);
+    await drain();
+    assert.strictEqual(samples.length, 1);
+    const sample = samples[0]!.sample ?? '';
+    assert.ok(sample.length <= 120, `sample must be at most 120 chars, got ${sample.length}`);
+    assert.ok(sample.startsWith('body.page + div.xxxx'));
+  });
+
+  it('keeps the first accepted mutation of a debounce window as the sample', async () => {
+    const doc = dom.window.document;
+    doc.querySelector('header').classList.add('is-scrolled');
+    doc.body.appendChild(doc.createElement('footer'));
+    await drain();
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(samples)), [{ sample: 'header.site-header.is-scrolled @class' }]);
+  });
+
+  it('lists every DOM-quiet ignore selector and the masked storefront widgets as volatile regions', () => {
+    const source = fs.readFileSync(PRELOAD, 'utf8');
+    const literal = /const VOLATILE_REGION = \[([\s\S]*?)\]\.join/.exec(source);
+    assert.ok(literal, 'the preload must declare VOLATILE_REGION as an array literal');
+    const region = new Set(Array.from(literal[1]!.matchAll(/'((?:[^'\\]|\\.)*)'/g), (m) => m[1]));
+    for (const selector of DEFAULT_DOM_QUIET_IGNORE) {
+      assert.ok(region.has(selector), `DOM-quiet ignore selector ${selector} is missing from the preload's VOLATILE_REGION`);
+    }
+    const maskedWidgets = DEFAULT_STOREFRONT_WIDGETS.filter((selector) => /fake-order|notice-cart|haravan-notification|chat-widget|zalo-chat|toast-container/.test(selector));
+    assert.ok(maskedWidgets.length >= 5, 'the default widget mask list lost the notification/chat widgets this parity covers');
+    for (const selector of maskedWidgets) {
+      assert.ok(region.has(selector), `masked widget selector ${selector} is missing from the preload's VOLATILE_REGION`);
+    }
   });
 });

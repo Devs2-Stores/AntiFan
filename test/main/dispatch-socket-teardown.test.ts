@@ -224,6 +224,8 @@ async function startHarness(options: { delayOldClose?: boolean } = {}): Promise<
   // the (absent) records under it - never the developer's running desktop.
   env.ANTIFAN_DATA_ROOT = scratchDir;
   env.ANTIFAN_CONFIG_DIR = undefined;
+  // These cases assert the cause of a teardown, not the restart-wait window: a gone bridge must answer at once.
+  env.ANTIFAN_AUTOHEAL_RESTART_WAIT_MS = '0';
 
   // Control the client event ordering, not the product handlers: a real old
   // socket close is held until a dispatch is pending on its replacement.

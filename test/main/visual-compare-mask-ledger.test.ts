@@ -611,6 +611,43 @@ describe('visualCompare capture coherence transaction', () => {
     assert.strictEqual('diffPixels' in res, false);
   });
 
+  it('names the tripped side, the revision span and the sampled mutations when the resample is exhausted', async () => {
+    let revA = 1;
+    const host = buildMockHost({
+      evalLog: [],
+      mutationRevFor: (t) => (t === 'tab-a' ? revA : 1),
+      onCapture: (t) => {
+        if (t === 'tab-a') revA += 1;
+      },
+    });
+    const asked: string[] = [];
+    (host as any).getMutationSamples = (tabId?: string) => {
+      asked.push(tabId || '');
+      return ['div#popup.sale-toast'];
+    };
+    const port = createRoutePort(host as any);
+    const res = (await port.visualCompare(dummyTarget, 'run', 'att', { comparisonTabId: 'tab-b' })) as any;
+    assert.strictEqual(res.status, 'INCONCLUSIVE');
+    assert.strictEqual(res.coherence.trip.side, 'target');
+    assert.ok(res.coherence.trip.revisionAfter > res.coherence.trip.revisionBefore);
+    assert.deepStrictEqual(res.coherence.trip.samples, ['div#popup.sale-toast']);
+    assert.deepStrictEqual(asked, ['tab-a']);
+  });
+
+  it('reports an empty sample list when the host cannot name the mutations', async () => {
+    let revA = 1;
+    const host = buildMockHost({
+      evalLog: [],
+      mutationRevFor: (t) => (t === 'tab-a' ? revA : 1),
+      onCapture: (t) => {
+        if (t === 'tab-a') revA += 1;
+      },
+    });
+    const port = createRoutePort(host as any);
+    const res = (await port.visualCompare(dummyTarget, 'run', 'att', { comparisonTabId: 'tab-b' })) as any;
+    assert.deepStrictEqual(res.coherence.trip.samples, []);
+  });
+
   it('fails closed with TARGET_STALE when document generation advances mid-transaction', async () => {
     const evalLog: EvalLogEntry[] = [];
     let genA = 1;

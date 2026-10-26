@@ -46,7 +46,7 @@ function facadeWith(members: Record<string, unknown>): TerminalManager {
 }
 
 describe('terminal.wait stays inside its invocation budget', () => {
-  it('plans the call deadline below the budget and reports when the request was shortened', () => {
+  it('plans the call deadline below the execution deadline and reports when the request was shortened', () => {
     assert.ok(TERMINAL_WAIT_MAX_TIMEOUT_MS < TERMINAL_WAIT_BUDGET_MS);
     assert.deepEqual(planTerminalWaitTimeout(undefined), { timeoutMs: TERMINAL_WAIT_MAX_TIMEOUT_MS, clamped: false });
     assert.deepEqual(planTerminalWaitTimeout(5_000), { timeoutMs: 5_000, clamped: false });
@@ -54,10 +54,23 @@ describe('terminal.wait stays inside its invocation budget', () => {
     assert.deepEqual(planTerminalWaitTimeout(120_000), { timeoutMs: TERMINAL_WAIT_MAX_TIMEOUT_MS, clamped: true });
   });
 
-  it('declares the budget as the capability policy', () => {
+  it('declares the execution budget plus the cancellation ack as the capability policy', () => {
     const catalogue = newCatalogue();
     registerTerminalCapabilities(catalogue, facadeWith({}));
-    assert.equal(catalogue.getPolicy('terminal.wait')?.timeoutMs, TERMINAL_WAIT_BUDGET_MS);
+    const policy = catalogue.getPolicy('terminal.wait');
+    const ack = policy?.cancellationAckTimeoutMs as number;
+    assert.ok(ack > 0);
+    assert.equal(policy?.timeoutMs, TERMINAL_WAIT_BUDGET_MS + ack);
+    // The transport aborts a call at policy.timeoutMs - cancellationAckTimeoutMs: the wait's own maximum must finish before that.
+    assert.ok(TERMINAL_WAIT_MAX_TIMEOUT_MS < (policy?.timeoutMs as number) - ack);
+  });
+
+  it('gives terminal.create an execution deadline as long as the queued-reuse wait it hides behind', () => {
+    const catalogue = newCatalogue();
+    registerTerminalCapabilities(catalogue, facadeWith({}));
+    const policy = catalogue.getPolicy('terminal.create');
+    const deadline = (policy?.timeoutMs as number) - (policy?.cancellationAckTimeoutMs as number);
+    assert.equal(deadline, 15_000);
   });
 
   it('shortens a longer request and answers timedOut with the cursor instead of an error', async () => {

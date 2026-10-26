@@ -23,6 +23,7 @@ import { DEFAULT_SWEEP_BREAKPOINTS } from '../browser/sweep-viewports';
 import type { ThemeTransactionRegistry } from './theme-transaction-registry';
 import type { TerminalSyncCursor, SyncSettleResult } from './haravan-sync-barrier';
 import { DEFAULT_QA_PROFILE, resolveQaThresholds, type QaProfile, type QaThresholds, type QaThresholdsSource } from './qa-thresholds';
+import { buildQaReportIndex } from './qa-report-index';
 import { ImageFrameScanner, type ImageFrameScanResult, type ImageFrameFinding } from './scanners/image-frame-scanner';
 import type { StateMatrixResult } from './state-matrix';
 export interface ThemeQaChecklist {
@@ -55,6 +56,12 @@ export interface ThemeQaDifferentialAttribution {
   resolvedIssues: ThemeQaIssueItem[];
   introducedRegressions: ThemeQaIssueItem[];
   hasRegressions: boolean;
+  /**
+   * Whether a baseline was supplied. Without one, `introducedRegressions` is every current
+   * finding (nothing was compared against), not a set of regressions, and `summary.attribution`
+   * says so with `status: 'unavailable'`.
+   */
+  baselineSupplied: boolean;
 }
 
 export interface ThemeQaDiagnosticScreenshot {
@@ -130,8 +137,14 @@ export interface ThemeQaCertificationRemedy {
  * from the baseline (or from the pre-reload diagnostics when no baseline was supplied).
  * `preexisting`: matched in the baseline. `legacy`: findings that had no baseline to be compared
  * with, so they cannot be called introduced.
+ *
+ * `status` is `unavailable` when no baseline was supplied (`reason: 'NO_BASELINE'`): the counts
+ * then say nothing about regressions, and only the diagnostics (compared with the pre-reload
+ * reading of the same page) fall under `introduced`.
  */
 export interface ThemeQaAttribution {
+  status: 'measured' | 'unavailable';
+  reason?: 'NO_BASELINE';
   introduced: Record<ThemeQaSeverity, number>;
   preexisting: Record<ThemeQaSeverity, number>;
   legacy: Record<ThemeQaSeverity, number>;
@@ -180,6 +193,10 @@ export interface ThemeQaSummary {
   certificationRemedies?: ThemeQaCertificationRemedy[];
   /** Where this run's critical findings stand relative to the baseline; never changes `criticalCount`. */
   attribution?: ThemeQaAttribution;
+  /** Rules that own at least one critical finding, most findings first; the names `byRule` counts. */
+  criticalCodes?: string[];
+  /** Critical findings per rule (the rule ids the receipt lists), so `criticalCount` can be read without opening the findings. */
+  byRule?: Record<string, number>;
 }
 export interface QaMatrixDimension {
   score: number | null;
@@ -1388,9 +1405,17 @@ function buildViewportsTested(
   return tested;
 }
 
-function buildAttribution(differential: ThemeQaDifferentialAttribution, hasBaseline: boolean): ThemeQaAttribution {
+function buildAttribution(differential: ThemeQaDifferentialAttribution): ThemeQaAttribution {
+  const hasBaseline = differential.baselineSupplied;
   const zero = (): Record<ThemeQaSeverity, number> => ({ critical: 0, warning: 0 });
-  const attribution: ThemeQaAttribution = { introduced: zero(), preexisting: zero(), legacy: zero(), introducedSelectors: [] };
+  const attribution: ThemeQaAttribution = {
+    status: hasBaseline ? 'measured' : 'unavailable',
+    ...(hasBaseline ? {} : { reason: 'NO_BASELINE' as const }),
+    introduced: zero(),
+    preexisting: zero(),
+    legacy: zero(),
+    introducedSelectors: [],
+  };
   const introducedSelectors = new Set<string>();
   for (const item of differential.preExistingIssues) attribution.preexisting[item.severity]++;
   for (const item of differential.introducedRegressions) {
@@ -1620,12 +1645,12 @@ export class ThemeQaWorkflow {
       const reason = declared && typeof declared === 'object' && typeof declared.reason === 'string' ? declared.reason.trim() : '';
       if (reason.length === 0) {
         throw new CapabilityError('INVALID_ARGUMENT', 'greenfield.reason must be a non-empty string naming why no visual baseline exists', {
-          recovery: 'pass greenfield: {reason: "<why no baseline exists>"}, or omit greenfield and supply viewports from a baseline comparison',
+          recovery: 'pass greenfield: {reason: "<why no baseline exists>"}, or omit greenfield and supply baselineViewports from a baseline comparison',
         });
       }
       if (declared!.baselineExists === true) {
         throw new CapabilityError('GREENFIELD_BASELINE_EXISTS', 'A visual baseline already exists for this workspace; a greenfield run cannot replace it', {
-          recovery: 'compare against the promoted baseline with anti.visual.compare and pass the results as viewports, or delete the old baseline deliberately',
+          recovery: 'compare against the promoted baseline with anti.visual.compare and pass the results as baselineViewports, or delete the old baseline deliberately',
         });
       }
       greenfieldReason = reason;
@@ -2900,8 +2925,9 @@ export class ThemeQaWorkflow {
       resolvedIssues,
       introducedRegressions,
       hasRegressions: introducedRegressions.length > 0,
+      baselineSupplied: effectiveBaselineFindings !== undefined,
     };
-    const attribution = buildAttribution(differential, effectiveBaselineFindings !== undefined);
+    const attribution = buildAttribution(differential);
     const preReloadDiagnosticsObj =
       preReloadCritical.length > 0 || preReloadWarningsList.length > 0
         ? {
@@ -3247,7 +3273,7 @@ export class ThemeQaWorkflow {
             summary.certificationReasons.push(`absolute gate failed at ${name} (${width}px)`);
           }
         } else if (!vp.measured) {
-          summary.certificationReasons.push(`visual baseline missing at ${name}: pass viewports.${name} {mismatchPercent, passed} from a baseline comparison`);
+          summary.certificationReasons.push(`visual baseline missing at ${name}: pass baselineViewports.${name} {mismatchPercent, passed} from a baseline comparison`);
           certificationRemedies.push({ reason: `visual baseline missing at ${name}`, tool: 'anti.visual.compare' });
           missingBaselineViewports.push(name);
         } else if (vp.verdict === 'FAIL') {
@@ -3271,6 +3297,10 @@ export class ThemeQaWorkflow {
     }
     summary.certificationRemedies = certificationRemedies;
     summary.attribution = attribution;
+    // The index reads the entries the receipt lists, so it names the rules `criticalCount` is made of.
+    const reportIndex = buildQaReportIndex(collectReceiptFindings(findings));
+    summary.criticalCodes = reportIndex.criticalCodes;
+    summary.byRule = reportIndex.byRule;
     const viewportsTested = buildViewportsTested(responsiveMap, qaMatrix, greenfieldReason !== undefined);
     // 11. Generate PII-sanitized report JSON (RT-02 mitigation)
     const reportDataRaw = JSON.stringify(

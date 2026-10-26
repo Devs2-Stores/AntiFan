@@ -68,6 +68,83 @@ describe('state matrix Escape grading', () => {
     assert.strictEqual(res.triggers[0]!.status, 'PASS');
   });
 
+  it('waits for a close that finishes after the settle instead of failing the first sample', async () => {
+    const { deps, steps, state } = dialogDeps({ kind: 'drawer', escapeCloses: true, closeAfterTurns: 3 });
+    const res = await runStateMatrix(deps, { gradeVisualQuality: false, closeMethods: ['escape'] });
+    assert.deepStrictEqual(codes(res), []);
+    assert.strictEqual(res.triggers[0]!.status, 'PASS');
+    assert.strictEqual(res.triggers[0]!.closes[0]!.closed, true);
+    assert.strictEqual(steps.filter((s) => s.kind === 'key' && s.detail === 'Escape').length, 1, 'a late close is not an ignored Escape, so the key is not repeated');
+    assert.ok(state.closedReads >= 4, `the closed state was re-read until it settled, got ${state.closedReads} reads`);
+  });
+
+  it('waits for a late close from the close control too', async () => {
+    const { deps } = dialogDeps({ kind: 'modal', escapeCloses: true, closeAfterTurns: 2 });
+    const res = await runStateMatrix(deps, { gradeVisualQuality: false, closeMethods: ['close-button'] });
+    assert.ok(!codes(res).includes('CLOSE_BUTTON_FAILED'), codes(res).join(','));
+    assert.strictEqual(res.triggers[0]!.status, 'PASS');
+  });
+
+  it('warns CLOSE_ESCAPE_FLAKY when only the second Escape closes the panel', async () => {
+    const { deps, steps } = dialogDeps({ kind: 'modal', escapeClosesOnPress: 2 });
+    const res = await runStateMatrix(deps, { gradeVisualQuality: false, closeMethods: ['escape'] });
+    const flaky = res.triggers[0]!.failures.find((f) => f.code === 'CLOSE_ESCAPE_FLAKY');
+    assert.ok(flaky, codes(res).join(','));
+    assert.strictEqual(flaky.severity, 'warning');
+    assert.ok(!codes(res).includes('CLOSE_ESCAPE_FAILED'));
+    assert.strictEqual(res.triggers[0]!.status, 'WARN');
+    assert.strictEqual(res.summary.criticalCount, 0);
+    assert.strictEqual(res.triggers[0]!.closes[0]!.closed, true);
+    assert.strictEqual(steps.filter((s) => s.kind === 'key' && s.detail === 'Escape').length, 2);
+  });
+
+  it('keeps a menu that closes on the second Escape a warning too', async () => {
+    const { deps } = dialogDeps({ kind: 'dropdown', escapeClosesOnPress: 2 });
+    const res = await runStateMatrix(deps, { gradeVisualQuality: false });
+    assert.ok(codes(res).includes('CLOSE_ESCAPE_FLAKY'), codes(res).join(','));
+    assert.deepStrictEqual(res.triggers[0]!.closes.map((c) => c.method), ['escape']);
+    assert.strictEqual(failureSeverity('CLOSE_ESCAPE_FLAKY', 'modal'), 'warning');
+  });
+
+  it('still fails a modal whose Escape never closes it, after the repeat', async () => {
+    const { deps, steps } = dialogDeps({ kind: 'modal', escapeCloses: false });
+    const res = await runStateMatrix(deps, { gradeVisualQuality: false, closeMethods: ['escape', 'close-button'] });
+    assert.ok(codes(res).includes('CLOSE_ESCAPE_FAILED'), codes(res).join(','));
+    assert.ok(!codes(res).includes('CLOSE_ESCAPE_FLAKY'));
+    assert.strictEqual(steps.filter((s) => s.kind === 'key' && s.detail === 'Escape').length, 2, 'Escape is repeated once before it is graded');
+  });
+
+  it('reports UNMEASURED, not FAILED, when the Escape probe cannot be read back', async () => {
+    const { deps } = dialogDeps({ kind: 'modal', escapeCloses: false, escapeReadThrows: true });
+    const res = await runStateMatrix(deps, { gradeVisualQuality: false, closeMethods: ['escape', 'close-button'] });
+    const failure = res.triggers[0]!.failures.find((f) => f.code === 'CLOSE_ESCAPE_UNMEASURED');
+    assert.ok(failure, codes(res).join(','));
+    assert.match(failure.message, /could not be read back/);
+    assert.ok(!codes(res).includes('CLOSE_ESCAPE_FAILED'));
+    assert.strictEqual(res.summary.criticalCount, 0);
+  });
+
+  it('reports UNMEASURED when a keydown arrived but the key is unknown', async () => {
+    const { deps } = dialogDeps({ kind: 'modal', escapeCloses: false, escapeRead: { seen: true, key: null, hasFocus: true } });
+    const res = await runStateMatrix(deps, { gradeVisualQuality: false, closeMethods: ['escape', 'close-button'] });
+    assert.ok(codes(res).includes('CLOSE_ESCAPE_UNMEASURED'), codes(res).join(','));
+    assert.ok(!codes(res).includes('CLOSE_ESCAPE_FAILED'));
+  });
+
+  it('stops re-reading the closed state once the run-wide poll budget is spent', async () => {
+    const { deps } = dialogDeps({ kind: 'modal', escapeCloses: false, closeAfterTurns: 1000 });
+    let clock = 0;
+    let closePolls = 0;
+    deps.now = () => clock;
+    deps.wait = async (ms: number) => {
+      if (ms === 250) closePolls++;
+      clock += 2000;
+    };
+    const res = await runStateMatrix(deps, { gradeVisualQuality: false });
+    assert.ok(codes(res).includes('STATE_STUCK_OPEN'), codes(res).join(','));
+    assert.strictEqual(closePolls, 4, 'four 2 s turns spend the 8 s budget; later measurements are single samples');
+  });
+
   it('arms a one-shot capture listener before the key and reads it back afterwards', async () => {
     const { deps, steps } = dialogDeps({ kind: 'modal', escapeCloses: true });
     await runStateMatrix(deps, { gradeVisualQuality: false, closeMethods: ['escape'] });

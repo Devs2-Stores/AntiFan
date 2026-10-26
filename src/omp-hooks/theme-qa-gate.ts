@@ -173,7 +173,7 @@ const MCP_FIRST_TEXT =
   `\n\n${MCP_FIRST_MARKER} Live theme workspace. Visual claims need AntiFan MCP this turn — do not wait to be asked.\n` +
   `1. anti.browser.tabs.list; bind the storefront tab (anti.browser.rebind_target on TARGET_MISMATCH) and navigate to the page in the user's screenshot or URL.\n` +
   `2. anti.inspect.dom on the named selector, then anti.screenshot.viewport. Write JSON straight to the xd://mcp__antifan_browser_* path; skip the docs.\n` +
-  `3. After a theme file edit: inspect + screenshot again, then theme.qa_validate with that tabId. Thresholds default automatically; pass viewports for per-width baselines (CERTIFIED needs them). Never call it against Google or a blank tab.\n` +
+  `3. After a theme file edit: inspect + screenshot again, then theme.qa_validate with that tabId. Thresholds default automatically; pass baselineViewports for per-width baselines (CERTIFIED needs them). Never call it against Google or a blank tab.\n` +
   `Liquid/grep is not proof the storefront changed.`;
 
 /** Soft churn advisory threshold: a full rewrite of an already-large file. */
@@ -1665,7 +1665,7 @@ function reminderText(): string {
     `\n\n${GATE_MARKER} QA GATE PENDING — theme file(s) under ${roots} edited without a CERTIFIED AntiFan QA receipt. ` +
     structuralLine +
     `Run theme.qa_validate (tabId + workspaceRoot; expectedUrl, annotationId optional). Thresholds default automatically; ` +
-    `pass viewports for per-width baselines and ignoreSelectors for live countdowns. ` +
+    `pass baselineViewports for per-width baselines and ignoreSelectors for live countdowns. ` +
     `If impossible, declare one SELF_QA_DIRECTIVE status in your own message with the original error code: ` +
     `QA_UNAVAILABLE (capability missing or auth failed), ` +
     `QA_INCONCLUSIVE (environment failure such as CAPTURE_FRAME_STARVATION or TARGET_STALE, after one retry), ` +

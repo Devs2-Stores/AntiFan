@@ -253,7 +253,9 @@ export interface DomQuietOptions {
 /**
  * Selectors whose subtree mutations never reset the DOM-quiet window. Kept deliberately
  * narrow and echoed on every receipt: a wildcard such as `[class*="ticker"]` would hide
- * unrelated components and turn an unsettled page into a pass.
+ * unrelated components and turn an unsettled page into a pass. The tab preload's
+ * VOLATILE_REGION (which decides what advances the mutation revision) must contain every
+ * entry here; `tab-preload-mutation-report.test.ts` pins that.
  */
 export const DEFAULT_DOM_QUIET_IGNORE: readonly string[] = Object.freeze([
   '[role="timer"]', '[data-countdown]', '[data-timer]', '.timer', '.countdown',

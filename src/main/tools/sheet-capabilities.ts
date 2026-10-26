@@ -14,9 +14,19 @@
  *   5. the formula bar and the Name Box belong to the editor, so a draft that never committed still
  *      reads back there. `verified: true` therefore also requires the committed value to be read
  *      from the spreadsheet's GViz CSV (an authenticated in-tab fetch, independent of the editor).
- *      A differing, empty or unreachable read-back is `SHEET_WRITE_UNVERIFIED`. A formula's GViz
- *      value is its evaluated result, which cannot be compared with the formula text, so a formula
+ *      A differing read-back is `SHEET_WRITE_UNVERIFIED`. A read-back that still shows the previous
+ *      value (or cannot be read) when the confirm window ends is NOT an error: the editor accepted the
+ *      value and the spreadsheet may simply still be saving, so the call returns `verified: false` with
+ *      `status: 'SAVED_UNCONFIRMED'` and `committed: 'unknown'` for the caller to re-check. A formula's
+ *      GViz value is its evaluated result, which cannot be compared with the formula text, so a formula
  *      is reported as `verified: false` with the reason `formula-not-comparable`.
+ *   6. a value with line breaks is typed as one segment per line with Alt+Enter between them, and the
+ *      formula bar is read back BEFORE the commit: a draft that lost a line break is discarded with
+ *      Escape and nothing is committed. Any failure or abort after typing began and before the commit
+ *      also discards the draft with Escape (on its own short signal, so an aborted call still cleans up).
+ *   7. `mode: 'append'` writes `previous + value`; it is refused unless the editor's previous value
+ *      equals the spreadsheet's own (GViz) value, so a formula bar that lost line breaks can never
+ *      produce a corrupted append.
  *
  * The editor selectors below are candidates for Sheets' own markup, which this module cannot
  * observe at build time. When none of them is present the call is refused (`SHEET_NOT_EDITABLE`)
@@ -41,9 +51,20 @@ const SHEET_EDIT_URL = /^https:\/\/docs\.google\.com\/spreadsheets\/d\/[A-Za-z0-
 const CELL_NOTATION = /^[A-Za-z]{1,3}[1-9][0-9]{0,6}$/;
 const HEADER_ROW = 1;
 
-const GVIZ_ATTEMPTS = 3;
-/** Sheets autosaves shortly after a commit, so the first GViz read can still show the old value. */
-const GVIZ_RETRY_DELAY_MS = 700;
+/** Execution budget of one write: several viewport-lock turns, then the read-back window. The policy adds the ack. */
+const SHEET_WRITE_EXECUTION_BUDGET_MS = 120_000;
+/** Grace the platform grants a cancelled write to acknowledge; the draft-discard Escape runs inside it. */
+const SHEET_WRITE_CANCELLATION_ACK_MS = 10_000;
+/** Kept free of the read-back window so the answer is delivered before the platform aborts the call. */
+const SHEET_WRITE_READBACK_RESERVE_MS = 10_000;
+const CONFIRM_TIMEOUT_DEFAULT_MS = 45_000;
+const CONFIRM_TIMEOUT_MAX_MS = 90_000;
+/** Sheets autosaves after a commit, so early GViz reads can still show the old value: poll with a backoff. */
+const GVIZ_POLL_MIN_DELAY_MS = 700;
+const GVIZ_POLL_MAX_DELAY_MS = 3_000;
+const GVIZ_POLL_BACKOFF = 1.5;
+/** Bound of the Escape that discards an uncommitted draft; it uses its own signal, never the call's. */
+const DRAFT_DISCARD_BOUND_MS = 3_000;
 
 type CellScalar = string | number | boolean;
 
@@ -54,6 +75,8 @@ interface SheetWriteParams {
   expectedPrevious?: unknown;
   gid?: unknown;
   allowHeader?: unknown;
+  confirmTimeoutMs?: unknown;
+  mode?: unknown;
 }
 
 interface EditorState {
@@ -195,14 +218,19 @@ function parseGvizRead(raw: unknown): GvizRead {
   return { ok: false, error, ...(value && typeof value.status === 'number' ? { status: value.status } : {}) };
 }
 
+/** Sheets and CSV disagree about CR versus CRLF line breaks; both mean one break. */
+function normalizeNewlines(text: string): string {
+  return text.replace(/\r\n?/g, '\n');
+}
+
 /**
- * GViz returns display-formatted values, so the comparison is exact after trimming, with two
- * normalizations Sheets itself applies on commit: booleans are upper-cased and plain numbers may
- * gain thousands separators.
+ * GViz returns display-formatted values, so the comparison is exact after trimming and line-break
+ * normalization, with two normalizations Sheets itself applies on commit: booleans are upper-cased
+ * and plain numbers may gain thousands separators.
  */
 export function committedValueMatches(expected: string, observed: string): boolean {
-  const want = expected.trim();
-  const got = observed.trim();
+  const want = normalizeNewlines(expected).trim();
+  const got = normalizeNewlines(observed).trim();
   if (want === got) return true;
   if (/^(true|false)$/i.test(want)) return want.toLowerCase() === got.toLowerCase();
   if (/^[-+]?\d+(\.\d+)?$/.test(want) && got !== '') {
@@ -237,6 +265,7 @@ export function registerSheetCapabilities(catalogue: CapabilityCatalogue, browse
   ): Promise<Record<string, unknown>> => {
     const target = context.browserTarget as BrowserTarget;
     const signal = context.signal;
+    const startedAt = Date.now();
     const tabId = typeof params.tabId === 'string' && params.tabId.trim() ? params.tabId.trim() : undefined;
 
     // Argument gates first: nothing is read from the page for a call that cannot be valid.
@@ -250,6 +279,15 @@ export function registerSheetCapabilities(catalogue: CapabilityCatalogue, browse
     if (params.gid !== undefined && typeof params.gid !== 'string') throw invalid('gid must be a string');
     const requestedGid = typeof params.gid === 'string' && params.gid.trim() ? params.gid.trim() : undefined;
     if (params.allowHeader !== undefined && typeof params.allowHeader !== 'boolean') throw invalid('allowHeader must be a boolean');
+    if (params.mode !== undefined && params.mode !== 'replace' && params.mode !== 'append') throw invalid('mode must be "replace" or "append"');
+    const mode: 'replace' | 'append' = params.mode === 'append' ? 'append' : 'replace';
+    if (
+      params.confirmTimeoutMs !== undefined &&
+      (typeof params.confirmTimeoutMs !== 'number' || !Number.isFinite(params.confirmTimeoutMs) || params.confirmTimeoutMs < 0 || params.confirmTimeoutMs > CONFIRM_TIMEOUT_MAX_MS)
+    ) {
+      throw invalid(`confirmTimeoutMs must be a number from 0 to ${CONFIRM_TIMEOUT_MAX_MS} (milliseconds to wait for the spreadsheet to show the saved value)`);
+    }
+    const confirmTimeoutMs = typeof params.confirmTimeoutMs === 'number' ? params.confirmTimeoutMs : CONFIRM_TIMEOUT_DEFAULT_MS;
 
     const readState = async (): Promise<EditorState> => parseEditorState(await browser.eval(target, readEditorStateScript(), tabId));
 
@@ -324,7 +362,7 @@ export function registerSheetCapabilities(catalogue: CapabilityCatalogue, browse
 
     // 3. Previous value and precondition.
     const previous = selected.state.formulaBar!.value;
-    if (expectedPrevious !== undefined && previous !== expectedPrevious) {
+    if (expectedPrevious !== undefined && normalizeNewlines(previous) !== normalizeNewlines(expectedPrevious)) {
       throw new CapabilityError('SHEET_PRECONDITION_FAILED', `${cell} holds a different value than the expected previous value; nothing was written`, {
         cell,
         expectedPrevious,
@@ -333,15 +371,61 @@ export function registerSheetCapabilities(catalogue: CapabilityCatalogue, browse
       });
     }
 
+    // The spreadsheet's own view of the cell (GViz), independent of the editor.
+    const sheetId = (/\/spreadsheets\/d\/([A-Za-z0-9_-]+)/.exec(opening.href) || [])[1] as string;
+    const readGviz = async (): Promise<GvizRead> => {
+      try {
+        return parseGvizRead(await browser.eval(target, readCellFromGvizScript(sheetId, openGid, cell), tabId));
+      } catch (err) {
+        if (signal?.aborted) throw err;
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    };
+
+    // Append is literal concatenation. The formula bar can lose line breaks, so the editor's previous value
+    // must equal the saved one before it is used as a prefix; otherwise the append would corrupt the cell.
+    // The same read doubles as the pre-commit baseline of what GViz shows for the cell.
+    let gvizBefore: GvizRead | undefined;
+    if (mode === 'append') {
+      const saved = await readGviz();
+      if (!saved.ok || normalizeNewlines(saved.observed) !== normalizeNewlines(previous)) {
+        throw new CapabilityError('SHEET_PRECONDITION_FAILED', `${cell}: the editor and the saved spreadsheet do not agree on the current value, so the append was refused; nothing was written`, {
+          cell,
+          mode,
+          editorPrevious: previous,
+          savedValue: saved.ok ? saved.observed : null,
+          ...(saved.ok ? {} : { unavailable: saved.error }),
+          recovery: 'read the cell (anti.sheet.extract), then write the full new value with mode "replace"',
+        });
+      }
+      gvizBefore = saved;
+    } else {
+      // Best effort: the formula bar holds the raw content (a formula, an unformatted number) while GViz serves
+      // the display value, so only GViz can say what "unchanged" looks like in the read-back below.
+      gvizBefore = await readGviz();
+    }
+    const finalValue = mode === 'append' ? previous + value : value;
+
     // 4. Write, commit, re-select, read back.
     const unverified = (message: string, extra: Record<string, unknown>): CapabilityError =>
       new CapabilityError('SHEET_WRITE_UNVERIFIED', message, {
         cell,
         previous,
-        expected: value,
+        expected: finalValue,
         recovery: `the cell may or may not hold the new value; read it back with anti.sheet.extract and restore ${JSON.stringify(previous)} if it is wrong`,
         ...extra,
       });
+    /** Escape on the formula bar drops an uncommitted draft. Its own signal: the call's may be the one that aborted. */
+    const discardDraft = async (): Promise<void> => {
+      try {
+        await browser.keyboardPress({ key: 'Escape', tabId }, target, AbortSignal.timeout(DRAFT_DISCARD_BOUND_MS));
+      } catch {
+        // Best effort: the original failure is what the caller needs to see.
+      }
+    };
+    const lines = finalValue.split(/\r?\n/);
+    let typingBegan = false;
+    let commitPressed = false;
     try {
       const focus = await browser.agentClick({ selector: formulaBarSelector, trusted: true, tabId }, target, signal);
       if (!focus.clicked) {
@@ -350,11 +434,32 @@ export function registerSheetCapabilities(catalogue: CapabilityCatalogue, browse
           recovery: 'open the spreadsheet in edit mode and retry',
         });
       }
-      const typed = await browser.agentType({ selector: formulaBarSelector, text: value, clear: true, trusted: true, tabId }, target, signal);
-      if (!typed.typed) throw unverified(`The value for ${cell} could not be typed; the cell was not confirmed`, { step: 'type the value' });
+      typingBegan = true;
+      for (let index = 0; index < lines.length; index += 1) {
+        if (index > 0) {
+          const broke = await browser.keyboardPress({ key: 'Enter', modifiers: ['Alt'], tabId }, target, signal);
+          if (!broke.success) throw unverified(`A line break could not be inserted into the draft for ${cell}; nothing was committed`, { step: 'insert a line break with Alt+Enter' });
+        }
+        const text = lines[index] as string;
+        if (index > 0 && text === '') continue;
+        const typed = await browser.agentType({ selector: formulaBarSelector, text, clear: index === 0, trusted: true, tabId }, target, signal);
+        if (!typed.typed) throw unverified(`The value for ${cell} could not be typed; the cell was not confirmed`, { step: 'type the value' });
+      }
+      if (lines.length > 1) {
+        // Alt+Enter in the formula bar cannot be proven offline, so the draft is checked before it can be committed.
+        const draft = (await readState()).formulaBar;
+        if (!draft || normalizeNewlines(draft.value) !== normalizeNewlines(finalValue)) {
+          throw unverified(`The multi-line draft for ${cell} does not read back as typed; nothing was committed and the draft is discarded`, {
+            step: 'verify the multi-line draft before the commit',
+            actual: draft ? draft.value : null,
+          });
+        }
+      }
       const committed = await browser.keyboardPress({ key: 'Enter', tabId }, target, signal);
       if (!committed.success) throw unverified(`The value for ${cell} was typed but not committed`, { step: 'commit with Enter' });
+      commitPressed = true;
     } catch (err) {
+      if (typingBegan && !commitPressed) await discardDraft();
       if (err instanceof CapabilityError && (err.code === 'SHEET_NOT_EDITABLE' || err.code === 'SHEET_WRITE_UNVERIFIED')) throw err;
       throw unverified(`Writing ${cell} was interrupted: ${err instanceof Error ? err.message : String(err)}`, {
         cause: err instanceof CapabilityError ? err.code : 'UNKNOWN_ERROR',
@@ -373,22 +478,23 @@ export function registerSheetCapabilities(catalogue: CapabilityCatalogue, browse
       throw unverified(`${cell} could not be re-selected to read the value back (failed to ${readBack.step})`, { actualNameBox: readBack.actualNameBox });
     }
     const actual = readBack.state.formulaBar!.value;
-    if (actual !== value) {
+    if (normalizeNewlines(actual) !== normalizeNewlines(finalValue)) {
       throw unverified(`${cell} reads back ${JSON.stringify(actual)} after the write, not the value that was written`, { actual });
     }
 
     // 5. Independent read-back: the editor echoing the draft proves nothing about the saved cell.
-    const sheetId = (/\/spreadsheets\/d\/([A-Za-z0-9_-]+)/.exec(opening.href) || [])[1] as string;
-    const readGviz = async (): Promise<GvizRead> => {
-      try {
-        return parseGvizRead(await browser.eval(target, readCellFromGvizScript(sheetId, openGid, cell), tabId));
-      } catch (err) {
-        if (signal?.aborted) throw err;
-        return { ok: false, error: err instanceof Error ? err.message : String(err) };
-      }
+    const base = {
+      success: true,
+      cell,
+      previous,
+      value: finalValue,
+      mode,
+      ...(mode === 'append' ? { appended: value } : {}),
+      gid: openGid,
+      selectionConfirmed: true,
+      committedSource: 'gviz',
     };
-    const base = { success: true, cell, previous, value, gid: openGid, selectionConfirmed: true, committedSource: 'gviz' };
-    if (value.startsWith('=')) {
+    if (finalValue.startsWith('=')) {
       const evaluated = await readGviz();
       return {
         ...base,
@@ -398,27 +504,50 @@ export function registerSheetCapabilities(catalogue: CapabilityCatalogue, browse
         note: 'the formula text is confirmed in the editor only; the spreadsheet stores its evaluated result, which cannot be compared with the formula',
       };
     }
+    // Autosave can lag by tens of seconds: poll until the window closes. The window never reaches into the
+    // execution budget's reserve, so the answer is delivered rather than aborted by the platform.
+    const readbackStartedAt = Date.now();
+    const windowMs = Math.max(0, Math.min(confirmTimeoutMs, startedAt + SHEET_WRITE_EXECUTION_BUDGET_MS - readbackStartedAt - SHEET_WRITE_READBACK_RESERVE_MS));
+    const windowEndsAt = readbackStartedAt + windowMs;
+    let attempts = 0;
+    let delayMs = GVIZ_POLL_MIN_DELAY_MS;
     let lastRead: GvizRead = { ok: false, error: 'the spreadsheet was never read back' };
-    for (let attempt = 1; attempt <= GVIZ_ATTEMPTS; attempt += 1) {
+    for (;;) {
+      attempts += 1;
       lastRead = await readGviz();
-      if (lastRead.ok && committedValueMatches(value, lastRead.observed)) {
-        return { ...base, verified: true, observed: lastRead.observed };
+      if (lastRead.ok && committedValueMatches(finalValue, lastRead.observed)) {
+        return { ...base, verified: true, observed: lastRead.observed, attempts, waitedMs: Date.now() - readbackStartedAt };
       }
-      if (attempt < GVIZ_ATTEMPTS) await pause(GVIZ_RETRY_DELAY_MS, signal);
+      const remainingMs = windowEndsAt - Date.now();
+      if (remainingMs <= 0) break;
+      await pause(Math.min(delayMs, remainingMs), signal);
+      delayMs = Math.min(GVIZ_POLL_MAX_DELAY_MS, Math.round(delayMs * GVIZ_POLL_BACKOFF));
     }
-    if (!lastRead.ok) {
-      throw unverified(`${cell} could not be read back from the spreadsheet (${lastRead.error}); the value is not confirmed as saved`, {
-        observed: null,
-        source: 'gviz',
-        unavailable: lastRead.error,
-        ...(lastRead.status !== undefined ? { status: lastRead.status } : {}),
-        attempts: GVIZ_ATTEMPTS,
-      });
+    const waitedMs = Date.now() - readbackStartedAt;
+    // "Neither the written nor the previous value" is only a conflict when the saved cell moved away from what
+    // GViz showed before the commit. The previous value comes from the formula bar, so a formula or a formatted
+    // number never equals its own GViz display value; a read that still equals the pre-commit GViz value is a
+    // save that has not landed yet.
+    const unchangedFromBaseline = lastRead.ok && gvizBefore !== undefined && gvizBefore.ok && committedValueMatches(gvizBefore.observed, lastRead.observed);
+    if (lastRead.ok && !committedValueMatches(previous, lastRead.observed) && !unchangedFromBaseline) {
+      throw unverified(
+        `${cell} reads ${JSON.stringify(lastRead.observed)} in the saved spreadsheet, which is neither the value that was written nor the previous one`,
+        { observed: lastRead.observed, source: 'gviz', actual, attempts, waitedMs }
+      );
     }
-    throw unverified(
-      `${cell} reads ${JSON.stringify(lastRead.observed)} in the saved spreadsheet, not the value that was written; the editor still shows the draft`,
-      { observed: lastRead.observed, source: 'gviz', actual, attempts: GVIZ_ATTEMPTS }
-    );
+    return {
+      ...base,
+      verified: false,
+      status: 'SAVED_UNCONFIRMED',
+      committed: 'unknown',
+      reason: lastRead.ok ? 'gviz-still-previous' : 'gviz-unreadable',
+      observed: lastRead.ok ? lastRead.observed : null,
+      ...(lastRead.ok ? {} : { unavailable: lastRead.error, ...(lastRead.status !== undefined ? { httpStatus: lastRead.status } : {}) }),
+      attempts,
+      waitedMs,
+      recheck: 'anti.sheet.extract',
+      note: `the editor accepted the value, but the spreadsheet did not show it within ${waitedMs}ms; it may still be saving. Re-read the cell with anti.sheet.extract before writing it again`,
+    };
   };
 
   const inputSchema = (): Record<string, unknown> => ({
@@ -430,16 +559,25 @@ export function registerSheetCapabilities(catalogue: CapabilityCatalogue, browse
       expectedPrevious: { type: ['string', 'number', 'boolean'], description: 'Optional precondition: the live cell value the caller last read' },
       gid: { type: 'string', description: 'Sheet tab gid' },
       allowHeader: { type: 'boolean', description: 'Allow writing to the header row' },
+      confirmTimeoutMs: { type: 'number', minimum: 0, maximum: CONFIRM_TIMEOUT_MAX_MS, description: `Milliseconds to wait for the spreadsheet to show the saved value (default ${CONFIRM_TIMEOUT_DEFAULT_MS}, max ${CONFIRM_TIMEOUT_MAX_MS}); a value still not visible then returns verified:false with status SAVED_UNCONFIRMED instead of an error` },
+      mode: { type: 'string', enum: ['replace', 'append'], description: 'replace (default) overwrites the cell; append writes the live value followed immediately by value (put any separator, such as a newline, inside value) and is refused when the editor and the saved spreadsheet disagree about the live value' },
     },
     required: ['cell', 'value'],
   });
   const policy = () =>
-    browserCaps.makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' });
+    browserCaps.makeBrowserPolicy({
+      effect: 'interactive-effect',
+      risk: 'write',
+      requiresBrowserTarget: true,
+      lane: 'viewport-gate',
+      timeoutMs: SHEET_WRITE_EXECUTION_BUDGET_MS + SHEET_WRITE_CANCELLATION_ACK_MS,
+      cancellationAckTimeoutMs: SHEET_WRITE_CANCELLATION_ACK_MS,
+    });
 
   catalogue.register({
     name: 'anti.sheet.write_cell',
     description:
-      'Write one cell of a Google Sheet through its authenticated in-tab editor: the cell is selected through the Name Box and the selection is confirmed before typing, the header row is protected unless allowHeader is set, a supplied expectedPrevious must equal the live cell value, and the written value is read back from the spreadsheet itself (GViz CSV, not the editor) and returned with the previous one. verified is true only when that independent read-back matches; a mismatch or an unreachable read-back fails with SHEET_WRITE_UNVERIFIED, and a formula returns verified:false with reason formula-not-comparable',
+      'Write one cell of a Google Sheet through its authenticated in-tab editor: the cell is selected through the Name Box and the selection is confirmed before typing, the header row is protected unless allowHeader is set, a supplied expectedPrevious must equal the live cell value, and the written value is read back from the spreadsheet itself (GViz CSV, not the editor) and returned with the previous one. A value with line breaks is typed with Alt+Enter and checked in the formula bar before the commit. mode append writes the live value plus value. verified is true only when the independent read-back matches (polled up to confirmTimeoutMs); a different value or a failed commit fails with SHEET_WRITE_UNVERIFIED, a value not yet visible when the window ends returns verified:false with status SAVED_UNCONFIRMED (re-check with anti.sheet.extract), and a formula returns verified:false with reason formula-not-comparable',
     risk: 'write',
     requiresBrowserTarget: true,
     policy: policy(),

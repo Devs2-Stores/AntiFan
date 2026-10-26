@@ -2666,13 +2666,21 @@ export class BridgeServer {
                 code,
                 message,
                 details: dispatchResult.error?.details,
+                ...(dispatchResult.error?.retryable !== undefined ? { retryable: dispatchResult.error.retryable } : {}),
+                ...(dispatchResult.error?.retryAfterMs !== undefined ? { retryAfterMs: dispatchResult.error.retryAfterMs } : {}),
                 replacementAuthorityRevision: dispatchResult.replacementAuthorityRevision,
                 authorityRevision: dispatchResult.replacementAuthorityRevision,
               }, `${code}: ${message}`);
             }
           } catch (err: unknown) {
             const relayed = describeRelayedFailure(err);
-            respond(false, { code: relayed.code, message: relayed.message, details: relayed.details }, `${relayed.code}: ${relayed.message}`);
+            respond(false, {
+              code: relayed.code,
+              message: relayed.message,
+              details: relayed.details,
+              retryable: relayed.retryable,
+              ...(relayed.retryAfterMs !== undefined ? { retryAfterMs: relayed.retryAfterMs } : {}),
+            }, `${relayed.code}: ${relayed.message}`);
           }
           break;
         }

@@ -50,7 +50,7 @@ test('the probe tools advertise the arguments their capability accepts', () => {
 
 test('cockpit_scan forwards the QA run knobs and the product pick strategy', () => {
   const props = properties('theme.cockpit_scan');
-  for (const key of ['profile', 'thresholds', 'viewports', 'multiBreakpoint', 'pick']) {
+  for (const key of ['profile', 'thresholds', 'baselineViewports', 'multiBreakpoint', 'pick']) {
     assert.ok(key in props, `theme.cockpit_scan advertises ${key}`);
   }
 });
@@ -58,9 +58,68 @@ test('cockpit_scan forwards the QA run knobs and the product pick strategy', () 
 test('qa_validate advertises extra viewports and the non-theme opt-out', () => {
   for (const name of ['theme.qa_validate', 'anti.theme.qa_validate']) {
     const props = properties(name);
-    assert.ok('viewports' in props, `${name} advertises viewports`);
+    assert.ok('baselineViewports' in props, `${name} advertises baselineViewports`);
+    assert.ok(!('viewports' in props), `${name} no longer advertises the renamed viewports key`);
     assert.ok('allowNonTheme' in props, `${name} advertises allowNonTheme`);
   }
+});
+
+test('the audit-fix arguments are advertised on the rows that accept them', () => {
+  const expected = {
+    'anti.browser.tabs.list': ['fields', 'limit', 'urlContains'],
+    'anti.browser.tabs.create': ['bind'],
+    'anti.browser.navigate': ['waitUntil'],
+    'anti.screenshot.viewport': ['saveTo'],
+    'anti.screenshot.full_page': ['saveTo'],
+    'anti.browser.set_viewport': ['hideScrollbar'],
+    'browser.set-viewport': ['hideScrollbar'],
+    'anti.sheet.write_cell': ['confirmTimeoutMs', 'mode'],
+  };
+  for (const [name, keys] of Object.entries(expected)) {
+    const props = properties(name);
+    for (const key of keys) assert.ok(key in props, `${name} advertises ${key}`);
+  }
+  assert.deepEqual(properties('anti.browser.navigate').waitUntil.enum, ['commit', 'domcontentloaded', 'load']);
+  assert.deepEqual(properties('anti.sheet.write_cell').mode.enum, ['replace', 'append']);
+  assert.equal(properties('anti.sheet.write_cell').confirmTimeoutMs.maximum, 90000);
+});
+
+test('state_matrix names every close-probe outcome the report can carry', () => {
+  const [, description] = row('anti.qa.state_matrix');
+  for (const code of ['CLOSE_ESCAPE_FAILED', 'CLOSE_ESCAPE_UNMEASURED', 'CLOSE_ESCAPE_FLAKY']) {
+    assert.match(description, new RegExp(code), `state_matrix describes ${code}`);
+  }
+});
+
+test('the evaluate row states the real invocation deadline', () => {
+  const [, description] = row('anti.browser.evaluate');
+  assert.match(description, /30 s/);
+  assert.doesNotMatch(description, />25s/);
+});
+
+test('listTools never emits a top-level oneOf/anyOf and states the alternatives in the description', async () => {
+  const { tools } = await proxy.listTools();
+  const withForms = proxy.definitions.filter(([, , , , forms]) => forms && (Array.isArray(forms) ? forms.length : Object.keys(forms).length));
+  assert.ok(withForms.length > 0, 'the proxy still has alternative-argument rows');
+  for (const tool of tools) {
+    assert.ok(!('oneOf' in tool.inputSchema), `${tool.name} has no top-level oneOf`);
+    assert.ok(!('anyOf' in tool.inputSchema), `${tool.name} has no top-level anyOf`);
+  }
+  const sequence = tools.find((tool) => tool.name === 'anti.agent.sequence');
+  assert.match(sequence.description, /Provide exactly one of: actions \| steps\./);
+  const wait = tools.find((tool) => tool.name === 'browser.wait');
+  assert.match(wait.description, /Provide at least one of: condition \| type\./);
+  const evaluate = tools.find((tool) => tool.name === 'anti.browser.evaluate');
+  assert.match(evaluate.description, /Provide exactly one of: expression \| expressionFile\./);
+});
+
+test('a result whose body says the action did nothing is flagged as an error', () => {
+  assert.equal(proxy.actionOutcomeFailed('anti.agent.cursor.click', { clicked: false, reason: 'covered' }), true);
+  assert.equal(proxy.actionOutcomeFailed('anti.agent.cursor.click', { clicked: true }), false);
+  assert.equal(proxy.actionOutcomeFailed('anti.agent.sequence', { success: false, completedSteps: 1 }), true);
+  assert.equal(proxy.actionOutcomeFailed('anti.agent.sequence', { success: true }), false);
+  assert.equal(proxy.actionOutcomeFailed('anti.inspect.dom', { success: false }), false, 'a read tool is never judged by an action flag');
+  assert.equal(proxy.actionOutcomeFailed('anti.agent.cursor.click', 'text'), false);
 });
 
 test('the responsive sweep rows accept extra viewports', () => {

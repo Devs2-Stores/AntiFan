@@ -37,7 +37,7 @@
  */
 const { app, BrowserWindow, webContents } = require('electron');
 const path = require('node:path');
-const os = require('node:os');
+const { createIsolatedInstance } = require('./lib/isolated-instance.cjs');
 const fs = require('node:fs');
 
 app.commandLine.appendSwitch('no-sandbox');
@@ -76,74 +76,28 @@ console.error = (...args) => {
   try { fs.appendFileSync(logFile, `${line}\n`, 'utf8'); } catch {}
 };
 
-// Throwaway world: temp data root (config, control plane, runtime) and temp Chromium
-// profile, both seeded before the main process is required. Nothing here can read or write
-// the developer's real profile, real data root or real capsules.
-const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-quit-probe-'));
-const alphaDir = path.join(tempRoot, 'alpha');
-const betaDir = path.join(tempRoot, 'beta');
-const gammaDir = path.join(tempRoot, 'gamma');
-for (const dir of [alphaDir, betaDir, gammaDir]) fs.mkdirSync(dir, { recursive: true });
-const ALPHA = {
-  projectId: 'project-00000000-0000-4000-8000-0000000000a1',
-  workspaceId: 'workspace-00000000-0000-4000-8000-0000000000a1',
-  capsuleId: 'capsule-probe-alpha',
-  name: 'Probe Alpha',
-  path: alphaDir,
-};
-const BETA = {
-  projectId: 'project-00000000-0000-4000-8000-0000000000b2',
-  workspaceId: 'workspace-00000000-0000-4000-8000-0000000000b2',
-  capsuleId: 'capsule-probe-beta',
-  name: 'Probe Beta',
-  path: betaDir,
-};
-const GAMMA = {
-  projectId: 'project-00000000-0000-4000-8000-0000000000c3',
-  workspaceId: 'workspace-00000000-0000-4000-8000-0000000000c3',
-  capsuleId: 'capsule-probe-gamma',
-  name: 'Probe Gamma',
-  path: gammaDir,
-};
-
-process.env.ANTIFAN_DATA_ROOT = tempRoot;
-// A probe launched from an AntiFan terminal inherits that app's config dir; left alone, the
-// bridge would publish its discovery file into the live app's config and the history store
-// would read the user's real history. Pin it inside the throwaway root.
-process.env.ANTIFAN_CONFIG_DIR = path.join(tempRoot, 'config');
-process.env.ANTIFAN_USER_DATA = path.join(tempRoot, 'Profile');
-process.env.ANTIFAN_PROJECT_ID = ALPHA.projectId;
-process.env.ANTIFAN_WORKSPACE_ID = ALPHA.workspaceId;
-// The detached terminal host is deliberately out of this probe: it is designed to outlive
-// the GUI, so it would leave a daemon process behind on a developer's machine. The gate's
-// terminal dimension is read from the in-process manager, which is the same TerminalManager
-// surface the daemon proxy presents.
-process.env.ANTIFAN_USE_TERMINAL_DAEMON = '0';
-process.env.ANTIFAN_BRIDGE_PORT = String(20900 + (process.pid % 90));
-// The control plane reads its authoritative workspace root from the environment when the
-// process does not pass one, and the boot project's capsule is exactly that root.
-process.env.ANTIFAN_WORKSPACE_ROOT = alphaDir;
-
-fs.mkdirSync(path.join(tempRoot, 'config'), { recursive: true });
-fs.writeFileSync(
-  path.join(tempRoot, 'config', 'workspace-capsules.json'),
-  JSON.stringify({
-    version: 1,
-    activeCapsuleId: ALPHA.capsuleId,
-    capsules: [ALPHA, BETA, GAMMA].map((entry) => ({
-      id: entry.capsuleId,
-      name: entry.name,
-      workspacePath: entry.path,
-      state: {},
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      projectId: entry.projectId,
-      workspaceId: entry.workspaceId,
-      migrationMarker: 'explicit',
-    })),
-  }, null, 2),
-  'utf8',
-);
+// Throwaway world: temp data root (config, control plane, runtime), temp Chromium profile and
+// capsule registry, all seeded before the main process is required. Nothing here can read or
+// write the developer's real profile, real data root or real capsules, and the helper pins the
+// config dir an AntiFan terminal would otherwise leak in (the bridge would publish its discovery
+// file into the live app's config and the history store would read the user's real history).
+// The detached terminal host is deliberately off: it is designed to outlive the GUI, so it would
+// leave a daemon process behind on a developer's machine. The gate's terminal dimension is read
+// from the in-process manager, which is the same TerminalManager surface the daemon proxy presents.
+// The workspace root is pinned too: the control plane reads its authoritative root from the
+// environment when the process does not pass one, and the boot project's capsule is exactly that root.
+const isolated = createIsolatedInstance({
+  prefix: 'antifan-quit-probe-',
+  projects: [
+    { projectId: 'project-00000000-0000-4000-8000-0000000000a1', workspaceId: 'workspace-00000000-0000-4000-8000-0000000000a1', capsuleId: 'capsule-probe-alpha', name: 'Probe Alpha', dir: 'alpha' },
+    { projectId: 'project-00000000-0000-4000-8000-0000000000b2', workspaceId: 'workspace-00000000-0000-4000-8000-0000000000b2', capsuleId: 'capsule-probe-beta', name: 'Probe Beta', dir: 'beta' },
+    { projectId: 'project-00000000-0000-4000-8000-0000000000c3', workspaceId: 'workspace-00000000-0000-4000-8000-0000000000c3', capsuleId: 'capsule-probe-gamma', name: 'Probe Gamma', dir: 'gamma' },
+  ],
+  bridgePortBase: 20900,
+  bridgePortSpan: 90,
+  pinWorkspaceRoot: true,
+});
+const [ALPHA, BETA, GAMMA] = isolated.projects;
 
 // Boot the shipping main process inside this same Electron instance; its boot guards run at
 // import, so the throwaway environment above must already be seeded.
@@ -1388,7 +1342,7 @@ async function cleanup() {
       await sleep(100);
     }
   } catch {}
-  try { fs.rmSync(tempRoot, { recursive: true, force: true }); } catch {}
+  isolated.dispose();
 }
 
 let exitCode = 1;

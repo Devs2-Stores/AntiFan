@@ -431,14 +431,14 @@ interface ScanResult {
 const FULL_THRESHOLDS = { minTextPx: 12, minTapHitPx: 24 };
 
 describe('theme.cockpit_scan grading inputs, root guard and checklist ticks', () => {
-  it('forwards profile, thresholds, viewports, multiBreakpoint and waivers to the QA run untouched', async () => {
+  it('forwards profile, thresholds, baselineViewports, multiBreakpoint and waivers to the QA run untouched', async () => {
     const { catalogue, root, qaCalls } = makeScanFixture();
     try {
       const viewports = { desktop: { mismatchPercent: 0.2, passed: true }, mobile: { mismatchPercent: 0.4, passed: true } };
       const waivers = [{ rule: 'tap-target-hit-area', reason: 'third-party chat bubble' }];
       await catalogue.dispatch(
         'theme.cockpit_scan',
-        { profile: 'audit', thresholds: FULL_THRESHOLDS, viewports, multiBreakpoint: false, waivers },
+        { profile: 'audit', thresholds: FULL_THRESHOLDS, baselineViewports: viewports, multiBreakpoint: false, waivers },
         makeBoundContext()
       );
       assert.strictEqual(qaCalls.length, 1);
@@ -471,8 +471,12 @@ describe('theme.cockpit_scan grading inputs, root guard and checklist ticks', ()
       const invalid = (err: unknown): boolean => err instanceof CapabilityError && err.code === 'INVALID_ARGUMENT';
       await assert.rejects(() => catalogue.dispatch('theme.cockpit_scan', { url: '/products/a', profile: 'fast' }, makeBoundContext()), invalid);
       await assert.rejects(() => catalogue.dispatch('theme.cockpit_scan', { url: '/products/a', thresholds: { minTextPx: 12 } }, makeBoundContext()), invalid);
-      await assert.rejects(() => catalogue.dispatch('theme.cockpit_scan', { url: '/products/a', viewports: { watch: { mismatchPercent: 0, passed: true } } }, makeBoundContext()), invalid);
-      await assert.rejects(() => catalogue.dispatch('theme.cockpit_scan', { url: '/products/a', viewports: { desktop: { passed: true } } }, makeBoundContext()), invalid);
+      await assert.rejects(() => catalogue.dispatch('theme.cockpit_scan', { url: '/products/a', baselineViewports: { watch: { mismatchPercent: 0, passed: true } } }, makeBoundContext()), invalid);
+      await assert.rejects(() => catalogue.dispatch('theme.cockpit_scan', { url: '/products/a', baselineViewports: { desktop: { passed: true } } }, makeBoundContext()), invalid);
+      await assert.rejects(
+        () => catalogue.dispatch('theme.cockpit_scan', { url: '/products/a', viewports: { desktop: { mismatchPercent: 0, passed: true } } }, makeBoundContext()),
+        (err: unknown) => err instanceof CapabilityError && err.code === 'INVALID_ARGUMENT' && /renamed to baselineViewports/.test(err.message)
+      );
       await assert.rejects(() => catalogue.dispatch('theme.cockpit_scan', { url: '/products/a', multiBreakpoint: 'yes' }, makeBoundContext()), invalid);
       await assert.rejects(() => catalogue.dispatch('theme.cockpit_scan', { url: '/products/a', pick: 'cheapest' }, makeBoundContext()), invalid);
       await assert.rejects(() => catalogue.dispatch('theme.cockpit_scan', { url: '/products/a', waivers: [{ rule: 'min-font-size' }] }, makeBoundContext()), invalid);

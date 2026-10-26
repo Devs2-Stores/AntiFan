@@ -28,6 +28,12 @@ export interface DialogScript {
   measureOpen?: Record<string, unknown>;
   /** Whether the Escape key closes the panel. */
   escapeCloses?: boolean;
+  /** Escape closes the panel from this (1-based) press on; `escapeCloses: true` is the same as 1. */
+  escapeClosesOnPress?: number;
+  /** After a close input the panel still reads open for this many closed-state measurements (a close that finishes after the settle). */
+  closeAfterTurns?: number;
+  /** The one-shot keydown listener cannot be read back (the page threw while it was read). */
+  escapeReadThrows?: boolean;
   /** What the one-shot keydown listener reports after Escape was sent. */
   escapeRead?: Record<string, unknown> | null;
   /** What the unstyled probe returns; a function may throw. */
@@ -38,10 +44,15 @@ export interface DialogScript {
  * Deps for one overlay whose open state the fake tracks: a trusted click on the trigger opens it,
  * a click on the tagged close control or on the backdrop closes it, Escape closes it only when told to.
  */
-export function dialogDeps(script: DialogScript = {}): { deps: StateMatrixDeps; steps: Step[]; state: { open: boolean } } {
+export function dialogDeps(script: DialogScript = {}): { deps: StateMatrixDeps; steps: Step[]; state: { open: boolean; closing: number; escapePresses: number; closedReads: number } } {
   const steps: Step[] = [];
-  const state = { open: false };
+  const state = { open: false, closing: 0, escapePresses: 0, closedReads: 0 };
   const kind = script.kind ?? 'modal';
+  // Every close input goes through here, so `closeAfterTurns` delays all of them alike.
+  const closeInput = (): void => {
+    if ((script.closeAfterTurns ?? 0) > 0) state.closing = script.closeAfterTurns!;
+    else state.open = false;
+  };
   const isDiscover = (s: string) => s.includes('__antifanStateMatrixGuard') && s.includes('UNSAFE');
   const isCleanup = (s: string) => s.includes('delete window.__antifanStateMatrixGuard');
   const isMeasureOpen = (s: string) => s.includes('backdropPoint') && s.includes('overflowingChildren');
@@ -60,10 +71,21 @@ export function dialogDeps(script: DialogScript = {}): { deps: StateMatrixDeps; 
       }
       if (isCleanup(s)) return { ok: true };
       if (isMeasureOpen(s)) return script.measureOpen ?? openDialog;
-      if (isMeasureClosed(s)) return { closed: !state.open, bodyRestored: true, focusReturned: true };
+      if (isMeasureClosed(s)) {
+        state.closedReads++;
+        if (state.closing > 0) {
+          state.closing--;
+          if (state.closing === 0) state.open = false;
+          return { closed: false, bodyRestored: true, focusReturned: true };
+        }
+        return { closed: !state.open, bodyRestored: true, focusReturned: true };
+      }
       if (isPointSafety(s)) return { safe: true, reason: 'OVERLAY', target: 'div.backdrop' };
       if (isEscapeArm(s)) return { armed: true, hasFocus: true };
-      if (isEscapeRead(s)) return script.escapeRead === undefined ? { seen: true, key: 'Escape', hasFocus: true } : script.escapeRead;
+      if (isEscapeRead(s)) {
+        if (script.escapeReadThrows === true) throw new Error('probe lost');
+        return script.escapeRead === undefined ? { seen: true, key: 'Escape', hasFocus: true } : script.escapeRead;
+      }
       if (isUnstyled(s)) {
         const value = typeof script.unstyled === 'function' ? (script.unstyled as () => unknown)() : script.unstyled;
         return value === undefined ? { unstyled: [] } : value;
@@ -72,17 +94,18 @@ export function dialogDeps(script: DialogScript = {}): { deps: StateMatrixDeps; 
     },
     click: async (selector: string) => {
       steps.push({ kind: 'click', detail: selector });
-      if (selector.includes('sm-close')) state.open = false;
-      else if (selector.includes('sm-trigger')) state.open = true;
+      if (selector.includes('sm-close')) closeInput();
+      else if (selector.includes('sm-trigger')) { state.open = true; state.closing = 0; }
       return ok();
     },
     clickAt: async (x: number, y: number) => {
       steps.push({ kind: 'clickAt', detail: `${x},${y}` });
-      state.open = false;
+      closeInput();
       return ok();
     },
     hover: async (selector: string) => {
       steps.push({ kind: 'hover', detail: selector });
+      if (selector.includes('sm-trigger')) { state.open = true; state.closing = 0; }
       return ok();
     },
     hoverAt: async (x: number, y: number) => {
@@ -91,7 +114,11 @@ export function dialogDeps(script: DialogScript = {}): { deps: StateMatrixDeps; 
     },
     pressKey: async (key: string) => {
       steps.push({ kind: 'key', detail: key });
-      if (script.escapeCloses === true) state.open = false;
+      if (key === 'Escape') {
+        state.escapePresses++;
+        const closesFrom = script.escapeClosesOnPress ?? (script.escapeCloses === true ? 1 : Infinity);
+        if (state.escapePresses >= closesFrom) closeInput();
+      }
       return ok();
     },
     wait: async () => undefined,

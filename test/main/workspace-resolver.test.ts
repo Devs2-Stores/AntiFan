@@ -34,6 +34,31 @@ describe('validateAuthorizedWorkspaceRoot refusal details', () => {
     }
   });
 
+  it('names the file being acted on when the caller supplies one, and omits the field otherwise', () => {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-ws-resolver-'));
+    try {
+      const authorized = path.join(base, 'authorized');
+      const outside = path.join(base, 'outside');
+      fs.mkdirSync(authorized);
+      fs.mkdirSync(outside);
+      const refusal = (subject?: { filePath?: string }): CapabilityError => {
+        try {
+          validateAuthorizedWorkspaceRoot(outside, [authorized], subject);
+        } catch (err) {
+          assert.ok(err instanceof CapabilityError);
+          return err;
+        }
+        throw new Error('expected an OUTSIDE_WORKSPACE refusal');
+      };
+
+      assert.strictEqual(refusal({ filePath: 'C:/uploads/theme.zip' }).details?.filePath, 'C:/uploads/theme.zip');
+      assert.strictEqual(refusal().details?.filePath, undefined);
+      assert.strictEqual('filePath' in (refusal({ filePath: '' }).details ?? {}), false, 'an empty file path is not a detail');
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true });
+    }
+  });
+
   it('accepts a root inside an authorized root', () => {
     const base = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-ws-resolver-'));
     try {

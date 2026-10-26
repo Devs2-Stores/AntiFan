@@ -91,6 +91,25 @@ function isIsolatedAction(value: string): value is RendererActionRequest['action
   return ISOLATED_ACTION_NAMES[value] === true;
 }
 
+/** How far a navigation must progress before `navigate` answers. `load` is the default and the strictest. */
+export type NavigationWaitUntil = 'commit' | 'domcontentloaded' | 'load';
+export const NAVIGATION_WAIT_UNTIL_VALUES: readonly NavigationWaitUntil[] = Object.freeze(['commit', 'domcontentloaded', 'load']);
+
+/** Third argument of `navigateAndWait`: a bare number is the legacy timeout form. */
+export interface NavigationWaitOptions {
+  timeoutMs?: number;
+  waitUntil?: NavigationWaitUntil;
+}
+
+export function isNavigationWaitUntil(value: unknown): value is NavigationWaitUntil {
+  return typeof value === 'string' && (NAVIGATION_WAIT_UNTIL_VALUES as readonly string[]).includes(value);
+}
+
+/** Reported progress of a navigation that reached the requested stage (`timeout` is reported by the caller). */
+export function navigationLoadStateFor(waitUntil: NavigationWaitUntil): 'committed' | 'domcontentloaded' | 'loaded' {
+  return waitUntil === 'commit' ? 'committed' : waitUntil === 'domcontentloaded' ? 'domcontentloaded' : 'loaded';
+}
+
 export interface SequenceActionItem {
   type: 'navigate' | 'click' | 'type' | 'scroll' | 'hover' | 'pressKey' | 'wait' | 'screenshot' | 'snapshot' | 'awaitNetwork' | 'dismissModals';
   url?: string;
@@ -105,6 +124,8 @@ export interface SequenceActionItem {
   modifiers?: string[];
   waitMs?: number;
   timeoutMs?: number;
+  /** `navigate` only: `commit`, `domcontentloaded` or `load` (default). */
+  waitUntil?: NavigationWaitUntil;
   settleMs?: number;
   format?: 'png' | 'jpeg';
   quality?: number;
@@ -171,7 +192,9 @@ export interface TabAutomationContext {
    * stamp the user-presence clock and defer a later activation.
    */
   withAgentInput?: <T>(action: () => Promise<T>) => Promise<T>;
-  navigateAndWait?: (tabId: string, inputUrl: string, timeoutMs?: number) => Promise<boolean>;
+  navigateAndWait?: (tabId: string, inputUrl: string, wait?: number | NavigationWaitOptions) => Promise<boolean>;
+  /** The recorded failure of the tab's last navigation, when the host kept one. */
+  getLastNavigationFailure?: (tabId: string) => { cause: string; message: string; timedOut: boolean } | undefined;
 }
 
 /**
@@ -1518,15 +1541,28 @@ export class TabAutomationHost {
             if (!action.url || typeof action.url !== 'string' || !action.url.trim()) {
               stepSuccess = false;
               stepError = 'Missing or invalid url for navigate action';
+            } else if (action.waitUntil !== undefined && !isNavigationWaitUntil(action.waitUntil)) {
+              stepSuccess = false;
+              stepError = `Invalid waitUntil '${String(action.waitUntil)}' for navigate action; use one of ${NAVIGATION_WAIT_UNTIL_VALUES.join(', ')}`;
             } else if (this.ctx.navigateAndWait) {
               const requestedNavTimeout = typeof action.timeoutMs === 'number' && Number.isFinite(action.timeoutMs) ? action.timeoutMs : 10_000;
               const navTimeoutMs = Math.max(1_000, Math.min(60_000, Math.floor(requestedNavTimeout)));
-              const navOk = await this.ctx.navigateAndWait(targetId, action.url.trim(), navTimeoutMs);
+              const waitUntil = action.waitUntil ?? 'load';
+              const navOk = await this.ctx.navigateAndWait(targetId, action.url.trim(), { timeoutMs: navTimeoutMs, waitUntil });
               stepSuccess = navOk;
               if (!navOk) stepError = `Navigation to "${action.url}" failed or timed out`;
               initialUrl = wc.isDestroyed() ? action.url.trim() : wc.getURL();
               initialGen = this.ctx.getSemanticDocumentGeneration(targetId, effectivePane);
-              stepData = { navigatedUrl: initialUrl, documentGeneration: initialGen };
+              // Only a recorded timeout is reported as `timeout`; a blocked or failed load has no
+              // load state to claim, and neither does a failure the host kept no record of.
+              const navFailure = navOk ? undefined : this.ctx.getLastNavigationFailure?.(targetId);
+              const navLoadState = navOk ? navigationLoadStateFor(waitUntil) : navFailure?.timedOut === true ? 'timeout' : undefined;
+              stepData = {
+                navigatedUrl: initialUrl,
+                committedUrl: initialUrl,
+                ...(navLoadState ? { loadState: navLoadState } : {}),
+                documentGeneration: initialGen,
+              };
             } else {
               wc.loadURL(action.url.trim()).catch(() => {});
               stepSuccess = true;
@@ -2031,7 +2067,7 @@ export class TabAutomationHost {
 
     let targetWorkspace = '';
     if (explicitWorkspaceRoot && typeof explicitWorkspaceRoot === 'string' && explicitWorkspaceRoot.trim()) {
-      targetWorkspace = validateAuthorizedWorkspaceRoot(explicitWorkspaceRoot.trim());
+      targetWorkspace = validateAuthorizedWorkspaceRoot(explicitWorkspaceRoot.trim(), undefined, { filePath: typeof filePaths[0] === 'string' ? filePaths[0] : undefined });
     } else {
       const targetSessionId = this.ctx.getTabTerminalSession?.(targetId);
       const curTabUrl = target.state?.url || '';

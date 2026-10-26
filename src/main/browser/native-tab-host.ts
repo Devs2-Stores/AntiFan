@@ -24,6 +24,7 @@ import { buildBridgeHealthReport, subscribeBridgeHealth } from '../bridge/bridge
 import { RunStateService } from '../run/run-state-service';
 import type { ExecutionBackend } from '../agent/execution-backend';
 import type { ExecutionAttachmentRecord } from '../../shared/control-plane-contracts';
+import { SESSION_TAB_LIMIT, shareTabMenuText } from '../../shared/tab-sharing';
 import { getSecureWebPreferences, sanitizeUrl, isAllowedNavigation, cleanRestoredUrl, isInternalWidgetOrSubframeUrl } from '../security/security-policy';
 import { ELEMENT_PICKER_SCRIPT } from './element-picker';
 import { resolveWorkspaceFromUrl, DEFAULT_WORKSPACE_ROOTS } from './workspace-resolver';
@@ -60,7 +61,7 @@ import { buildCookieSetDetails, runCapsuleToProfileMigration, type CapsuleMigrat
 import { LocalSessionVault, isTrustedSessionVaultSender } from './local-session-vault';
 import { LocalCredentialVault, resolveSenderFrameOrigin } from './local-credential-vault';
 import { HaravanUploader } from './haravan-uploader';
-import type { ActionSequenceParams, ActionSequenceResult } from './tab-automation-host';
+import type { ActionSequenceParams, ActionSequenceResult, NavigationWaitOptions, NavigationWaitUntil } from './tab-automation-host';
 import { TerminalManager, DEFAULT_TERMINAL_CAPSULE_ID, agentTerminalOwnerKey, workspaceTerminalProvenance, selectAnnotationTargets, selectAnnotationPickerRows, type SessionSummary, type TerminalDiagnosticsReport, type TerminalManagerStats, type TerminalSessionStateProjection } from './terminal-manager';
 import { writeFullPageCapture } from './full-page-capture-file';
 import { buildVSCodeFileUrl, buildVSCodeLaunchArgs, normalizePreviewPath, readFilePreview } from './file-preview-reader';
@@ -174,6 +175,11 @@ export interface NativeTabHostResourceStats {
   controlPlane: ControlPlaneResourceStats | null;
   terminalFanoutMessages: number;
 }
+
+/** How many recent page-reported mutation sources the host keeps per tab. */
+const MUTATION_SAMPLE_RING_SIZE = 8;
+/** Matches the preload's clamp; the host re-clamps because the payload is page-world input. */
+const MUTATION_SAMPLE_MAX_CHARS = 120;
 
 export const TOOLBAR_HEIGHT_WITH_BOOKMARKS = 102;
 export const TOOLBAR_HEIGHT_COMPACT = 74;
@@ -1427,6 +1433,8 @@ export class NativeTabHost extends EventEmitter {
   private activeWorkflowAbortController: AbortController | null = null;
   private documentGenerations: Map<string, number> = new Map();
   private mutationRevisions: Map<string, number> = new Map();
+  /** Last few page-reported mutation sources per tab (`tag#id.class`), newest last. */
+  private mutationSamples: Map<string, string[]> = new Map();
   private browserEpoch: number = 1;
   private tabPreviewUnsubscribers: Map<string, () => void> = new Map();
   private recentlyClosedTabs: Array<{ url: string; title: string }> = [];
@@ -1741,12 +1749,15 @@ export class NativeTabHost extends EventEmitter {
         getTabTerminalSession: (tabId) => this.getTabTerminalSession(tabId),
         sendKeyboardPress: (params) => this.sendKeyboardPress(params),
         withAgentInput: (action) => this.withAgentInput(action),
-        navigateAndWait: (tabId, inputUrl, timeoutMs) => this.navigateAndWait(tabId, inputUrl, timeoutMs),
+        navigateAndWait: (tabId, inputUrl, wait) => this.navigateAndWait(tabId, inputUrl, wait),
+        getLastNavigationFailure: (tabId) => this.getLastNavigationFailure(tabId),
       });
     }
     return this.automationHost;
   }
   private appliedClipRadius = new WeakMap<Electron.WebContents, number>();
+  /** Views whose scrollbars are hidden through `Emulation.setScrollbarsHidden` (set by set_viewport hideScrollbar). */
+  private scrollbarsHiddenViews?: WeakSet<Electron.WebContents>;
   private touchEmulationStates = new WeakMap<Electron.WebContents, {
     desired: boolean;
     settled: boolean;
@@ -2719,11 +2730,12 @@ export class NativeTabHost extends EventEmitter {
     // Same surface as the wheel-zoom report: the page announces its own DOM changed, so the
     // document-generation revision it bumps is the page's, resolved from the sender.
     surface: 'tab',
-    run: ({ host }, event) => {
+    run: ({ host }, event, args) => {
       const senderWc = event?.sender;
       for (const [id, t] of host.tabs.entries()) {
         if (t.view?.webContents === senderWc || (t.mobileView && t.mobileView.webContents === senderWc)) {
           host.bumpMutationRevision(id);
+          host.recordMutationSample(id, (args[0] as { sample?: unknown } | undefined)?.sample);
           break;
         }
       }
@@ -5702,7 +5714,7 @@ export class NativeTabHost extends EventEmitter {
           menu.append(new MenuItem({ type: 'separator' }));
           menu.append(
             new MenuItem({
-              label: shareState.shared ? '🚫 Thu hồi quyền dùng tab của agent' : '🤝 Cho agent của project này dùng tab',
+              label: shareTabMenuText(shareState.shared, true),
               click: () => {
                 if (shareState.shared) this.revokeTabShare(shareTabId);
                 else this.shareTabWithAgent(shareTabId);
@@ -9264,6 +9276,7 @@ export class NativeTabHost extends EventEmitter {
     this.splitCoordinator?.cleanupTab(tabId);
     this.unindexTabWebContents(target);
     this.tabs.delete(tabId);
+    this.mutationSamples?.delete(tabId);
     this.recordTabClosedTelemetry(tabId, target, source ?? (authorizedByAttempt ? 'close-attempt' : 'unspecified'));
     this.tabOrder = this.tabOrder.filter((id) => id !== tabId);
     if (this.activeTabId === tabId) {
@@ -10294,7 +10307,16 @@ export class NativeTabHost extends EventEmitter {
     }
     return true;
   }
-  public async navigateAndWait(tabId: string, inputUrl: string, timeoutMs: number = 20000): Promise<boolean> {
+  /**
+   * Navigate and wait. `wait` is the legacy timeout number or `{timeoutMs, waitUntil}`:
+   * `commit` settles when the main frame commits the new document, `domcontentloaded` at its
+   * `dom-ready`, `load` (default) at `did-finish-load`. A same-URL navigation is a reload: with the
+   * default `load` stage it goes through `reloadAndWait`; an earlier stage reloads under the same
+   * lifecycle waiter a different URL uses, so `commit`/`domcontentloaded` still answer at their stage.
+   */
+  public async navigateAndWait(tabId: string, inputUrl: string, wait: number | NavigationWaitOptions = 20000): Promise<boolean> {
+    const timeoutMs = typeof wait === 'number' ? wait : (wait.timeoutMs ?? 20000);
+    const waitUntil: NavigationWaitUntil = typeof wait === 'number' ? 'load' : (wait.waitUntil ?? 'load');
     const tab = this.tabs.get(tabId);
     if (!tab) return false;
     const cleanUrl = sanitizeUrl(inputUrl);
@@ -10303,7 +10325,8 @@ export class NativeTabHost extends EventEmitter {
     }
     const currentUrl = (tab.state.url || '').replace(/\/$/, '');
     const targetUrl = sanitizeUrl(inputUrl).replace(/\/$/, '');
-    if (currentUrl && targetUrl === currentUrl) {
+    const sameUrl = Boolean(currentUrl) && targetUrl === currentUrl;
+    if (sameUrl && waitUntil === 'load') {
       return this.reloadAndWait(tabId, timeoutMs);
     }
     // Materialize a hibernated view before resolving the authority view — the
@@ -10321,8 +10344,8 @@ export class NativeTabHost extends EventEmitter {
     if (!authorityView || authorityView.webContents.isDestroyed()) return false;
 
     this.lastNavigationFailures.delete(tabId);
-    const waiter = this.createNavigationLifecycleWaiter(authorityView.webContents, timeoutMs, Math.min(3000, timeoutMs), tabId, cleanUrl);
-    const initiated = this.navigate(tabId, inputUrl);
+    const waiter = this.createNavigationLifecycleWaiter(authorityView.webContents, timeoutMs, Math.min(3000, timeoutMs), tabId, cleanUrl, waitUntil);
+    const initiated = sameUrl ? this.reload(tabId) : this.navigate(tabId, inputUrl);
     if (!initiated) {
       this.lastNavigationFailures.set(tabId, {
         cause: 'NAVIGATION_BLOCKED',
@@ -10513,7 +10536,8 @@ export class NativeTabHost extends EventEmitter {
     timeoutMs: number = 20000,
     startTimeoutMs: number = 3000,
     tabId?: string,
-    committedTargetUrl?: string
+    committedTargetUrl?: string,
+    waitUntil: NavigationWaitUntil = 'load'
   ): { promise: Promise<boolean>; cancel: () => void } {
     let cancelFn: () => void = () => {};
     const promise = new Promise<boolean>((resolve) => {
@@ -10546,6 +10570,8 @@ export class NativeTabHost extends EventEmitter {
         try { wc.removeListener('did-finish-load', onFinish); } catch {}
         try { wc.removeListener('did-fail-load', onFail); } catch {}
         try { wc.removeListener('did-navigate-in-page', onInPage); } catch {}
+        try { wc.removeListener('did-navigate', onCommit); } catch {}
+        try { wc.removeListener('dom-ready', onDomReady); } catch {}
         try { wc.removeListener('destroyed', onWcDestroyed); } catch {}
       };
 
@@ -10647,6 +10673,21 @@ export class NativeTabHost extends EventEmitter {
         }
       };
 
+      // `commit` stops at the main-frame commit (`did-navigate`); `domcontentloaded` also at the
+      // main frame's `dom-ready`. Both need this navigation to have started and no latched
+      // failure, and a committed chrome-error:// interstitial is a failed load, not a commit.
+      const onCommit = (_event: unknown, url: unknown) => {
+        if (waitUntil !== 'commit' || settled || navFailed || !navStarted) return;
+        if (String(url || '').startsWith('chrome-error:')) return;
+        if (tabId) this.lastNavigationFailures.delete(tabId);
+        finish(true);
+      };
+      const onDomReady = () => {
+        if (waitUntil === 'load' || settled || navFailed || !navStarted) return;
+        if (tabId) this.lastNavigationFailures.delete(tabId);
+        finish(true);
+      };
+
       const onInPage = (_event: unknown, _url: unknown, isMainFrame: boolean) => {
         if (isMainFrame && !settled && !navFailed) {
           if (tabId) {
@@ -10721,6 +10762,10 @@ export class NativeTabHost extends EventEmitter {
       wc.on('did-finish-load', onFinish);
       wc.on('did-fail-load', onFail);
       wc.on('did-navigate-in-page', onInPage);
+      if (waitUntil !== 'load') {
+        wc.on('did-navigate', onCommit);
+        wc.on('dom-ready', onDomReady);
+      }
     });
 
     return { promise, cancel: cancelFn };
@@ -11265,6 +11310,56 @@ export class NativeTabHost extends EventEmitter {
     return state.promise;
   }
 
+  /**
+   * Hide (or restore) the page's scrollbars through the Emulation domain, so a fixed viewport width
+   * is the layout width instead of the width minus a classic scrollbar gutter. Like the other
+   * emulation overrides it needs a committed document: a view with no URL has no renderer to answer.
+   * An explicit request that cannot be delivered is refused rather than reported as applied.
+   */
+  private async applyCdpScrollbarsHidden(wc: Electron.WebContents, hidden: boolean, tabId: string): Promise<void> {
+    const refuse = (cause: string): never => {
+      throw new CapabilityError(
+        'VIEWPORT_NOT_APPLIED',
+        `Cannot ${hidden ? 'hide' : 'restore'} scrollbars on tab '${tabId}': ${cause}`,
+        { tabId, operation: 'setViewport', cause, hideScrollbar: hidden }
+      );
+    };
+    if (!wc || wc.isDestroyed() || !wc.debugger) return refuse('the tab has no live debugger target');
+    let hasDocument = false;
+    try { hasDocument = typeof wc.getURL === 'function' && wc.getURL().length > 0; } catch {}
+    if (!hasDocument) return refuse('the tab has no committed document yet');
+    if (!wc.debugger.isAttached()) {
+      try { wc.debugger.attach('1.3'); } catch {}
+    }
+    if (!wc.debugger.isAttached()) return refuse('the debugger could not attach');
+    try {
+      await this.getDevToolsHost().sendCdpCommand(wc, 'Emulation.setScrollbarsHidden', { hidden });
+      if (hidden) (this.scrollbarsHiddenViews ??= new WeakSet()).add(wc);
+      else this.scrollbarsHiddenViews?.delete(wc);
+    } catch (err) {
+      return refuse(`Emulation.setScrollbarsHidden failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  /**
+   * Undo a scrollbar-hiding override once the viewport emulation it belonged to is gone. A no-op for
+   * a view that never hid its scrollbars; the flag survives a failed restore so a later reset retries.
+   */
+  private async releaseScrollbarsOverride(wc: Electron.WebContents): Promise<void> {
+    if (!wc || !this.scrollbarsHiddenViews?.has(wc)) return;
+    try {
+      if (wc.isDestroyed() || !wc.debugger) return;
+      await this.getDevToolsHost().sendCdpCommand(wc, 'Emulation.setScrollbarsHidden', { hidden: false });
+      this.scrollbarsHiddenViews?.delete(wc);
+    } catch {}
+  }
+
+  /** Whether the tab's page currently has its scrollbars hidden through the viewport override. */
+  public isScrollbarsHidden(tabId?: string): boolean {
+    const wc = this.tabs.get(tabId || this.activeTabId)?.view?.webContents;
+    return Boolean(wc && this.scrollbarsHiddenViews?.has(wc));
+  }
+
   private async applyCdpTouchEmulationState(wc: Electron.WebContents, enableTouch: boolean): Promise<void> {
     try {
       if (!wc.debugger) return;
@@ -11472,6 +11567,9 @@ export class NativeTabHost extends EventEmitter {
           })).then(() => { (this.emulationInputScales ??= new WeakMap()).set(wc, safeScale); }, () => {});
         } else {
           await devTools.sendCdpCommand(wc, 'Emulation.clearDeviceMetricsOverride').then(() => { this.emulationInputScales?.delete(wc); }, () => {});
+          // The scrollbar override is part of the same viewport emulation: clearing the viewport
+          // must not leave the page scrollbar-less.
+          await this.releaseScrollbarsOverride(wc);
           const userAgentMetadata = chromeUserAgentMetadata(this.defaultUserAgent);
           await devTools.sendCdpCommand(wc, 'Emulation.setUserAgentOverride', {
             userAgent: this.defaultUserAgent,
@@ -11530,6 +11628,8 @@ export class NativeTabHost extends EventEmitter {
     const shouldReload = options?.reload ?? categoryChanged;
 
     tab.customViewport = undefined;
+    // A preset replaces the custom viewport the scrollbar override belonged to.
+    if (tab.view?.webContents) void this.releaseScrollbarsOverride(tab.view.webContents);
     tab.state.devicePresetId = effectivePresetId;
     this.updateLayout();
     // Keep the toolbar Device cluster in sync when the preset is applied from
@@ -12126,7 +12226,7 @@ export class NativeTabHost extends EventEmitter {
       this.sessionTabPools.set(sessionId, pool);
     }
     this.pruneDeadTabIds(pool);
-    if (pool.size >= 10 && !pool.has(childTabId)) {
+    if (pool.size >= SESSION_TAB_LIMIT && !pool.has(childTabId)) {
       return false;
     }
     pool.add(childTabId);
@@ -12227,7 +12327,7 @@ export class NativeTabHost extends EventEmitter {
 
     if (entry && entry.managedTabIds) {
       this.pruneDeadTabIds(entry.managedTabIds);
-      if (entry.managedTabIds.size >= 10 && !entry.managedTabIds.has(childTabId)) {
+      if (entry.managedTabIds.size >= SESSION_TAB_LIMIT && !entry.managedTabIds.has(childTabId)) {
         return false;
       }
     }
@@ -15249,6 +15349,7 @@ export class NativeTabHost extends EventEmitter {
     const wc = rcWc;
     const previousPreset = tab.state.devicePresetId;
     const previousCustomViewport = tab.customViewport ? { ...tab.customViewport } : undefined;
+    const previousScrollbarsHidden = Boolean(this.scrollbarsHiddenViews?.has(wc));
     const testBreakpoints = resolveSweepBreakpoints(opts.customBreakpoints, opts.viewports);
 
     const results: Record<string, unknown> = {};
@@ -15450,6 +15551,11 @@ export class NativeTabHost extends EventEmitter {
         // restoration the visible-tab path always used.
         try {
           await this.applyCdpDeviceEmulationState(wc, null);
+          // The clear above also released the scrollbar override; a custom viewport handed back
+          // to the tab keeps the scrollbar state it had before the sweep.
+          if (previousCustomViewport && previousScrollbarsHidden) {
+            await this.applyCdpScrollbarsHidden(wc, true, targetId).catch(() => {});
+          }
           if (previousCustomViewport) {
             tab.customViewport = previousCustomViewport;
             tab.state.devicePresetId = previousPreset || `custom-${previousCustomViewport.width}x${previousCustomViewport.height}`;
@@ -15550,7 +15656,7 @@ export class NativeTabHost extends EventEmitter {
       release();
     }
   }
-  public async setViewportSize(options: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; tabId?: string; reload?: boolean }): Promise<boolean> {
+  public async setViewportSize(options: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; tabId?: string; reload?: boolean; hideScrollbar?: boolean }): Promise<boolean> {
     const targetId = options.tabId || this.activeTabId;
     const tab = this.tabs.get(targetId);
     if (!tab) return false;
@@ -15578,6 +15684,9 @@ export class NativeTabHost extends EventEmitter {
       if (!wc || wc.isDestroyed()) return false;
 
       await this.applyCdpTouchEmulation(wc, mobile);
+      if (options.hideScrollbar !== undefined) {
+        await this.applyCdpScrollbarsHidden(wc, options.hideScrollbar, targetId);
+      }
       // The CDP override (including the fit-preview scale) is applied by
       // `applyTabDeviceEmulation`, which `updateLayout`/`runWithAttachedTabView` just
       // ran for this tab. Re-applying it here without the computed scale would reset
@@ -15707,6 +15816,26 @@ export class NativeTabHost extends EventEmitter {
     const next = (this.mutationRevisions.get(id) || 1) + 1;
     this.mutationRevisions.set(id, next);
     return next;
+  }
+
+  /**
+   * Remember which element the page reported as the first meaningful mutation of a debounce
+   * window. The payload comes from page-world code, so it is clamped to a printable string.
+   */
+  public recordMutationSample(tabId: string, raw: unknown): void {
+    if (typeof raw !== 'string') return;
+    const sample = raw.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, MUTATION_SAMPLE_MAX_CHARS);
+    if (!sample) return;
+    if (!this.mutationSamples) this.mutationSamples = new Map<string, string[]>();
+    const ring = this.mutationSamples.get(tabId) ?? [];
+    ring.push(sample);
+    if (ring.length > MUTATION_SAMPLE_RING_SIZE) ring.splice(0, ring.length - MUTATION_SAMPLE_RING_SIZE);
+    this.mutationSamples.set(tabId, ring);
+  }
+
+  /** The last (up to 8) mutation sources the tab's page reported, oldest first. */
+  public getMutationSamples(tabId?: string): string[] {
+    return [...(this.mutationSamples?.get(tabId || this.activeTabId) ?? [])];
   }
 
   public toggleFullScreen(): void {

@@ -762,7 +762,8 @@ function isAgentCapabilityName(name: string): boolean {
   return name === 'browser.keyboard-press'
     || name === 'antifan_keyboard_press'
     || name.startsWith('browser.agent-')
-    || name.startsWith('antifan_agent_');
+    || name.startsWith('antifan_agent_')
+    || name === 'anti.agent.sequence';
 }
 
 function agentCapabilitySucceeded(name: string, data: unknown): boolean {
@@ -778,5 +779,6 @@ function agentCapabilitySucceeded(name: string, data: unknown): boolean {
   if (name.endsWith('agent-move') || name === 'antifan_agent_move') return result.moved === true;
   if (name.endsWith('agent-trajectory') || name === 'antifan_agent_trajectory') return result.success === true;
   if (name.endsWith('agent-snapshot') || name === 'antifan_agent_snapshot') return typeof result.snapshot === 'string';
+  if (name.endsWith('agent-sequence') || name === 'antifan_agent_sequence' || name === 'anti.agent.sequence') return result.success === true;
   return false;
 }

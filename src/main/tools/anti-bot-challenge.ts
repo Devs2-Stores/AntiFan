@@ -66,3 +66,90 @@ export function assertNotAntiBotChallenge(url: string | undefined | null, extra?
   const challenge = classifyAntiBotUrl(url);
   if (challenge) throw antiBotChallengeError(challenge, extra);
 }
+
+/** How long a latched challenge keeps refusing navigation to its host when nothing proves it was cleared. */
+export const ANTI_BOT_LATCH_TTL_MS = 10 * 60_000;
+
+/** Partition name of a tab that runs without an explicit session partition. */
+export const DEFAULT_ANTI_BOT_PARTITION = 'default';
+
+interface LatchEntry {
+  challenge: AntiBotChallenge;
+  /** Tabs that were sitting on the challenge page; one of them leaving it for an ordinary page on the host clears the latch. */
+  tabIds: Set<string>;
+  expiresAt: number;
+}
+
+export interface AntiBotLatchHit {
+  challenge: AntiBotChallenge;
+  retryAfterMs: number;
+  tabIds: string[];
+}
+
+function hostOf(url: string | undefined | null): string | undefined {
+  if (typeof url !== 'string' || !url.trim()) return undefined;
+  try {
+    const parsed = new URL(url.trim());
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? parsed.host : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** True when `url` is an ordinary (non-challenge) http(s) page on `host`. */
+export function isOrdinaryPageOnHost(url: string | undefined | null, host: string): boolean {
+  return hostOf(url)?.toLowerCase() === host.toLowerCase() && !classifyAntiBotUrl(url);
+}
+
+/**
+ * A site that answered with a verification page has decided the visitor is automated: another
+ * navigation to that host from the same browser identity (session partition) only feeds the
+ * detector. The latch remembers the refusal per `(partition, host)` so the next navigate or
+ * tab open fails fast without touching the network; another partition is a different visitor
+ * and is unaffected. In memory only: it ends with the app, after {@link ANTI_BOT_LATCH_TTL_MS},
+ * or as soon as the caller finds the host loaded normally again (the user solved it by hand).
+ */
+export class AntiBotLatch {
+  private readonly entries = new Map<string, LatchEntry>();
+
+  constructor(private readonly now: () => number = Date.now, private readonly ttlMs: number = ANTI_BOT_LATCH_TTL_MS) {}
+
+  private static key(partition: string, host: string): string {
+    return `${partition || DEFAULT_ANTI_BOT_PARTITION}\u0000${host.toLowerCase()}`;
+  }
+
+  /** Records that `tabId` (in `partition`) was served `challenge`. */
+  set(partition: string, challenge: AntiBotChallenge, tabId?: string): void {
+    const key = AntiBotLatch.key(partition, challenge.host);
+    const expiresAt = this.now() + this.ttlMs;
+    const entry = this.entries.get(key);
+    if (entry) {
+      entry.challenge = challenge;
+      entry.expiresAt = expiresAt;
+      if (tabId) entry.tabIds.add(tabId);
+      return;
+    }
+    this.entries.set(key, { challenge, tabIds: new Set(tabId ? [tabId] : []), expiresAt });
+  }
+
+  /** The live latch for `url`'s host in `partition`, or undefined (an expired entry is dropped). */
+  check(partition: string, url: string | undefined | null): AntiBotLatchHit | undefined {
+    const host = hostOf(url);
+    if (!host) return undefined;
+    const key = AntiBotLatch.key(partition, host);
+    const entry = this.entries.get(key);
+    if (!entry) return undefined;
+    const remaining = entry.expiresAt - this.now();
+    if (remaining <= 0) {
+      this.entries.delete(key);
+      return undefined;
+    }
+    return { challenge: entry.challenge, retryAfterMs: remaining, tabIds: [...entry.tabIds] };
+  }
+
+  /** Drops the latch for `url`'s host in `partition`; true when one was held. */
+  clear(partition: string, url: string | undefined | null): boolean {
+    const host = hostOf(url);
+    return host ? this.entries.delete(AntiBotLatch.key(partition, host)) : false;
+  }
+}

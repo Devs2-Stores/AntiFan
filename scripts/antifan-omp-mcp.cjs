@@ -29,7 +29,7 @@ const QA_VALIDATE_PROPERTIES = {
   ignoreSelectors: { type: 'array', items: { type: 'string' }, description: 'Selectors whose subtree mutations are excluded from the DOM-quiet settle predicate (for example a live countdown). Echoed on the receipt' },
   settle: { type: 'object', description: 'Per-call settle barrier overrides', properties: { scopeSelector: { type: 'string' }, ignoreSelectors: { type: 'array', items: { type: 'string' } }, networkTimeoutMs: { type: 'number' }, fontsTimeoutMs: { type: 'number' }, imagesTimeoutMs: { type: 'number' }, domTimeoutMs: { type: 'number' }, totalTimeoutMs: { type: 'number' } } },
   expectedStatus: { type: 'number', description: 'HTTP status the contract screen declares for this route (for example 404 on a not-found screen). A document returning exactly that status is not reported as ROUTE_404; echoed on the receipt' },
-  viewports: { type: 'object', description: 'Baseline comparison results per viewport ({desktop|tablet|mobile: {mismatchPercent, passed}}). All three are required for summary.certification CERTIFIED; without them the pass is STRUCTURAL', properties: { desktop: { type: 'object', properties: { mismatchPercent: { type: 'number' }, passed: { type: 'boolean' } } }, tablet: { type: 'object', properties: { mismatchPercent: { type: 'number' }, passed: { type: 'boolean' } } }, mobile: { type: 'object', properties: { mismatchPercent: { type: 'number' }, passed: { type: 'boolean' } } } } },
+  baselineViewports: { type: 'object', description: 'Baseline comparison results per viewport ({desktop|tablet|mobile: {mismatchPercent, passed}}). All three are required for summary.certification CERTIFIED; without them the pass is STRUCTURAL', properties: { desktop: { type: 'object', properties: { mismatchPercent: { type: 'number' }, passed: { type: 'boolean' } } }, tablet: { type: 'object', properties: { mismatchPercent: { type: 'number' }, passed: { type: 'boolean' } } }, mobile: { type: 'object', properties: { mismatchPercent: { type: 'number' }, passed: { type: 'boolean' } } } } },
   allowNonTheme: { type: 'boolean', description: 'Accept a workspaceRoot without theme markers (layout/theme.liquid, config/settings_schema.json, config/settings.html) for a plain-folder run; otherwise such a root is refused with WORKSPACE_NOT_THEME and no receipt is written' },
   greenfield: { type: 'object', description: 'Declare that no visual baseline exists yet for this storefront (a new build). The run records the reason and the observed baseline state on the receipt; it is refused when baselines already exist for the route', properties: { reason: { type: 'string', description: 'Why the run has no baseline to compare against' } }, required: ['reason'] },
 };
@@ -59,21 +59,21 @@ function argumentForms(forms) {
 }
 
 const definitions = [
-  ['anti.browser.tabs.list', 'List tabs affiliated with the authenticated session project by default. Pass all: true for global GUI discovery; affiliated marks same-project entries, not a grant of action authority.', { all: { type: 'boolean', default: false, description: 'Opt in to global GUI discovery.' }, affiliatedOnly: { type: 'boolean', description: 'Restrict discovery to the authenticated project/workspace.' }, projectId: { type: 'string', description: 'Project selector; must match the authenticated session project.' } }],
+  ['anti.browser.tabs.list', 'List tabs affiliated with the authenticated session project by default. Pass all: true for global GUI discovery; affiliated marks same-project entries, not a grant of action authority.', { all: { type: 'boolean', default: false, description: 'Opt in to global GUI discovery.' }, affiliatedOnly: { type: 'boolean', description: 'Restrict discovery to the authenticated project/workspace.' }, projectId: { type: 'string', description: 'Project selector; must match the authenticated session project.' }, fields: { type: 'array', items: { type: 'string' }, description: 'Return only these keys on each tab row' }, limit: { type: 'number', description: 'Return at most this many tab rows' }, urlContains: { type: 'string', description: 'Return only tabs whose URL contains this text' } }],
   ['anti.browser.tabs.get', 'Read a single tab row in the authenticated session project scope by tabId (same row shape as tabs.list; refused for out-of-scope tabs). Omit tabId to read the bound tab.', { tabId: { type: 'string' }, projectId: { type: 'string', description: 'Project selector; must match the authenticated session project.' } }, [], [], 'tabId'],
-  ['anti.browser.tabs.create', 'Open a tab in the authenticated anchor project/window without stealing focus by default.', { url: { type: 'string' }, activate: { type: 'boolean' }, anchorTabId: { type: 'string', description: 'Live same-project tab selecting the window for creation; obtain it with tabs.list.' }, ephemeral: { type: 'boolean' }, devicePresetId: { type: 'string', description: 'Device preset ID (e.g. iphone-15, xiaomi-14)' }, mobile: { type: 'boolean', description: 'Open directly in mobile mode with mobile User-Agent and viewport' }, projectId: { type: 'string', description: 'Project selector; must match authenticated anchor scope and cannot grant foreign authority.' } }],
+  ['anti.browser.tabs.create', 'Open a tab in the authenticated anchor project/window without stealing focus by default.', { url: { type: 'string' }, activate: { type: 'boolean' }, anchorTabId: { type: 'string', description: 'Live same-project tab selecting the window for creation; obtain it with tabs.list.' }, ephemeral: { type: 'boolean' }, devicePresetId: { type: 'string', description: 'Device preset ID (e.g. iphone-15, xiaomi-14)' }, mobile: { type: 'boolean', description: 'Open directly in mobile mode with mobile User-Agent and viewport' }, projectId: { type: 'string', description: 'Project selector; must match authenticated anchor scope and cannot grant foreign authority.' }, bind: { type: 'boolean', description: 'true (default) makes the new tab this session\'s bound target; false opens it without changing the target of later calls that omit tabId' } }],
   ['anti.browser.tabs.activate', 'Switch the active tab visible to the user in live AntiFan Desktop Browser GUI by tabId.', { tabId: { type: 'string' } }, ['tabId']],
   ['anti.browser.tabs.close', 'Close a tab in live AntiFan Desktop Browser GUI by tabId.', { tabId: { type: 'string' } }, ['tabId']],
   ['anti.browser.rebind_target', 'Rebind this session attachment to a live tabId after the bound tab detached or died. Use tabs.list to find a live tab, then rebind; subsequent calls target that tab.', { tabId: { type: 'string' } }, ['tabId']],
   ['anti.browser.set_automation_target', 'Set the primary automation target tab for this session (authority rotation via CAS).', { tabId: { type: 'string' } }, ['tabId']],
-  ['anti.browser.navigate', 'Navigate active or background tab in live AntiFan Desktop Browser GUI.', { url: { type: 'string' }, tabId: { type: 'string' }, timeoutMs: { type: 'number', description: 'Navigation budget in milliseconds (default 20000, capped at 60000)' } }, ['url'], [], 'tabId'],
+  ['anti.browser.navigate', 'Navigate active or background tab in live AntiFan Desktop Browser GUI.', { url: { type: 'string' }, tabId: { type: 'string' }, timeoutMs: { type: 'number', description: 'Navigation budget in milliseconds (default 20000, capped at 60000)' }, waitUntil: { type: 'string', enum: ['commit', 'domcontentloaded', 'load'], description: 'When navigate returns: commit (the response committed), domcontentloaded, or load (default). Use commit or domcontentloaded for a page whose load event never fires; the result carries loadState and committedUrl' } }, ['url'], [], 'tabId'],
   ['anti.browser.reload', 'Reload active or background tab in live AntiFan Desktop Browser GUI.', { tabId: { type: 'string' } }, [], [], 'tabId'],
   ['anti.inspect.dom', 'Read DOM elements and computed attributes from AntiFan Desktop tab (supports desktop and mobile split panes). Operates directly against background tab.', { selector: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], [], 'tabId'],
   ['anti.inspect.console', 'Get tab console messages and failed requests from the bound or specified tab.', { tabId: { type: 'string' }, level: { type: 'number' } }, [], [], 'tabId'],
-  ['anti.screenshot.viewport', 'Capture high-fidelity viewport screenshot from live AntiFan Desktop GUI (supports desktop and mobile split panes, format: jpeg/png). Viewport-only: full_page:true is rejected; use anti.screenshot.full_page for entire document height.', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, format: { type: 'string', enum: ['jpeg', 'png'] }, quality: { type: 'number' }, inline: { type: 'boolean', description: 'When false, returns only artifact metadata and file path without base64 image data' } }, [], [], 'tabId'],
-  ['anti.screenshot.full_page', 'Capture full-page evidence (entire document scroll height) and stage it under the evidence lease. png (default) is validated as PNG bytes; jpeg stages a smaller file for very tall pages. A page taller than the single-capture limit is captured in tiles and stitched. materializeDataSrc:true swaps lazy data-src/data-srcset into live sources first (for loaders that only swap on user interaction; otherwise such images fail imagesSettled with CAPTURE_NOT_READY).', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, format: { type: 'string', enum: ['png', 'jpeg'] }, quality: { type: 'number', description: 'JPEG quality 1-100 (default 85); ignored for png' }, leaseToken: { type: 'string' }, expectedUrl: { type: 'string' }, materializeDataSrc: { type: 'boolean' }, inline: { type: 'boolean', description: 'When false, returns only artifact metadata and file path without base64 image data' } }, [], [], 'tabId'],
+  ['anti.screenshot.viewport', 'Capture high-fidelity viewport screenshot from live AntiFan Desktop GUI (supports desktop and mobile split panes, format: jpeg/png). Viewport-only: full_page:true is rejected; use anti.screenshot.full_page for entire document height.', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, format: { type: 'string', enum: ['jpeg', 'png'] }, quality: { type: 'number' }, inline: { type: 'boolean', description: 'When false, returns only artifact metadata and file path without base64 image data' }, saveTo: { type: 'string', description: 'Also write the capture to this file path inside the workspace root (parent folders are created); a path outside the root is refused. The result adds savedTo' } }, [], [], 'tabId'],
+  ['anti.screenshot.full_page', 'Capture full-page evidence (entire document scroll height) and stage it under the evidence lease. png (default) is validated as PNG bytes; jpeg stages a smaller file for very tall pages. A page taller than the single-capture limit is captured in tiles and stitched. materializeDataSrc:true swaps lazy data-src/data-srcset into live sources first (for loaders that only swap on user interaction; otherwise such images fail imagesSettled with CAPTURE_NOT_READY).', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, format: { type: 'string', enum: ['png', 'jpeg'] }, quality: { type: 'number', description: 'JPEG quality 1-100 (default 85); ignored for png' }, leaseToken: { type: 'string' }, expectedUrl: { type: 'string' }, materializeDataSrc: { type: 'boolean' }, inline: { type: 'boolean', description: 'When false, returns only artifact metadata and file path without base64 image data' }, saveTo: { type: 'string', description: 'Also write the capture to this file path inside the workspace root (parent folders are created); a path outside the root is refused. The result adds savedTo' } }, [], [], 'tabId'],
   ['anti.reference.capture', 'Capture a reference from a live page: materialize lazily-mounted content, settle, then stage the settled DOM (and optionally a screenshot) so later measurements describe the page a comparator actually rasterizes.', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, selector: { type: 'string' }, screenshot: { type: 'boolean' }, format: { type: 'string', enum: ['png', 'jpeg'] }, quality: { type: 'number' }, materializeDataSrc: { type: 'boolean', description: 'Also materialize images that carry only lazy data-src/data-srcset attributes (default false: counted as unmaterialized)' } }, [], [], 'tabId'],
-  ['anti.browser.set_viewport', 'Set the bound tab viewport dimensions and device emulation, verified against the size the tab actually measures.', { width: { type: 'number' }, height: { type: 'number' }, mobile: { type: 'boolean' }, deviceScaleFactor: { type: 'number' }, tabId: { type: 'string' }, reload: { type: 'boolean' } }, ['width', 'height'], [], 'tabId'],
+  ['anti.browser.set_viewport', 'Set the bound tab viewport dimensions and device emulation, verified against the size the tab actually measures.', { width: { type: 'number' }, height: { type: 'number' }, mobile: { type: 'boolean' }, deviceScaleFactor: { type: 'number' }, tabId: { type: 'string' }, reload: { type: 'boolean' }, hideScrollbar: { type: 'boolean', description: 'Hide the page scrollbars while the viewport override is applied, so the measured clientWidth equals the requested width (the result reports clientWidth)' } }, ['width', 'height'], [], 'tabId'],
   ['anti.browser.get_viewport', 'Get the bound tab viewport dimensions, DPR, device preset, and layout surface state without applying overrides.', { tabId: { type: 'string' } }, [], [], 'tabId'],
   ['anti.agent.cursor.click', 'Move visual Agent Cursor and click an element in live AntiFan Desktop tab without stealing visual focus.', { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, force: { type: 'boolean', description: 'Skip the occlusion and animation-stability gates for a knowingly covered or endlessly animating target' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], [], 'tabId'],
   ['anti.agent.cursor.move', 'Move visible Agent Cursor without clicking in live AntiFan Desktop tab.', { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, force: { type: 'boolean', description: 'Skip the occlusion and animation-stability gates for a knowingly covered or endlessly animating target' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], [], 'tabId'],
@@ -108,7 +108,7 @@ const definitions = [
   ['theme.cockpit_mark_page', 'Mark every checklist item on one page done or undone on the bound tab scope; unknown pages are refused.', { page: { type: 'string', description: 'A PAGE_DEFS key (home, collection, product, cart, blog, account, pages, qa-gate) or a page already present in the loaded scope' }, done: { type: 'boolean' }, scope: { type: 'string', description: 'Checklist scope assertion; must re-derive equal to the bound tab scope or the call is refused' }, tabId: { type: 'string' } }, ['page', 'done'], [], 'tabId'],
   ['theme.cockpit_add_item', 'Append one checklist item to the bound tab scope; a caller-supplied itemId makes a retried add a no-op.', { itemId: { type: 'string', description: 'Caller-chosen item id; re-adding the same id is a replay no-op' }, code: { type: 'string' }, name: { type: 'string' }, desc: { type: 'string' }, qaPoint: { type: 'string' }, page: { type: 'string', description: "Page key (default 'home'); must match the checklist page pattern" }, pathHint: { type: 'string', description: "Storefront route hint; defaults to the page's declared path" }, scope: { type: 'string', description: 'Checklist scope assertion; must re-derive equal to the bound tab scope or the call is refused' }, tabId: { type: 'string' } }, ['name'], [], 'tabId'],
   ['theme.cockpit_remove_item', 'Remove one checklist item from the bound tab scope; removing an absent id is a no-op.', { itemId: { type: 'string' }, scope: { type: 'string', description: 'Checklist scope assertion; must re-derive equal to the bound tab scope or the call is refused' }, tabId: { type: 'string' } }, ['itemId'], [], 'tabId'],
-  ['theme.cockpit_scan', 'Navigate the bound tab to a checklist page route, run the authoritative Theme QA scan on it, then run the page probes for that route (home: page_structure + menu_depth; product: variant_image_probe + pdp_contract; collection: menu_depth) and tick the checklist items those measurements decide; items the user changed during the scan are left alone.', { page: { type: 'string', description: 'PAGE_DEFS page key; when omitted the tab is scanned on its current URL' }, url: { type: 'string', description: 'Optional explicit same-origin URL or /products/<handle> path to scan' }, workspaceRoot: { type: 'string', description: 'Workspace root assertion; a root outside the bound tab workspace is refused with WORKSPACE_MISMATCH and a root without theme markers with WORKSPACE_NOT_THEME' }, allowNonTheme: { type: 'boolean', description: 'Accept a workspace root without theme markers' }, tabId: { type: 'string' }, profile: QA_VALIDATE_PROPERTIES.profile, thresholds: QA_VALIDATE_PROPERTIES.thresholds, viewports: QA_VALIDATE_PROPERTIES.viewports, multiBreakpoint: QA_VALIDATE_PROPERTIES.multiBreakpoint, waivers: QA_VALIDATE_PROPERTIES.waivers, pick: { type: 'string', enum: ['max-variants', 'long-title', 'sold-out', 'no-image'], description: 'With page=product and no url: crawl /collections/all and scan the product that best matches this strategy instead of the first product link' } }, [], [], 'tabId'],
+  ['theme.cockpit_scan', 'Navigate the bound tab to a checklist page route, run the authoritative Theme QA scan on it, then run the page probes for that route (home: page_structure + menu_depth; product: variant_image_probe + pdp_contract; collection: menu_depth) and tick the checklist items those measurements decide; items the user changed during the scan are left alone.', { page: { type: 'string', description: 'PAGE_DEFS page key; when omitted the tab is scanned on its current URL' }, url: { type: 'string', description: 'Optional explicit same-origin URL or /products/<handle> path to scan' }, workspaceRoot: { type: 'string', description: 'Workspace root assertion; a root outside the bound tab workspace is refused with WORKSPACE_MISMATCH and a root without theme markers with WORKSPACE_NOT_THEME' }, allowNonTheme: { type: 'boolean', description: 'Accept a workspace root without theme markers' }, tabId: { type: 'string' }, profile: QA_VALIDATE_PROPERTIES.profile, thresholds: QA_VALIDATE_PROPERTIES.thresholds, baselineViewports: QA_VALIDATE_PROPERTIES.baselineViewports, multiBreakpoint: QA_VALIDATE_PROPERTIES.multiBreakpoint, waivers: QA_VALIDATE_PROPERTIES.waivers, pick: { type: 'string', enum: ['max-variants', 'long-title', 'sold-out', 'no-image'], description: 'With page=product and no url: crawl /collections/all and scan the product that best matches this strategy instead of the first product link' } }, [], [], 'tabId'],
   ['theme.cockpit_findings', 'Read the latest Theme QA state row (status, issueCount, report) for the bound tab.', { tabId: { type: 'string' } }, [], [], 'tabId'],
   ['theme.cockpit_report', 'Render the markdown progress report for the bound tab checklist scope (identical to the toolbar export).', { scope: { type: 'string', description: 'Checklist scope assertion; must re-derive equal to the bound tab scope or the call is refused' }, tabId: { type: 'string' } }, [], [], 'tabId'],
   ['anti.theme.style_override', 'In-memory ephemeral CSS stylesheet override for safe theme testing without writing files to disk (bypasses CLI watchers). Example: {"operation": "apply", "id": "fix-nav", "css": "header { position: sticky; }"} then { "operation": "clear", "id": "fix-nav" }. "remove" and "revert" are accepted as synonyms of "clear". id is required for apply; clear without id removes every AntiFan override on the tab.', { operation: { type: 'string', enum: ['apply', 'clear', 'remove', 'revert'] }, id: { type: 'string' }, css: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, ['operation'], [], 'tabId'],
@@ -117,7 +117,7 @@ const definitions = [
   ['anti.agent.drop', 'Dispatch native drag and drop file transfer onto a target drop zone element in live AntiFan Desktop tab.', { refOrSelector: { type: 'string' }, filePaths: { type: 'array', items: { type: 'string' } }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, ['refOrSelector', 'filePaths'], [], 'tabId'],
   ['anti.agent.drag', 'Drag a control (price slider, range handle, drag-to-reorder row) from one element/coordinate to another with a bounded interpolated pointer gesture. A press-and-release at the destination alone does not move a slider library.', { fromRef: { type: 'string', description: 'Origin semantic ref (@e1) from a snapshot' }, fromSelector: { type: 'string', description: 'Origin CSS selector' }, fromX: { type: 'number' }, fromY: { type: 'number' }, toRef: { type: 'string', description: 'Destination semantic ref (@e1)' }, toSelector: { type: 'string', description: 'Destination CSS selector' }, toX: { type: 'number' }, toY: { type: 'number' }, steps: { type: 'number', description: 'Interpolated pointer-move steps, clamped to 4..20 (default 10)' }, force: { type: 'boolean', description: 'Skip the occlusion and animation-stability gates for a knowingly covered target' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], [], 'tabId'],
   ['anti.inspect.snapshot', 'Capture an accessible semantic snapshot of elements indexed with monotonic @e1..@eN references (supports selector and viewportOnly filtering).', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, selector: { type: 'string' }, viewportOnly: { type: 'boolean' } }, [], [], 'tabId'],
-  ['anti.browser.evaluate', 'Execute JavaScript expression in page context with depth-capped circular protection. Refuses a tab with no laid-out surface (0x0 CSS px) unless allowDegradedSurface is set. Note: expressions running >25s return PENDING_CLEANUP; split into smaller operations or poll again.', { expression: { type: 'string' }, expressionFile: { type: 'string', description: 'Workspace-relative path to a file containing the JavaScript expression; mutually exclusive with expression' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, allowDegradedSurface: { type: 'boolean', description: 'Run even when the tab reports a 0x0 surface (diagnostic escape hatch; the page is not laid out and most measurements will be meaningless)' }, timeoutMs: { type: 'number', description: 'In-page execution budget in milliseconds (default 15000; capped by the capability invocation budget)' } }, [], [{ required: ['expression'] }, { required: ['expressionFile'] }], 'tabId'],
+  ['anti.browser.evaluate', 'Execute JavaScript expression in page context with depth-capped circular protection. Refuses a tab with no laid-out surface (0x0 CSS px) unless allowDegradedSurface is set. Note: the invocation deadline is 30 s (in-page cap 29 s; default 15 s via timeoutMs); an expression still running at the deadline returns PENDING_CLEANUP; split into smaller operations or poll again.', { expression: { type: 'string' }, expressionFile: { type: 'string', description: 'Workspace-relative path to a file containing the JavaScript expression; mutually exclusive with expression' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, allowDegradedSurface: { type: 'boolean', description: 'Run even when the tab reports a 0x0 surface (diagnostic escape hatch; the page is not laid out and most measurements will be meaningless)' }, timeoutMs: { type: 'number', description: 'In-page execution budget in milliseconds (default 15000; capped by the capability invocation budget)' } }, [], [{ required: ['expression'] }, { required: ['expressionFile'] }], 'tabId'],
   ['anti.browser.evaluate_frame', 'Execute JavaScript inside a child frame selected by exactly one of frameUrl (URL substring), frameId, frameIndex (0-based among child frames) or frameSelector (CSS selector of the <iframe> element).', { expression: { type: 'string' }, expressionFile: { type: 'string', description: 'Workspace-relative path to a file containing the JavaScript expression; mutually exclusive with expression' }, frameUrl: { type: 'string', minLength: 1 }, frameId: { type: 'number' }, frameIndex: { type: 'number' }, frameSelector: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], [{ required: ['expression'] }, { required: ['expressionFile'] }], 'tabId'],
   ['anti.telemetry.record_fallback', 'Record sanitized fallback telemetry when invoking Playwright after an AntiFan capability failure.', { primaryTool: { type: 'string' }, fallbackTool: { type: 'string' }, fallbackResult: { type: 'string', enum: ['SUCCESS', 'FAILED', 'SKIPPED'] }, sessionId: { type: 'string' }, targetUrl: { type: 'string' }, errorCode: { type: 'string' }, errorMessage: { type: 'string' }, durationMs: { type: 'number' }, notes: { type: 'string' } }, ['primaryTool', 'fallbackTool', 'fallbackResult']],
   ['anti.inspect.styles', 'Inspect computed CSS styles, box model, typography, layout, and CSS variables for an element (supports @ref or CSS selector).', { selector: { type: 'string' }, ref: { type: 'string' }, properties: { type: 'array', items: { type: 'string' } }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], [], 'tabId'],
@@ -128,7 +128,7 @@ const definitions = [
   ['anti.visual.promote_baseline', 'Alias for browser.promote-baseline: canonically capture and promote the current tab to an authoritative visual baseline reference.', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, fullPage: { type: 'boolean', description: 'Capture the entire document as the promoted baseline.' }, clipRect: { type: 'object', properties: { x: { type: 'number' }, y: { type: 'number' }, width: { type: 'number' }, height: { type: 'number' } } }, materializeDataSrc: { type: 'boolean', description: 'Swap data-src/data-srcset into live sources before capture (opt-in; mutates the page)' } }, [], [], 'tabId'],
   ['anti.media.freeze', 'Freeze or unfreeze dynamic media (videos, audios, CSS animations) in tab to enable deterministic visual comparisons. Native requestAnimationFrame scheduling is left untouched, so RAF-driven motion requires the settle barrier instead.', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, freeze: { type: 'boolean', description: 'True to freeze media and pause animations; false to resume' } }, [], [], 'tabId'],
   ['anti.layout.compare_candidates', 'Compare 1-5 CSS candidates for one section beside the current design at up to 3 widths in one call (sequential, same tab, same data). Returns per-width section captures, one contact sheet per width (columns left-to-right: baseline then candidates in order, colour bar per column), breaks that disqualify (page overflow, section spill, clipped or overlapping text), penalties (contrast, tap targets, type-scale sprawl, misaligned edges, off-grid gaps), ranking and recommendation. Judge taste from the contact sheets; nothing is written to theme files.', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, scopeSelector: { type: 'string' }, candidates: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' }, label: { type: 'string' }, css: { type: 'string' } }, required: ['id', 'css'] } }, breakpoints: { type: 'array', items: { type: 'number' } }, settleMs: { type: 'number' }, includeBaseline: { type: 'boolean' } }, ['scopeSelector', 'candidates'], [], 'tabId'],
-  ['anti.qa.state_matrix', 'Drive overlays (cart/menu/filter drawers, modals, quickview, dropdowns, mega menus) through OPEN -> MEASURE -> CLOSE with trusted input and report per-overlay failures: OVERLAY_NOT_OPENED, OVERLAY_TOO_SMALL, OVERLAY_OFFSCREEN, OVERLAY_CLIPPED, OVERLAY_TRANSPARENT, OVERLAY_OCCLUDED, CONTENT_OVERFLOWS_PANEL, CLOSE_ESCAPE_FAILED, CLOSE_CONTROL_MISSING, CLOSE_BUTTON_FAILED, BODY_NOT_RESTORED (critical for drawers/modals) and SCROLL_NOT_LOCKED, FOCUS_NOT_MOVED, FOCUS_NOT_RETURNED, CLOSE_BACKDROP_FAILED (warnings), plus contrast/tap findings inside each open panel. Safe mode always on (no navigation, no submits, never add-to-cart/checkout). Omit triggers to auto-discover; autoPopulate:\'pdp\' also opens size-guide / quick-view / share / review openers.', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, triggers: { type: 'array', items: { type: 'object', properties: { selector: { type: 'string' }, panelSelector: { type: 'string' }, closeSelector: { type: 'string' }, kind: { type: 'string', enum: ['drawer', 'modal', 'dropdown', 'megamenu'] } }, required: ['selector'] } }, maxTriggers: { type: 'number' }, settleMs: { type: 'number' }, closeMethods: { type: 'array', items: { type: 'string', enum: ['escape', 'close-button', 'backdrop'] } }, gradeVisualQuality: { type: 'boolean' }, autoPopulate: { type: 'string', enum: ['pdp'], description: 'pdp: also open size-guide / quick-view / share / review openers when auto-discovering' } }, [], [], 'tabId'],
+  ['anti.qa.state_matrix', 'Drive overlays (cart/menu/filter drawers, modals, quickview, dropdowns, mega menus) through OPEN -> MEASURE -> CLOSE with trusted input and report per-overlay failures: OVERLAY_NOT_OPENED, OVERLAY_TOO_SMALL, OVERLAY_OFFSCREEN, OVERLAY_CLIPPED, OVERLAY_TRANSPARENT, OVERLAY_OCCLUDED, CONTENT_OVERFLOWS_PANEL, CLOSE_ESCAPE_FAILED (Escape was delivered and the overlay stayed open), CLOSE_ESCAPE_UNMEASURED (the Escape probe could not be read or the page had no focus: not a failure), CLOSE_CONTROL_MISSING, CLOSE_BUTTON_FAILED, BODY_NOT_RESTORED (critical for drawers/modals) and SCROLL_NOT_LOCKED, FOCUS_NOT_MOVED, FOCUS_NOT_RETURNED, CLOSE_BACKDROP_FAILED (warnings), CLOSE_ESCAPE_FLAKY (warning: the overlay closed only on a repeated Escape), plus contrast/tap findings inside each open panel. Safe mode always on (no navigation, no submits, never add-to-cart/checkout). Omit triggers to auto-discover; autoPopulate:\'pdp\' also opens size-guide / quick-view / share / review openers.', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, triggers: { type: 'array', items: { type: 'object', properties: { selector: { type: 'string' }, panelSelector: { type: 'string' }, closeSelector: { type: 'string' }, kind: { type: 'string', enum: ['drawer', 'modal', 'dropdown', 'megamenu'] } }, required: ['selector'] } }, maxTriggers: { type: 'number' }, settleMs: { type: 'number' }, closeMethods: { type: 'array', items: { type: 'string', enum: ['escape', 'close-button', 'backdrop'] } }, gradeVisualQuality: { type: 'boolean' }, autoPopulate: { type: 'string', enum: ['pdp'], description: 'pdp: also open size-guide / quick-view / share / review openers when auto-discovering' } }, [], [], 'tabId'],
   ['anti.qa.visual_quality', 'Measure WCAG AA text contrast (text over images/gradients is indeterminate, never a violation), mobile tap targets (<24px WCAG 2.2 minimum, pseudo-element hit area included; inline links exempt) and floating widgets or transparent fixed layers covering text/controls at page top and page end. Use scopeSelector to grade an open drawer or modal. Findings are warnings; theme.qa_validate profile build-strict turns the serious ones into failures.', { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, mobile: { type: 'boolean' }, skipPageEnd: { type: 'boolean', description: 'Check floating widgets only at the current scroll position, so the scan never scrolls' }, scopeSelector: { type: 'string' }, allowDegradedSurface: { type: 'boolean', description: 'Run even when the tab reports a 0x0 surface (diagnostic escape hatch)' } }, [], [], 'tabId'],
   ['anti.qa.variant_image_probe', 'On a product page click each option value (never add-to-cart or checkout) and compare the gallery image after the click with the variant featured_image from /products/<handle>.js. Findings: swatch-no-image-switch and variant-missing-featured-image (critical), option-values-excess (info). Clicks real controls, so the page state changes.', { ...PROBE_TAB_PROPERTIES, maxValues: { type: 'number', description: 'Option values to click (default 12, max 40)' }, productHandle: { type: 'string', description: 'Product handle when it cannot be read from the page URL' } }, [], [], 'tabId'],
   ['anti.qa.pdp_contract', 'Check that a product page carries its contract elements: size-guide opener (when a size option exists), variant selector, quantity, add-to-cart, buy-now, price, compare-at, SKU, availability, breadcrumb and related products. Reports measured:false on a non-product route.', { ...PROBE_TAB_PROPERTIES }, [], [], 'tabId'],
@@ -142,7 +142,7 @@ const definitions = [
   ['anti.agent.sequence', 'Execute an atomic multi-step action sequence (navigate, click, type, scroll, hover, pressKey, wait, screenshot, snapshot) in 1 roundtrip with auto-wait and navigation guards. Supply the steps as `actions` or as its alias `steps`, never both. Pause with { "type": "wait", "waitMs": 600 } (1-10000 ms); press keys with { "type": "pressKey", "key": "Escape" }.', { actions: SEQUENCE_STEPS_PROPERTY, steps: { ...SEQUENCE_STEPS_PROPERTY, description: 'Alias of actions; mutually exclusive with it' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, stopOnError: { type: 'boolean' } }, [], [{ required: ['actions'] }, { required: ['steps'] }], 'tabId'],
   ['anti.artifact.read', 'Read an authorized artifact by ID with bounded chunk size (clamped to max 32KB per frame).', { artifactId: { type: 'string' }, offset: { type: 'number' }, limit: { type: 'number' } }, ['artifactId']],
   ['anti.artifact.stat', 'Retrieve metadata and size information for an authorized artifact.', { artifactId: { type: 'string' } }, ['artifactId']],
-  ['browser.set-viewport', 'Set the bound Chromium tab viewport dimensions and device emulation.', { width: { type: 'number' }, height: { type: 'number' }, mobile: { type: 'boolean' }, deviceScaleFactor: { type: 'number' }, tabId: { type: 'string' }, reload: { type: 'boolean' } }, ['width', 'height'], [], 'tabId'],
+  ['browser.set-viewport', 'Set the bound Chromium tab viewport dimensions and device emulation.', { width: { type: 'number' }, height: { type: 'number' }, mobile: { type: 'boolean' }, deviceScaleFactor: { type: 'number' }, tabId: { type: 'string' }, reload: { type: 'boolean' }, hideScrollbar: { type: 'boolean', description: 'Hide the page scrollbars while the viewport override is applied, so the measured clientWidth equals the requested width (the result reports clientWidth)' } }, ['width', 'height'], [], 'tabId'],
   ['browser.get-viewport', 'Get the bound Chromium tab viewport dimensions, DPR, device preset, and layout surface state without applying overrides.', { tabId: { type: 'string' } }, [], [], 'tabId'],
   ['browser.wait', 'Deterministic wait for selector, url, navigation, dom-stable, network, actionability, generation, images-settled, timeout, or legacy condition states', { condition: { type: 'string', enum: ['selector', 'url', 'navigation', 'dom-stable', 'network', 'actionability', 'generation', 'ref', 'document_loaded', 'url_match', 'network_idle', 'dom_stable', 'images-settled', 'timeout'], description: 'Wait condition to evaluate: selector | url | navigation | dom-stable | network | actionability | generation | images-settled | timeout (or legacy aliases)' }, type: { type: 'string', enum: ['selector', 'url', 'navigation', 'dom-stable', 'network', 'actionability', 'generation', 'ref', 'document_loaded', 'url_match', 'network_idle', 'dom_stable', 'images-settled', 'timeout'], description: 'Alias for condition' }, selector: { type: 'string', description: 'CSS selector to wait for' }, ref: { type: 'string', description: 'Semantic reference token (@e1) to wait for' }, urlPattern: { type: 'string', description: 'URL pattern or substring to match' }, url: { type: 'string', description: 'Alias for urlPattern' }, minGeneration: { type: 'number', description: 'Minimum document generation to wait for (generation or navigation condition)' }, state: { type: 'string', enum: ['attached', 'visible', 'actionable', 'detached', 'hidden'] }, timeoutMs: { type: 'number', description: 'Timeout in milliseconds (5000 default, 30000 max — the capability invocation budget; larger values are refused)' }, idleWindowMs: { type: 'number', description: 'Debounce idle window in milliseconds (500 default)' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], { anyOf: [{ required: ['condition'] }, { required: ['type'] }] }, 'tabId'],
   ['file.read', 'Read a file relative to the authoritative workspace root.', { path: { type: 'string' }, maxBytes: { type: 'number' } }, ['path']],
@@ -236,7 +236,7 @@ const definitions = [
   ['terminal.create', 'Create a new terminal split pane under the terminal you run in (always a new pane, never the user\'s own split). You can only ever drive the panes under your own terminal, so this is the only way to get a shell. Close panes you no longer need with terminal.close. reuse:true returns your own idle pane for the same folder instead of a new one; use it only when that pane is idle, because a pane still running a command receives the input', { cwd: { type: 'string', description: 'Working directory of the new pane (defaults to your terminal\'s)' }, parentId: { type: 'string', description: 'Omit. An agent always splits its own terminal; any other value is refused' }, initialCols: { type: 'number' }, initialRows: { type: 'number' }, reuse: { type: 'boolean', description: 'Return your own live pane for the same cwd instead of creating one (only when it is idle)' } }],
   ['terminal.close', 'Close one of YOUR terminal split panes (a pane under the terminal you run in) and safely terminate its process tree. The terminal you run in and every terminal outside it are refused', { sessionId: { type: 'string', description: 'Session ID to close' }, isSplit: { type: 'boolean', description: 'Ignored for a pane: it is always closed as a split' } }, ['sessionId']],
   ['anti.sheet.extract', 'Extract a Google Sheet feedback row or header summary directly via authenticated in-tab GViz CSV instead of running anti.browser.evaluate.', { tabId: { type: 'string' }, row: { type: 'number' }, gid: { type: 'string' } }, [], [], 'tabId'],
-  ['anti.sheet.write_cell', 'Write one cell of a Google Sheet through its authenticated in-tab editor. The header row is protected unless allowHeader is set, a supplied expectedPrevious must equal the live cell value or the write is refused, and the written value is read back: a write that cannot be confirmed is reported as unverified, never assumed. Mutating: never replayed after a possible execution.', { tabId: { type: 'string' }, cell: { type: 'string', description: 'A1 notation of the target cell, for example "F12"' }, value: { type: ['string', 'number', 'boolean'], description: 'Value to write' }, expectedPrevious: { type: ['string', 'number', 'boolean'], description: 'Optional precondition: the live cell value the caller last read' }, gid: { type: 'string', description: 'Sheet tab gid' }, allowHeader: { type: 'boolean', description: 'Allow writing to the header row' } }, ['cell', 'value'], [], 'tabId'],
+  ['anti.sheet.write_cell', 'Write one cell of a Google Sheet through its authenticated in-tab editor. The header row is protected unless allowHeader is set, a supplied expectedPrevious must equal the live cell value or the write is refused, and the written value is read back: a write that cannot be confirmed is reported as unverified, never assumed. Mutating: never replayed after a possible execution.', { tabId: { type: 'string' }, cell: { type: 'string', description: 'A1 notation of the target cell, for example "F12"' }, value: { type: ['string', 'number', 'boolean'], description: 'Value to write' }, expectedPrevious: { type: ['string', 'number', 'boolean'], description: 'Optional precondition: the live cell value the caller last read' }, gid: { type: 'string', description: 'Sheet tab gid' }, allowHeader: { type: 'boolean', description: 'Allow writing to the header row' }, confirmTimeoutMs: { type: 'number', minimum: 0, maximum: 90000, description: 'Milliseconds to wait for the spreadsheet to show the saved value (default 45000, max 90000); a value still not visible then returns verified:false with status SAVED_UNCONFIRMED instead of an error' }, mode: { type: 'string', enum: ['replace', 'append'], description: 'replace (default) overwrites the cell; append writes the live value followed immediately by value (put any separator, such as a newline, inside value) and is refused when the editor and the saved spreadsheet disagree about the live value' } }, ['cell', 'value'], [], 'tabId'],
   ['anti.inspect.layout', 'Inspect computed bounding boxes, flex/grid layout, and visibility for one or more selectors instead of running anti.browser.evaluate.', { selector: { type: 'string' }, selectors: { type: 'array', items: { type: 'string' } }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], [], 'tabId'],
   ['anti.inspect.font', 'Inspect rendered platform fonts, fallback chains, and Vietnamese glyph coverage via CDP instead of running anti.browser.evaluate.', { selector: { type: 'string' }, ref: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], [], 'tabId'],
   ['browser.set-device-preset', 'Emulate a named responsive device preset (viewport, DPR, mobile UA, and touch) on a tab instead of manual set_viewport calls.', { presetId: { type: 'string' }, tabId: { type: 'string' }, reload: { type: 'boolean' } }, ['presetId'], [], 'tabId'],
@@ -1674,7 +1674,9 @@ function wireDispatchSocket(ws) {
         const errorText = typeof response.error === 'string' && response.error
           ? response.error
           : JSON.stringify(payload.code ? payload : { code: 'CAPABILITY_ERROR', message: 'AntiFan RPC failed' });
-        entry.reject(transportError(code, errorText, { ...payload.details, transmitted: entry.transmitted, signedAttachmentId: entry.signedAttachmentId }));
+        const rejection = transportError(code, errorText, { ...payload.details, transmitted: entry.transmitted, signedAttachmentId: entry.signedAttachmentId });
+        applyRetryHints(rejection, readRetryHints(payload, payload.details, response));
+        entry.reject(rejection);
       }
     } catch {}
   });
@@ -2018,6 +2020,53 @@ function attachDiagnosticDetails(err, extra) {
   err.message = JSON.stringify(diagnostic);
 }
 
+// ─── Typed retry hints ───────────────────────────────────────────────────────
+// A caller deciding whether and when to call again must not have to parse prose, so `retryable` and
+// `retryAfterMs` travel as fields of the failure itself (the first source that carries a value wins).
+function readRetryHints(...sources) {
+  const hints = {};
+  for (const source of sources) {
+    if (!source || typeof source !== 'object') continue;
+    if (hints.retryable === undefined && typeof source.retryable === 'boolean') hints.retryable = source.retryable;
+    if (hints.retryAfterMs === undefined && typeof source.retryAfterMs === 'number' && Number.isFinite(source.retryAfterMs) && source.retryAfterMs >= 0) {
+      hints.retryAfterMs = Math.round(source.retryAfterMs);
+    }
+  }
+  return hints;
+}
+
+function applyRetryHints(err, hints) {
+  if (!err || typeof err !== 'object') return;
+  if (hints.retryable !== undefined) err.retryable = hints.retryable;
+  if (hints.retryAfterMs !== undefined) err.retryAfterMs = hints.retryAfterMs;
+}
+
+// The text a failed tool result carries. A failure that gives the caller nothing to act on (no hints,
+// or only `retryable:false`) keeps its `CODE: message` text untouched, so callers and hooks can match
+// the prefix; one that says to retry is delivered as a single JSON diagnostic naming the hints.
+function failureText(error) {
+  const base = error instanceof Error ? error.message : String(error);
+  const hints = readRetryHints(error);
+  if (hints.retryable !== true && hints.retryAfterMs === undefined) return base;
+  let diagnostic = null;
+  try {
+    const parsed = JSON.parse(base);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) diagnostic = parsed;
+  } catch {}
+  if (!diagnostic) {
+    const code = error && typeof error.code === 'string' && error.code ? error.code : 'CAPABILITY_ERROR';
+    diagnostic = { code, message: base };
+  }
+  return JSON.stringify({ ...diagnostic, ...hints });
+}
+
+// What a recovery that ran its whole restart window without finding a bridge tells the caller.
+function restartWindowHints() {
+  return lastRestartWait
+    ? { retryable: true, retryAfterMs: AUTOHEAL_RETRY_AFTER_MS, waitedMs: lastRestartWait.waitedMs }
+    : null;
+}
+
 // A socket the bridge closed without a status (1005) before the frame was written is the signature of
 // a bridge rebinding its listener. The frame never left, so one immediate retry on the same
 // authority is safe and cheaper than a full recovery.
@@ -2230,6 +2279,94 @@ async function tryReuseLiveAttachment(candidate) {
   }
 }
 
+// ─── Restart window ──────────────────────────────────────────────────────────
+// A desktop restart takes ~10-20 s (`relaunched ... after Ns`). Every call inside that window used
+// to fail at once: no endpoint discovered, or the bridge socket refused, and each pass journalled an
+// outage the caller then had to retry by hand. A recovery whose every failure is "nothing is
+// listening" now polls discovery until a candidate answers or the window closes. The window sits far
+// under both the MCP client timeout (300 s in the harness config) and DEFAULT_CLIENT_TIMEOUT_MS, so
+// the call that triggered it still finishes inside its own budget. A refusal the bridge GAVE (policy,
+// scope, a pairing queue with no code left) is never waited on: waiting cannot change a verdict.
+// Replay safety is untouched: the wait only delays the recovery; whether the frame may be replayed
+// afterwards is still decided by `transmitted` and READ_SAFE_CAPABILITIES in invoke().
+const AUTOHEAL_RESTART_WAIT_MS = 40_000;
+const AUTOHEAL_RESTART_WAIT_MAX_MS = 120_000;
+const AUTOHEAL_RESTART_POLL_MIN_MS = 500;
+const AUTOHEAL_RESTART_POLL_MAX_MS = 2_000;
+// After a window ran out, the next recoveries inside this span make one pass and do not wait again:
+// one logical call retries a heal up to three times and must not multiply the window.
+const AUTOHEAL_RESTART_COOLDOWN_MS = 10_000;
+// What a caller that received the exhaustion error should wait before it calls again.
+const AUTOHEAL_RETRY_AFTER_MS = 10_000;
+
+function restartWaitBudgetMs() {
+  const raw = process.env.ANTIFAN_AUTOHEAL_RESTART_WAIT_MS;
+  if (raw !== undefined && raw !== '') {
+    const parsed = Number(raw);
+    if (Number.isInteger(parsed) && parsed >= 0) return Math.min(parsed, AUTOHEAL_RESTART_WAIT_MAX_MS);
+  }
+  return AUTOHEAL_RESTART_WAIT_MS;
+}
+
+// True when this error says nothing is listening on the endpoint (refused/reset socket), as opposed
+// to a bridge that answered and declined. An HTTP status means something answered.
+function isNothingListening(err) {
+  if (!err || typeof err !== 'object') return false;
+  if (typeof err.status === 'number') return false;
+  const text = String(err.message || '');
+  return err.code === 'ECONNREFUSED' || err.errorCode === 'BRIDGE_UNREACHABLE' || /ECONNREFUSED/i.test(text);
+}
+
+// One recovery's verdict is journalled once, when it is final. Per-pass records are held here so a
+// restart that recovers inside the window leaves no outage row for a call that never saw one.
+let autohealDeferred = [];
+let autohealPassNothingListening = false;
+// Set when a window ran out: { waitedMs, exhaustedAt }. Read by invoke() to annotate the error.
+let lastRestartWait = null;
+
+function deferAutohealReport(journalCode, text, stderrLine) {
+  autohealDeferred.push({ journalCode, text, stderrLine });
+}
+
+function flushAutohealReports() {
+  const pending = autohealDeferred;
+  autohealDeferred = [];
+  for (const entry of pending) {
+    if (entry.journalCode) recordClientFailure(entry.journalCode, entry.text);
+    if (entry.stderrLine) process.stderr.write(entry.stderrLine);
+  }
+}
+
+// The bridge's frozen instance birth (`startedAt` in its discovery file). A change between two
+// pairings means the desktop restarted; the next successful call reports it as `appRestartedAt`.
+let knownBridgeStartedAt = 0;
+let pendingAppRestartedAt = 0;
+
+function noteBridgeStart(candidate) {
+  const startedAt = candidate ? Number(candidate.startedAt) : 0;
+  if (!Number.isFinite(startedAt) || startedAt <= 0) return;
+  if (knownBridgeStartedAt > 0 && startedAt !== knownBridgeStartedAt) pendingAppRestartedAt = startedAt;
+  knownBridgeStartedAt = startedAt;
+}
+
+// Remember the birth of the bridge this session is bootstrapped against, before any restart can
+// replace its discovery file. Best effort: a missing record only means no restart can be reported.
+function captureBridgeStartedAt() {
+  if (knownBridgeStartedAt > 0) return;
+  try {
+    const boot = getBootstrap();
+    if (!boot || !boot.port) return;
+    const match = discoverLocalCandidates().find((c) => Number(c.port) === Number(boot.port) && Number(c.startedAt) > 0);
+    if (match) knownBridgeStartedAt = Number(match.startedAt);
+  } catch {}
+}
+
+function takeAppRestartedAt() {
+  const value = pendingAppRestartedAt;
+  pendingAppRestartedAt = 0;
+  return value > 0 ? value : undefined;
+}
+
 let healInFlight = null;
 function autohealSession() {
   if (!healInFlight) {
@@ -2243,23 +2380,60 @@ function autohealSession() {
 // ceiling and a few pairing attempts per recovery.
 
 async function autohealSessionOnce() {
+  const budgetMs = restartWaitBudgetMs();
+  const cooling = lastRestartWait !== null && Date.now() - lastRestartWait.exhaustedAt < AUTOHEAL_RESTART_COOLDOWN_MS;
+  // A window that ran out earlier and is no longer cooling must not label this recovery's failure.
+  if (!cooling) lastRestartWait = null;
+  const startedAt = Date.now();
+  let pollMs = AUTOHEAL_RESTART_POLL_MIN_MS;
+  captureBridgeStartedAt();
+  for (;;) {
+    const session = await autohealPass();
+    if (session) {
+      autohealDeferred = [];
+      lastRestartWait = null;
+      return session;
+    }
+    const refused = lastDefinitiveRefusal !== null && lastDefinitiveRefusal.run === autohealRun;
+    const remainingMs = budgetMs - (Date.now() - startedAt);
+    if (cooling || refused || !autohealPassNothingListening || remainingMs <= 0) {
+      const waitedMs = Date.now() - startedAt;
+      if (!cooling && !refused && autohealPassNothingListening && waitedMs >= budgetMs && budgetMs > 0) {
+        lastRestartWait = { waitedMs, exhaustedAt: Date.now() };
+      }
+      flushAutohealReports();
+      return null;
+    }
+    autohealDeferred = [];
+    await sleep(Math.min(pollMs, remainingMs));
+    pollMs = Math.min(Math.round(pollMs * 1.5), AUTOHEAL_RESTART_POLL_MAX_MS);
+  }
+}
+
+async function autohealPass() {
   const candidates = resolveFailoverCandidates();
   lastAutohealFailures = [];
   autohealRun += 1;
   lastDefinitiveRefusal = null;
+  autohealPassNothingListening = false;
   if (candidates.length === 0) {
     const noCandidateCause = 'BRIDGE_NOT_RUNNING: no endpoint discovered (no pin and no discovery file)';
     rememberAutohealFailure(noCandidateCause);
-    recordClientFailure('BRIDGE_NOT_RUNNING', noCandidateCause);
-    process.stderr.write('MCP_BRIDGE_OFFLINE: AntiFan Desktop Bridge is not running (no candidates discovered).\n');
+    deferAutohealReport('BRIDGE_NOT_RUNNING', noCandidateCause, 'MCP_BRIDGE_OFFLINE: AntiFan Desktop Bridge is not running (no candidates discovered).\n');
+    autohealPassNothingListening = true;
     return null;
   }
+  let failedCandidates = 0;
+  let refusedCandidates = 0;
   for (const candidate of candidates) {
     try {
       // Reuse first: a client that already holds live authority never needs a pairing code, so a
       // restart only costs a re-pair for the clients whose attachment was actually invalidated.
       const reused = await tryReuseLiveAttachment(candidate);
-      if (reused) return reused;
+      if (reused) {
+        noteBridgeStart(candidate);
+        return reused;
+      }
 
       let authSecret = candidate.token || '';
       let pairedExchange = null;
@@ -2531,18 +2705,23 @@ async function autohealSessionOnce() {
       if (previousDispatch && previousDispatch !== ws) { try { previousDispatch.close(); } catch {} }
       wireDispatchSocket(ws);
       startHeartbeat(dynamicBootstrap);
+      noteBridgeStart(candidate);
       return dynamicBootstrap;
     } catch (err) {
+      failedCandidates += 1;
+      if (isNothingListening(err)) refusedCandidates += 1;
       const candidateCause = `${candidate.host}:${candidate.port} connect failed (${err.message})`;
       rememberAutohealFailure(candidateCause);
-      recordClientFailure('CONNECT_FAILED', candidateCause);
-      process.stderr.write(`[AntiFan Autoheal] Candidate ${candidate.host}:${candidate.port} failed: ${err.message}\n`);
+      deferAutohealReport('CONNECT_FAILED', candidateCause, `[AntiFan Autoheal] Candidate ${candidate.host}:${candidate.port} failed: ${err.message}\n`);
       // A definitive refusal is this bridge's verdict about THIS client (scope, project, policy).
       // Trying the next candidate would hand the terminal to another instance's bridge, which is
       // an authority leak, not a recovery; only availability failures fall through.
       if (lastDefinitiveRefusal && lastDefinitiveRefusal.run === autohealRun) break;
     }
   }
+  // Every candidate tried and every one refused the connection: nothing is listening yet, the shape
+  // of a desktop that is restarting. A single answering bridge that declined is not that shape.
+  autohealPassNothingListening = failedCandidates === candidates.length && refusedCandidates === failedCandidates;
   // Pairing reasons name the actual availability fact — no codes left, the queue too slow, the
   // bridge restarting. A socket error that follows one only says the retry with a stale secret also
   // failed, so it must not be allowed to lead the message and bury the cause.
@@ -2559,8 +2738,7 @@ async function autohealSessionOnce() {
       ? 'AntiFan Desktop Bridge is not listening'
       : 'AntiFan Desktop Bridge is up but did not grant access (this is NOT a down bridge)') +
     ` — ${cause}`;
-  recordClientFailure('MCP_BRIDGE_OFFLINE', offlineMessage);
-  process.stderr.write(`MCP_BRIDGE_OFFLINE: ${offlineMessage}\n`);
+  deferAutohealReport('MCP_BRIDGE_OFFLINE', offlineMessage, `MCP_BRIDGE_OFFLINE: ${offlineMessage}\n`);
   return null;
 }
 
@@ -2639,12 +2817,16 @@ async function ensureDispatchSocket(bootstrap) {
     // whether the bridge was refused, unreachable, or simply unable to hand out pairing codes —
     // three different operator responses that used to be one indistinguishable string.
     const failureCause = lastAutohealFailure || 'no candidate answered';
-    throw transportError('CONNECTION_FAILED', JSON.stringify({
+    const restartHints = restartWindowHints();
+    const failure = transportError('CONNECTION_FAILED', JSON.stringify({
       code: 'CONNECTION_FAILED',
       message: `Unable to connect to live AntiFan Desktop bridge after autoheal: ${failureCause}`,
       reason: failureCause,
       candidates: lastAutohealFailures.slice(),
-    }));
+      ...(restartHints ? restartHints : {}),
+    }), restartHints ? { waitedMs: restartHints.waitedMs, retryAfterMs: restartHints.retryAfterMs } : undefined);
+    applyRetryHints(failure, restartHints || {});
+    throw failure;
   })().finally(() => {
     dispatchConnecting = null;
   });
@@ -2888,11 +3070,15 @@ async function invoke(method, params = {}, callerRequestId, meta) {
       const noGrantCause = `AntiFan Desktop Bridge did not grant access — ${lastAutohealFailure || 'no candidate answered'}`;
       recordClientFailure('MCP_BRIDGE_OFFLINE', noGrantCause);
       process.stderr.write(`MCP_BRIDGE_OFFLINE: ${noGrantCause}\n`);
-      throw transportError('MCP_CONTEXT_REQUIRED', JSON.stringify({
+      const restartHints = restartWindowHints();
+      const contextFailure = transportError('MCP_CONTEXT_REQUIRED', JSON.stringify({
         code: 'MCP_CONTEXT_REQUIRED',
         message: `OMP MCP proxy requires an authoritative Main bootstrap; ${noGrantCause}`,
-        details: { autohealCause: lastAutohealFailure || 'no candidate answered' },
+        details: { autohealCause: lastAutohealFailure || 'no candidate answered', transmitted: false, ...(restartHints ? { waitedMs: restartHints.waitedMs } : {}) },
+        ...(restartHints ? { retryable: true, retryAfterMs: restartHints.retryAfterMs } : {}),
       }));
+      applyRetryHints(contextFailure, restartHints || {});
+      throw contextFailure;
     }
   }
 
@@ -2953,7 +3139,9 @@ async function invoke(method, params = {}, callerRequestId, meta) {
       // This rejection object may be shared by every invoke awaiting the same
       // dispatchConnecting — stamp a copy, never mutate the shared error, so
       // each caller carries ITS OWN signedAttachmentId into diagnostics.
-      throw transportError(err.code || 'CONNECTION_ERROR', String((err && err.message) || err), { ...(err && err.details), transmitted: false, signedAttachmentId: currentBoot.attachmentId });
+      const connectFailure = transportError(err.code || 'CONNECTION_ERROR', String((err && err.message) || err), { ...(err && err.details), transmitted: false, signedAttachmentId: currentBoot.attachmentId });
+      applyRetryHints(connectFailure, readRetryHints(err));
+      throw connectFailure;
     }
     // ensureDispatchSocket may have autohealed: it replaces dynamicBootstrap with
     // the healed authority while `currentBoot` still names the stale one. Sign the
@@ -3001,9 +3189,10 @@ async function invoke(method, params = {}, callerRequestId, meta) {
             typeof targetTabId === 'string' && targetTabId.length > 0
           ) {
             recordBoundTab(targetTabId);
-          } else if (mapped === 'browser.open-tab' && data && typeof data === 'object' && typeof data.tabId === 'string') {
+          } else if (mapped === 'browser.open-tab' && data && typeof data === 'object' && typeof data.tabId === 'string' && effectiveParams.bind !== false) {
             // The session adopts the tab it opens, so the new tab becomes the target an
-            // omitted-tabId call rides - the same rotation the authority performs.
+            // omitted-tabId call rides - the same rotation the authority performs. `bind:false`
+            // opens the tab without that hand-over, so the default must stay where it was.
             recordBoundTab(data.tabId);
           } else if (mapped === 'browser.close-tab' && data && typeof data === 'object' && data.closed === true) {
             // Closing a tab moves the session when the closed tab was the one the client
@@ -3160,6 +3349,13 @@ async function invoke(method, params = {}, callerRequestId, meta) {
         if (isRetryableTransportError(err) && (healedOnce || err.code === 'CONNECTION_FAILED') && lastAutohealFailures.length > 0) {
           extra.autohealCause = composeAutohealCause();
           extra.autohealCandidates = lastAutohealFailures.slice();
+        }
+        // The call is refused AFTER a restart window ran out: say whether the frame ever left and
+        // when it is worth calling again, so the caller never has to guess from the prose.
+        if (err && err.code === 'CONNECTION_FAILED' && err.details && typeof err.details.waitedMs === 'number') {
+          extra.transmitted = everTransmitted;
+          extra.waitedMs = err.details.waitedMs;
+          extra.retryAfterMs = err.details.retryAfterMs;
         }
         attachDiagnosticDetails(err, extra);
         if (annotateCatalogueMiss(err, method, mapped)) void probeCatalogueOnce();
@@ -3375,6 +3571,38 @@ function createMcpServer() {
   return mcpServer;
 }
 
+// Some MCP clients render a tool whose input schema carries a top-level oneOf/anyOf as "args =
+// unknown", hiding every argument. The alternative required-groups therefore never reach the
+// advertised schema; they are stated in the description, and the server still validates them (the
+// catalogue schema and invoke() keep the rule).
+function argumentFormsNote(forms) {
+  const groups = argumentForms(forms)
+    .map((group) => (group && Array.isArray(group.required) ? group.required.join(' + ') : ''))
+    .filter(Boolean);
+  if (groups.length === 0) return '';
+  return ` Provide ${Array.isArray(forms) ? 'exactly one' : 'at least one'} of: ${groups.join(' | ')}.`;
+}
+
+// Action capabilities report a step that did nothing in the result body (`clicked:false`,
+// `success:false`) instead of throwing. Delivered as a plain success, the body is easy to skip and
+// the agent carries on; the body stays intact and the result is flagged `isError`.
+const ACTION_OUTCOME_FLAG = Object.freeze({
+  'browser.agent-click': 'clicked',
+  'browser.agent-type': 'typed',
+  'browser.agent-scroll': 'scrolled',
+  'browser.agent-hover': 'hovered',
+  'browser.agent-move': 'moved',
+  'browser.agent-highlight': 'highlighted',
+  'browser.agent-clear': 'cleared',
+  'browser.agent-sequence': 'success',
+  'browser.sequence': 'success',
+});
+
+function actionOutcomeFailed(name, data) {
+  const flag = ACTION_OUTCOME_FLAG[CAPABILITY_MAP[name] || name];
+  return Boolean(flag && data && typeof data === 'object' && data[flag] === false);
+}
+
 async function listTools() {
   const allowedCaps = resolveAllowedCapabilities();
   const forbiddenCaps = resolveForbiddenCapabilities();
@@ -3384,12 +3612,11 @@ async function listTools() {
   return {
     tools: filteredDefs.map(([name, description, properties, required, forms]) => ({
       name,
-      description,
+      description: `${description}${argumentFormsNote(forms)}`,
       inputSchema: {
         type: 'object',
         properties,
         ...(required && required.length > 0 ? { required } : {}),
-        ...(argumentForms(forms).length > 0 ? { [Array.isArray(forms) ? 'oneOf' : 'anyOf']: argumentForms(forms) } : {}),
       },
     })),
   };
@@ -3432,6 +3659,13 @@ async function callTool(request, extra) {
   // trailing text block made an otherwise valid JSON result unparseable for the caller.
   if (meta.bindingChanged && result && typeof result === 'object') {
     result._meta = { ...(result._meta && typeof result._meta === 'object' ? result._meta : {}), bindingChanged: meta.bindingChanged };
+  }
+  // The desktop restarted since the last pairing: the first call that succeeds afterwards says so.
+  if (result && typeof result === 'object' && result.isError !== true) {
+    const appRestartedAt = takeAppRestartedAt();
+    if (appRestartedAt !== undefined) {
+      result._meta = { ...(result._meta && typeof result._meta === 'object' ? result._meta : {}), appRestartedAt };
+    }
   }
   return result;
 }
@@ -3558,9 +3792,12 @@ async function runCallTool(request, extra, meta) {
       throw new Error(JSON.stringify({ code: 'CAPABILITY_ERROR', message: 'Expected ArtifactRef metadata from screenshot capability' }));
     }
 
-    return { content: [{ type: 'text', text: typeof data === 'string' ? data : JSON.stringify(data) }] };
+    return {
+      ...(actionOutcomeFailed(request.params.name, data) ? { isError: true } : {}),
+      content: [{ type: 'text', text: typeof data === 'string' ? data : JSON.stringify(data) }],
+    };
   } catch (error) {
-    return { isError: true, content: [{ type: 'text', text: error instanceof Error ? error.message : String(error) }] };
+    return { isError: true, content: [{ type: 'text', text: failureText(error) }] };
   }
 }
 
@@ -3631,7 +3868,10 @@ if (require.main === module) {
   const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
   server = createMcpServer();
   server.connect(new StdioServerTransport())
-    .then(() => startHeartbeat(getBootstrap()))
+    .then(() => {
+      startHeartbeat(getBootstrap());
+      captureBridgeStartedAt();
+    })
     .catch((error) => {
       stopHeartbeat();
       // Deliberately NOT journaled: a stdio transport-attach failure can happen
@@ -3666,6 +3906,9 @@ module.exports = {
   ambientTargetFieldFor,
   recordClientFailure,
   bridgeClientFailuresPath,
+  listTools,
+  actionOutcomeFailed,
+  argumentFormsNote,
 };
 
 function shutdown() {

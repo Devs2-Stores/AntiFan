@@ -23,9 +23,9 @@
  */
 const { app, webContents: allWebContents } = require('electron');
 const path = require('node:path');
-const os = require('node:os');
 const fs = require('node:fs');
 const { monitorEventLoopDelay } = require('node:perf_hooks');
+const { createIsolatedInstance } = require('./lib/isolated-instance.cjs');
 
 app.commandLine.appendSwitch('no-sandbox');
 // N overlapping windows: without these, Chromium's native occlusion tracking backgrounds the
@@ -59,52 +59,24 @@ try {
   treeIdentity = { root: treeRoot, head: git(['rev-parse', '--short', 'HEAD']), dirty: git(['status', '--porcelain']).length > 0 };
 } catch {}
 
-const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-perf-probe-'));
+// Throwaway data root, profile, config dir and capsule registry. A probe launched from an
+// AntiFan terminal inherits that app's config dir; the helper pins it, so the terminal manager
+// starts from an empty terminal-sessions.json instead of rewriting the user's real one.
 const hex = (i) => (0xa0 + i).toString(16).padStart(12, '0');
-const PROJECTS = Array.from({ length: N }, (_, i) => {
-  const dir = path.join(tempRoot, `project-${i}`);
-  fs.mkdirSync(dir, { recursive: true });
-  return {
+const isolated = createIsolatedInstance({
+  prefix: 'antifan-perf-probe-',
+  projects: Array.from({ length: N }, (_, i) => ({
     projectId: `project-00000000-0000-4000-8000-${hex(i)}`,
     workspaceId: `workspace-00000000-0000-4000-8000-${hex(i)}`,
     capsuleId: `capsule-perf-${i}`,
     name: `Perf ${i}`,
-    path: dir,
-  };
+    dir: `project-${i}`,
+  })),
+  bridgePortBase: 21500,
+  bridgePortSpan: 400,
+  terminalDaemon: process.env.ANTIFAN_PERF_DAEMON === '1',
 });
-
-process.env.ANTIFAN_DATA_ROOT = tempRoot;
-process.env.ANTIFAN_USER_DATA = path.join(tempRoot, 'Profile');
-process.env.ANTIFAN_USER_DATA_DIR = path.join(tempRoot, 'Profile');
-// A probe launched from an AntiFan terminal inherits that app's config dir;
-// left alone, its terminal manager would load and rewrite the user's real
-// terminal-sessions.json instead of starting from an empty one.
-process.env.ANTIFAN_CONFIG_DIR = path.join(tempRoot, 'config');
-process.env.ANTIFAN_PROJECT_ID = PROJECTS[0].projectId;
-process.env.ANTIFAN_WORKSPACE_ID = PROJECTS[0].workspaceId;
-process.env.ANTIFAN_USE_TERMINAL_DAEMON = process.env.ANTIFAN_PERF_DAEMON === '1' ? '1' : '0';
-process.env.ANTIFAN_BRIDGE_PORT = String(21500 + (process.pid % 400));
-
-fs.mkdirSync(path.join(tempRoot, 'config'), { recursive: true });
-fs.writeFileSync(
-  path.join(tempRoot, 'config', 'workspace-capsules.json'),
-  JSON.stringify({
-    version: 1,
-    activeCapsuleId: PROJECTS[0].capsuleId,
-    capsules: PROJECTS.map((entry) => ({
-      id: entry.capsuleId,
-      name: entry.name,
-      workspacePath: entry.path,
-      state: {},
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      projectId: entry.projectId,
-      workspaceId: entry.workspaceId,
-      migrationMarker: 'explicit',
-    })),
-  }, null, 2),
-  'utf8',
-);
+const { tempRoot, projects: PROJECTS } = isolated;
 
 // Counted from before the main process loads, so every call it makes is seen. The compiled
 // modules reach `fs` through live bindings, so replacing the property is observed.
@@ -624,7 +596,7 @@ app.whenReady()
       try { win.destroy(); } catch {}
     }
     await sleep(300);
-    try { fs.rmSync(tempRoot, { recursive: true, force: true }); } catch {}
+    isolated.dispose();
     app.exit(exitCode);
   });
 

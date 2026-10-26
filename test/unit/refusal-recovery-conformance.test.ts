@@ -505,8 +505,10 @@ describe('typed failures keep their code and details through the transport', () 
   });
 
   it('describeRelayedFailure drops details that are not a plain object', () => {
-    assert.deepStrictEqual(describeRelayedFailure({ code: 'NO_RENDER_SURFACE', message: 'm', details: ['not', 'a', 'record'] }), { code: 'NO_RENDER_SURFACE', message: 'm' });
-    assert.deepStrictEqual(describeRelayedFailure({ code: 'X', message: 'm', details: 'text' }), { code: 'X', message: 'm' });
+    const droppedArray = describeRelayedFailure({ code: 'NO_RENDER_SURFACE', message: 'm', details: ['not', 'a', 'record'] });
+    assert.deepStrictEqual({ code: droppedArray.code, message: droppedArray.message, hasDetails: 'details' in droppedArray }, { code: 'NO_RENDER_SURFACE', message: 'm', hasDetails: false });
+    const droppedText = describeRelayedFailure({ code: 'X', message: 'm', details: 'text' });
+    assert.deepStrictEqual({ code: droppedText.code, message: droppedText.message, hasDetails: 'details' in droppedText }, { code: 'X', message: 'm', hasDetails: false });
     assert.strictEqual(describeRelayedFailure('boom').code, 'CAPABILITY_ERROR');
     assert.strictEqual(describeRelayedFailure(undefined).code, 'CAPABILITY_ERROR');
   });

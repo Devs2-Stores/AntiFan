@@ -213,7 +213,7 @@ describe('Capability catalogue', () => {
     // echoed `browserTarget.url` verbatim, so a navigation that had already committed still
     // reported the pre-navigation URL.
     const navResult = await catalogue.dispatch('browser.navigate', { url: 'https://apshop.vn', tabId: 'tab-2' }, { lease, leaseToken: lease.token, projectId, workspaceId, grant: 'write', browserTarget: boundTarget });
-    assert.deepStrictEqual(navResult, { navigated: true, target: { ...boundTarget, tabId: 'tab-2', url: 'https://apshop.vn' } });
+    assert.deepStrictEqual(navResult, { navigated: true, target: { ...boundTarget, tabId: 'tab-2', url: 'https://apshop.vn' }, loadState: 'loaded', committedUrl: 'https://apshop.vn' });
     assert.strictEqual(switchedTabId, 'tab-2');
     assert.strictEqual(navigatedTabId, 'tab-2');
     assert.strictEqual(navigatedUrl, 'https://apshop.vn');
@@ -229,11 +229,11 @@ describe('Capability catalogue', () => {
     assert.strictEqual(switchedTabId, 'tab-2');
     // 11. Viewport and Mobile Device Emulation
     const vpRes = await catalogue.dispatch('browser.set-viewport', { width: 390, height: 844, mobile: true, tabId: 'tab-2' }, { lease, leaseToken: lease.token, projectId, workspaceId, grant: 'write', browserTarget: boundTarget });
-    assert.deepStrictEqual(vpRes, { success: true, width: 390, height: 844, mobile: true, presetId: 'custom-390x844', observedWidth: 390, observedHeight: 844, verified: true, zoomFactor: 1, zoomApplied: true });
+    assert.deepStrictEqual(vpRes, { success: true, width: 390, height: 844, mobile: true, presetId: 'custom-390x844', observedWidth: 390, observedHeight: 844, clientWidth: 390, verified: true, zoomFactor: 1, zoomApplied: true });
     assert.deepStrictEqual(viewportOptions, { width: 390, height: 844, mobile: true, tabId: 'tab-2' });
     // 11b. Viewport with reload delegation (no duplicate host reload)
     const vpReloadRes = await catalogue.dispatch('browser.set-viewport', { width: 390, height: 844, mobile: true, tabId: 'tab-2', reload: true }, { lease, leaseToken: lease.token, projectId, workspaceId, grant: 'write', browserTarget: boundTarget });
-    assert.deepStrictEqual(vpReloadRes, { success: true, width: 390, height: 844, mobile: true, presetId: 'custom-390x844', reloaded: true, observedWidth: 390, observedHeight: 844, verified: true, zoomFactor: 1, zoomApplied: true });
+    assert.deepStrictEqual(vpReloadRes, { success: true, width: 390, height: 844, mobile: true, presetId: 'custom-390x844', reloaded: true, observedWidth: 390, observedHeight: 844, clientWidth: 390, verified: true, zoomFactor: 1, zoomApplied: true });
     assert.deepStrictEqual(viewportOptions, { width: 390, height: 844, mobile: true, tabId: 'tab-2', reload: true });
 
     // 12. Device Preset
@@ -1047,7 +1047,7 @@ describe('Capability catalogue', () => {
 
     // Old initialTarget with generation 1 (vs live generation 2) is rejected on interactive operations with TARGET_STALE
     await assert.rejects(
-      async () => browser.agentClick({ tabId: 'tab-1', selector: 'button' }, initialTarget),
+      async () => browser.agentClick({ tabId: 'tab-1', ref: '@e1' }, initialTarget),
       (err: unknown) => err instanceof CapabilityError && err.code === 'TARGET_STALE'
     );
     // Mismatched browserEpoch or runtime is rejected with TARGET_STALE

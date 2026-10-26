@@ -42,6 +42,7 @@ import {
   type EvidenceCaptureEnvelope,
   createVisualEvidenceReceipt,
   RENDER_SURFACE_PROBE_BOUND_MS,
+  RENDER_SURFACE_PROBE_RETRY_BOUND_MS,
   REFERENCE_MATERIALIZATION_BOUND_MS,
   buildReferenceMaterializationScript,
   classifyRenderSurfaceCause,
@@ -94,21 +95,22 @@ import { pickAutoBindCandidate, storefrontHostMatches } from './tab-binding.js';
 import { FULL_PAGE_ARTIFACT_MAX_BYTES } from './artifact-store.js';
 import { composeContactSheetFromPngs } from '../verification/png-contact-sheet.js';
 import type { PageCloseAdmission } from '../run/attachment-registry';
-import { sequenceDependsOnPriorDocument } from './sequence-fence.js';
-import { antiBotChallengeError, classifyAntiBotUrl } from './anti-bot-challenge.js';
+import { carriesSemanticRef, sequenceDependsOnPriorDocument, SEQUENCE_STEP_TYPES } from './sequence-fence.js';
+import { AntiBotLatch, DEFAULT_ANTI_BOT_PARTITION, antiBotChallengeError, classifyAntiBotUrl, isOrdinaryPageOnHost } from './anti-bot-challenge.js';
 import { PLATFORM_PREVIEW_CHROME, PLATFORM_PREVIEW_CHROME_SELECTORS } from '../qa/platform-preview-chrome.js';
-import { SHARE_TAB_GUIDANCE, splitReviewNote } from './capability-catalogue';
+import { splitReviewNote } from './capability-catalogue';
+import { SESSION_TAB_LIMIT, SHARE_TAB_GUIDANCE } from '../../shared/tab-sharing';
 /**
- * A sequence that addresses the page by selector/ref/coordinates was refused because its
- * document generation drifted: say so, and point at the recovery (re-inspect, then repeat
- * with fresh refs) instead of the generic "re-inspect DOM" text. Any other error passes through.
+ * A sequence that addresses an element by `@eN` ref was refused because its document generation
+ * drifted: say so, and point at the recovery (re-inspect, then repeat with fresh refs) instead of
+ * the generic "re-inspect DOM" text. Any other error passes through.
  */
 function annotateSequenceStaleDocument(err: unknown): unknown {
   if (!(err instanceof CapabilityError) || err.code !== 'TARGET_STALE' || err.details?.targetDocumentGeneration === undefined) return err;
   const live = err.details.liveDocumentGeneration;
   return new CapabilityError(
     'TARGET_STALE',
-    `The page changed since you inspected it (document generation ${String(err.details.targetDocumentGeneration)} -> ${String(live)}); this sequence addresses elements by selector, ref or coordinates on that earlier document. Take a fresh snapshot and repeat the sequence with the new refs, or start the sequence with a navigate step.`,
+    `The page changed since you inspected it (document generation ${String(err.details.targetDocumentGeneration)} -> ${String(live)}); this sequence addresses elements by @eN ref on that earlier document. Take a fresh snapshot and repeat the sequence with the new refs, or start the sequence with a navigate step.`,
     { ...err.details, cause: 'dom-drift', dependsOnPriorDocument: true, recovery: 'anti.inspect.snapshot, then repeat anti.agent.sequence with the new refs' }
   );
 }
@@ -117,6 +119,15 @@ function annotateSequenceStaleDocument(err: unknown): unknown {
 function staleDetails(cause: TargetStaleCause, details: Record<string, unknown> = {}): Record<string, unknown> {
   return { ...details, cause };
 }
+
+/** Columns a `tabs.list` row can carry (the host's tab record plus the columns the port adds), for `fields` validation. */
+export const LIST_TAB_FIELDS: readonly string[] = Object.freeze([
+  'id', 'url', 'title', 'favicon', 'isLoading', 'canGoBack', 'canGoForward', 'zoomFactor', 'devicePresetId', 'crashed',
+  'isAudible', 'isMuted', 'scrollX', 'scrollY', 'aiState', 'isAgentControlled', 'themeError', 'terminalSessionId', 'capsuleId',
+  'userAgentMode', 'partition', 'projectId', 'popupOf', 'ephemeral', 'hibernated', 'lastActiveAt', 'splitMode',
+  'splitDesktopPresetId', 'splitMobilePresetId', 'splitFocusedPane', 'splitError',
+  'affiliated', 'storefrontMatch', 'isBoundTab', 'isPrimaryTab',
+]);
 
 /** ANTI_BOT_CHALLENGE when `url` is a verification page the caller did not itself ask for; otherwise undefined. */
 function antiBotRefusal(url: string | undefined, tabId: string, requestedUrl?: string): CapabilityError | undefined {
@@ -129,6 +140,16 @@ function antiBotRefusal(url: string | undefined, tabId: string, requestedUrl?: s
 function isWebUrl(url: string | undefined): boolean {
   return typeof url === 'string' && /^https?:\/\//i.test(url.trim());
 }
+
+/** When `navigate` returns: at the first committed navigation, at DOMContentLoaded, or at the load event (default). */
+export type NavigationWaitUntil = 'commit' | 'domcontentloaded' | 'load';
+/** How far the loaded document had progressed when `navigate` answered. */
+export type NavigationLoadState = 'committed' | 'domcontentloaded' | 'loaded' | 'timeout';
+const NAVIGATION_WAIT_UNTIL_LOAD_STATE: Readonly<Record<NavigationWaitUntil, NavigationLoadState>> = Object.freeze({
+  commit: 'committed',
+  domcontentloaded: 'domcontentloaded',
+  load: 'loaded',
+});
 
 /** What a failed or timed-out load left behind: whether the URL committed, and that no load-complete document exists. */
 function navigationOutcomeDetails(urlBefore: string | undefined, liveUrl: string | undefined, tabId: string): Record<string, unknown> {
@@ -204,35 +225,8 @@ function resolveTypedText(args: { text?: string; secret?: boolean; fromEnv?: str
   return { text: args.text, secret: args.secret === true };
 }
 
-/**
- * True when every step either never touches the observed document or addresses the page only by
- * bare coordinates: such a sequence names no element, so the generation the caller observed has
- * nothing to be stale against. Anything addressed by selector or ref keeps the fence.
- */
-function sequenceUsesOnlyCoordinates(actions: ReadonlyArray<Record<string, unknown>>): boolean {
-  const named = (value: unknown): boolean => typeof value === 'string' ? value.trim().length > 0 : value !== undefined && value !== null;
-  for (const step of actions) {
-    if (!step || typeof step !== 'object') return false;
-    const kind = typeof step.type === 'string' ? step.type : undefined;
-    if (kind === 'navigate') return true;
-    if (named(step.selector) || named(step.ref)) return false;
-    switch (kind) {
-      case 'click':
-      case 'hover':
-        if (typeof step.x !== 'number' || typeof step.y !== 'number') return false;
-        break;
-      case 'scroll':
-      case 'pressKey':
-      case 'wait':
-      case 'screenshot':
-      case 'awaitNetwork':
-        break;
-      default:
-        return false;
-    }
-  }
-  return true;
-}
+/** Reported on a call whose generation fence was rebased onto the live document. */
+type DocumentGenerationRebase = { documentGenerationRebased?: { from: number; to: number } };
 
 function isTabRecord(item: unknown): item is AntiFanTab {
   if (typeof item !== 'object' || item === null || !('id' in item)) return false;
@@ -318,7 +312,11 @@ export interface BrowserHostPort {
   /** Typed activation: reports why a switch did not happen. Preferred over the boolean form. */
   trySwitchTab?(tabId: string, opts?: SwitchTabOptions): SwitchTabResult;
   navigate(tabId: string, url: string): Promise<boolean> | boolean;
-  navigateAndWait?(tabId: string, url: string, timeoutMs?: number): Promise<boolean>;
+  /**
+   * Navigates and resolves once the requested lifecycle point is reached. A number is the timeout alone
+   * (waits for the load); the object form adds `waitUntil` (`commit` | `domcontentloaded` | `load`, default `load`).
+   */
+  navigateAndWait?(tabId: string, url: string, wait?: number | { timeoutMs?: number; waitUntil?: NavigationWaitUntil }): Promise<boolean>;
   getLastNavigationFailure?(tabId: string): { cause: string; message: string; timedOut: boolean } | undefined;
   getRedirectChain?(tabId: string): string[];
   getTabUrl?(tabId: string): string;
@@ -359,7 +357,9 @@ export interface BrowserHostPort {
   agentSnapshot?(tabId?: string, paneId?: 'desktop' | 'mobile', selector?: string, viewportOnly?: boolean): Promise<string>;
   agentFind?(params: { text?: string; regex?: string; tabId?: string; paneId?: 'desktop' | 'mobile'; maxMatches?: number }): Promise<unknown>;
   sendKeyboardPress?(params: { key: string; modifiers?: string[]; tabId?: string }): Promise<{ success: boolean; key: string; modifiers: string[] }>;
-  setViewportSize?(options: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; tabId?: string; reload?: boolean }): Promise<{ success: boolean; reloaded?: boolean } | boolean> | { success: boolean; reloaded?: boolean } | boolean;
+  /** Whether the tab's scrollbars are currently hidden by a viewport call; undefined when the host cannot tell. */
+  isScrollbarsHidden?(tabId?: string): boolean | undefined;
+  setViewportSize?(options: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; tabId?: string; reload?: boolean; hideScrollbar?: boolean }): Promise<{ success: boolean; reloaded?: boolean } | boolean> | { success: boolean; reloaded?: boolean } | boolean;
   setDevicePreset?(tabId: string, presetId: string, options?: { reload?: boolean }): boolean;
   getDevicePresets?(): unknown[];
   setZoom?(tabId: string, zoomFactor: number): boolean;
@@ -370,6 +370,8 @@ export interface BrowserHostPort {
   getDocumentGeneration?(tabId?: string): number;
   bumpDocumentGeneration?(tabId?: string): number;
   getMutationRevision?(tabId?: string): number;
+  /** Newest-last short descriptions (`tag#id.class`, at most 8) of the page mutations that moved the tab's mutation revision. */
+  getMutationSamples?(tabId?: string): string[];
   bumpMutationRevision?(tabId?: string): number;
   uploadFileInput?(params: { refOrSelector: string; filePaths: string[]; workspaceRoot?: string; viaFileChooser?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<{ success: boolean; uploadedCount: number; reason?: string }>;
   dropFiles?(params: { refOrSelector: string; filePaths: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<{ success: boolean; droppedCount: number; reason?: string }>;
@@ -1030,7 +1032,7 @@ export class WaitRegistry {
   private readonly MAX_PER_TAB = 4;
   private readonly MAX_GLOBAL = 16;
   private readonly DEFAULT_TIMEOUT_MS = 5_000;
-  private readonly MAX_TIMEOUT_MS = 30_000;
+  private readonly MAX_TIMEOUT_MS = BROWSER_WAIT_MAX_TIMEOUT_MS;
   private closeAdmission?: PageCloseAdmission;
 
   /** Injects the close-admission seam (see `PageCloseAdmission`); absent = previous behaviour. */
@@ -1678,19 +1680,31 @@ export const VISUAL_COMPARE_CANCELLATION_ACK_MS = 30_000;
 /** Cleanup budget inside the reserved grace (leaves margin for receipt writes). */
 export const VISUAL_COMPARE_CLEANUP_BUDGET_MS = 25_000;
 /**
- * Invocation budget the wait capabilities declare in their effect policy
- * (`browser.wait` / `anti.browser.wait`). The registry cannot run longer than
- * the platform keeps the invocation alive, so this is also the effective
- * ceiling any condition — including `images-settled` — may observe.
+ * Longest observation a single wait may run (`browser.wait` / `anti.browser.wait`,
+ * the `WaitRegistry` cap, and the ceiling any condition — including
+ * `images-settled` — may ask for).
  */
-export const BROWSER_WAIT_INVOCATION_BUDGET_MS = 30_000;
+export const BROWSER_WAIT_MAX_TIMEOUT_MS = 30_000;
+/**
+ * Invocation budget the wait capabilities declare in their effect policy. The
+ * transport aborts the handler at `policy.timeoutMs - cancellationAckTimeoutMs`
+ * (`makeBrowserPolicy` reserves 5s of acknowledgement), so the policy is
+ * `MAX + margin + ACK`: a wait asked for the cap is answered by its own timer,
+ * never by the transport abort.
+ */
+export const BROWSER_WAIT_INVOCATION_BUDGET_MS = BROWSER_WAIT_MAX_TIMEOUT_MS + 2_000 + 5_000;
+/**
+ * Largest caller-declared in-page eval budget. A request above it is refused
+ * with the real bound named; the in-page guard — not the invocation being
+ * killed mid-eval — produces the typed answer for anything at or below it.
+ */
+export const BROWSER_EVAL_MAX_TIMEOUT_MS = 29_000;
 /**
  * Invocation budget the eval capabilities declare by default through
- * `makeBrowserPolicy`. A caller-supplied `timeoutMs` is capped below this
- * budget so the in-page guard answers with its own typed error instead of the
- * invocation being killed mid-eval.
+ * `makeBrowserPolicy`: `MAX + margin + ACK`, so the execution deadline the
+ * transport enforces (`timeoutMs - ack`) stays above the largest honored ask.
  */
-export const BROWSER_EVAL_INVOCATION_BUDGET_MS = 30_000;
+export const BROWSER_EVAL_INVOCATION_BUDGET_MS = BROWSER_EVAL_MAX_TIMEOUT_MS + 1_000 + 5_000;
 /** Hard ceiling for a caller-declared eval budget, independent of policy. */
 export const BROWSER_EVAL_TIMEOUT_CEILING_MS = 120_000;
 export const FULL_PAGE_CAPTURE_EXECUTION_BUDGET_MS = 70_000;
@@ -1702,13 +1716,6 @@ export const FULL_PAGE_CAPTURE_CLEANUP_BUDGET_MS = 15_000;
  * instead of being returned as success with unverified geometry.
  */
 export const VIEWPORT_CONFIRM_BOUND_MS = 3_000;
-/**
- * Per-session browser-tab quota, mirrored from the host's adopt-path cap
- * (`native-tab-host.ts` prunes then counts `managedTabIds`/`sessionTabPools`
- * against this value). The refusal payload reports it so an agent never has to
- * guess the ceiling; the cap itself is unchanged.
- */
-export const SESSION_TAB_LIMIT = 10;
 /** How many counted ids a quota refusal carries — enough to diagnose, bounded. */
 const SESSION_TAB_QUOTA_SAMPLE_MAX = 8;
 /**
@@ -2440,6 +2447,8 @@ export class BrowserControlPort {
   public readonly viewportGate = new ViewportGate();
   /** The close-admission seam this port's pools, waits and viewport gate consult. */
   private closeAdmission?: PageCloseAdmission;
+  /** Hosts that already answered a tab of a session partition with a verification page; navigating there again fails fast. */
+  private readonly antiBotLatch = new AntiBotLatch();
   /** Joint mutual exclusion for visualCompare tab pairs (passivePool keeps capacity accounting) */
   private readonly comparePairLock = new MultiKeyLock();
   /** Targets holding a timed-out in-flight CDP command until their recovery receipt lands. */
@@ -2540,7 +2549,42 @@ export class BrowserControlPort {
       );
     }
   }
-  listTabs(context: { target?: BrowserTarget; scope?: 'project' | 'session' | 'global'; affiliatedOnly?: boolean; projectId?: string; authenticatedProjectId?: string; authenticatedWorkspaceId?: string }): unknown[] {
+  /**
+   * The tab rows this session may see, optionally narrowed: `urlContains` keeps rows whose URL
+   * contains the text (case-insensitive), `limit` caps how many come back, and `fields` projects
+   * each row to the named columns (`id` is always kept so a row stays addressable).
+   */
+  listTabs(context: { target?: BrowserTarget; scope?: 'project' | 'session' | 'global'; affiliatedOnly?: boolean; projectId?: string; authenticatedProjectId?: string; authenticatedWorkspaceId?: string; fields?: string[]; limit?: number; urlContains?: string }): unknown[] {
+    const { fields, limit, urlContains } = context;
+    if (fields !== undefined) {
+      if (!Array.isArray(fields) || fields.some((f) => typeof f !== 'string' || !f.trim())) {
+        throw new CapabilityError('INVALID_ARGUMENT', 'fields must be an array of tab field names', { validFields: LIST_TAB_FIELDS });
+      }
+      const unknown = fields.filter((f) => !LIST_TAB_FIELDS.includes(f.trim()));
+      if (unknown.length > 0) {
+        throw new CapabilityError('INVALID_ARGUMENT', `Unknown tab field(s) ${unknown.map((f) => JSON.stringify(f)).join(', ')}`, { unknownFields: unknown, validFields: LIST_TAB_FIELDS });
+      }
+    }
+    if (limit !== undefined && (typeof limit !== 'number' || !Number.isInteger(limit) || limit < 1)) {
+      throw new CapabilityError('INVALID_ARGUMENT', `limit must be a positive integer, got ${JSON.stringify(limit)}`, { limit });
+    }
+    if (urlContains !== undefined && typeof urlContains !== 'string') {
+      throw new CapabilityError('INVALID_ARGUMENT', 'urlContains must be a string');
+    }
+    let rows = this.listTabRows(context);
+    const needle = typeof urlContains === 'string' ? urlContains.trim().toLowerCase() : '';
+    if (needle) rows = rows.filter((row) => isTabRecord(row) && typeof row.url === 'string' && row.url.toLowerCase().includes(needle));
+    if (limit !== undefined) rows = rows.slice(0, limit);
+    if (fields !== undefined && fields.length > 0) {
+      const keep = new Set<string>(['id', ...fields.map((f) => f.trim())]);
+      rows = rows.map((row) => (row && typeof row === 'object'
+        ? Object.fromEntries(Object.entries(row as Record<string, unknown>).filter(([key]) => keep.has(key)))
+        : row));
+    }
+    return rows;
+  }
+
+  private listTabRows(context: { target?: BrowserTarget; scope?: 'project' | 'session' | 'global'; affiliatedOnly?: boolean; projectId?: string; authenticatedProjectId?: string; authenticatedWorkspaceId?: string }): unknown[] {
     if (context.target) assertTarget(context.target);
     const boundTabId = context.target?.tabId;
     // The authenticated scope is forwarded on the dispatch context, so a session
@@ -2647,7 +2691,7 @@ export class BrowserControlPort {
     if (boundAlive || !this.host.getProjectStorefrontOrigin) return undefined;
     let rows: unknown[];
     try {
-      rows = this.listTabs({ ...context, scope: 'project', affiliatedOnly: false });
+      rows = this.listTabRows({ ...context, scope: 'project', affiliatedOnly: false });
     } catch {
       return undefined;
     }
@@ -2748,6 +2792,48 @@ export class BrowserControlPort {
     }
   }
 
+  /** Session partition a tab runs in; a tab without an explicit partition shares `default`. */
+  private tabPartition(tabId: string | undefined): string {
+    if (!tabId) return DEFAULT_ANTI_BOT_PARTITION;
+    try {
+      // Ephemeral tabs are absent from the strip list; the session records carry them.
+      const rows = [...(this.host.getSessionTabList?.(tabId) ?? []), ...(this.host.getTabList?.() ?? [])];
+      const row = rows.filter(isTabRecord).find((tab) => tab.id === tabId);
+      return typeof row?.partition === 'string' && row.partition ? row.partition : DEFAULT_ANTI_BOT_PARTITION;
+    } catch {
+      return DEFAULT_ANTI_BOT_PARTITION;
+    }
+  }
+
+  /**
+   * ANTI_BOT_CHALLENGE when `url` is a verification page the caller did not itself ask for;
+   * the refusal also latches the host for the tab's partition so the next attempt fails fast.
+   */
+  private refuseAntiBot(url: string | undefined, tabId: string, requestedUrl?: string): CapabilityError | undefined {
+    const refusal = antiBotRefusal(url, tabId, requestedUrl);
+    const challenge = refusal ? classifyAntiBotUrl(url) : undefined;
+    if (challenge) this.antiBotLatch.set(this.tabPartition(tabId), challenge, tabId);
+    return refusal;
+  }
+
+  /**
+   * Fails fast, without touching the host, when `url`'s host already served this partition a
+   * verification page. The latch lifts when the tab that met the challenge now shows an ordinary
+   * page on that host (the user cleared it by hand). `partitionTabId` names the tab whose
+   * partition the navigation runs in; a request for a challenge page itself is never latched.
+   */
+  private assertAntiBotNotLatched(partitionTabId: string | undefined, url: string | undefined, tabId?: string): void {
+    if (!isWebUrl(url) || classifyAntiBotUrl(url)) return;
+    const partition = this.tabPartition(partitionTabId);
+    const hit = this.antiBotLatch.check(partition, url);
+    if (!hit) return;
+    if (hit.tabIds.some((id) => isOrdinaryPageOnHost(this.safeTabUrl(id), hit.challenge.host))) {
+      this.antiBotLatch.clear(partition, url);
+      return;
+    }
+    throw antiBotChallengeError(hit.challenge, { ...(tabId ? { tabId } : {}), latched: true, retryAfterMs: hit.retryAfterMs });
+  }
+
   /**
    * Converts the host's drain refusal into the wire error, keeping the host's `retryAfterMs`
    * and naming a recovery that does not rely on the blocked CDP queue.
@@ -2771,22 +2857,30 @@ export class BrowserControlPort {
   }
 
   /**
-   * An action at bare coordinates names no element, so the document generation the caller
-   * observed has nothing to be stale against: the call is rebased onto the live generation of the
-   * tab it will hit. Actions that name an element (ref or selector) keep the full fence.
+   * A call that addresses no semantic `@eN` ref (a CSS selector, bare coordinates, a key press) resolves
+   * against the live page when it runs, so the generation the caller observed has nothing to be stale
+   * against: it is rebased onto the live generation of the tab it will hit and reports the rebase.
+   * A call that names an `@eN` ref in any ref-carrying field keeps the full fence, because that ref
+   * only exists on the document that minted it.
    */
-  private rebaseCoordinateOnlyTarget(
+  private rebaseUnlessSemanticRef(
     target: BrowserTarget | undefined,
-    args: { x?: number; y?: number; ref?: string; selector?: string; tabId?: string }
-  ): { target: BrowserTarget | undefined; rebasedFrom?: number; rebasedTo?: number } {
-    const coordinateOnly = typeof args.x === 'number' && Number.isFinite(args.x) && typeof args.y === 'number' && Number.isFinite(args.y) && !args.ref && !args.selector;
-    if (!target || !coordinateOnly || !this.host.getDocumentGeneration) return { target };
+    args: { tabId?: string }
+  ): { target: BrowserTarget | undefined } & DocumentGenerationRebase {
+    if (!target || !this.host.getDocumentGeneration || carriesSemanticRef(args)) return { target };
     const explicit = args.tabId?.trim();
     const candidate = explicit ? (this.host.resolveTargetTabId?.(explicit) ?? explicit) : target.tabId;
     if (!candidate) return { target };
     const live = this.host.getDocumentGeneration(candidate);
     if (typeof live !== 'number' || !Number.isFinite(live) || live < 1 || live === target.documentGeneration) return { target };
-    return { target: { ...target, documentGeneration: live }, rebasedFrom: target.documentGeneration, rebasedTo: live };
+    // A drifted generation on a verification page is the challenge, not a page that merely changed: never rebase past it.
+    const challenge = this.refuseAntiBot(this.safeTabUrl(candidate), candidate);
+    if (challenge) throw challenge;
+    return { target: { ...target, documentGeneration: live }, documentGenerationRebased: { from: target.documentGeneration, to: live } };
+  }
+
+  private withRebase<T extends object>(result: T, fenced: DocumentGenerationRebase): T & DocumentGenerationRebase {
+    return fenced.documentGenerationRebased ? { ...result, documentGenerationRebased: fenced.documentGenerationRebased } : result;
   }
 
   /**
@@ -2809,7 +2903,7 @@ export class BrowserControlPort {
     await this.host.ensureProjectTabHost(projectId, { visible });
   }
 
-  async navigate(target: BrowserTarget, url: string, explicitTabId?: string, options?: { timeoutMs?: number }): Promise<{ navigated: boolean; target: BrowserTarget; dialog?: JsDialogDescription }> {
+  async navigate(target: BrowserTarget, url: string, explicitTabId?: string, options?: { timeoutMs?: number; waitUntil?: NavigationWaitUntil }): Promise<{ navigated: boolean; target: BrowserTarget; loadState?: NavigationLoadState; committedUrl?: string; dialog?: JsDialogDescription }> {
     const tabId = this.resolveTargetTab(target, explicitTabId, 'read');
     const navigationUrl = typeof url === 'string' ? url.trim() : '';
     // about:blank is the only non-http(s) document a session may navigate to (a clean-slate
@@ -2823,9 +2917,16 @@ export class BrowserControlPort {
     const navigationTimeoutMs = typeof requestedTimeoutMs === 'number' && Number.isFinite(requestedTimeoutMs) && requestedTimeoutMs > 0
       ? Math.min(Math.floor(requestedTimeoutMs), NAVIGATE_TIMEOUT_CEILING_MS)
       : undefined;
+    const waitUntil = options?.waitUntil;
+    if (waitUntil !== undefined && !NAVIGATION_WAIT_UNTIL_LOAD_STATE[waitUntil]) {
+      throw new CapabilityError('INVALID_ARGUMENT', `waitUntil must be one of ${Object.keys(NAVIGATION_WAIT_UNTIL_LOAD_STATE).join(', ')}, got ${JSON.stringify(waitUntil)}`, { validWaitUntil: Object.keys(NAVIGATION_WAIT_UNTIL_LOAD_STATE) });
+    }
+    this.assertAntiBotNotLatched(tabId, navigationUrl, tabId);
     const urlBefore = this.safeTabUrl(tabId);
+    // The default (`load`) keeps the plain timeout argument: only an explicit earlier `waitUntil` needs the host's lifecycle waiter.
+    const hostWait = waitUntil !== undefined && waitUntil !== 'load' ? { timeoutMs: navigationTimeoutMs, waitUntil } : navigationTimeoutMs;
     const navigation = Promise.resolve(typeof this.host.navigateAndWait === 'function'
-      ? this.host.navigateAndWait(tabId, navigationUrl, navigationTimeoutMs)
+      ? this.host.navigateAndWait(tabId, navigationUrl, hostWait)
       : this.host.navigate(tabId, navigationUrl));
     const settled = await this.untilJsDialog(tabId, undefined, navigation);
     // A `beforeunload` prompt holds the navigation until it is answered; the caller gets the prompt.
@@ -2846,11 +2947,11 @@ export class BrowserControlPort {
       // for a tab that was still alive. TARGET_STALE remains only for the
       // no-record path, where the host could not classify the miss at all.
       const liveUrl = await this.getLiveTabUrl(tabId).catch(() => '');
-      const challenge = antiBotRefusal(liveUrl, tabId, navigationUrl);
+      const challenge = this.refuseAntiBot(liveUrl, tabId, navigationUrl);
       if (challenge) throw challenge;
       const details = failureCause === 'TARGET_STALE'
         ? staleDetails(liveUrl && liveUrl !== urlBefore ? 'navigated-away' : 'tab-gone', { tabId })
-        : navigationOutcomeDetails(urlBefore, liveUrl, tabId);
+        : { ...navigationOutcomeDetails(urlBefore, liveUrl, tabId), ...(failure?.timedOut ? { loadState: 'timeout' as const } : {}), ...(liveUrl && liveUrl !== urlBefore ? { committedUrl: liveUrl } : {}) };
       throw new CapabilityError(failureCause as CapabilityErrorCode, `[${failureCause}] ${message}`, details);
     }
     const docGen = typeof this.host.getSemanticDocumentGeneration === 'function'
@@ -2865,12 +2966,32 @@ export class BrowserControlPort {
     // call cannot stand behind.
     const settledUrl = await this.getLiveTabUrl(tabId).catch(() => '');
     // The site served a verification page instead of the requested document: say so, once.
-    const challenge = antiBotRefusal(settledUrl, tabId, navigationUrl);
+    const challenge = this.refuseAntiBot(settledUrl, tabId, navigationUrl);
     if (challenge) throw challenge;
     const settledTarget: BrowserTarget = { ...target, tabId, documentGeneration: docGen };
     if (settledUrl) settledTarget.url = settledUrl;
     else delete settledTarget.url;
-    return { navigated: true, target: settledTarget };
+    return { navigated: true, target: settledTarget, loadState: NAVIGATION_WAIT_UNTIL_LOAD_STATE[waitUntil ?? 'load'], ...(settledUrl ? { committedUrl: settledUrl } : {}) };
+  }
+
+  /**
+   * The tabs this session may close, for a quota refusal: counted (managed) ids plus the strip's rows, each
+   * filtered through the same `isTabAllowed` authority `closeTab` applies, the bound tab itself left out
+   * (closing it ends the session's anchor). Bounded so the refusal stays small.
+   */
+  private closableTabIds(boundTabId: string, counted?: Iterable<string>): string[] {
+    const candidates = new Set<string>(counted ?? []);
+    for (const row of this.host.getTabList?.() ?? []) {
+      if (isTabRecord(row)) candidates.add(row.id);
+    }
+    const closable: string[] = [];
+    for (const id of candidates) {
+      if (id === boundTabId) continue;
+      if (this.host.isTabAllowed && !this.host.isTabAllowed(boundTabId, id)) continue;
+      closable.push(id);
+      if (closable.length >= SESSION_TAB_QUOTA_SAMPLE_MAX) break;
+    }
+    return closable;
   }
 
   /**
@@ -2960,7 +3081,7 @@ export class BrowserControlPort {
       : await this.host.reload(tabId, options);
     if (!reloaded) {
       const liveUrl = await this.getLiveTabUrl(tabId).catch(() => '');
-      throw antiBotRefusal(liveUrl, tabId, urlBefore) ?? new CapabilityError(
+      throw this.refuseAntiBot(liveUrl, tabId, urlBefore) ?? new CapabilityError(
         'TARGET_STALE',
         'Reload failed or timed out before a load-complete document was available',
         staleDetails(liveUrl && urlBefore && liveUrl !== urlBefore ? 'navigated-away' : 'tab-gone', { tabId })
@@ -2977,7 +3098,7 @@ export class BrowserControlPort {
         urlAfter = String(await this.host.evalJs('window.location.href', tabId) || '') || undefined;
       }
     } catch {}
-    const reloadChallenge = antiBotRefusal(urlAfter, tabId, urlBefore);
+    const reloadChallenge = this.refuseAntiBot(urlAfter, tabId, urlBefore);
     if (reloadChallenge) throw reloadChallenge;
 
     const docGen = this.host.getDocumentGeneration ? this.host.getDocumentGeneration(tabId) : (target.documentGeneration || 1);
@@ -3270,7 +3391,11 @@ export class BrowserControlPort {
     return err instanceof Error && /timed out after \d+ms/i.test(err.message);
   }
 
-  /** Bounded render-surface probe that is retried once when it times out; any other failure is final. */
+  /**
+   * Bounded render-surface probe that is retried once, with a longer bound, when it times out; any
+   * other failure is final. The first probe is short so an absent surface fails fast; a heavy page
+   * that was merely slow gets the retry window to answer.
+   */
   private async readRenderSurfaceRetryingTimeout(tabId: string, paneId: 'desktop' | 'mobile' | undefined): Promise<RenderSurfaceSnapshot> {
     const probe = this.host.readRenderSurface;
     if (typeof probe !== 'function') throw new CapabilityError('CAPABILITY_NOT_FOUND', 'readRenderSurface is not supported by host');
@@ -3279,7 +3404,7 @@ export class BrowserControlPort {
     } catch (err) {
       if (!this.isRenderSurfaceTimeout(err)) throw err;
       try {
-        return await probe.call(this.host, tabId, paneId, RENDER_SURFACE_PROBE_BOUND_MS);
+        return await probe.call(this.host, tabId, paneId, RENDER_SURFACE_PROBE_RETRY_BOUND_MS);
       } catch (retryErr) {
         // The first probe's own hung Runtime.evaluate still holds the target's queue, so the
         // retry is refused as draining. That is the same hang, not another command's drain:
@@ -3329,6 +3454,8 @@ export class BrowserControlPort {
           operation,
           cause: timedOut ? 'PROBE_TIMEOUT' : 'ABSENT_SURFACE',
           retryable: timedOut,
+          probeTimedOut: timedOut,
+          probeBoundsMs: timedOut ? [RENDER_SURFACE_PROBE_BOUND_MS, RENDER_SURFACE_PROBE_RETRY_BOUND_MS] : [RENDER_SURFACE_PROBE_BOUND_MS],
           probeCause: classifyRenderSurfaceCause(undefined),
         }
       );
@@ -4161,7 +4288,7 @@ export class BrowserControlPort {
           // A request above the effective ceiling gets clamped nowhere — it is
           // refused with the real bound named, so a caller waiting longer than
           // the invocation budget never mistakes the clamp for an honored ask.
-          const effectiveMaxMs = Math.min(BROWSER_EVAL_TIMEOUT_CEILING_MS, Math.max(1_000, BROWSER_EVAL_INVOCATION_BUDGET_MS - 1_000));
+          const effectiveMaxMs = Math.min(BROWSER_EVAL_TIMEOUT_CEILING_MS, BROWSER_EVAL_MAX_TIMEOUT_MS);
           if (options.timeoutMs > effectiveMaxMs) {
             throw new CapabilityError(
               'INVALID_ARGUMENT',
@@ -4310,7 +4437,7 @@ export class BrowserControlPort {
     params = { ...params, condition: effectiveCondition };
     if (params.condition === 'timeout') {
       const tabId = this.resolveTargetTab(target, explicitTabId || params.tabId);
-      const delayMs = Math.min(Math.max(typeof params.timeoutMs === 'number' && Number.isFinite(params.timeoutMs) ? params.timeoutMs : 1000, 0), BROWSER_WAIT_INVOCATION_BUDGET_MS);
+      const delayMs = Math.min(Math.max(typeof params.timeoutMs === 'number' && Number.isFinite(params.timeoutMs) ? params.timeoutMs : 1000, 0), BROWSER_WAIT_MAX_TIMEOUT_MS);
       return this.waitRegistry.execute(tabId, async (waitSignal) => {
         const startTime = Date.now();
         const { promise, resolve, reject } = Promise.withResolvers<void>();
@@ -4340,15 +4467,14 @@ export class BrowserControlPort {
       if (typeof params.timeoutMs === 'number' && !Number.isFinite(params.timeoutMs)) {
         throw new CapabilityError('INVALID_ARGUMENT', 'timeoutMs must be a finite number of milliseconds');
       }
-      // A timeout that exceeds the capability's invocation budget never reaches
-      // the caller: the platform deadline ends the invocation first. Rather
-      // than let the registry clamp silently, refuse explicitly and name the
-      // effective ceiling so the caller re-issues inside the real budget.
-      if (typeof params.timeoutMs === 'number' && params.timeoutMs > BROWSER_WAIT_INVOCATION_BUDGET_MS) {
+      // A timeout above the longest wait the registry honours never reaches the
+      // caller: rather than let the registry clamp silently, refuse explicitly
+      // and name the effective ceiling so the caller re-issues inside it.
+      if (typeof params.timeoutMs === 'number' && params.timeoutMs > BROWSER_WAIT_MAX_TIMEOUT_MS) {
         throw new CapabilityError(
           'INVALID_ARGUMENT',
-          `timeoutMs ${params.timeoutMs} exceeds the allowed budget for this capability: the wait invocation is bounded at ${BROWSER_WAIT_INVOCATION_BUDGET_MS}ms, so an images-settled wait cannot observe longer than that`,
-          { requestedTimeoutMs: params.timeoutMs, effectiveMaxTimeoutMs: BROWSER_WAIT_INVOCATION_BUDGET_MS }
+          `timeoutMs ${params.timeoutMs} exceeds the allowed budget for this capability: a wait is bounded at ${BROWSER_WAIT_MAX_TIMEOUT_MS}ms, so an images-settled wait cannot observe longer than that`,
+          { requestedTimeoutMs: params.timeoutMs, effectiveMaxTimeoutMs: BROWSER_WAIT_MAX_TIMEOUT_MS }
         );
       }
     }
@@ -4486,7 +4612,7 @@ export class BrowserControlPort {
               // Same contract as navigate(): the recorded cause IS the wire code —
               // a navigation timeout is not a stale target.
               const liveUrl = await this.getLiveTabUrl(tabId).catch(() => '');
-              const challenge = antiBotRefusal(liveUrl, tabId);
+              const challenge = this.refuseAntiBot(liveUrl, tabId);
               if (challenge) throw challenge;
               throw new CapabilityError(
                 failureCause as CapabilityErrorCode,
@@ -4807,7 +4933,7 @@ export class BrowserControlPort {
     return { capsuleId: affiliation.capsuleId, projectId: affiliation.projectId };
   }
 
-  openTab(options: { url?: string; activate?: boolean; ephemeral?: boolean; userFacing?: boolean; devicePresetId?: string; mobile?: boolean; projectId?: string } = {}, context?: { target?: BrowserTarget; authenticatedProjectId?: string }): { tabId: string } {
+  openTab(options: { url?: string; activate?: boolean; ephemeral?: boolean; userFacing?: boolean; devicePresetId?: string; mobile?: boolean; projectId?: string; bind?: boolean } = {}, context?: { target?: BrowserTarget; authenticatedProjectId?: string }): { tabId: string } {
     if (!this.host.createTab) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'createTab is not supported by host');
     const boundTabId = context?.target?.tabId;
     // The projectId selector is validated before any allocation: it may only
@@ -4815,17 +4941,22 @@ export class BrowserControlPort {
     // selector is refused here, before an anchor is probed or a tab exists.
     // It selects nothing beyond the authority the target already carries.
     this.assertProjectSelectorWithinScope(options.projectId, context?.target, context?.authenticatedProjectId);
+    // A verification page the target host already served this session's partition: do not open
+    // another tab to feed the detector. An ephemeral tab gets a fresh partition and is not latched.
+    if (options.ephemeral !== true) this.assertAntiBotNotLatched(boundTabId, options.url, boundTabId);
     this.assertAnchorTabLive(boundTabId);
     if (boundTabId && this.host.getManagedTabIds) {
       // The same pruning source the adopt path counts: a closed tab can never be
       // counted here and ignored there.
       const currentTabs = this.host.getManagedTabIds(boundTabId);
       if (currentTabs && currentTabs.size >= SESSION_TAB_LIMIT) {
-        throw new CapabilityError('POLICY_DENIED', `Browser tab limit reached (${currentTabs.size}/${SESSION_TAB_LIMIT} tabs in this session). Close a tab this session owns, then retry.`, {
+        const closableTabIds = this.closableTabIds(boundTabId, currentTabs);
+        throw new CapabilityError('POLICY_DENIED', `Browser tab limit reached (${currentTabs.size}/${SESSION_TAB_LIMIT} tabs in this session). Close a tab this session owns${closableTabIds.length > 0 ? ` (closable: ${closableTabIds.join(', ')})` : ''}, then retry.`, {
           tabId: boundTabId,
           used: currentTabs.size,
           limit: SESSION_TAB_LIMIT,
           countedTabIds: [...currentTabs].slice(0, SESSION_TAB_QUOTA_SAMPLE_MAX),
+          closableTabIds,
           recovery: 'anti.browser.tabs.close {tabId} on a tab this session owns, then retry anti.browser.tabs.create',
         });
       }
@@ -4911,6 +5042,7 @@ export class BrowserControlPort {
             used,
             limit: SESSION_TAB_LIMIT,
             countedTabIds,
+            closableTabIds: this.closableTabIds(boundTabId, counted),
             recovery: 'anti.browser.tabs.close {tabId} on a tab this session owns, then retry anti.browser.tabs.create',
           });
         }
@@ -5078,7 +5210,15 @@ export class BrowserControlPort {
       browserEpoch: epoch,
     };
   }
-  closeTab(tabId: string, context?: { target?: BrowserTarget }): { closed: boolean; tabId: string; failoverTabId?: string; alreadyGone?: boolean } {
+  /**
+   * `creatorTabId` is set by the surface layer to the canonical id of a tab this very attachment
+   * created (its own ledger, consulted before the call): a creator may always close what it opened,
+   * even after a rebind moved its bound tab out of the pool that owns the tab. It waives only the
+   * same-pool check below, and only when the tab this call resolves to (`#N` aliases resolved
+   * against this port's own list) is exactly that id; liveness and the idempotent already-gone
+   * answer are unchanged.
+   */
+  closeTab(tabId: string, context?: { target?: BrowserTarget; creatorTabId?: string }): { closed: boolean; tabId: string; failoverTabId?: string; alreadyGone?: boolean } {
     if (!this.host.closeTab) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'closeTab is not supported by host');
     let targetId = tabId;
     if (typeof tabId === 'string' && tabId.startsWith('#')) {
@@ -5115,7 +5255,9 @@ export class BrowserControlPort {
       }
     }
 
-    if (boundId && targetId.trim() !== boundId.trim()) {
+    const creatorTabId = typeof context?.creatorTabId === 'string' ? context.creatorTabId.trim() : '';
+    const authorizedByCreator = creatorTabId.length > 0 && targetId.trim() === creatorTabId;
+    if (boundId && targetId.trim() !== boundId.trim() && !authorizedByCreator) {
       const isAllowed = this.host.isTabAllowed ? this.host.isTabAllowed(boundId.trim(), targetId.trim()) : false;
       if (!isAllowed) {
         throw new CapabilityError('TARGET_MISMATCH', `Cannot close tab "${targetId}". This session is isolated to tab "${boundId}" and its managed tabs. ${SHARE_TAB_GUIDANCE}`, {
@@ -5316,20 +5458,20 @@ export class BrowserControlPort {
     return { success: false, data: res?.data, executionTier, hoverActive, reason: res?.reason };
   }
 
-  async agentMove(args: { selector?: string; ref?: string; x?: number; y?: number; label?: string; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ moved: boolean }> {
+  async agentMove(args: { selector?: string; ref?: string; x?: number; y?: number; label?: string; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ moved: boolean } & DocumentGenerationRebase> {
     if (!this.host.agentMove && !this.host.dispatchAgentAction) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentMove is not supported by host');
-    const fenced = this.rebaseCoordinateOnlyTarget(target, args);
+    const fenced = this.rebaseUnlessSemanticRef(target, args);
     const tabId = this.resolveTargetTab(fenced.target, args.tabId, 'write', args as Record<string, unknown>);
     return this.viewportGate.withLock(async () => {
       this.revalidateTargetInsideLock(fenced.target, tabId);
       const outcome = await this.runAgentAction('hover', { ...args, tabId }, tabId, () => this.host.agentMove!({ ...args, tabId }));
-      return { moved: outcome.success };
+      return this.withRebase({ moved: outcome.success }, fenced);
     }, { tabId, signal });
   }
 
   async agentClick(args: { selector?: string; ref?: string; x?: number; y?: number; label?: string; trusted?: boolean; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ clicked: boolean; reason?: string; dialog?: JsDialogDescription; documentGenerationRebased?: { from: number; to: number } }> {
     if (!this.host.agentClick && !this.host.dispatchAgentAction) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentClick is not supported by host');
-    const fenced = this.rebaseCoordinateOnlyTarget(target, args);
+    const fenced = this.rebaseUnlessSemanticRef(target, args);
     const tabId = this.resolveTargetTab(fenced.target, args.tabId, 'write', args as Record<string, unknown>);
     return this.viewportGate.withLock(async () => {
       this.revalidateTargetInsideLock(fenced.target, tabId);
@@ -5338,22 +5480,21 @@ export class BrowserControlPort {
         this.bumpMutationRevision(tabId);
       }
       const base = outcome.success || !outcome.reason ? { clicked: outcome.success } : { clicked: false, reason: outcome.reason };
-      const result = fenced.rebasedFrom !== undefined && fenced.rebasedTo !== undefined
-        ? { ...base, documentGenerationRebased: { from: fenced.rebasedFrom, to: fenced.rebasedTo } }
-        : base;
+      const result = this.withRebase(base, fenced);
       // A click that opened `alert`/`confirm`/`prompt` returns the dialog it is waiting on.
       const dialog = this.host.getOpenJsDialog?.(tabId, args.paneId);
       return dialog ? { ...result, dialog } : result;
     }, { tabId, signal });
   }
 
-  async agentType(args: { selector?: string; ref?: string; text?: string; secret?: boolean; fromEnv?: string; clear?: boolean; trusted?: boolean; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ typed: boolean; dialog?: JsDialogDescription }> {
+  async agentType(args: { selector?: string; ref?: string; text?: string; secret?: boolean; fromEnv?: string; clear?: boolean; trusted?: boolean; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ typed: boolean; dialog?: JsDialogDescription } & DocumentGenerationRebase> {
     if (!this.host.agentType && !this.host.dispatchAgentAction) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentType is not supported by host');
     // Resolved before any admission so a bad or missing secret fails without touching the page.
     const { text, secret } = resolveTypedText(args);
-    const tabId = this.resolveTargetTab(target, args.tabId, 'write', args as Record<string, unknown>);
+    const fenced = this.rebaseUnlessSemanticRef(target, args);
+    const tabId = this.resolveTargetTab(fenced.target, args.tabId, 'write', args as Record<string, unknown>);
     return this.viewportGate.withLock(async () => {
-      this.revalidateTargetInsideLock(target, tabId);
+      this.revalidateTargetInsideLock(fenced.target, tabId);
       // The resolved value travels to the host and nowhere else; the variable name is not forwarded.
       const { fromEnv: _fromEnv, ...forwarded } = args;
       const hostArgs = { ...forwarded, text, ...(secret ? { secret: true } : {}), tabId };
@@ -5362,7 +5503,7 @@ export class BrowserControlPort {
         this.bumpMutationRevision(tabId);
       }
       const dialog = this.host.getOpenJsDialog?.(tabId, args.paneId);
-      return dialog ? { typed: outcome.success, dialog } : { typed: outcome.success };
+      return this.withRebase(dialog ? { typed: outcome.success, dialog } : { typed: outcome.success }, fenced);
     }, { tabId, signal });
   }
 
@@ -5393,20 +5534,21 @@ export class BrowserControlPort {
     return answer;
   }
 
-  async keyboardPress(args: { key: string; modifiers?: string[]; tabId?: string }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ success: boolean; key: string; modifiers: string[] }> {
+  async keyboardPress(args: { key: string; modifiers?: string[]; tabId?: string }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ success: boolean; key: string; modifiers: string[] } & DocumentGenerationRebase> {
     if (!this.host.sendKeyboardPress) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'sendKeyboardPress is not supported by host');
     if (!args || typeof args.key !== 'string' || args.key.trim().length === 0) {
       throw new CapabilityError('INVALID_ARGUMENT', 'key must be a non-empty string');
     }
-    const effectiveTabId = this.resolveTargetTab(target, args.tabId, 'write', args as Record<string, unknown>);
+    const fenced = this.rebaseUnlessSemanticRef(target, args);
+    const effectiveTabId = this.resolveTargetTab(fenced.target, args.tabId, 'write', args as Record<string, unknown>);
     return this.viewportGate.withLock(async () => {
-      this.revalidateTargetInsideLock(target, effectiveTabId);
+      this.revalidateTargetInsideLock(fenced.target, effectiveTabId);
       try {
         const pressResult = await this.host.sendKeyboardPress!({ ...args, tabId: effectiveTabId });
         if (pressResult && pressResult.success) {
           this.bumpMutationRevision(effectiveTabId);
         }
-        return pressResult;
+        return this.withRebase(pressResult, fenced);
       } catch (err: unknown) {
         if (err instanceof CapabilityError) throw err;
         const msg = err instanceof Error ? err.message : String(err);
@@ -5417,20 +5559,21 @@ export class BrowserControlPort {
       }
     }, { tabId: effectiveTabId, signal });
   }
-  async agentScroll(args: { deltaY?: number; selector?: string; ref?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ scrolled: boolean }> {
+  async agentScroll(args: { deltaY?: number; selector?: string; ref?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ scrolled: boolean } & DocumentGenerationRebase> {
     if (!this.host.agentScroll) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentScroll is not supported by host');
-    const tabId = this.resolveTargetTab(target, args.tabId, 'write', args as Record<string, unknown>);
+    const fenced = this.rebaseUnlessSemanticRef(target, args);
+    const tabId = this.resolveTargetTab(fenced.target, args.tabId, 'write', args as Record<string, unknown>);
     return this.viewportGate.withLock(async () => {
-      this.revalidateTargetInsideLock(target, tabId);
+      this.revalidateTargetInsideLock(fenced.target, tabId);
       const scrolled = await this.host.agentScroll!({ ...args, tabId });
-      return { scrolled };
+      return this.withRebase({ scrolled }, fenced);
     }, { tabId, signal });
   }
   async agentHover(
     args: { selector?: string; ref?: string; x?: number; y?: number; label?: string; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' },
     target?: BrowserTarget,
     signal?: AbortSignal
-  ): Promise<{
+  ): Promise<DocumentGenerationRebase & {
     hovered: boolean;
     success: boolean;
     executionTier: 'cdp_trusted' | 'isolated_synthetic';
@@ -5438,7 +5581,7 @@ export class BrowserControlPort {
     hint?: string;
   }> {
     if (!this.host.agentHover && !this.host.dispatchAgentAction) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentHover is not supported by host');
-    const fenced = this.rebaseCoordinateOnlyTarget(target, args);
+    const fenced = this.rebaseUnlessSemanticRef(target, args);
     const tabId = this.resolveTargetTab(fenced.target, args.tabId, 'write', args as Record<string, unknown>);
     return this.viewportGate.withLock(async () => {
       this.revalidateTargetInsideLock(fenced.target, tabId);
@@ -5451,7 +5594,7 @@ export class BrowserControlPort {
           : (executionTier === 'cdp_trusted' && outcome.success);
       const isSyntheticInactive = executionTier === 'isolated_synthetic' && !hoverActive;
       const hovered = isSyntheticInactive ? false : (outcome.success && hoverActive);
-      return {
+      return this.withRebase({
         hovered,
         success: hovered,
         executionTier,
@@ -5459,16 +5602,17 @@ export class BrowserControlPort {
         ...(isSyntheticInactive
           ? { hint: 'Synthetic hover dispatched events but CSS :hover is inactive. Use anti.trace.interaction for trusted CDP hover.' }
           : {}),
-      };
+      }, fenced);
     }, { tabId, signal });
   }
 
-  async agentHighlight(args: { selector?: string; ref?: string; label?: string; color?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ highlighted: boolean }> {
+  async agentHighlight(args: { selector?: string; ref?: string; label?: string; color?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ highlighted: boolean } & DocumentGenerationRebase> {
     if (!this.host.agentHighlight) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentHighlight is not supported by host');
-    const tabId = this.resolveTargetTab(target, args.tabId, 'write', args as Record<string, unknown>);
+    const fenced = this.rebaseUnlessSemanticRef(target, args);
+    const tabId = this.resolveTargetTab(fenced.target, args.tabId, 'write', args as Record<string, unknown>);
     return this.viewportGate.withLock(async () => {
-      this.revalidateTargetInsideLock(target, tabId);
-      return { highlighted: await this.host.agentHighlight!({ ...args, tabId }) };
+      this.revalidateTargetInsideLock(fenced.target, tabId);
+      return this.withRebase({ highlighted: await this.host.agentHighlight!({ ...args, tabId }) }, fenced);
     }, { tabId, signal });
   }
   async agentClear(options?: { tabId?: string; paneId?: 'desktop' | 'mobile' } | string, target?: BrowserTarget): Promise<{ cleared: boolean }> {
@@ -5498,21 +5642,44 @@ export class BrowserControlPort {
     if (!args || !Array.isArray(args.actions) || args.actions.length === 0) {
       throw new CapabilityError('INVALID_ARGUMENT', 'actions must be a non-empty array');
     }
-    // A sequence that addresses the page only by bare coordinates names no element, so it is not
-    // held to the generation the caller observed (selector and ref steps still are).
-    const dependsOnPriorDocument = sequenceDependsOnPriorDocument(args.actions) && !sequenceUsesOnlyCoordinates(args.actions);
-    // A sequence that never touches the document the caller observed (it navigates first, or
-    // only waits / screenshots) is rebased onto the live generation BEFORE both generation
+    // Reject a malformed step before any dispatch: the host would otherwise run the steps before it
+    // and only then stop on the first one it cannot execute.
+    args.actions.forEach((step, stepIndex) => {
+      const type = step && typeof step === 'object' && !Array.isArray(step) ? (step as Record<string, unknown>).type : undefined;
+      if (typeof type !== 'string' || !SEQUENCE_STEP_TYPES.includes(type)) {
+        throw new CapabilityError(
+          'INVALID_ARGUMENT',
+          `actions[${stepIndex}] ${typeof type === 'string' ? `has unsupported type ${JSON.stringify(type)}` : 'is missing a string "type"'}; every step needs one of: ${SEQUENCE_STEP_TYPES.join(', ')}`,
+          { stepIndex, validTypes: [...SEQUENCE_STEP_TYPES], ...(typeof type === 'string' ? { receivedType: type } : {}) }
+        );
+      }
+    });
+    // Only a step that names a semantic `@eN` ref depends on the generation the caller observed
+    // (a selector, coordinates, a key press, a wait or a screenshot resolve on the live page).
+    const dependsOnPriorDocument = sequenceDependsOnPriorDocument(args.actions);
+    // A sequence with no such step is rebased onto the live generation BEFORE both generation
     // fences. Tab existence, tab/epoch identity and `isTabAllowed` still run on the rebased
     // target, and only the bound tab is rebased: an explicit other tab keeps its own check.
     let fencedTarget = target;
+    let documentGenerationRebased: { from: number; to: number } | undefined;
     const boundTabId = target?.tabId?.trim();
     if (!dependsOnPriorDocument && target && boundTabId) {
       const explicitTabId = args.tabId?.trim();
       const candidateTabId = explicitTabId ? (this.host.resolveTargetTabId?.(explicitTabId) ?? explicitTabId) : boundTabId;
       if (candidateTabId === boundTabId) {
         const liveGeneration = this.host.getDocumentGeneration?.(boundTabId);
-        if (typeof liveGeneration === 'number') fencedTarget = { ...target, documentGeneration: liveGeneration };
+        if (typeof liveGeneration === 'number') {
+          if (liveGeneration !== target.documentGeneration) {
+            // A sequence that opens with a navigation leaves the page on purpose; anything else acts on the page that drifted.
+            const firstType = (args.actions[0] as { type?: unknown } | undefined)?.type;
+            if (firstType !== 'navigate') {
+              const challenge = this.refuseAntiBot(this.safeTabUrl(boundTabId), boundTabId);
+              if (challenge) throw challenge;
+            }
+            documentGenerationRebased = { from: target.documentGeneration, to: liveGeneration };
+          }
+          fencedTarget = { ...target, documentGeneration: liveGeneration };
+        }
       }
     }
     // The lock deadline must outlive the slowest navigation the caller asked for.
@@ -5528,7 +5695,7 @@ export class BrowserControlPort {
         const result = await this.host.executeActionSequence!({ ...args, tabId: effectiveTabId });
         const liveDocumentGeneration = this.host.getDocumentGeneration?.(effectiveTabId);
         if (typeof liveDocumentGeneration === 'number' && result && typeof result === 'object' && !Array.isArray(result)) {
-          return { ...(result as Record<string, unknown>), liveDocumentGeneration };
+          return { ...(result as Record<string, unknown>), liveDocumentGeneration, ...(documentGenerationRebased ? { documentGenerationRebased } : {}) };
         }
         return result;
       }, { tabId: effectiveTabId, signal, ...(lockTimeoutMs !== undefined ? { timeoutMs: lockTimeoutMs } : {}) });
@@ -5537,21 +5704,23 @@ export class BrowserControlPort {
     }
   }
 
-  async uploadFileInput(params: { refOrSelector: string; filePaths: string[]; workspaceRoot?: string; viaFileChooser?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ success: boolean; uploadedCount: number; reason?: string }> {
+  async uploadFileInput(params: { refOrSelector: string; filePaths: string[]; workspaceRoot?: string; viaFileChooser?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ success: boolean; uploadedCount: number; reason?: string } & DocumentGenerationRebase> {
     if (!this.host.uploadFileInput) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'uploadFileInput is not supported by host');
-    const effectiveTabId = this.resolveTargetTab(target, params.tabId, 'write', params as Record<string, unknown>);
+    const fenced = this.rebaseUnlessSemanticRef(target, params);
+    const effectiveTabId = this.resolveTargetTab(fenced.target, params.tabId, 'write', params as Record<string, unknown>);
     return this.viewportGate.withLock(async () => {
-      this.revalidateTargetInsideLock(target, effectiveTabId);
-      return this.host.uploadFileInput!({ ...params, tabId: effectiveTabId });
+      this.revalidateTargetInsideLock(fenced.target, effectiveTabId);
+      return this.withRebase(await this.host.uploadFileInput!({ ...params, tabId: effectiveTabId }), fenced);
     }, { tabId: effectiveTabId, signal });
   }
 
-  async dropFiles(params: { refOrSelector: string; filePaths: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ success: boolean; droppedCount: number; reason?: string }> {
+  async dropFiles(params: { refOrSelector: string; filePaths: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ success: boolean; droppedCount: number; reason?: string } & DocumentGenerationRebase> {
     if (!this.host.dropFiles) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'dropFiles is not supported by host');
-    const effectiveTabId = this.resolveTargetTab(target, params.tabId, 'write', params as Record<string, unknown>);
+    const fenced = this.rebaseUnlessSemanticRef(target, params);
+    const effectiveTabId = this.resolveTargetTab(fenced.target, params.tabId, 'write', params as Record<string, unknown>);
     return this.viewportGate.withLock(async () => {
-      this.revalidateTargetInsideLock(target, effectiveTabId);
-      return this.host.dropFiles!({ ...params, tabId: effectiveTabId });
+      this.revalidateTargetInsideLock(fenced.target, effectiveTabId);
+      return this.withRebase(await this.host.dropFiles!({ ...params, tabId: effectiveTabId }), fenced);
     }, { tabId: effectiveTabId, signal });
   }
 
@@ -5568,16 +5737,17 @@ export class BrowserControlPort {
     force?: boolean;
     tabId?: string;
     paneId?: 'desktop' | 'mobile';
-  }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ success: boolean; reason?: string; data?: unknown }> {
+  }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ success: boolean; reason?: string; data?: unknown } & DocumentGenerationRebase> {
     if (!this.host.agentDrag) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentDrag is not supported by host');
-    const effectiveTabId = this.resolveTargetTab(target, params.tabId, 'write', params as Record<string, unknown>);
+    const fenced = this.rebaseUnlessSemanticRef(target, params);
+    const effectiveTabId = this.resolveTargetTab(fenced.target, params.tabId, 'write', params as Record<string, unknown>);
     return this.viewportGate.withLock(async () => {
-      this.revalidateTargetInsideLock(target, effectiveTabId);
+      this.revalidateTargetInsideLock(fenced.target, effectiveTabId);
       const result = await this.host.agentDrag!({ ...params, tabId: effectiveTabId });
       if (result.success) {
         this.bumpMutationRevision(effectiveTabId);
       }
-      return result;
+      return this.withRebase(result, fenced);
     }, { tabId: effectiveTabId, signal });
   }
 
@@ -5631,7 +5801,7 @@ export class BrowserControlPort {
       });
     }
   }
-  async setViewport(options: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; tabId?: string; reload?: boolean; zoomFactor?: number }, target?: BrowserTarget): Promise<{ success: boolean; width: number; height: number; mobile?: boolean; presetId: string; reloaded?: boolean; observedWidth?: number; observedHeight?: number; verified?: boolean; zoomFactor: number | null; zoomApplied: boolean; layoutOverflowWidth?: number; layoutOverflowHeight?: number }> {
+  async setViewport(options: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; tabId?: string; reload?: boolean; zoomFactor?: number; hideScrollbar?: boolean }, target?: BrowserTarget): Promise<{ success: boolean; width: number; height: number; mobile?: boolean; presetId: string; reloaded?: boolean; observedWidth?: number; observedHeight?: number; clientWidth?: number; scrollbarsHidden?: boolean; verified?: boolean; zoomFactor: number | null; zoomApplied: boolean; layoutOverflowWidth?: number; layoutOverflowHeight?: number }> {
     if (!this.host.setViewportSize) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'setViewportSize is not supported by host');
     if (typeof options.width !== 'number' || options.width <= 0 || typeof options.height !== 'number' || options.height <= 0) {
       throw new CapabilityError('INVALID_ARGUMENT', 'width and height must be positive numbers');
@@ -5639,6 +5809,9 @@ export class BrowserControlPort {
     const requestedZoom = options.zoomFactor;
     if (requestedZoom !== undefined && (typeof requestedZoom !== 'number' || !Number.isFinite(requestedZoom) || requestedZoom < 0.25 || requestedZoom > 5.0)) {
       throw new CapabilityError('INVALID_ARGUMENT', 'zoomFactor must be a number between 0.25 and 5.0');
+    }
+    if (options.hideScrollbar !== undefined && typeof options.hideScrollbar !== 'boolean') {
+      throw new CapabilityError('INVALID_ARGUMENT', 'hideScrollbar must be a boolean');
     }
     const effectiveTabId = this.resolveTargetTab(target, options.tabId);
     // A persisted tab zoom is this host's *viewport-preview* scale, not a page
@@ -5666,6 +5839,7 @@ export class BrowserControlPort {
       ...(options.deviceScaleFactor !== undefined ? { deviceScaleFactor: options.deviceScaleFactor } : {}),
       tabId: effectiveTabId,
       ...(options.reload !== undefined ? { reload: options.reload } : {}),
+      ...(options.hideScrollbar !== undefined ? { hideScrollbar: options.hideScrollbar } : {}),
     });
     const isStructured = typeof hostResult === 'object' && hostResult !== null;
     const ok = isStructured ? hostResult.success === true : Boolean(hostResult);
@@ -5692,6 +5866,8 @@ export class BrowserControlPort {
     const isMobile = options.mobile ?? (options.width < 768);
     type ObservedMeasurement = {
       vw: number;
+      /** Scrollbar-excluded content width (`documentElement.clientWidth`), when the probe reported it. */
+      clientWidth?: number;
       vh: number;
       visualViewportWidth?: number;
       visualViewportHeight?: number;
@@ -5724,6 +5900,7 @@ export class BrowserControlPort {
               return {
                 vw: surface.vw,
                 vh: surface.vh,
+                clientWidth: typeof surface.layoutWidth === 'number' && surface.layoutWidth > 0 ? surface.layoutWidth : undefined,
                 visualViewportWidth: surface.visualViewportWidth,
                 visualViewportHeight: surface.visualViewportHeight,
                 screenWidth: surface.screenWidth,
@@ -5742,6 +5919,7 @@ export class BrowserControlPort {
           return {
             vw: metrics.innerWidth,
             vh: metrics.innerHeight,
+            clientWidth: metrics.innerWidth > 0 ? metrics.innerWidth : undefined,
             visualViewportWidth: typeof metrics.visualViewportWidth === 'number' ? metrics.visualViewportWidth : undefined,
             visualViewportHeight: typeof metrics.visualViewportHeight === 'number' ? metrics.visualViewportHeight : undefined,
             screenWidth: typeof metrics.screenWidth === 'number' ? metrics.screenWidth : undefined,
@@ -5795,6 +5973,12 @@ export class BrowserControlPort {
       ...(layoutMatched
         ? { observedWidth: observed.vw, observedHeight: observed.vh }
         : { observedWidth: options.width, observedHeight: options.height }),
+      // The content width left after the scrollbar gutter, so a 15px difference from `observedWidth` is visible rather than a surprise.
+      ...(observed.clientWidth !== undefined ? { clientWidth: observed.clientWidth } : {}),
+      ...((): { scrollbarsHidden?: boolean } => {
+        const hidden = options.hideScrollbar ?? (this.host.isScrollbarsHidden?.(effectiveTabId) === true ? true : undefined);
+        return hidden === undefined ? {} : { scrollbarsHidden: hidden };
+      })(),
       ...(!layoutMatched && observed.vw > options.width + 1 ? { layoutOverflowWidth: observed.vw } : {}),
       ...(!layoutMatched && observed.vh > options.height + 1 ? { layoutOverflowHeight: observed.vh } : {}),
       verified: Boolean(observed),
@@ -6191,7 +6375,21 @@ export class BrowserControlPort {
         }
         el.textContent = css;
         const active = Array.from(document.querySelectorAll('style[' + ATTR + ']')).map(s => s.getAttribute(ATTR));
-        return { ok: true, action: 'apply', scopeId, activeScopes: active };
+        // Elements the override's selectors reach right now (media rules count only while they match):
+        // zero means the CSS applied but styles nothing, so the caller does not read a no-op as a fix.
+        const matched = new Set();
+        const collect = (rules) => {
+          for (const rule of Array.from(rules || [])) {
+            if (rule.selectorText) {
+              try { document.querySelectorAll(rule.selectorText).forEach((node) => matched.add(node)); } catch {}
+            } else if (rule.cssRules) {
+              if (rule.media && !window.matchMedia(rule.media.mediaText).matches) continue;
+              collect(rule.cssRules);
+            }
+          }
+        };
+        try { collect(el.sheet && el.sheet.cssRules); } catch {}
+        return { ok: true, action: 'apply', scopeId, activeScopes: active, byteLength: new TextEncoder().encode(css).length, url: location.href, matchedElements: matched.size };
       } catch (err) {
         return { ok: false, error: String(err) };
       }
@@ -6199,7 +6397,7 @@ export class BrowserControlPort {
 
     return this.passivePool.execute(tabId, async () => {
       const res = await this.host.evalJs(script, tabId, effectivePane);
-      return res as Record<string, unknown>;
+      return (res && typeof res === 'object' ? { ...(res as Record<string, unknown>), tabId } : res) as Record<string, unknown>;
     });
   }
 
@@ -8321,6 +8519,24 @@ export class BrowserControlPort {
         if (attempt < maxAttempts) {
           return { settle: false, resampleCount: nextCount };
         }
+        // Name the side and the page mutations that kept the revision moving, so a caller can tell
+        // a live widget (mask it) from a page that never settles, instead of a bare INCONCLUSIVE.
+        const trippedSide: 'target' | 'baseline' = targetCoh.mutation === 'RESAMPLE' ? 'target' : 'baseline';
+        const trippedCheck: CoherencePairCheck = trippedSide === 'target' ? targetCoh : (baselineCoh as CoherencePairCheck);
+        const trippedTab = trippedSide === 'target' ? tabId : (compTabTarget as string);
+        let trippedSamples: string[] = [];
+        try {
+          const read = this.host.getMutationSamples?.(trippedTab);
+          if (Array.isArray(read)) trippedSamples = read.filter((s): s is string => typeof s === 'string').slice(-8);
+        } catch {
+          trippedSamples = [];
+        }
+        const trip = {
+          side: trippedSide,
+          revisionBefore: trippedCheck.postInject.mutationRevision,
+          revisionAfter: trippedCheck.afterCapture.mutationRevision,
+          samples: trippedSamples,
+        };
         return settled({
           ok: false,
           status: 'INCONCLUSIVE',
@@ -8334,6 +8550,7 @@ export class BrowserControlPort {
             identityCoherent: true,
             captureStateCompatible: false,
             resampleCount: nextCount,
+            trip,
             target: coherencePairReceipt(targetCoh),
             baseline: baselineCoh ? coherencePairReceipt(baselineCoh) : undefined,
           },
@@ -9691,7 +9908,7 @@ export class BrowserControlPort {
       const liveDocGen = this.host.getDocumentGeneration ? this.host.getDocumentGeneration(resolved) : target.documentGeneration;
       const isEffectful = operationType === 'write' || operationType === 'lifecycle';
       if (isEffectful && typeof target.documentGeneration === 'number' && typeof liveDocGen === 'number' && target.documentGeneration !== liveDocGen) {
-        const liveChallenge = antiBotRefusal(this.safeTabUrl(resolved), resolved);
+        const liveChallenge = this.refuseAntiBot(this.safeTabUrl(resolved), resolved);
         if (liveChallenge) throw liveChallenge;
         throw new CapabilityError(
           'TARGET_STALE',

@@ -21,6 +21,8 @@ import { DEVICE_ERROR_REMEDIATION } from '../../shared/device-control-contracts'
 import { assertRequiredArgs } from './required-args';
 import { tabShareGrants, type TabShareGrant } from '../browser/tab-share-grants';
 import { dialogOpenError, type JsDialogDescription } from '../browser/js-dialog-tracker';
+import { SHARE_TAB_GUIDANCE } from '../../shared/tab-sharing';
+import { AttachmentTabLedger } from './attachment-tab-ledger';
 
 /**
  * Target-bound capabilities that never reach the page, so an open JavaScript dialog does not
@@ -28,16 +30,6 @@ import { dialogOpenError, type JsDialogDescription } from '../browser/js-dialog-
  */
 const DIALOG_EXEMPT_CAPABILITIES: Record<string, true> = { 'anti.browser.dialog': true, 'browser.switch-tab': true };
 
-/** Exact label of the tab context-menu entry that lets the user grant this project's agents a tab. */
-export const SHARE_TAB_MENU_LABEL = 'Cho agent của project này dùng tab';
-
-/**
- * Guidance appended to refusals that name a tab outside the session's authority. The owner of
- * the browser (not the agent) is the only one who can widen that authority, and the grant is a
- * context-menu entry on the tab itself, so a user who pastes a tab id is told where to find it.
- */
-export const SHARE_TAB_GUIDANCE =
-  `To work in a tab this session does not manage (for example one the user opened), the user must right-click that tab and choose '${SHARE_TAB_MENU_LABEL}'; then call anti.browser.rebind_target with its tabId.`;
 
 /** The mobile-pane hint only applies to a tab that really is in split review mode. */
 export function splitReviewNote(isSplit: boolean | undefined): string {
@@ -219,6 +211,8 @@ export interface CapabilityCatalogueOptions {
 export class CapabilityCatalogue {
   private readonly definitions = new Map<string, RegisteredCapability>();
   private readonly sessionFilters = new Map<string, SessionCapabilityFilter>();
+  /** Tabs each attachment opened itself; the transport records them, the gate and close-tab consult them. */
+  readonly tabLedger = new AttachmentTabLedger();
   private runtime: RuntimeFeatureSwitch;
   private revisionCounter = 1;
 
@@ -824,9 +818,13 @@ export class CapabilityCatalogue {
             capabilityName === 'antifan_switch_tab' ||
             capabilityName === 'anti.browser.tabs.activate');
         if (!agentTabSwitch) {
-          const isAllowed = this.options.isTabAllowed
+          // A tab this attachment created stays within its authority after a rebind moved the
+          // binding outside the session pool; every other tab still needs the pool relation.
+          const callerAttachmentId = (context as Partial<AuthenticatedCapabilityContext>).attachmentId;
+          const createdByCaller = Boolean(callerAttachmentId) && this.tabLedger.owns(callerAttachmentId as string, canonicalId);
+          const isAllowed = createdByCaller || (this.options.isTabAllowed
             ? this.options.isTabAllowed(context.browserTarget.tabId, canonicalId) === true
-            : false;
+            : false);
 
           if (!isAllowed) {
             // Check if tab is allowed for terminal session or if canonicalId exists in live tabs

@@ -766,7 +766,8 @@ describe('Chromium <-> Terminal 30-Flow Interaction & Tab Management Matrix', ()
       }
     );
 
-    // 2. Public call to agentClick with stale documentGeneration (999 vs 1) on existing tab throws TARGET_STALE
+    // 2. Public call to agentClick by semantic ref with stale documentGeneration (999 vs 1) on existing tab throws TARGET_STALE
+    //    (a selector click would be rebased onto the live generation instead: only an @eN ref is held to it)
     const staleGenTarget: BrowserTarget = {
       tabId: 'tab-initial',
       projectId: 'proj-1',
@@ -776,7 +777,7 @@ describe('Chromium <-> Terminal 30-Flow Interaction & Tab Management Matrix', ()
       documentGeneration: 999, // Stale generation
     };
     await assert.rejects(
-      async () => port.agentClick({ selector: '#button' }, staleGenTarget),
+      async () => port.agentClick({ ref: '@e3' }, staleGenTarget),
       (err: unknown) => {
         const capErr = err as CapabilityError;
         return capErr.code === 'TARGET_STALE';

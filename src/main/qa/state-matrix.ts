@@ -14,7 +14,9 @@
  *           scanner grades contrast and tap targets inside the open panel.
  *   close:  Escape, the close control and the backdrop are each tried from a fresh open; after
  *           each, the panel must be gone, the page scroll lock released and focus returned to
- *           the trigger.
+ *           the trigger. The closed state is re-read until it settles (a timer or rAF driven close
+ *           is invisible to the animation settle). An Escape that left the panel open is sent once
+ *           more: a close on the repeat is CLOSE_ESCAPE_FLAKY (warning), not a failure.
  *
  * Safe mode is always on: navigation from anchors and form submissions are blocked by
  * capture-phase listeners for the duration of the run (and the host refuses navigation a theme
@@ -45,6 +47,7 @@ export type StateMatrixFailureCode =
   | 'CLOSE_CONTROL_MISSING'
   | 'CLOSE_ESCAPE_FAILED'
   | 'CLOSE_ESCAPE_UNMEASURED'
+  | 'CLOSE_ESCAPE_FLAKY'
   | 'MODAL_UNSTYLED'
   | 'CLOSE_BUTTON_FAILED'
   | 'CLOSE_BACKDROP_FAILED'
@@ -157,6 +160,11 @@ export const STATE_MATRIX_LIMITS = Object.freeze({
   /** Extra measurement turns before an overlay is declared unopened (script-driven openings). */
   openPollTurns: 8,
   openPollIntervalMs: 250,
+  /**
+   * Run-wide budget for re-reading "is it closed yet" after a close input: a page whose overlay
+   * never closes must not eat the workflow deadline, so once spent each read is a single sample.
+   */
+  closePollBudgetMs: 8000,
   minPanelPx: { modal: { w: 200, h: 120 }, drawer: { w: 200, h: 120 }, dropdown: { w: 120, h: 40 }, megamenu: { w: 200, h: 80 } },
 });
 
@@ -931,6 +939,29 @@ export async function runStateMatrix(deps: StateMatrixDeps, options: StateMatrix
       // Settling is best effort; the measurement that follows reports what the page shows.
     }
   };
+  // A close is not always finished when the settle ends: a timer or requestAnimationFrame driven
+  // transition is invisible to getAnimations(). Re-read the closed state every poll interval for
+  // up to maxAnimationSettleMs, stopping at the first "closed". The run-wide budget bounds the
+  // time spent waiting on overlays that did NOT close, so a page that never closes still ends
+  // inside the workflow deadline, while a slow-but-valid close costs the budget nothing and
+  // cannot starve the triggers that follow it. `since` lets a caller (the Escape retry) put the
+  // press and settle that preceded the poll into the same accounting.
+  let closePollSpentMs = 0;
+  const measureClosedPolled = async (index: number, since?: number): Promise<{ closed: boolean; bodyRestored: boolean; focusReturned: boolean }> => {
+    const read = async () => {
+      const after = (await deps.evalJs(buildMeasureClosedScript(index))) as { closed?: boolean; bodyRestored?: boolean; focusReturned?: boolean } | null;
+      return { closed: Boolean(after && after.closed), bodyRestored: Boolean(after && after.bodyRestored), focusReturned: Boolean(after && after.focusReturned) };
+    };
+    const startedAt = since ?? now();
+    let reading = await read();
+    const turns = Math.ceil(STATE_MATRIX_LIMITS.maxAnimationSettleMs / STATE_MATRIX_LIMITS.openPollIntervalMs);
+    for (let turn = 0; turn < turns && !reading.closed && closePollSpentMs + (now() - startedAt) < STATE_MATRIX_LIMITS.closePollBudgetMs; turn++) {
+      await deps.wait(STATE_MATRIX_LIMITS.openPollIntervalMs);
+      reading = await read();
+    }
+    if (!reading.closed) closePollSpentMs += now() - startedAt;
+    return reading;
+  };
 
   // Discovery installs the safe-mode guard, so it sits inside the same try/finally as the run:
   // a failing or malformed discovery still removes the guard and every tag.
@@ -975,15 +1006,31 @@ export async function runStateMatrix(deps: StateMatrixDeps, options: StateMatrix
       };
       const escapeNotClosing = (): void => {
         const p = escapeProbe;
-        if (p && p.hasFocus === false) {
+        if (p === null) {
+          fail('CLOSE_ESCAPE_UNMEASURED', `the Escape probe could not be read back from the page, so whether the ${t.kind} closes on Escape is unmeasured`);
+        } else if (p.hasFocus === false) {
           fail('CLOSE_ESCAPE_UNMEASURED', `the page did not have focus when Escape was sent, so whether the ${t.kind} closes on Escape is unmeasured`);
-        } else if (p && p.seen === false) {
+        } else if (p.seen === false) {
           fail('CLOSE_ESCAPE_UNMEASURED', `no keydown event reached the page when Escape was sent, so whether the ${t.kind} closes on Escape is unmeasured`);
-        } else if (p && p.seen === true && typeof p.key === 'string' && p.key !== 'Escape') {
+        } else if (p.seen === true && typeof p.key !== 'string') {
+          fail('CLOSE_ESCAPE_UNMEASURED', `the page saw a keydown but not which key, so whether the ${t.kind} closes on Escape is unmeasured`);
+        } else if (p.seen === true && p.key !== 'Escape') {
           fail('CLOSE_ESCAPE_UNMEASURED', `the key delivered to the page was "${p.key}", not Escape, so whether the ${t.kind} closes on Escape is unmeasured`);
         } else {
           fail('CLOSE_ESCAPE_FAILED', `Escape does not close the ${t.kind}`);
         }
+      };
+      // An Escape that left the overlay open is sent once more before it is graded: a first press
+      // can be lost to focus or to a page still finishing its own transition. A close on the
+      // second press is reported as a warning, not as an overlay that ignores Escape.
+      const retryEscape = async (): Promise<{ closed: boolean; bodyRestored: boolean; focusReturned: boolean }> => {
+        const retryStartedAt = now();
+        await pressEscape();
+        await settle();
+        return measureClosedPolled(t.index, retryStartedAt);
+      };
+      const escapeFlaky = (): void => {
+        fail('CLOSE_ESCAPE_FLAKY', `Escape closed the ${t.kind} only on the second press; the first press left it open`);
       };
       const open = async (): Promise<boolean> => {
         await deps.evalJs(buildPrepareScript(t.index, firstOpen));
@@ -1077,8 +1124,12 @@ export async function runStateMatrix(deps: StateMatrixDeps, options: StateMatrix
       let isOpenNow = true;
       const measureClose = async (method: StateMatrixCloseAttemptMethod): Promise<StateMatrixCloseAttempt> => {
         await settle();
-        const after = (await deps.evalJs(buildMeasureClosedScript(t.index))) as { closed: boolean; bodyRestored: boolean; focusReturned: boolean };
-        return { method, closed: Boolean(after && after.closed), bodyRestored: Boolean(after && after.bodyRestored), focusReturned: Boolean(after && after.focusReturned) };
+        let reading = await measureClosedPolled(t.index);
+        if (method === 'escape' && !reading.closed) {
+          reading = await retryEscape();
+          if (reading.closed) escapeFlaky();
+        }
+        return { method, ...reading };
       };
       if (!dialogLike) {
         // Menus: Escape (an accessibility expectation), then the pointer leaving, then a click
@@ -1132,10 +1183,14 @@ export async function runStateMatrix(deps: StateMatrixDeps, options: StateMatrix
           if (!clicked.ok) { attempt.skipped = clicked.skipped; result.closes.push(attempt); continue; }
         }
         await settle();
-        const after = (await deps.evalJs(buildMeasureClosedScript(t.index))) as { closed: boolean; bodyRestored: boolean; focusReturned: boolean };
-        attempt.closed = Boolean(after && after.closed);
-        attempt.bodyRestored = Boolean(after && after.bodyRestored);
-        attempt.focusReturned = Boolean(after && after.focusReturned);
+        let reading = await measureClosedPolled(t.index);
+        if (method === 'escape' && !reading.closed) {
+          reading = await retryEscape();
+          if (reading.closed) escapeFlaky();
+        }
+        attempt.closed = reading.closed;
+        attempt.bodyRestored = reading.bodyRestored;
+        attempt.focusReturned = reading.focusReturned;
         result.closes.push(attempt);
         if (attempt.closed) {
           isOpenNow = false;
@@ -1160,8 +1215,8 @@ export async function runStateMatrix(deps: StateMatrixDeps, options: StateMatrix
         for (const recover of recoveries) {
           await recover();
           await settle();
-          const after = (await deps.evalJs(buildMeasureClosedScript(t.index))) as { closed: boolean } | null;
-          if (after && after.closed) { recovered = true; break; }
+          const after = await measureClosedPolled(t.index);
+          if (after.closed) { recovered = true; break; }
         }
         if (!recovered) {
           fail('STATE_STUCK_OPEN', `the ${t.kind} could not be closed by any method; remaining overlays were not exercised`);

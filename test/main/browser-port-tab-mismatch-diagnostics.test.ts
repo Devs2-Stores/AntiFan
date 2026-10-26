@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { BrowserControlPort, type BrowserHostPort } from '../../src/main/tools/browser-control-port';
-import { SHARE_TAB_GUIDANCE, SHARE_TAB_MENU_LABEL } from '../../src/main/tools/capability-catalogue';
+import { SHARE_TAB_GUIDANCE, SHARE_TAB_MENU_LABEL } from '../../src/shared/tab-sharing';
 import { classifyTargetStale } from '../../src/main/tools/capability-transport';
 import { CapabilityError, type BrowserTarget } from '../../src/shared/control-plane-contracts';
 
@@ -130,7 +130,7 @@ describe('TARGET_STALE causes (K7)', () => {
   it('generation drift is reported with cause dom-drift and both generations', async () => {
     const port = new BrowserControlPort(buildHost({ getDocumentGeneration: () => 4 }));
     await assert.rejects(
-      () => port.agentClick({ selector: 'button' }, TARGET),
+      () => port.agentClick({ ref: '@e1' }, TARGET),
       (err: unknown) => {
         assert.ok(err instanceof CapabilityError);
         assert.equal(err.code, 'TARGET_STALE');

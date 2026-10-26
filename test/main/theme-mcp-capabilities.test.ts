@@ -272,7 +272,7 @@ describe('Theme QA MCP Capabilities', () => {
             tabId: 'tab-1',
             workspaceRoot: root,
             profile: 'audit',
-            viewports: {
+            baselineViewports: {
               desktop: { mismatchPercent: 0.5, passed: true },
               tablet: { mismatchPercent: 1.0, passed: true },
               mobile: { mismatchPercent: 1.5, passed: true },
@@ -312,7 +312,7 @@ describe('Theme QA MCP Capabilities', () => {
           {
             tabId: 'tab-1',
             workspaceRoot: root,
-            viewports: {
+            baselineViewports: {
               desktop: { mismatchPercent: 0.5, passed: true },
               tablet: { mismatchPercent: 1.0, passed: true },
               mobile: { mismatchPercent: 1.5, passed: true },
@@ -343,6 +343,30 @@ describe('Theme QA MCP Capabilities', () => {
         const receipt = readSoleReceipt(root);
         assert.strictEqual(receipt.verdict, 'QA_FAILED');
         assert.strictEqual(receipt.criticalCount, 1);
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it('refuses the old viewports baseline key with a renamed INVALID_ARGUMENT and runs no QA', async () => {
+      const root = mkThemeRoot('antifan-qa-renamed-viewports-');
+      try {
+        const catalogue = new CapabilityCatalogue(defaultOptions);
+        let validations = 0;
+        const workflow = { validate: async () => { validations += 1; return { summary: { passed: true, criticalCount: 0, verdict: 'PASS' } }; } } as unknown as ThemeQaWorkflow;
+        registerBrowserCapabilities(catalogue, makeBoundBrowser(), workflow, () => root);
+        const stale = { desktop: { mismatchPercent: 0.5, passed: true } };
+
+        for (const name of ['theme.qa_validate', 'antifan_theme_qa_validate']) {
+          await assert.rejects(
+            () => catalogue.dispatch(name, { tabId: 'tab-1', workspaceRoot: root, viewports: stale }, makeBoundContext()),
+            (err: unknown) => err instanceof CapabilityError
+              && err.code === 'INVALID_ARGUMENT'
+              && /viewports was renamed to baselineViewports/.test(err.message)
+              && JSON.stringify(err.details?.renamedField) === JSON.stringify({ from: 'viewports', to: 'baselineViewports' })
+          );
+        }
+        assert.strictEqual(validations, 0, 'a refused call must not start the QA workflow');
       } finally {
         fs.rmSync(root, { recursive: true, force: true });
       }

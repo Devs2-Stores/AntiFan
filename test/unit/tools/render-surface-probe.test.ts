@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { BrowserControlPort, type BrowserHostPort } from '../../../src/main/tools/browser-control-port';
+import { RENDER_SURFACE_PROBE_BOUND_MS, RENDER_SURFACE_PROBE_RETRY_BOUND_MS } from '../../../src/main/verification/visual-capture';
 import { CapabilityError, type BrowserTarget } from '../../../src/shared/control-plane-contracts';
 
 const target: BrowserTarget = {
@@ -18,31 +19,37 @@ function codedError(code: string, message: string): Error {
   return Object.assign(new Error(message), { code });
 }
 
-function makePort(probe: (call: number) => Promise<unknown>): { port: BrowserControlPort; probeCalls: () => number; evals: () => number } {
+function makePort(probe: (call: number) => Promise<unknown>): { port: BrowserControlPort; probeCalls: () => number; evals: () => number; bounds: unknown[] } {
   let probeCalls = 0;
   let evals = 0;
+  const bounds: unknown[] = [];
   const host = {
     hasTab: (id: string) => id === 'tab-1',
     getTabList: () => [{ id: 'tab-1' }],
     getDocumentGeneration: () => 1,
-    readRenderSurface: async () => probe(++probeCalls),
+    readRenderSurface: async (_tabId: string, _paneId: unknown, boundMs?: number) => {
+      bounds.push(boundMs);
+      return probe(++probeCalls);
+    },
     evalJs: async () => {
       evals++;
       return 'ran';
     },
   } as unknown as BrowserHostPort;
-  return { port: new BrowserControlPort(host), probeCalls: () => probeCalls, evals: () => evals };
+  return { port: new BrowserControlPort(host), probeCalls: () => probeCalls, evals: () => evals, bounds };
 }
 
 describe('render surface probe failures say whether the surface is absent or the probe was slow', () => {
-  it('retries a timed-out probe once and proceeds when the second answers', async () => {
-    const { port, probeCalls, evals } = makePort(async (call) => {
+  it('retries a timed-out probe once with the larger bound and proceeds when the second answers', async () => {
+    const { port, probeCalls, evals, bounds } = makePort(async (call) => {
       if (call === 1) throw codedError('CAPTURE_TIMEOUT', 'Render-surface probe on tab timed out after 3000ms');
       return surface;
     });
     const result = await port.eval(target, '1', undefined, undefined, { requireRenderSurface: true });
     assert.equal(result, 'ran');
     assert.equal(probeCalls(), 2);
+    assert.deepEqual(bounds, [RENDER_SURFACE_PROBE_BOUND_MS, RENDER_SURFACE_PROBE_RETRY_BOUND_MS]);
+    assert.ok(RENDER_SURFACE_PROBE_RETRY_BOUND_MS > RENDER_SURFACE_PROBE_BOUND_MS);
     assert.equal(evals(), 1);
   });
 
@@ -56,6 +63,7 @@ describe('render surface probe failures say whether the surface is absent or the
         && err.code === 'NO_RENDER_SURFACE'
         && err.details?.cause === 'PROBE_TIMEOUT'
         && err.details?.retryable === true
+        && err.details?.probeTimedOut === true
     );
     assert.equal(probeCalls(), 2, 'a timeout is retried exactly once');
     assert.equal(evals(), 0);
@@ -86,6 +94,7 @@ describe('render surface probe failures say whether the surface is absent or the
       (err: unknown) => err instanceof CapabilityError
         && err.code === 'NO_RENDER_SURFACE'
         && err.details?.cause === 'ABSENT_SURFACE'
+        && err.details?.probeTimedOut === false
         && err.details?.retryable === false
     );
     assert.equal(probeCalls(), 1);

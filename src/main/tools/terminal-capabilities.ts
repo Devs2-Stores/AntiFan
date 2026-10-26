@@ -92,10 +92,17 @@ export interface TerminalWriteResult {
 
 const SESSION_SLEEPING_CODE = 'SESSION_SLEEPING' as const;
 
-/** Deadline of a `terminal.create` call; also how long a queued reuse create waits on a stuck predecessor. */
+/** How long the platform waits for a cancelled capability to acknowledge before it gives up on it; added on top of every execution budget. */
+const TERMINAL_CANCELLATION_ACK_MS = 5_000;
+
+/**
+ * Execution deadline of a `terminal.create` call, which is also how long a queued reuse create waits on a
+ * stuck predecessor. The policy adds the cancellation ack on top, because the platform aborts the call at
+ * `policy.timeoutMs - cancellationAckTimeoutMs`.
+ */
 const CREATE_POLICY_TIMEOUT_MS = 15_000;
 
-/** Invocation budget of `terminal.wait`; the platform aborts the call when it is spent. */
+/** Execution deadline of `terminal.wait`: the platform aborts the call when it is spent. The policy adds the ack to it. */
 export const TERMINAL_WAIT_BUDGET_MS = 30_000;
 /** Headroom so the wait's own deadline fires, and answers, before the platform aborts the call. */
 const TERMINAL_WAIT_BUDGET_MARGIN_MS = 2_000;
@@ -128,7 +135,7 @@ function clampedWaitTimedOutResult(sessionId: string, requestedTimeoutMs: number
     requestedTimeoutMs,
     maxTimeoutMs: TERMINAL_WAIT_MAX_TIMEOUT_MS,
     message:
-      `terminal.wait runs at most ${TERMINAL_WAIT_MAX_TIMEOUT_MS}ms per call (the capability budget is ${TERMINAL_WAIT_BUDGET_MS}ms), so the requested ${requestedTimeoutMs}ms was shortened and elapsed without the condition. ` +
+      `terminal.wait runs at most ${TERMINAL_WAIT_MAX_TIMEOUT_MS}ms per call (the platform aborts a call at its ${TERMINAL_WAIT_BUDGET_MS}ms execution deadline, so the wait answers ${TERMINAL_WAIT_BUDGET_MARGIN_MS}ms ahead of it), so the requested ${requestedTimeoutMs}ms was shortened and elapsed without the condition. ` +
       `The session is unaffected: call terminal.wait again with afterSeq=${lastSeq} and the same condition and pattern, and repeat until it is satisfied.`,
   };
 }
@@ -340,7 +347,7 @@ export function registerTerminalCapabilities(
       retentionPolicy: 'run-durable',
       ownerCancellationBehavior: 'abort-immediate',
       subscriberDisconnectBehavior: 'abort-when-unobserved',
-      cancellationAckTimeoutMs: 5_000,
+      cancellationAckTimeoutMs: TERMINAL_CANCELLATION_ACK_MS,
       policyVersion: 1,
     },
     inputSchema: {
@@ -412,7 +419,7 @@ export function registerTerminalCapabilities(
       retentionPolicy: 'run-durable',
       ownerCancellationBehavior: 'abort-immediate',
       subscriberDisconnectBehavior: 'abort-when-unobserved',
-      cancellationAckTimeoutMs: 5_000,
+      cancellationAckTimeoutMs: TERMINAL_CANCELLATION_ACK_MS,
       policyVersion: 1,
     },
     inputSchema: {
@@ -450,11 +457,11 @@ export function registerTerminalCapabilities(
       duplicateMode: 'in-process-join',
       recordedVisibility: 'tenant-scoped',
       receiptReadPermission: 'read',
-      timeoutMs: TERMINAL_WAIT_BUDGET_MS,
+      timeoutMs: TERMINAL_WAIT_BUDGET_MS + TERMINAL_CANCELLATION_ACK_MS,
       retentionPolicy: 'run-durable',
       ownerCancellationBehavior: 'abort-immediate',
       subscriberDisconnectBehavior: 'abort-when-unobserved',
-      cancellationAckTimeoutMs: 5_000,
+      cancellationAckTimeoutMs: TERMINAL_CANCELLATION_ACK_MS,
       policyVersion: 1,
     },
     inputSchema: {
@@ -518,7 +525,7 @@ export function registerTerminalCapabilities(
       retentionPolicy: 'run-durable',
       ownerCancellationBehavior: 'abort-immediate',
       subscriberDisconnectBehavior: 'abort-when-unobserved',
-      cancellationAckTimeoutMs: 5_000,
+      cancellationAckTimeoutMs: TERMINAL_CANCELLATION_ACK_MS,
       policyVersion: 1,
     },
     inputSchema: {
@@ -607,11 +614,11 @@ export function registerTerminalCapabilities(
       duplicateMode: 'reject-concurrent',
       recordedVisibility: 'tenant-scoped',
       receiptReadPermission: 'write',
-      timeoutMs: CREATE_POLICY_TIMEOUT_MS,
+      timeoutMs: CREATE_POLICY_TIMEOUT_MS + TERMINAL_CANCELLATION_ACK_MS,
       retentionPolicy: 'run-durable',
       ownerCancellationBehavior: 'abort-immediate',
       subscriberDisconnectBehavior: 'abort-when-unobserved',
-      cancellationAckTimeoutMs: 5_000,
+      cancellationAckTimeoutMs: TERMINAL_CANCELLATION_ACK_MS,
       policyVersion: 1,
     },
     inputSchema: {
@@ -719,7 +726,7 @@ export function registerTerminalCapabilities(
       retentionPolicy: 'run-durable',
       ownerCancellationBehavior: 'abort-immediate',
       subscriberDisconnectBehavior: 'abort-when-unobserved',
-      cancellationAckTimeoutMs: 5_000,
+      cancellationAckTimeoutMs: TERMINAL_CANCELLATION_ACK_MS,
       policyVersion: 1,
     },
     inputSchema: {

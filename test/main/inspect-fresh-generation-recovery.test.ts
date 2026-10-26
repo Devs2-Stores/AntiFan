@@ -112,7 +112,7 @@ describe('Inspect Fresh Generation Recovery Contract', () => {
     mockHost.liveDocGenByTab.set('tab-1', 12);
 
     // 2. Immediate action (anti.agent.cursor.hover) FAILS with TARGET_STALE (10 vs 12)
-    const hoverFail = await mcpServer.callTool('anti.agent.cursor.hover', { selector: '#content' });
+    const hoverFail = await mcpServer.callTool('anti.agent.cursor.hover', { ref: '@e1' });
     assert.strictEqual(hoverFail.isError, true, 'Hover before inspect must fail due to generation mismatch');
     const errText = hoverFail.content[0]?.text || '';
     assert.ok(errText.includes('TARGET_STALE'), `Expected TARGET_STALE error, got: ${errText}`);
@@ -127,7 +127,7 @@ describe('Inspect Fresh Generation Recovery Contract', () => {
     assert.strictEqual(updatedRecord?.documentGeneration, 12, 'Attachment record document generation advanced to 12');
 
     // 4. Identical hover action retried after fresh inspection SUCCEEDS!
-    const hoverSuccess = await mcpServer.callTool('anti.agent.cursor.hover', { selector: '#content' });
+    const hoverSuccess = await mcpServer.callTool('anti.agent.cursor.hover', { ref: '@e1' });
     assert.strictEqual(hoverSuccess.isError, undefined, 'Hover after fresh inspection must succeed');
     assert.strictEqual(mockHost.hoverCalls.length, 1, 'Hover handler executed successfully');
     assert.strictEqual(mockHost.hoverCalls[0]?.tabId, 'tab-1');
@@ -172,7 +172,7 @@ describe('Inspect Fresh Generation Recovery Contract', () => {
     assert.strictEqual(recordAfterRefused?.documentGeneration, 10, 'Authority for attached tab-1 must not advance');
 
     // Subsequent hover on tab-1 MUST STILL FAIL with TARGET_STALE
-    const hoverStale = await mcpServer.callTool('anti.agent.cursor.hover', { selector: '#content' });
+    const hoverStale = await mcpServer.callTool('anti.agent.cursor.hover', { ref: '@e1' });
     assert.strictEqual(hoverStale.isError, true, 'Hover must fail because foreign inspection did not update tab-1 authority');
     assert.ok(hoverStale.content[0]?.text?.includes('TARGET_STALE'));
   });
@@ -221,7 +221,7 @@ describe('Inspect Fresh Generation Recovery Contract', () => {
     assert.strictEqual(recordAfterAllowed?.documentGeneration, 10, 'Authority for attached tab-1 must not advance');
 
     // Subsequent hover on tab-1 MUST STILL FAIL with TARGET_STALE because tab-1 authority remains at 10
-    const hoverStale = await mcpServer.callTool('anti.agent.cursor.hover', { selector: '#content' });
+    const hoverStale = await mcpServer.callTool('anti.agent.cursor.hover', { ref: '@e1' });
     assert.strictEqual(hoverStale.isError, true, 'Hover must fail because foreign inspection did not update tab-1 authority');
     assert.ok(hoverStale.content[0]?.text?.includes('TARGET_STALE'));
   });

@@ -26,7 +26,7 @@ interface HostHarness {
   cdp: Array<{ method: string; params: Record<string, unknown> }>;
 }
 
-function harness(): HostHarness {
+function harness(extra: Record<string, unknown> = {}): HostHarness {
   const isolatedScripts: string[] = [];
   const cdp: Array<{ method: string; params: Record<string, unknown> }> = [];
   const wc = {
@@ -61,6 +61,7 @@ function harness(): HostHarness {
         return {};
       },
     },
+    ...extra,
   } as unknown as ConstructorParameters<typeof TabAutomationHost>[0]);
   return { host, isolatedScripts, cdp };
 }
@@ -102,6 +103,38 @@ describe('executeActionSequence progress accounting', () => {
     const res = await host.executeActionSequence({ actions: [] });
     assert.equal(res.success, false);
     assert.equal(res.completedSteps, 0);
+  });
+});
+
+describe('sequence navigate loadState', () => {
+  type NavData = { loadState?: string; navigatedUrl?: string };
+  const navigateWith = async (navOk: boolean, failure: { cause: string; message: string; timedOut: boolean } | undefined) => {
+    const { host } = harness({
+      navigateAndWait: async () => navOk,
+      getLastNavigationFailure: () => failure,
+    });
+    const res = await host.executeActionSequence({ actions: [{ type: 'navigate', url: 'https://shop.example/next' }] });
+    return res.results[0]!.data as NavData;
+  };
+
+  it('reports loaded when the navigation reached the requested stage', async () => {
+    assert.equal((await navigateWith(true, undefined)).loadState, 'loaded');
+  });
+
+  it('reports timeout only for a recorded timeout', async () => {
+    const data = await navigateWith(false, { cause: 'NAVIGATION_TIMEOUT', message: 'timed out', timedOut: true });
+    assert.equal(data.loadState, 'timeout');
+  });
+
+  it('omits loadState for a blocked or failed load instead of calling it a timeout', async () => {
+    const blocked = await navigateWith(false, { cause: 'NAVIGATION_BLOCKED', message: 'blocked', timedOut: false });
+    assert.equal('loadState' in blocked, false);
+    const failed = await navigateWith(false, { cause: 'LOAD_FAILED', message: 'failed', timedOut: false });
+    assert.equal('loadState' in failed, false);
+  });
+
+  it('omits loadState when the host kept no failure record', async () => {
+    assert.equal('loadState' in await navigateWith(false, undefined), false);
   });
 });
 

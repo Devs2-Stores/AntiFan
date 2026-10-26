@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { BrowserTarget, CapabilityRequestContext, AuthenticatedCapabilityContext, CapabilityError, CapabilityEffectPolicyInput, CapabilityRisk, ReceiptBinding, digestText } from '../../shared/control-plane-contracts';
-import { BrowserControlPort, BrowserWaitParams, buildRefLookupExpression, ResponsiveBreakpointOption, VISUAL_COMPARE_EXECUTION_BUDGET_MS, VISUAL_COMPARE_CANCELLATION_ACK_MS, FULL_PAGE_CAPTURE_EXECUTION_BUDGET_MS, FULL_PAGE_CAPTURE_CANCELLATION_ACK_MS, VIEWPORT_CAPTURE_EXECUTION_BUDGET_MS, VIEWPORT_CAPTURE_CANCELLATION_ACK_MS, REFERENCE_CAPTURE_EXECUTION_BUDGET_MS, REFERENCE_CAPTURE_CANCELLATION_ACK_MS, BROWSER_WAIT_INVOCATION_BUDGET_MS, BROWSER_EVAL_INVOCATION_BUDGET_MS } from './browser-control-port';
+import { BrowserControlPort, BrowserWaitParams, buildRefLookupExpression, ResponsiveBreakpointOption, VISUAL_COMPARE_EXECUTION_BUDGET_MS, VISUAL_COMPARE_CANCELLATION_ACK_MS, FULL_PAGE_CAPTURE_EXECUTION_BUDGET_MS, FULL_PAGE_CAPTURE_CANCELLATION_ACK_MS, VIEWPORT_CAPTURE_EXECUTION_BUDGET_MS, VIEWPORT_CAPTURE_CANCELLATION_ACK_MS, REFERENCE_CAPTURE_EXECUTION_BUDGET_MS, REFERENCE_CAPTURE_CANCELLATION_ACK_MS, BROWSER_WAIT_INVOCATION_BUDGET_MS, BROWSER_WAIT_MAX_TIMEOUT_MS, BROWSER_EVAL_INVOCATION_BUDGET_MS, BROWSER_EVAL_MAX_TIMEOUT_MS } from './browser-control-port';
 import { CapabilityCatalogue } from './capability-catalogue';
 import { resolveCallerWorkspaceRoot } from './file-capabilities';
 import { PlatformDetector } from '../qa/scanners/platform-detector';
@@ -333,6 +333,10 @@ function invalidQaArgument(message: string): CapabilityError {
   return new CapabilityError('INVALID_ARGUMENT', `theme.qa_validate: ${message}`);
 }
 
+/** The one description of the baseline object, shared by theme.qa_validate and its alias. */
+const BASELINE_VIEWPORTS_DESCRIPTION =
+  'Caller-supplied visual-compare results per standard size ({desktop,tablet,mobile}: {mismatchPercent, passed}) from an anti.visual.compare against a promoted baseline; the QA matrix ANDs them with its own verdict, so they can only downgrade. Not the multi-breakpoint sweep (that is multiBreakpoint)';
+
 const TITLE_LEVELS = ['h1', 'h2', 'h3', 'h4'] as const;
 
 function parseTitleScale(value: unknown): Record<'h1' | 'h2' | 'h3' | 'h4', [number, number]> {
@@ -394,6 +398,13 @@ function readSelectorList(value: unknown, field: string): string[] {
 /** Validates and normalizes the caller-tunable qa_validate inputs; any malformed value is refused, never defaulted. */
 export function parseQaValidateOptions(params: Record<string, unknown>): QaValidateOptions {
   const out: QaValidateOptions = { waivers: [] };
+
+  if (params.viewports !== undefined) {
+    throw new CapabilityError('INVALID_ARGUMENT', 'theme.qa_validate: viewports was renamed to baselineViewports ({desktop,tablet,mobile} visual-compare results); theme.qa_validate takes no sweep list, use multiBreakpoint or anti.inspect.responsive_matrix {viewports:[{w,h}]} for custom sizes', {
+      capability: 'theme.qa_validate',
+      renamedField: { from: 'viewports', to: 'baselineViewports' },
+    });
+  }
 
   if (params.profile !== undefined) {
     if (params.profile !== 'audit' && params.profile !== 'build-strict') throw invalidQaArgument("profile must be 'audit' or 'build-strict'");
@@ -517,7 +528,7 @@ export function listPromotedBaselineIds(
   const authority = browser.baselineAuthority;
   if (!authority || typeof authority.getBaselineDir !== 'function') {
     throw new CapabilityError('EXECUTION_ERROR', 'The promoted baseline store is not available, so a greenfield run cannot prove that no baseline exists', {
-      recovery: 'run theme.qa_validate without greenfield and supply viewports from an anti.visual.compare against a promoted baseline',
+      recovery: 'run theme.qa_validate without greenfield and supply baselineViewports from an anti.visual.compare against a promoted baseline',
     });
   }
   if (!context.workspaceId) {
@@ -721,6 +732,9 @@ function normalizeSequenceParams(capability: string, params: SequenceParams): {
   return { ...rest, actions: (actions ?? steps) as Array<Record<string, unknown>> };
 }
 
+const NAVIGATE_WAIT_UNTIL_VALUES = ['commit', 'domcontentloaded', 'load'] as const;
+type NavigateWaitUntil = (typeof NAVIGATE_WAIT_UNTIL_VALUES)[number];
+
 /** Input schema of every navigate registration. */
 function navigateInputSchema(): Record<string, unknown> {
   return {
@@ -729,9 +743,90 @@ function navigateInputSchema(): Record<string, unknown> {
       url: { type: 'string', description: 'http(s) URL, or about:blank to reset the tab to an empty document; every other about: page, file:, data: and javascript: is refused' },
       tabId: { type: 'string' },
       timeoutMs: { type: 'number', description: 'Navigation budget in milliseconds (default 20000, capped at 60000)' },
+      waitUntil: { type: 'string', enum: [...NAVIGATE_WAIT_UNTIL_VALUES], description: 'When navigate returns: commit (the response committed), domcontentloaded, or load (default). Use commit or domcontentloaded for a page whose load event never fires; the result carries loadState and committedUrl' },
     },
     required: ['url'],
   };
+}
+
+/** The navigate budget and load condition a caller supplied, or undefined when it supplied neither. */
+function navigateOptionsOf(capability: string, params: { timeoutMs?: number; waitUntil?: unknown }): { timeoutMs?: number; waitUntil?: NavigateWaitUntil } | undefined {
+  const options: { timeoutMs?: number; waitUntil?: NavigateWaitUntil } = {};
+  if (params.timeoutMs !== undefined) options.timeoutMs = params.timeoutMs;
+  if (params.waitUntil !== undefined) {
+    if (typeof params.waitUntil !== 'string' || !(NAVIGATE_WAIT_UNTIL_VALUES as readonly string[]).includes(params.waitUntil)) {
+      throw new CapabilityError('INVALID_ARGUMENT', `${capability}: waitUntil must be one of ${NAVIGATE_WAIT_UNTIL_VALUES.join(', ')}`);
+    }
+    options.waitUntil = params.waitUntil as NavigateWaitUntil;
+  }
+  return Object.keys(options).length > 0 ? options : undefined;
+}
+
+/** Property of every set-viewport registration that removes the scrollbar gutter from the measured width. */
+const HIDE_SCROLLBAR_PROPERTY = { type: 'boolean', description: 'Hide the page scrollbars while the viewport override is applied, so the measured clientWidth equals the requested width (the result reports clientWidth)' } as const;
+
+/** Property of every screenshot registration that also writes the capture into the workspace. */
+const SAVE_TO_PROPERTY = { type: 'string', description: 'Also write the capture to this file path inside the workspace root (parent folders are created); a path outside the root is refused. The result adds savedTo' } as const;
+
+interface TabListParams {
+  all?: boolean;
+  affiliatedOnly?: boolean;
+  projectId?: string;
+  fields?: unknown;
+  limit?: unknown;
+  urlContains?: unknown;
+}
+
+interface OpenTabParams {
+  url?: string;
+  activate?: boolean;
+  anchorTabId?: string;
+  ephemeral?: boolean;
+  userFacing?: boolean;
+  devicePresetId?: string;
+  mobile?: boolean;
+  projectId?: string;
+  bind?: unknown;
+}
+
+/** Row filters shared by every tab-list registration. */
+function tabListFilterProperties(): Record<string, unknown> {
+  return {
+    fields: { type: 'array', items: { type: 'string' }, description: 'Return only these keys on each tab row' },
+    limit: { type: 'number', description: 'Return at most this many tab rows' },
+    urlContains: { type: 'string', description: 'Return only tabs whose URL contains this text' },
+  };
+}
+
+/** Validated row filters of a tab-list call; a malformed value is refused, never ignored. */
+function parseTabListFilters(params: TabListParams): { fields?: string[]; limit?: number; urlContains?: string } {
+  const out: { fields?: string[]; limit?: number; urlContains?: string } = {};
+  if (params.fields !== undefined) {
+    if (!Array.isArray(params.fields) || params.fields.length === 0 || params.fields.some((field) => typeof field !== 'string' || !field.trim())) {
+      throw new CapabilityError('INVALID_ARGUMENT', 'anti.browser.tabs.list: fields must be a non-empty array of row key names');
+    }
+    out.fields = (params.fields as string[]).map((field) => field.trim());
+  }
+  if (params.limit !== undefined) {
+    if (typeof params.limit !== 'number' || !Number.isInteger(params.limit) || params.limit < 1) {
+      throw new CapabilityError('INVALID_ARGUMENT', 'anti.browser.tabs.list: limit must be an integer of at least 1');
+    }
+    out.limit = params.limit;
+  }
+  if (params.urlContains !== undefined) {
+    if (typeof params.urlContains !== 'string' || !params.urlContains) {
+      throw new CapabilityError('INVALID_ARGUMENT', 'anti.browser.tabs.list: urlContains must be a non-empty string');
+    }
+    out.urlContains = params.urlContains;
+  }
+  return out;
+}
+
+/** Whether tabs.create hands the new tab to the caller as its bound target (default) or only opens it. */
+function parseBindFlag(bind: unknown): boolean | undefined {
+  if (bind === undefined) return undefined;
+  if (typeof bind !== 'boolean') throw new CapabilityError('INVALID_ARGUMENT', 'anti.browser.tabs.create: bind must be a boolean');
+  return bind;
 }
 
 /** Description suffix shared by every tab-close registration. */
@@ -812,6 +907,93 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
   };
 
 
+  const listTabsFromParams = (params: TabListParams, context: CapabilityRequestContext) => browser.listTabs({
+    target: context.browserTarget,
+    scope: params?.all === true ? 'global' : 'project',
+    affiliatedOnly: params?.affiliatedOnly === true,
+    projectId: typeof params?.projectId === 'string' ? params.projectId : undefined,
+    // The caller's authenticated scope travels on the dispatch context, never
+    // inside the browser target — a bindingless or stale target keeps it.
+    authenticatedProjectId: context.projectId,
+    authenticatedWorkspaceId: context.workspaceId,
+    ...parseTabListFilters(params ?? {}),
+  });
+
+  // `bind: false` opens the tab without making it this session's bound target: the transport reads the
+  // same flag from the call and skips the rotation onto the new tab.
+  const openTabFromParams = async (params: OpenTabParams, context: CapabilityRequestContext) => {
+    const bind = parseBindFlag(params.bind);
+    await browser.ensureHostForNewTab({ target: context?.browserTarget, authenticatedProjectId: context?.projectId, url: params.url });
+    const { bind: _bind, ...openParams } = params;
+    return browser.openTab(openParams, { target: context?.browserTarget, authenticatedProjectId: context?.projectId, ...(bind === false ? { bind } : {}) });
+  };
+
+  // A tab this very attachment opened stays closable by it even after a rebind moved its binding
+  // outside the session pool the port checks; every other tab keeps the pool check. The port gets
+  // the canonical id (never a boolean) because it resolves `#N` against a different list than the
+  // catalogue does: it waives the pool check only for exactly this tab.
+  const closeTabFromParams = (params: { tabId: string }, context: CapabilityRequestContext) => {
+    const attachmentId = (context as Partial<AuthenticatedCapabilityContext>).attachmentId;
+    const requested = typeof params.tabId === 'string' ? params.tabId.trim() : '';
+    const canonicalId = requested ? catalogue.resolveTabId(requested) ?? requested : '';
+    const creatorTabId = attachmentId && canonicalId && catalogue.tabLedger.owns(attachmentId, canonicalId) ? canonicalId : undefined;
+    return browser.closeTab(params.tabId, { target: context.browserTarget, ...(creatorTabId ? { creatorTabId } : {}) });
+  };
+
+  /** A workspace-relative output path confined to the bound root; the root itself and anything outside it is refused. */
+  const confinedOutputFile = (requested: unknown, field: string, context: CapabilityRequestContext): string => {
+    if (typeof requested !== 'string' || !requested.trim()) {
+      throw new CapabilityError('INVALID_ARGUMENT', `${field} must be a non-empty file path relative to the workspace root`);
+    }
+    let rootPath = process.cwd();
+    if (context?.projectId && context?.workspaceId) {
+      try {
+        const ws = catalogue.resolveAuthoritativeWorkspace(context.projectId, context.workspaceId);
+        if (ws?.rootPath) rootPath = ws.rootPath;
+      } catch {}
+    }
+    const resolvedTarget = path.isAbsolute(requested)
+      ? requested
+      : path.resolve(rootPath, requested);
+    const safePath = confineWorkspaceRoot(resolvedTarget, rootPath);
+    // `confineWorkspaceRoot` falls back to the root itself when the candidate
+    // escapes it. Writing there is never the caller's intent and a directory
+    // target fails later as a bare EISDIR rename, so refuse with the reason.
+    // An explicit `.` lands on the same directory, so it is refused by the
+    // same check rather than surfacing as EISDIR downstream.
+    if (path.resolve(safePath) === path.resolve(rootPath)) {
+      const reason = path.resolve(resolvedTarget) === path.resolve(rootPath)
+        ? `${field} '${requested}' resolves to the workspace root directory '${rootPath}'; pass a file path inside the root`
+        : `${field} '${requested}' resolves outside workspace root '${rootPath}'; pass a path inside the root`;
+      throw new CapabilityError('INVALID_ARGUMENT', reason);
+    }
+    return safePath;
+  };
+
+  // The destination is validated before the capture runs, so a bad path never costs a capture; the
+  // copy is of the staged evidence file, so the artifact the receipt names stays the one on disk.
+  const captureWithSaveTo = async (capture: () => Promise<unknown>, saveTo: unknown, context: CapabilityRequestContext): Promise<unknown> => {
+    // Screenshot capabilities are risk 'read', so every grant sees them; writing into the workspace is
+    // a write, so `saveTo` needs the grant that sees a write-risk capability (browser.dump_dom's level).
+    if (saveTo !== undefined && !catalogue.isVisible({ name: 'browser.screenshot', risk: 'write' } as Parameters<CapabilityCatalogue['isVisible']>[0], context?.grant)) {
+      throw new CapabilityError(
+        'POLICY_DENIED',
+        `saveTo writes a file into the workspace and needs a write-level session grant; this session holds '${context?.grant ?? 'none'}'. Omit saveTo to read the screenshot artifact, or re-pair with requestedGrant=write.`,
+        { saveTo: typeof saveTo === 'string' ? saveTo : String(saveTo), grant: context?.grant ?? 'none' }
+      );
+    }
+    const safePath = saveTo === undefined ? undefined : confinedOutputFile(saveTo, 'saveTo', context);
+    const result = await capture();
+    if (!safePath) return result;
+    const staged = (result as { artifactRef?: { path?: unknown } } | null)?.artifactRef?.path;
+    if (typeof staged !== 'string' || !staged) {
+      throw new CapabilityError('EXECUTION_ERROR', 'saveTo: the capture staged no readable file, so nothing was written', { saveTo: safePath });
+    }
+    await fs.promises.mkdir(path.dirname(safePath), { recursive: true });
+    await fs.promises.copyFile(staged, safePath);
+    return { ...(result as Record<string, unknown>), savedTo: safePath };
+  };
+
   // 1. Standard canonical capabilities
   catalogue.register({
     name: 'browser.list-tabs',
@@ -824,18 +1006,10 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         all: { type: 'boolean', default: false, description: 'Pass true for global GUI discovery: every tab in the window is listed and each row carries affiliated (true when the tab measures into this session\'s project/workspace). Default lists only this session\'s project scope.' },
         affiliatedOnly: { type: 'boolean', default: false, description: 'Restrict the returned rows to tabs measuring into this session\'s project/workspace.' },
         projectId: { type: 'string', description: 'Scope selector: must equal this session\'s authenticated projectId. A foreign or unbound selector is refused; it can never widen authority.' },
+        ...tabListFilterProperties(),
       },
     },
-    execute: (params: { all?: boolean; affiliatedOnly?: boolean; projectId?: string }, context) => browser.listTabs({
-      target: context.browserTarget,
-      scope: params?.all === true ? 'global' : 'project',
-      affiliatedOnly: params?.affiliatedOnly === true,
-      projectId: typeof params?.projectId === 'string' ? params.projectId : undefined,
-      // The caller's authenticated scope travels on the dispatch context, never
-      // inside the browser target — a bindingless or stale target keeps it.
-      authenticatedProjectId: context.projectId,
-      authenticatedWorkspaceId: context.workspaceId,
-    }),
+    execute: (params: TabListParams, context) => listTabsFromParams(params, context),
   });
 
   catalogue.register({
@@ -854,12 +1028,10 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         devicePresetId: { type: 'string', description: 'Device preset ID (e.g. iphone-15, xiaomi-14)' },
         mobile: { type: 'boolean', description: 'Open directly in mobile mode with mobile User-Agent and viewport' },
         projectId: { type: 'string', description: 'Scope selector: must equal this session\'s authenticated projectId. A foreign or unbound selector is refused before allocation; it never widens authority.' },
+        bind: { type: 'boolean', default: true, description: 'Pass false to open the tab without making it this session\'s bound target; every later call keeps its current tab until you rebind or pass this tab\'s tabId' },
       },
     },
-    execute: async (params: { url?: string; activate?: boolean; anchorTabId?: string; ephemeral?: boolean; userFacing?: boolean; devicePresetId?: string; mobile?: boolean; projectId?: string }, context) => {
-      await browser.ensureHostForNewTab({ target: context?.browserTarget, authenticatedProjectId: context?.projectId, url: params.url });
-      return browser.openTab(params, { target: context?.browserTarget, authenticatedProjectId: context?.projectId });
-    },
+    execute: (params: OpenTabParams, context) => openTabFromParams(params, context),
   });
   catalogue.register({
     name: 'browser.close-tab',
@@ -867,7 +1039,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'write',
     policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
     inputSchema: { type: 'object', properties: { tabId: { type: 'string' } }, required: ['tabId'] },
-    execute: (params: { tabId: string }, context) => browser.closeTab(params.tabId, { target: context.browserTarget }),
+    execute: (params: { tabId: string }, context) => closeTabFromParams(params, context),
   });
 
   catalogue.register({
@@ -896,8 +1068,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
     inputSchema: navigateInputSchema(),
-    execute: (params: { url: string; tabId?: string; timeoutMs?: number }, context) =>
-      browser.navigate(context.browserTarget as BrowserTarget, params.url, params.tabId, params.timeoutMs !== undefined ? { timeoutMs: params.timeoutMs } : undefined),
+    execute: (params: { url: string; tabId?: string; timeoutMs?: number; waitUntil?: string }, context) =>
+      browser.navigate(context.browserTarget as BrowserTarget, params.url, params.tabId, navigateOptionsOf('browser.navigate', params)),
   });
 
   catalogue.register({
@@ -949,28 +1121,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       required: ['outputPath'],
     },
     execute: async (params: { outputPath: string; selector?: string; tabId?: string; paneId?: 'desktop' | 'mobile'; clean?: boolean; materialize?: boolean; materializeDataSrc?: boolean }, context) => {
-      let rootPath = process.cwd();
-      if (context?.projectId && context?.workspaceId) {
-        try {
-          const ws = catalogue.resolveAuthoritativeWorkspace(context.projectId, context.workspaceId);
-          if (ws?.rootPath) rootPath = ws.rootPath;
-        } catch {}
-      }
-      const resolvedTarget = path.isAbsolute(params.outputPath)
-        ? params.outputPath
-        : path.resolve(rootPath, params.outputPath);
-      const safePath = confineWorkspaceRoot(resolvedTarget, rootPath);
-      // `confineWorkspaceRoot` falls back to the root itself when the candidate
-      // escapes it. Writing there is never the caller's intent and a directory
-      // target fails later as a bare EISDIR rename, so refuse with the reason.
-      // An explicit `outputPath: '.'` lands on the same directory, so it is
-      // refused by the same check rather than surfacing as EISDIR downstream.
-      if (path.resolve(safePath) === path.resolve(rootPath)) {
-        const reason = path.resolve(resolvedTarget) === path.resolve(rootPath)
-          ? `outputPath '${params.outputPath}' resolves to the workspace root directory '${rootPath}'; pass a file path inside the root`
-          : `outputPath '${params.outputPath}' resolves outside workspace root '${rootPath}'; pass a path inside the root`;
-        throw new CapabilityError('INVALID_ARGUMENT', reason);
-      }
+      const safePath = confinedOutputFile(params.outputPath, 'outputPath', context);
       return browser.dumpDom(context.browserTarget as BrowserTarget, safePath, params);
     },
   });
@@ -982,10 +1133,10 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'read',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive' }),
-    inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, format: { type: 'string', enum: ['png', 'jpeg'] }, quality: { type: 'number' }, fullPage: { type: 'boolean', description: 'Rejected: browser.screenshot is viewport-only; use anti.screenshot.full_page' } } },
-    execute: async (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; format?: 'png' | 'jpeg'; quality?: number; fullPage?: boolean }, context) => {
+    inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, format: { type: 'string', enum: ['png', 'jpeg'] }, quality: { type: 'number' }, fullPage: { type: 'boolean', description: 'Rejected: browser.screenshot is viewport-only; use anti.screenshot.full_page' }, saveTo: SAVE_TO_PROPERTY } },
+    execute: async (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; format?: 'png' | 'jpeg'; quality?: number; fullPage?: boolean; saveTo?: string }, context) => {
       assertViewportOnlyScreenshot('browser.screenshot', params.fullPage);
-      return browser.screenshot(context.browserTarget as BrowserTarget, context.runId || 'run-unbound', context.attemptId || 'attempt-unbound', params.tabId, params.paneId, { format: params.format, quality: params.quality, fullPage: false });
+      return captureWithSaveTo(() => browser.screenshot(context.browserTarget as BrowserTarget, context.runId || 'run-unbound', context.attemptId || 'attempt-unbound', params.tabId, params.paneId, { format: params.format, quality: params.quality, fullPage: false }), params.saveTo, context);
     },
   });
   catalogue.register({
@@ -1066,7 +1217,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         url: { type: 'string', description: 'Alias for urlPattern' },
         minGeneration: { type: 'number', description: 'Minimum document generation to wait for (generation or navigation condition)' },
         state: { type: 'string', enum: ['attached', 'visible', 'actionable', 'detached', 'hidden'] },
-        timeoutMs: { type: 'number', description: 'Timeout in milliseconds (5000 default, 30000 max)' },
+        timeoutMs: { type: 'number', description: `Timeout in milliseconds (5000 default, ${BROWSER_WAIT_MAX_TIMEOUT_MS} max)` },
         idleWindowMs: { type: 'number', description: 'Debounce idle window in milliseconds (500 default)' },
         tabId: { type: 'string' },
         paneId: { type: 'string', enum: ['desktop', 'mobile'] },
@@ -1084,7 +1235,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'eval',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'eval', requiresBrowserTarget: true, lane: 'viewport-gate', timeoutMs: BROWSER_EVAL_INVOCATION_BUDGET_MS }),
-    inputSchema: { type: 'object', properties: { expression: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, timeoutMs: { type: 'number', description: 'In-page execution budget in milliseconds (default 15000, capped by the capability invocation budget)' } }, required: ['expression'] },
+    inputSchema: { type: 'object', properties: { expression: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, timeoutMs: { type: 'number', description: `In-page execution budget in milliseconds (default 15000, max ${BROWSER_EVAL_MAX_TIMEOUT_MS})` } }, required: ['expression'] },
     execute: (params: { expression: string; tabId?: string; paneId?: 'desktop' | 'mobile'; timeoutMs?: number }, context) => browser.eval(context.browserTarget as BrowserTarget, params.expression, params.tabId, params.paneId, { timeoutMs: params.timeoutMs }),
   });
 
@@ -1484,7 +1635,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         tabId: { type: 'string' },
         paneId: { type: 'string', enum: ['desktop', 'mobile'] },
         allowDegradedSurface: { type: 'boolean', description: 'Run even when the tab reports a 0x0 surface (diagnostic escape hatch)' },
-        timeoutMs: { type: 'number', description: 'In-page execution budget in milliseconds (default 15000; capped by the capability invocation budget, so the in-page guard — not the platform deadline — produces the timeout answer)' },
+        timeoutMs: { type: 'number', description: `In-page execution budget in milliseconds (default 15000, max ${BROWSER_EVAL_MAX_TIMEOUT_MS}; the in-page guard, not the platform deadline, produces the timeout answer)` },
       },
       oneOf: [{ required: ['expression'] }, { required: ['expressionFile'] }],
     },
@@ -1536,7 +1687,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         paneId: { type: 'string', enum: ['desktop', 'mobile'] },
         requireRenderSurface: { type: 'boolean', description: 'Refuse a tab that reports no laid-out surface (0x0 CSS px) instead of evaluating against an unrendered page' },
         allowDegradedSurface: { type: 'boolean', description: 'Run even when the tab reports a 0x0 surface (diagnostic escape hatch)' },
-        timeoutMs: { type: 'number', description: 'In-page execution budget in milliseconds (default 15000; capped by the capability invocation budget)' },
+        timeoutMs: { type: 'number', description: `In-page execution budget in milliseconds (default 15000, max ${BROWSER_EVAL_MAX_TIMEOUT_MS})` },
       },
       oneOf: [{ required: ['expression'] }, { required: ['expressionFile'] }],
     },
@@ -1641,8 +1792,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     description: 'Set browser responsive viewport dimensions (width, height, mobile emulation, DPR)',
     risk: 'write',
     policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
-    inputSchema: { type: 'object', properties: { width: { type: 'number' }, height: { type: 'number' }, mobile: { type: 'boolean' }, deviceScaleFactor: { type: 'number' }, zoomFactor: { type: 'number', minimum: 0.25, maximum: 5.0, description: 'Pin the page zoom factor (0.25-5.0). Defaults to 1.0 so a persisted preview zoom cannot silently scale the captured raster' }, tabId: { type: 'string' }, reload: { type: 'boolean', description: 'Whether to reload the tab after changing viewport to ensure clean responsive hydration' } }, required: ['width', 'height'] },
-    execute: (params: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; zoomFactor?: number; tabId?: string; reload?: boolean }, context) => browser.setViewport(params, context.browserTarget),
+    inputSchema: { type: 'object', properties: { width: { type: 'number' }, height: { type: 'number' }, mobile: { type: 'boolean' }, deviceScaleFactor: { type: 'number' }, zoomFactor: { type: 'number', minimum: 0.25, maximum: 5.0, description: 'Pin the page zoom factor (0.25-5.0). Defaults to 1.0 so a persisted preview zoom cannot silently scale the captured raster' }, tabId: { type: 'string' }, reload: { type: 'boolean', description: 'Whether to reload the tab after changing viewport to ensure clean responsive hydration' }, hideScrollbar: HIDE_SCROLLBAR_PROPERTY }, required: ['width', 'height'] },
+    execute: (params: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; zoomFactor?: number; tabId?: string; reload?: boolean; hideScrollbar?: boolean }, context) => browser.setViewport(params, context.browserTarget),
   });
 
   catalogue.register({
@@ -1650,8 +1801,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     description: 'Set browser responsive viewport dimensions (width, height, mobile emulation, DPR) and verify the tab measured them before reporting success',
     risk: 'write',
     policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
-    inputSchema: { type: 'object', properties: { width: { type: 'number' }, height: { type: 'number' }, mobile: { type: 'boolean' }, deviceScaleFactor: { type: 'number' }, zoomFactor: { type: 'number', minimum: 0.25, maximum: 5.0, description: 'Pin the page zoom factor (0.25-5.0). Defaults to 1.0 so a persisted preview zoom cannot silently scale the captured raster' }, tabId: { type: 'string' }, reload: { type: 'boolean', description: 'Whether to reload the tab after changing viewport to ensure clean responsive hydration' } }, required: ['width', 'height'] },
-    execute: (params: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; zoomFactor?: number; tabId?: string; reload?: boolean }, context) => browser.setViewport(params, context.browserTarget),
+    inputSchema: { type: 'object', properties: { width: { type: 'number' }, height: { type: 'number' }, mobile: { type: 'boolean' }, deviceScaleFactor: { type: 'number' }, zoomFactor: { type: 'number', minimum: 0.25, maximum: 5.0, description: 'Pin the page zoom factor (0.25-5.0). Defaults to 1.0 so a persisted preview zoom cannot silently scale the captured raster' }, tabId: { type: 'string' }, reload: { type: 'boolean', description: 'Whether to reload the tab after changing viewport to ensure clean responsive hydration' }, hideScrollbar: HIDE_SCROLLBAR_PROPERTY }, required: ['width', 'height'] },
+    execute: (params: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; zoomFactor?: number; tabId?: string; reload?: boolean; hideScrollbar?: boolean }, context) => browser.setViewport(params, context.browserTarget),
   });
   catalogue.register({
     name: 'browser.get-viewport',
@@ -1768,16 +1919,10 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         all: { type: 'boolean', default: false, description: 'Pass true for global GUI discovery: every tab in the window is listed and each row carries affiliated (true when the tab measures into this session\'s project/workspace). Default lists only this session\'s project scope.' },
         affiliatedOnly: { type: 'boolean', default: false, description: 'Restrict the returned rows to tabs measuring into this session\'s project/workspace.' },
         projectId: { type: 'string', description: 'Scope selector: must equal this session\'s authenticated projectId. A foreign or unbound selector is refused; it can never widen authority.' },
+        ...tabListFilterProperties(),
       },
     },
-    execute: (params: { all?: boolean; affiliatedOnly?: boolean; projectId?: string }, context) => browser.listTabs({
-      target: context.browserTarget,
-      scope: params?.all === true ? 'global' : 'project',
-      affiliatedOnly: params?.affiliatedOnly === true,
-      projectId: typeof params?.projectId === 'string' ? params.projectId : undefined,
-      authenticatedProjectId: context.projectId,
-      authenticatedWorkspaceId: context.workspaceId,
-    }),
+    execute: (params: TabListParams, context) => listTabsFromParams(params, context),
   });
 
   catalogue.register({
@@ -1785,11 +1930,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     description: 'Alias for browser.open-tab',
     risk: 'write',
     policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
-    inputSchema: { type: 'object', properties: { url: { type: 'string' }, activate: { type: 'boolean' }, anchorTabId: { type: 'string', description: 'Live same-project tab selecting the window for creation' }, ephemeral: { type: 'boolean' }, userFacing: { type: 'boolean', description: 'Open tab directly on the visible user plane (non-ephemeral) for interactive inspection/debugging' }, projectId: { type: 'string', description: 'Scope selector: must equal this session\'s authenticated projectId. A foreign or unbound selector is refused before allocation; it never widens authority.' } } },
-    execute: async (params: { url?: string; activate?: boolean; anchorTabId?: string; ephemeral?: boolean; userFacing?: boolean; projectId?: string }, context) => {
-      await browser.ensureHostForNewTab({ target: context?.browserTarget, authenticatedProjectId: context?.projectId, url: params.url });
-      return browser.openTab(params, { target: context?.browserTarget, authenticatedProjectId: context?.projectId });
-    },
+    inputSchema: { type: 'object', properties: { url: { type: 'string' }, activate: { type: 'boolean' }, anchorTabId: { type: 'string', description: 'Live same-project tab selecting the window for creation' }, ephemeral: { type: 'boolean' }, userFacing: { type: 'boolean', description: 'Open tab directly on the visible user plane (non-ephemeral) for interactive inspection/debugging' }, projectId: { type: 'string', description: 'Scope selector: must equal this session\'s authenticated projectId. A foreign or unbound selector is refused before allocation; it never widens authority.' }, bind: { type: 'boolean', default: true, description: 'Pass false to open the tab without making it this session\'s bound target; every later call keeps its current tab until you rebind or pass this tab\'s tabId' } } },
+    execute: (params: OpenTabParams, context) => openTabFromParams(params, context),
   });
 
   catalogue.register({
@@ -1798,7 +1940,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'write',
     policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
     inputSchema: { type: 'object', properties: { tabId: { type: 'string' } }, required: ['tabId'] },
-    execute: (params: { tabId: string }, context) => browser.closeTab(params.tabId, { target: context.browserTarget }),
+    execute: (params: { tabId: string }, context) => closeTabFromParams(params, context),
   });
 
   catalogue.register({
@@ -1827,8 +1969,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
     inputSchema: navigateInputSchema(),
-    execute: (params: { url: string; tabId?: string; timeoutMs?: number }, context) =>
-      browser.navigate(context.browserTarget as BrowserTarget, params.url, params.tabId, params.timeoutMs !== undefined ? { timeoutMs: params.timeoutMs } : undefined),
+    execute: (params: { url: string; tabId?: string; timeoutMs?: number; waitUntil?: string }, context) =>
+      browser.navigate(context.browserTarget as BrowserTarget, params.url, params.tabId, navigateOptionsOf('antifan_navigate', params)),
   });
 
   catalogue.register({
@@ -1857,10 +1999,10 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'read',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive' }),
-    inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, format: { type: 'string', enum: ['png', 'jpeg'] }, quality: { type: 'number' }, fullPage: { type: 'boolean', description: 'Rejected: antifan_screenshot is viewport-only; use anti.screenshot.full_page' } } },
-    execute: async (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; format?: 'png' | 'jpeg'; quality?: number; fullPage?: boolean }, context) => {
+    inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, format: { type: 'string', enum: ['png', 'jpeg'] }, quality: { type: 'number' }, fullPage: { type: 'boolean', description: 'Rejected: antifan_screenshot is viewport-only; use anti.screenshot.full_page' }, saveTo: SAVE_TO_PROPERTY } },
+    execute: async (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; format?: 'png' | 'jpeg'; quality?: number; fullPage?: boolean; saveTo?: string }, context) => {
       assertViewportOnlyScreenshot('antifan_screenshot', params.fullPage);
-      return browser.screenshot(context.browserTarget as BrowserTarget, context.runId || 'run-unbound', context.attemptId || 'attempt-unbound', params.tabId, params.paneId, { format: params.format, quality: params.quality, fullPage: false });
+      return captureWithSaveTo(() => browser.screenshot(context.browserTarget as BrowserTarget, context.runId || 'run-unbound', context.attemptId || 'attempt-unbound', params.tabId, params.paneId, { format: params.format, quality: params.quality, fullPage: false }), params.saveTo, context);
     },
   });
 
@@ -2056,8 +2198,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     description: 'Alias for browser.set-viewport',
     risk: 'write',
     policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
-    inputSchema: { type: 'object', properties: { width: { type: 'number' }, height: { type: 'number' }, mobile: { type: 'boolean' }, deviceScaleFactor: { type: 'number' }, zoomFactor: { type: 'number', minimum: 0.25, maximum: 5.0, description: 'Pin the page zoom factor (0.25-5.0). Defaults to 1.0' }, tabId: { type: 'string' }, reload: { type: 'boolean' } }, required: ['width', 'height'] },
-    execute: (params: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; zoomFactor?: number; tabId?: string; reload?: boolean }, context) => browser.setViewport(params, context.browserTarget),
+    inputSchema: { type: 'object', properties: { width: { type: 'number' }, height: { type: 'number' }, mobile: { type: 'boolean' }, deviceScaleFactor: { type: 'number' }, zoomFactor: { type: 'number', minimum: 0.25, maximum: 5.0, description: 'Pin the page zoom factor (0.25-5.0). Defaults to 1.0' }, tabId: { type: 'string' }, reload: { type: 'boolean' }, hideScrollbar: HIDE_SCROLLBAR_PROPERTY }, required: ['width', 'height'] },
+    execute: (params: { width: number; height: number; mobile?: boolean; deviceScaleFactor?: number; zoomFactor?: number; tabId?: string; reload?: boolean; hideScrollbar?: boolean }, context) => browser.setViewport(params, context.browserTarget),
   });
   catalogue.register({
     name: 'antifan_get_viewport',
@@ -2136,8 +2278,9 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         expectedStatus: { type: 'number', description: 'HTTP status the contract screen declares for this route (for example 404 on a not-found screen). A document returning exactly that status is not reported as ROUTE_404; echoed on the receipt' },
         allowNonTheme: { type: 'boolean', description: 'Accept a workspace root without theme markers (layout/theme.liquid, config/settings_schema.json, config/settings.html) for a plain-folder run. Otherwise such a root is refused with WORKSPACE_NOT_THEME and no receipt is written' },
         greenfield: { type: 'object', description: 'Declare that no visual baseline exists yet for this storefront (a new build). The run records the reason and the observed baseline state on the receipt; it is refused when baselines already exist for the route', properties: { reason: { type: 'string', description: 'Why the run has no baseline to compare against' } }, required: ['reason'] },
-        viewports: {
+        baselineViewports: {
           type: 'object',
+          description: BASELINE_VIEWPORTS_DESCRIPTION,
           properties: {
             desktop: { type: 'object', properties: { mismatchPercent: { type: 'number' }, passed: { type: 'boolean' } } },
             tablet: { type: 'object', properties: { mismatchPercent: { type: 'number' }, passed: { type: 'boolean' } } },
@@ -2162,7 +2305,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         settle?: QaSettleOverrides;
         allowNonTheme?: boolean;
         greenfield?: { reason: string };
-        viewports?: {
+        baselineViewports?: {
           // `passed` is the caller structural verdict; the QA matrix ANDs it with the pixel threshold, so only downgrades are possible.
           desktop?: { mismatchPercent: number; passed: boolean };
           tablet?: { mismatchPercent: number; passed: boolean };
@@ -2224,7 +2367,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         attemptId,
         workspaceRoot: confinedRoot,
         multiBreakpoint: params.multiBreakpoint,
-        viewports: params.viewports,
+        viewports: params.baselineViewports,
         target: t,
         annotationId: params.annotationId,
         profile: qaOptions.profile ?? DEFAULT_QA_VALIDATE_PROFILE,
@@ -2255,7 +2398,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
               baselineIds: summary.baselineIds,
               total: summary.total,
               ...(greenfieldOrigin ? { origin: greenfieldOrigin } : {}),
-              recovery: 'compare against the promoted baseline with anti.visual.compare and pass the results as viewports, or delete the old baseline deliberately',
+              recovery: 'compare against the promoted baseline with anti.visual.compare and pass the results as baselineViewports, or delete the old baseline deliberately',
             });
           }
           greenfieldInput = { reason: qaOptions.greenfield.reason, baselineExists: false };
@@ -2888,8 +3031,9 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         workspaceRoot: { type: 'string' },
         greenfield: { type: 'object', description: 'Declare that no visual baseline exists yet for this storefront (a new build)', properties: { reason: { type: 'string' } }, required: ['reason'] },
         multiBreakpoint: { type: 'boolean' },
-        viewports: {
+        baselineViewports: {
           type: 'object',
+          description: BASELINE_VIEWPORTS_DESCRIPTION,
           properties: {
             desktop: { type: 'object', properties: { mismatchPercent: { type: 'number' }, passed: { type: 'boolean' } } },
             tablet: { type: 'object', properties: { mismatchPercent: { type: 'number' }, passed: { type: 'boolean' } } },
@@ -2986,9 +3130,25 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
             (document.head || document.documentElement).appendChild(el);
           }
           el.textContent = ${JSON.stringify(cssContent)};
-          return { applied: true, id: ${JSON.stringify(params.id)}, byteLength: ${cssContent.length} };
+          // Elements the override's selectors reach right now (media rules count only while they match):
+          // zero means the CSS applied but styles nothing, so the caller does not read a no-op as a fix.
+          const matched = new Set();
+          const collect = (rules) => {
+            for (const rule of Array.from(rules || [])) {
+              if (rule.selectorText) {
+                try { document.querySelectorAll(rule.selectorText).forEach((node) => matched.add(node)); } catch {}
+              } else if (rule.cssRules) {
+                if (rule.media && !window.matchMedia(rule.media.mediaText).matches) continue;
+                collect(rule.cssRules);
+              }
+            }
+          };
+          try { collect(el.sheet && el.sheet.cssRules); } catch {}
+          return { applied: true, id: ${JSON.stringify(params.id)}, byteLength: ${Buffer.byteLength(cssContent, 'utf8')}, url: location.href, matchedElements: matched.size };
         })()`;
-        return browser.eval(target, script, params.tabId, params.paneId);
+        const applied = await browser.eval(target, script, params.tabId, params.paneId);
+        const appliedTabId = typeof params.tabId === 'string' && params.tabId.trim() ? params.tabId.trim() : target.tabId;
+        return applied && typeof applied === 'object' ? { ...(applied as Record<string, unknown>), tabId: appliedTabId } : applied;
       }
       if (!params.id || !params.id.trim()) {
         const script = `(() => {
@@ -3041,16 +3201,10 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         all: { type: 'boolean', default: false, description: 'Pass true for global GUI discovery: every tab in the window is listed and each row carries affiliated. Default lists only this session\'s project scope.' },
         affiliatedOnly: { type: 'boolean', default: false, description: 'Restrict the returned rows to tabs measuring into this session\'s project/workspace.' },
         projectId: { type: 'string', description: 'Scope selector: must equal this session\'s authenticated projectId. A foreign or unbound selector is refused; it can never widen authority.' },
+        ...tabListFilterProperties(),
       }
     },
-    execute: (params: { all?: boolean; affiliatedOnly?: boolean; projectId?: string }, context) => browser.listTabs({
-      target: context.browserTarget,
-      scope: params?.all === true ? 'global' : 'project',
-      affiliatedOnly: params?.affiliatedOnly === true,
-      projectId: typeof params?.projectId === 'string' ? params.projectId : undefined,
-      authenticatedProjectId: context.projectId,
-      authenticatedWorkspaceId: context.workspaceId,
-    }),
+    execute: (params: TabListParams, context) => listTabsFromParams(params, context),
   });
   catalogue.register({
     name: 'anti.browser.tabs.get',
@@ -3086,12 +3240,10 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         devicePresetId: { type: 'string', description: 'Device preset ID (e.g. iphone-15, xiaomi-14)' },
         mobile: { type: 'boolean', description: 'Open directly in mobile mode with mobile User-Agent and viewport' },
         projectId: { type: 'string', description: 'Scope selector: must equal this session\'s authenticated projectId. A foreign or unbound selector is refused before allocation; it never widens authority.' },
+        bind: { type: 'boolean', default: true, description: 'Pass false to open the tab without making it this session\'s bound target; every later call keeps its current tab until you rebind or pass this tab\'s tabId' },
       },
     },
-    execute: async (params: { url?: string; activate?: boolean; anchorTabId?: string; ephemeral?: boolean; userFacing?: boolean; devicePresetId?: string; mobile?: boolean; projectId?: string }, context) => {
-      await browser.ensureHostForNewTab({ target: context?.browserTarget, authenticatedProjectId: context?.projectId, url: params.url });
-      return browser.openTab(params, { target: context?.browserTarget, authenticatedProjectId: context?.projectId });
-    },
+    execute: (params: OpenTabParams, context) => openTabFromParams(params, context),
   });
   catalogue.register({
     name: 'anti.browser.tabs.activate',
@@ -3117,7 +3269,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'write',
     policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
     inputSchema: { type: 'object', properties: { tabId: { type: 'string' } }, required: ['tabId'] },
-    execute: (params: { tabId: string }, context) => browser.closeTab(params.tabId, { target: context.browserTarget }),
+    execute: (params: { tabId: string }, context) => closeTabFromParams(params, context),
   });
 
   catalogue.register({
@@ -3127,8 +3279,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
     inputSchema: navigateInputSchema(),
-    execute: (params: { url: string; tabId?: string; timeoutMs?: number }, context) =>
-      browser.navigate(context.browserTarget as BrowserTarget, params.url, params.tabId, params.timeoutMs !== undefined ? { timeoutMs: params.timeoutMs } : undefined),
+    execute: (params: { url: string; tabId?: string; timeoutMs?: number; waitUntil?: string }, context) =>
+      browser.navigate(context.browserTarget as BrowserTarget, params.url, params.tabId, navigateOptionsOf('anti.browser.navigate', params)),
   });
 
   catalogue.register({
@@ -3193,10 +3345,10 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       timeoutMs: VIEWPORT_CAPTURE_EXECUTION_BUDGET_MS + VIEWPORT_CAPTURE_CANCELLATION_ACK_MS,
       cancellationAckTimeoutMs: VIEWPORT_CAPTURE_CANCELLATION_ACK_MS,
     }),
-    inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, format: { type: 'string', enum: ['png', 'jpeg'] }, quality: { type: 'number' }, fullPage: { type: 'boolean', description: 'Rejected: anti.screenshot.viewport is viewport-only; use anti.screenshot.full_page' }, inline: { type: 'boolean', description: 'When false, returns only artifact metadata and file path without base64 image data' } } },
-    execute: async (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; format?: 'png' | 'jpeg'; quality?: number; fullPage?: boolean; inline?: boolean }, context) => {
+    inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, format: { type: 'string', enum: ['png', 'jpeg'] }, quality: { type: 'number' }, fullPage: { type: 'boolean', description: 'Rejected: anti.screenshot.viewport is viewport-only; use anti.screenshot.full_page' }, inline: { type: 'boolean', description: 'When false, returns only artifact metadata and file path without base64 image data' }, saveTo: SAVE_TO_PROPERTY } },
+    execute: async (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; format?: 'png' | 'jpeg'; quality?: number; fullPage?: boolean; inline?: boolean; saveTo?: string }, context) => {
       assertViewportOnlyScreenshot('anti.screenshot.viewport', params.fullPage);
-      return browser.screenshot(context.browserTarget as BrowserTarget, context.runId || 'run-unbound', context.attemptId || 'attempt-unbound', params.tabId, params.paneId, { format: params.format || 'jpeg', quality: params.quality ?? 85, fullPage: false });
+      return captureWithSaveTo(() => browser.screenshot(context.browserTarget as BrowserTarget, context.runId || 'run-unbound', context.attemptId || 'attempt-unbound', params.tabId, params.paneId, { format: params.format || 'jpeg', quality: params.quality ?? 85, fullPage: false }), params.saveTo, context);
     },
   });
 
@@ -3224,16 +3376,17 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         expectedUrl: { type: 'string', description: 'Expected route URL for route identity gate assertion' },
         materializeDataSrc: { type: 'boolean', description: 'Swap lazy data-src/data-srcset into live sources before capture, for loaders that only swap on user interaction (default false: such images fail the imagesSettled gate with CAPTURE_NOT_READY)' },
         inline: { type: 'boolean', description: 'When false, returns only artifact metadata and file path without base64 image data' },
+        saveTo: SAVE_TO_PROPERTY,
       },
     },
-    execute: async (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; format?: 'png' | 'jpeg'; quality?: number; leaseToken?: string; expectedUrl?: string; materializeDataSrc?: boolean; inline?: boolean }, context) => {
+    execute: async (params: { tabId?: string; paneId?: 'desktop' | 'mobile'; format?: 'png' | 'jpeg'; quality?: number; leaseToken?: string; expectedUrl?: string; materializeDataSrc?: boolean; inline?: boolean; saveTo?: string }, context) => {
       if (params.format !== undefined && params.format !== 'png' && params.format !== 'jpeg') {
         throw new CapabilityError('INVALID_ARGUMENT', `anti.screenshot.full_page format must be 'png' or 'jpeg', got '${String(params.format)}'`);
       }
       if (params.quality !== undefined && (typeof params.quality !== 'number' || !Number.isFinite(params.quality) || params.quality < 1 || params.quality > 100)) {
         throw new CapabilityError('INVALID_ARGUMENT', 'anti.screenshot.full_page quality must be a number between 1 and 100');
       }
-      return browser.screenshotFullPage(
+      return captureWithSaveTo(() => browser.screenshotFullPage(
         context.browserTarget as BrowserTarget,
         context.runId || 'run-unbound',
         context.attemptId || 'attempt-unbound',
@@ -3248,7 +3401,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
           ...(params.format ? { format: params.format } : {}),
           ...(params.quality !== undefined ? { quality: params.quality } : {}),
         }
-      );
+      ), params.saveTo, context);
     },
   });
 

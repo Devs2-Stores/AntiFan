@@ -10,7 +10,10 @@
      running instance receives that flag through the single-instance handoff and runs its
      normal shutdown (quit.requested -> shutdown.clean in main.log), so no credential is needed.
   4. Waits for the old main PID to exit. A process that does not exit in time is left alone
-     unless -Force is passed: a refused quit usually means work the user must decide on.
+     unless -Force is passed: a refused quit usually means work the user must decide on, so the
+     script prints the quit.outcome row (haltedBy, shell counts) and the close-refusal.presented
+     row (refusal codes) that this request wrote to main.log. After a -Force stop it follows the
+     process for up to -ForceExitWaitSeconds (default 20) and reports MAIN_STILL_ALIVE if it stays.
   5. Starts the app the same way run-antifan.vbs does and waits for the bridge listener.
 
   Build first (npm run compile). The app loads .compiled, which npm run compile builds from the
@@ -22,7 +25,8 @@ param(
   [switch]$Force,
   [int]$BridgePort = 20130,
   [int]$QuitTimeoutSeconds = 45,
-  [int]$StartTimeoutSeconds = 90
+  [int]$StartTimeoutSeconds = 90,
+  [int]$ForceExitWaitSeconds = 20
 )
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
@@ -65,6 +69,31 @@ for ($i = 0; $i -lt 16 -and $p; $i++) {
   $p = $proc.ParentProcessId
 }
 
+# The lifecycle journal the running instance writes (one JSON object per line). A refused quit
+# leaves its reasons only there, so the script reads back the rows THIS request produced: same
+# process, written after the request was sent.
+$logPath = if ($env:ANTIFAN_DATA_ROOT) { Join-Path $env:ANTIFAN_DATA_ROOT 'runtime\logs\main.log' } elseif (Test-Path 'E:\Work\.antifan-data\runtime\logs\main.log') { 'E:\Work\.antifan-data\runtime\logs\main.log' } else { Join-Path $env:APPDATA 'AntiFan\data\runtime\logs\main.log' }
+
+function Get-QuitJournalRow([string]$EventName, [long]$SinceMs, [int]$OwnerPid, [string]$Kind) {
+  if (-not (Test-Path $logPath)) { return $null }
+  $rows = @(Select-String -Path $logPath -SimpleMatch ('"event":"' + $EventName + '"') -ErrorAction SilentlyContinue | ForEach-Object { try { $_.Line | ConvertFrom-Json } catch { $null } })
+  return $rows | Where-Object { $_ -and $_.pid -eq $OwnerPid -and $_.ts -ge $SinceMs -and ((-not $Kind) -or $_.kind -eq $Kind) } | Select-Object -Last 1
+}
+
+function Write-QuitDiagnostics([int]$OwnerPid, [long]$SinceMs) {
+  $outcome = Get-QuitJournalRow 'quit.outcome' $SinceMs $OwnerPid ''
+  if ($outcome) {
+    $halted = if ($null -eq $outcome.haltedBy) { 'none' } else { $outcome.haltedBy }
+    Write-Output ("quit.outcome: shutdown={0} phase={1} haltedBy={2} closedShells={3} survivingShells={4} auxiliaries={5} coalescedRequests={6}" -f $outcome.shutdown, $outcome.phase, $halted, $outcome.closedShells, $outcome.survivingShells, $outcome.auxiliaries, $outcome.coalescedRequests)
+  } else {
+    Write-Output "quit.outcome: no row from main $OwnerPid after this request in $logPath (not answered yet, or the log rotated)"
+  }
+  $refusal = Get-QuitJournalRow 'close-refusal.presented' $SinceMs $OwnerPid 'quit'
+  if ($refusal) {
+    Write-Output ("close-refusal.presented: surface={0} reasons={1} reasonCount={2}" -f $refusal.surface, (@($refusal.reasons) -join ','), $refusal.reasonCount)
+  }
+}
+
 if ($DryRun) { Write-Output 'DRY_RUN: nothing sent, nothing stopped'; exit 0 }
 
 # 2. Ask the running instance to quit; the second process hands the flag over and exits.
@@ -74,6 +103,7 @@ Get-ChildItem Env: | Where-Object { $_.Name -like 'ANTIFAN_*' -or $_.Name -like 
   Remove-Item "Env:$($_.Name)"
 }
 $stopAt = Get-Date
+$sinceMs = [DateTimeOffset]::new($stopAt.ToUniversalTime()).ToUnixTimeMilliseconds()
 Write-Output "sending $quitFlag to main $mainPid at $($stopAt.ToUniversalTime().ToString('HH:mm:ss.fff'))Z"
 Start-Process -FilePath $electronExe -ArgumentList @("`"$repo`"", '--allow-eval', $quitFlag) -WorkingDirectory $repo -WindowStyle Hidden | Out-Null
 
@@ -86,17 +116,20 @@ while ((Get-Date) -lt $deadline) {
   Start-Sleep -Milliseconds 500
 }
 if (Get-Process -Id $mainPid -ErrorAction SilentlyContinue) {
-  $logPath = if ($env:ANTIFAN_DATA_ROOT) { Join-Path $env:ANTIFAN_DATA_ROOT 'runtime\logs\main.log' } elseif (Test-Path 'E:\Work\.antifan-data\runtime\logs\main.log') { 'E:\Work\.antifan-data\runtime\logs\main.log' } else { Join-Path $env:APPDATA 'AntiFan\data\runtime\logs\main.log' }
-  $lastQuit = if (Test-Path $logPath) { Select-String -Path $logPath -SimpleMatch '"event":"quit.outcome"' | Select-Object -Last 1 | ForEach-Object { $_.Line } } else { $null }
-  if ($lastQuit) { Write-Output "quit.outcome: $lastQuit" }
+  Write-QuitDiagnostics -OwnerPid $mainPid -SinceMs $sinceMs
   if (-not $Force) {
     Write-Output "QUIT_NOT_COMPLETED: main $mainPid is still alive after ${QuitTimeoutSeconds}s (a refused quit keeps the process). Not forcing; re-run with -Force to stop it."
     exit 1
   }
   Write-Output "QUIT_TIMEOUT: stopping main $mainPid (-Force); shutdown.clean will not be written for this stop"
   Stop-Process -Id $mainPid -Force
-  Start-Sleep -Seconds 2
-  if (Get-Process -Id $mainPid -ErrorAction SilentlyContinue) { Write-Output 'MAIN_STILL_ALIVE'; exit 1 }
+  # A killed Electron main can take well over two seconds to leave the process table while its
+  # children are reaped, so follow it for a bounded window instead of judging after a fixed sleep.
+  $exitDeadline = (Get-Date).AddSeconds($ForceExitWaitSeconds)
+  while ((Get-Process -Id $mainPid -ErrorAction SilentlyContinue) -and (Get-Date) -lt $exitDeadline) {
+    Start-Sleep -Milliseconds 500
+  }
+  if (Get-Process -Id $mainPid -ErrorAction SilentlyContinue) { Write-Output "MAIN_STILL_ALIVE: main $mainPid did not exit within ${ForceExitWaitSeconds}s of the forced stop"; exit 1 }
 } else {
   Write-Output "main $mainPid exited after $([int]((Get-Date) - $stopAt).TotalSeconds)s (clean quit: check main.log for quit.requested then shutdown.clean)"
 }

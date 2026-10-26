@@ -8,6 +8,7 @@ import {
   type ThemeQaStrictFailure,
 } from '../../src/main/qa/theme-qa-workflow';
 import { boundQaReportResponse, QA_RESPONSE_BUDGET_BYTES } from '../../src/main/qa/qa-response-bounds';
+import { buildQaReportIndex } from '../../src/main/qa/qa-report-index';
 
 describe('classifyQaWaivers', () => {
   it('accepts waivable rule ids and echoes them', () => {
@@ -98,6 +99,32 @@ describe('receipt findings reconcile with criticalCount', () => {
     const all = collectReceiptFindings(base, ratchet);
     assert.equal(all.length, 502);
     assert.equal(buildReceiptFindings(base, ratchet, 200).length, 200);
+  });
+
+  it('indexes the listed criticals by rule, so the summary names what criticalCount is made of', () => {
+    const index = buildQaReportIndex(collectReceiptFindings(base));
+    assert.deepEqual(index.criticalCodes, ['layout_integrity@1440:spacing:edge-control', 'state_matrix:OVERLAY_NOT_OPENED']);
+    assert.deepEqual(index.byRule, { 'layout_integrity@1440:spacing:edge-control': 1, 'state_matrix:OVERLAY_NOT_OPENED': 1 });
+  });
+});
+
+describe('qa report index', () => {
+  it('adds up to the critical entries, orders by count then name, and leaves warnings out', () => {
+    const entries = [
+      { rule: 'state_matrix:OVERLAY_NOT_OPENED', severity: 'critical' as const },
+      { rule: 'overflow', severity: 'critical' as const },
+      { rule: 'state_matrix:OVERLAY_NOT_OPENED', severity: 'critical' as const },
+      { rule: 'diagnostics:console', severity: 'critical' as const },
+      { rule: 'overflow:inner-clipped', severity: 'warning' as const },
+    ];
+    const index = buildQaReportIndex(entries);
+    assert.deepEqual(index.criticalCodes, ['state_matrix:OVERLAY_NOT_OPENED', 'diagnostics:console', 'overflow']);
+    assert.equal(Object.values(index.byRule).reduce((sum, n) => sum + n, 0), 4);
+    assert.ok(!('overflow:inner-clipped' in index.byRule));
+  });
+
+  it('is empty when nothing critical was listed', () => {
+    assert.deepEqual(buildQaReportIndex([]), { criticalCodes: [], byRule: {} });
   });
 });
 

@@ -166,6 +166,8 @@ describe('OMP MCP stdio proxy security & bootstrap fail-closed contract', { conc
     // root is confined to an empty tempdir instead of the workstation's live one.
     const emptyDataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-no-bridge-'));
     env.ANTIFAN_DATA_ROOT = emptyDataRoot;
+    // A single recovery pass: the restart window is exercised in omp-mcp-autoheal-binding.test.mjs.
+    env.ANTIFAN_AUTOHEAL_RESTART_WAIT_MS = '0';
 
     const child = spawn(process.execPath, [scriptPath], {
       env,
@@ -1789,6 +1791,9 @@ describe('bridge client-failure journal', () => {
       }
     }
     delete env.ANTIFAN_MCP_BOOTSTRAP;
+    // These cases pin what a single recovery pass records. The restart window (a wait for a desktop
+    // that is relaunching) is covered in omp-mcp-autoheal-binding.test.mjs and would only slow them.
+    env.ANTIFAN_AUTOHEAL_RESTART_WAIT_MS = '0';
     return env;
   };
 

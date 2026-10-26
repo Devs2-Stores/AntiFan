@@ -26,6 +26,9 @@
  */
 import type { CloseRefusalNotice, CloseRefusalReasonWire } from '../../shared/contracts';
 
+/** Upper bound on reason codes copied into a journal row, so a pathological report cannot bloat it. */
+const JOURNAL_REASON_CODE_LIMIT = 8;
+
 /** Which request was refused. `close` is one shell's window close; `quit` is the application. */
 export type CloseRefusalKind = 'close' | 'quit';
 
@@ -161,6 +164,7 @@ export function presentCloseRefusalNotice(
         kind: notice.kind,
         ...(notice.ownerKey === undefined ? {} : { ownerKey: notice.ownerKey }),
         reasonCount: notice.reasons.length,
+        reasons: journalReasonCodes(notice),
         surface: 'toolbar',
         delivered,
         failed,
@@ -175,6 +179,7 @@ export function presentCloseRefusalNotice(
           journalCloseRefusal(port, 'close-refusal.presented', {
             kind: notice.kind,
             reasonCount: notice.reasons.length,
+            reasons: journalReasonCodes(notice),
             surface: 'dialog',
             failed,
           });
@@ -204,6 +209,15 @@ export function presentCloseRefusalNotice(
       detail: describeError(err),
     });
   }
+}
+
+/**
+ * The refusal codes in report order, capped. The journal row is what an operator reads after a
+ * refused quit when nothing was on screen to read, so it must say WHICH refusals held the
+ * application, not only how many; the full details stay in the notice itself.
+ */
+function journalReasonCodes(notice: CloseRefusalNotice): string[] {
+  return notice.reasons.slice(0, JOURNAL_REASON_CODE_LIMIT).map((reason) => reason.code);
 }
 
 /**

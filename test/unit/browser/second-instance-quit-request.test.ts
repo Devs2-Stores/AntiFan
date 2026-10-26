@@ -68,4 +68,29 @@ describe('antifan-restart.ps1', () => {
     const guard = script.lastIndexOf('if (-not $Force)', stopIndex);
     assert.ok(guard > 0 && guard < stopIndex, 'the forced stop sits behind the -Force guard');
   });
+
+  it('follows the process after the one forced stop instead of judging after a fixed sleep', () => {
+    const stopIndex = script.indexOf('Stop-Process');
+    const alive = script.lastIndexOf('MAIN_STILL_ALIVE');
+    assert.ok(alive > stopIndex, 'MAIN_STILL_ALIVE is still reported, after the stop');
+    const between = script.slice(stopIndex, alive);
+    assert.match(between, /\$ForceExitWaitSeconds/, 'the wait window is a named parameter');
+    assert.match(between, /while \(\(Get-Process -Id \$mainPid[^\n]*\) -and \(Get-Date\) -lt \$exitDeadline\)/, 'the process is polled until the deadline');
+    assert.match(between, /Start-Sleep -Milliseconds 500/);
+    assert.doesNotMatch(between, /Start-Sleep -Seconds/, 'no fixed sleep decides the outcome');
+    assert.match(script, /\[int\]\$ForceExitWaitSeconds = 20/);
+  });
+
+  it('prints the refused quit reasons from the journal rows this request wrote', () => {
+    assert.match(script, /'quit\.outcome'/);
+    assert.match(script, /'close-refusal\.presented'/);
+    for (const field of ['haltedBy', 'closedShells', 'survivingShells', 'auxiliaries', 'reasons']) {
+      assert.ok(script.includes(`$outcome.${field}`) || script.includes(`$refusal.${field}`), `the script prints ${field}`);
+    }
+    // A row from an earlier session or another process would blame the wrong quit.
+    assert.match(script, /\$_\.pid -eq \$OwnerPid -and \$_\.ts -ge \$SinceMs/);
+    const diagnostics = script.indexOf('Write-QuitDiagnostics -OwnerPid');
+    const refusedExit = script.indexOf('QUIT_NOT_COMPLETED');
+    assert.ok(diagnostics > 0 && diagnostics < refusedExit, 'the reasons are printed before the refused quit exits');
+  });
 });

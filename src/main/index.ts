@@ -4304,6 +4304,8 @@ async function createWindow(): Promise<void> {
       const host = hostForTabOrBootstrap(options.tabId);
       return host.setViewportSize(options);
     },
+    isScrollbarsHidden: (tabId) => hostForTabOrDegrade(tabId, 'port.isScrollbarsHidden')?.isScrollbarsHidden(tabId),
+    getMutationSamples: (tabId) => hostForTabOrDegrade(tabId, 'port.getMutationSamples')?.getMutationSamples(tabId) ?? [],
     setDevicePreset: (tabId, presetId) => hostForTabOrBootstrap(tabId).setDevicePreset(tabId, presetId),
     getDevicePresets: () => sharedServiceHostOrThrow().getDevicePresets(),
     setZoom: (tabId, zoomFactor) => hostForTabOrBootstrap(tabId).setZoom(tabId, zoomFactor),

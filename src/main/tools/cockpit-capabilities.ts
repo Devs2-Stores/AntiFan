@@ -359,21 +359,21 @@ function parsePickStrategy(value: unknown): PickProductStrategy | undefined {
 
 const BASELINE_VIEWPORT_KEYS = ['desktop', 'tablet', 'mobile'] as const;
 
-/** Validates the baseline-comparison `viewports` object the QA matrix grades CERTIFIED against. */
+/** Validates the `baselineViewports` object (visual-compare results) the QA matrix grades CERTIFIED against. */
 function parseBaselineViewports(value: unknown): CockpitThemeQaOptions['viewports'] {
   if (value === undefined) return undefined;
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new CapabilityError('INVALID_ARGUMENT', 'theme.cockpit_scan viewports must be an object keyed by desktop, tablet and mobile');
+    throw new CapabilityError('INVALID_ARGUMENT', 'theme.cockpit_scan baselineViewports must be an object keyed by desktop, tablet and mobile');
   }
   const raw = value as Record<string, unknown>;
   const out: NonNullable<CockpitThemeQaOptions['viewports']> = {};
   for (const key of Object.keys(raw)) {
     if (!(BASELINE_VIEWPORT_KEYS as readonly string[]).includes(key)) {
-      throw new CapabilityError('INVALID_ARGUMENT', `theme.cockpit_scan viewports.${key} is not a baseline viewport; expected ${BASELINE_VIEWPORT_KEYS.join(', ')}`);
+      throw new CapabilityError('INVALID_ARGUMENT', `theme.cockpit_scan baselineViewports.${key} is not a baseline viewport; expected ${BASELINE_VIEWPORT_KEYS.join(', ')}`);
     }
     const entry = raw[key] as { mismatchPercent?: unknown; passed?: unknown } | null;
     if (!entry || typeof entry !== 'object' || typeof entry.mismatchPercent !== 'number' || !Number.isFinite(entry.mismatchPercent) || typeof entry.passed !== 'boolean') {
-      throw new CapabilityError('INVALID_ARGUMENT', `theme.cockpit_scan viewports.${key} needs a numeric mismatchPercent and a boolean passed`);
+      throw new CapabilityError('INVALID_ARGUMENT', `theme.cockpit_scan baselineViewports.${key} needs a numeric mismatchPercent and a boolean passed`);
     }
     out[key as (typeof BASELINE_VIEWPORT_KEYS)[number]] = { mismatchPercent: entry.mismatchPercent, passed: entry.passed };
   }
@@ -384,7 +384,13 @@ function parseBaselineViewports(value: unknown): CockpitThemeQaOptions['viewport
 const COCKPIT_NAVIGATION_MS = 60_000;
 
 /** The QA grading inputs a cockpit scan forwards to the workflow; anything malformed is refused, never defaulted. */
-function parseScanQaOptions(params: { profile?: unknown; thresholds?: unknown; viewports?: unknown; multiBreakpoint?: unknown; waivers?: unknown }): CockpitThemeQaOptions {
+function parseScanQaOptions(params: { profile?: unknown; thresholds?: unknown; viewports?: unknown; baselineViewports?: unknown; multiBreakpoint?: unknown; waivers?: unknown }): CockpitThemeQaOptions {
+  if (params.viewports !== undefined) {
+    throw new CapabilityError('INVALID_ARGUMENT', 'theme.cockpit_scan viewports was renamed to baselineViewports ({desktop,tablet,mobile} visual-compare results)', {
+      capability: 'theme.cockpit_scan',
+      renamedField: { from: 'viewports', to: 'baselineViewports' },
+    });
+  }
   const parsed = browserCaps.parseQaValidateOptions({
     ...(params.profile !== undefined ? { profile: params.profile } : {}),
     ...(params.thresholds !== undefined ? { thresholds: params.thresholds } : {}),
@@ -393,7 +399,7 @@ function parseScanQaOptions(params: { profile?: unknown; thresholds?: unknown; v
   if (params.multiBreakpoint !== undefined && typeof params.multiBreakpoint !== 'boolean') {
     throw new CapabilityError('INVALID_ARGUMENT', 'theme.cockpit_scan multiBreakpoint must be a boolean');
   }
-  const viewports = parseBaselineViewports(params.viewports);
+  const viewports = parseBaselineViewports(params.baselineViewports);
   return {
     ...(parsed.profile ? { profile: parsed.profile } : {}),
     ...(parsed.thresholds ? { thresholds: parsed.thresholds } : {}),
@@ -680,7 +686,7 @@ export function registerCockpitCapabilities(
 
   catalogue.register({
     name: 'theme.cockpit_scan',
-    description: 'Navigate the bound tab to a checklist page route, run the authoritative Theme QA scan on it, then run the page probes for that route (home: page_structure + menu_depth; product: variant_image_probe + pdp_contract; collection: menu_depth) and tick the checklist items those measurements decide. profile/thresholds/viewports/multiBreakpoint are forwarded to the QA run unchanged; pick chooses the product page (max-variants, long-title, sold-out, no-image) instead of the first product link. The report carries certification: STRUCTURAL unless the baseline viewports are supplied.',
+    description: 'Navigate the bound tab to a checklist page route, run the authoritative Theme QA scan on it, then run the page probes for that route (home: page_structure + menu_depth; product: variant_image_probe + pdp_contract; collection: menu_depth) and tick the checklist items those measurements decide. profile/thresholds/baselineViewports/multiBreakpoint are forwarded to the QA run unchanged; pick chooses the product page (max-variants, long-title, sold-out, no-image) instead of the first product link. The report carries certification: STRUCTURAL unless the baseline viewports are supplied.',
     risk: 'read',
     requiresBrowserTarget: true,
     // Navigating the tab is a real interactive effect: the run is not replay-safe
@@ -696,13 +702,13 @@ export function registerCockpitCapabilities(
         tabId: { type: 'string' },
         profile: { type: 'string', enum: ['audit', 'build-strict'], description: 'QA grading profile (default build-strict)' },
         thresholds: { type: 'object', description: 'Contract thresholds (minTextPx, minTapHitPx, optional titleScale, inputHeightBandPx). Omitted: workspace contract typeScale, else the built-in defaults' },
-        viewports: { type: 'object', description: 'Baseline comparison results per viewport ({desktop|tablet|mobile: {mismatchPercent, passed}}); all three are required for certification CERTIFIED' },
+        baselineViewports: { type: 'object', description: 'Baseline comparison results per viewport ({desktop|tablet|mobile: {mismatchPercent, passed}}); all three are required for certification CERTIFIED' },
         multiBreakpoint: { type: 'boolean', description: 'Run the responsive breakpoint sweep (default true)' },
         waivers: { type: 'array', items: { type: 'object', properties: { rule: { type: 'string' }, reason: { type: 'string' } }, required: ['rule', 'reason'] }, description: 'Same as theme.qa_validate waivers: {rule, reason} pairs echoed on the report and receipt' },
         pick: { type: 'string', enum: [...PICK_STRATEGIES], description: 'For page=product without an explicit url: crawl /collections/all and scan the product that best matches this strategy' },
       },
     },
-    execute: async (params: { page?: string; url?: string; workspaceRoot?: string; allowNonTheme?: boolean; tabId?: string; profile?: unknown; thresholds?: unknown; viewports?: unknown; multiBreakpoint?: unknown; waivers?: unknown; pick?: unknown }, context) => {
+    execute: async (params: { page?: string; url?: string; workspaceRoot?: string; allowNonTheme?: boolean; tabId?: string; profile?: unknown; thresholds?: unknown; baselineViewports?: unknown; multiBreakpoint?: unknown; waivers?: unknown; pick?: unknown }, context) => {
       const identity = resolveBoundScope(cockpit, params, context, 'theme.cockpit_scan');
       const qaOptions = parseScanQaOptions(params);
       const pick = parsePickStrategy(params.pick);

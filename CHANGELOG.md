@@ -6,6 +6,22 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 
 ## [v1.3.6] - Unreleased
 
+### Đổi — Công cụ MCP và QA (có thay đổi phá vỡ)
+
+- **BREAKING:** `theme.qa_validate` đổi tên tham số `viewports` thành `baselineViewports`; tên cũ giờ trả `INVALID_ARGUMENT` kèm `renamedField`.
+- Probe đóng bằng Escape của theme QA đo lặp (poll) thay vì đo một lần; ca không ổn định phát cảnh báo mới `CLOSE_ESCAPE_FLAKY`. Mỗi finding mang thông tin quy chiếu `baseline` / `unavailable`.
+- `terminal.wait`: deadline thực thi bằng đúng ngân sách chờ nên không còn bị nền tảng hủy sớm ở 25 s (`WAIT_ABORTED`); thông báo kẹp (clamp) khớp giá trị thật.
+- `anti.sheet.write_cell`: đọc lại sau khi ghi chờ lâu hơn và trả `SAVED_UNCONFIRMED` thay vì báo lỗi khi chưa xác nhận được; giá trị nhiều dòng nhập bằng Alt+Enter.
+- Lời gọi theo selector / tọa độ / phím không còn lỗi `TARGET_STALE` khi `documentGeneration` đổi: được rebase và báo `documentGenerationRebased`. Ref `@eN` vẫn giữ hàng rào generation; trang xác minh chống bot vẫn bị từ chối.
+- `anti.browser.navigate` có thêm `waitUntil`; các công cụ screenshot có thêm `saveTo` (cần grant ghi); `set_viewport` có thêm `hideScrollbar` và `clientWidth`; `tabs.list` có thêm bộ lọc.
+
+### Thêm — Launcher, restart và công cụ kiểm chứng
+
+- Launcher `antifan` / `antifan-agent` nhận `--project=<id|name>` để mở phiên trong đúng project (không dùng chung với `--tab`). Cờ launcher chỉ đọc trước lệnh được bọc, nên `antifan npx playwright test --project=chromium` giữ nguyên cờ của lệnh.
+- `scripts/antifan-restart.ps1`: thêm `-ForceExitWaitSeconds` và mã `MAIN_STILL_ALIVE`; in kết quả của bước quit.
+- MCP proxy: cửa sổ chờ khi app restart cấu hình bằng `ANTIFAN_AUTOHEAL_RESTART_WAIT_MS` (mặc định 40 s). Các phiên OMP đang chạy phải khởi động lại để nạp proxy mới.
+- Mới `scripts/verify-in-worktree.ps1` (verify một ref trong worktree tạm: junction `node_modules`, chép `packages/site-clone/dist`, chỉ chạy tsc + copy-static + check-renderer-assets, gỡ junction trước khi xóa worktree) và `scripts/lib/isolated-instance.cjs`.
+
 ### Thêm — Project ngưng chạy thì cửa sổ Web đóng theo
 
 - Khi terminal cuối cùng đang chạy của một project chuyển sang sleep, thoát (`exit`) hoặc bị đóng, cửa sổ Web của project đó tự đóng. Quy tắc chạy theo cạnh chuyển trạng thái (đang chạy → không chạy): cửa sổ người dùng mở cho một project vốn đã ngủ, hoặc chưa từng có terminal, được giữ nguyên cho đến khi project chạy lại rồi dừng lần nữa. Kiểm tra gộp theo nhịp 600 ms để một lần sleep kéo theo các pane không bị đọc giữa chừng.

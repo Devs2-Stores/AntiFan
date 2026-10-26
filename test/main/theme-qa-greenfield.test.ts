@@ -3,7 +3,7 @@ import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { ThemeQaWorkflow, type ThemeQaValidateInput } from '../../src/main/qa/theme-qa-workflow';
+import { collectReceiptFindings, ThemeQaWorkflow, type ThemeQaValidateInput } from '../../src/main/qa/theme-qa-workflow';
 import { CapabilityError } from '../../src/shared/control-plane-contracts';
 import { createCleanQaPorts, makeCleanTarget } from '../support/clean-qa-ports';
 
@@ -14,6 +14,7 @@ interface RunOptions {
   greenfield?: ThemeQaValidateInput['greenfield'];
   /** Width whose sweep reading reports a horizontal overflow. */
   overflowAtWidth?: number;
+  baselineFindings?: ThemeQaValidateInput['baselineFindings'];
 }
 
 const run = (options: RunOptions = {}) => {
@@ -36,6 +37,7 @@ const run = (options: RunOptions = {}) => {
     workspaceRoot: root,
     target: makeCleanTarget(),
     ...(options.greenfield !== undefined ? { greenfield: options.greenfield } : {}),
+    ...(options.baselineFindings !== undefined ? { baselineFindings: options.baselineFindings } : {}),
   });
 };
 
@@ -86,6 +88,34 @@ describe('theme QA greenfield run', () => {
     const remedies = report.summary.certificationRemedies ?? [];
     assert.ok(remedies.some((remedy) => remedy.tool === 'theme.qa_validate'), JSON.stringify(remedies));
     assert.ok((report.viewportsTested ?? []).length >= 3, 'the sweep widths are reported as tested');
+    assert.ok(
+      (report.summary.certificationReasons ?? []).some((reason) => reason.includes('baselineViewports.desktop')),
+      'the missing-baseline reason names the renamed parameter'
+    );
     assert.ok(report.summary.attribution, 'attribution is reported');
+  });
+
+  it('says attribution is unavailable when no baseline was supplied, instead of reporting zero regressions', async () => {
+    const report = await run();
+    assert.strictEqual(report.summary.attribution?.status, 'unavailable');
+    assert.strictEqual(report.summary.attribution?.reason, 'NO_BASELINE');
+    assert.strictEqual(report.findings?.differential?.baselineSupplied, false, 'the differential labels its items as unbaselined');
+  });
+
+  it('measures attribution against a supplied baseline', async () => {
+    const report = await run({ baselineFindings: [] });
+    assert.strictEqual(report.summary.attribution?.status, 'measured');
+    assert.strictEqual(report.summary.attribution?.reason, undefined);
+    assert.strictEqual(report.findings?.differential?.baselineSupplied, true);
+  });
+
+  it('indexes the critical findings by rule so criticalCount can be read from the summary', async () => {
+    const report = await run({ greenfield: { reason: 'new theme, no baseline promoted yet' }, overflowAtWidth: 768 });
+    const codes = report.summary.criticalCodes;
+    const byRule = report.summary.byRule;
+    assert.ok(Array.isArray(codes) && byRule && typeof byRule === 'object', 'the summary carries both indexes');
+    assert.deepStrictEqual([...codes].sort(), Object.keys(byRule).sort());
+    const listed = collectReceiptFindings(report.findings).filter((entry) => entry.severity === 'critical');
+    assert.strictEqual(Object.values(byRule).reduce((sum, n) => sum + n, 0), listed.length, 'byRule counts the criticals the receipt lists');
   });
 });

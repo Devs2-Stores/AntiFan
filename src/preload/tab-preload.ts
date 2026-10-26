@@ -392,12 +392,38 @@ window.addEventListener(
 // 7. Authoritative Client-Side DOM Mutation Tracker for Verification Freshness
 (() => {
   let mutationDebounceTimer: NodeJS.Timeout | null = null;
-  const notifyMutation = () => {
+  // First accepted mutation of the debounce window, e.g. `body.page + div#cart.is-open` (a node
+  // added under body) or `header.site-header @class`. The host keeps the last few per tab so an
+  // INCONCLUSIVE compare can name which element kept the document moving.
+  const MUTATION_SAMPLE_MAX_CHARS = 120;
+  let pendingSample: string | null = null;
+  const describeNode = (node: Node | null): string => {
+    const el = node && node.nodeType === 1 ? (node as Element) : node ? node.parentElement : null;
+    if (!el) return '#document';
+    const className = typeof el.className === 'string' ? el.className.trim().split(/\s+/).filter(Boolean).join('.') : '';
+    return `${el.tagName.toLowerCase()}${el.id ? `#${el.id}` : ''}${className ? `.${className}` : ''}`;
+  };
+  const describeMutation = (m: MutationRecord): string => {
+    let text = describeNode(m.target);
+    if (m.type === 'childList') {
+      const added = Array.from(m.addedNodes).find((n) => n.nodeType === 1);
+      const removed = Array.from(m.removedNodes).find((n) => n.nodeType === 1);
+      if (added) text += ` + ${describeNode(added)}`;
+      else if (removed) text += ` - ${describeNode(removed)}`;
+    } else if (m.attributeName) {
+      text += ` @${m.attributeName}`;
+    }
+    return text.length > MUTATION_SAMPLE_MAX_CHARS ? text.slice(0, MUTATION_SAMPLE_MAX_CHARS) : text;
+  };
+  const notifyMutation = (sample: string) => {
+    if (pendingSample === null) pendingSample = sample;
     if (mutationDebounceTimer) return;
     mutationDebounceTimer = setTimeout(() => {
       mutationDebounceTimer = null;
+      const reported = pendingSample;
+      pendingSample = null;
       try {
-        ipcRenderer.send('antifan:dom-mutation');
+        ipcRenderer.send('antifan:dom-mutation', { sample: reported });
       } catch {}
     }, 150);
   };
@@ -443,10 +469,19 @@ window.addEventListener(
     return mutation.oldValue === current;
   };
   // A live countdown rewrites its digits every second by design. That is the page ticking, not the
-  // document changing under a capture, so a mutation inside one never advances the revision. This is
-  // the same set the DOM-quiet settle gate exempts (DEFAULT_DOM_QUIET_IGNORE in capture-settle.ts,
-  // which the sandboxed preload cannot import) plus the ARIA live-timer role; keep the two in step.
-  const VOLATILE_REGION = '[role="timer"], [data-countdown], [data-timer], .timer, .countdown';
+  // document changing under a capture, so a mutation inside one never advances the revision. The
+  // region list is a superset of DEFAULT_DOM_QUIET_IGNORE in capture-settle.ts (the sandboxed
+  // preload cannot import it) plus the ARIA live-timer role, the storefront widgets the compare
+  // masks (DEFAULT_STOREFRONT_WIDGETS in browser-control-port.ts: a masked region cannot change
+  // compared pixels) and transient toasts / social-proof pop-ups. A test pins the parity.
+  const VOLATILE_REGION = [
+    '[role="timer"]', '[data-countdown]', '[data-timer]', '.timer', '.countdown',
+    '[data-live-visitor]', '.live-views', '.marquee',
+    '#haravan-notification', '[id*="haravan-notification"]', '#fake-order-popup', '[id*="fake-order"]',
+    '#notice-cart', '[id*="notice-cart"]',
+    '.zalo-chat-widget', '[class*="zalo-chat"]', '.chat-widget', '[class*="chat-widget"]', '[id*="chat-widget"]',
+    '#toast-container', '.toast', '[class*="pop-sale"]',
+  ].join(', ');
   const isInsideVolatileRegion = (node: Node | null): boolean => {
     const el = node && node.nodeType === 1 ? (node as Element) : node ? node.parentElement : null;
     try {
@@ -468,8 +503,9 @@ window.addEventListener(
 
   try {
     const observer = new MutationObserver((mutations) => {
-      if (mutations.some(isMeaningfulMutation)) {
-        notifyMutation();
+      const first = mutations.find(isMeaningfulMutation);
+      if (first) {
+        notifyMutation(describeMutation(first));
       }
     });
     // `document` is the only valid target at document start: this preload runs before the parser

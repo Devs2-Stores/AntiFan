@@ -362,7 +362,7 @@ describe('ThemeQaWorkflow Canonical Validation & Capability Alias Delegation', (
       const aliasResult = await catalogue.get('antifan_theme_qa_validate')!.execute({
         profile: 'audit',
         multiBreakpoint: true,
-        viewports: {
+        baselineViewports: {
           desktop: { mismatchPercent: 1.2, passed: true },
           tablet: { mismatchPercent: 2.4, passed: true },
           mobile: { mismatchPercent: 0.8, passed: true },

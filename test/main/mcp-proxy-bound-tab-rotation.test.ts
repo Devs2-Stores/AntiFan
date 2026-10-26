@@ -565,7 +565,7 @@ describe('MCP proxy bound-tab default follows the authority', { concurrency: 4 }
     const harness = await startHarness(() => ({}));
     try {
       const response = await harness.request(1, 'tools/list', {});
-      const tools = (response.result as { tools: Array<{ name: string; inputSchema: { properties: Record<string, { enum?: string[] }>; required?: string[]; oneOf?: unknown[]; anyOf?: unknown[] } }> }).tools;
+      const tools = (response.result as { tools: Array<{ name: string; description: string; inputSchema: { properties: Record<string, { enum?: string[] }>; required?: string[]; oneOf?: unknown[]; anyOf?: unknown[] } }> }).tools;
       const byName = new Map(tools.map((tool) => [tool.name, tool]));
 
       const wait = byName.get('anti.browser.wait');
@@ -577,7 +577,9 @@ describe('MCP proxy bound-tab default follows the authority', { concurrency: 4 }
       const typing = byName.get('anti.agent.cursor.type')!.inputSchema;
       assert.ok('fromEnv' in typing.properties && 'secret' in typing.properties);
       assert.equal(typing.required, undefined, 'text is no longer unconditionally required');
-      assert.deepEqual(typing.oneOf, [{ required: ['text'] }, { required: ['fromEnv'] }]);
+      assert.equal(typing.oneOf, undefined, 'a top-level oneOf would hide every argument from some MCP clients');
+      assert.equal(typing.anyOf, undefined);
+      assert.match(byName.get('anti.agent.cursor.type')!.description, /Provide exactly one of: text \| fromEnv\./);
 
       const frame = byName.get('anti.browser.evaluate_frame')!.inputSchema;
       for (const field of ['frameUrl', 'frameId', 'frameIndex', 'frameSelector']) assert.ok(field in frame.properties, field);
@@ -595,6 +597,71 @@ describe('MCP proxy bound-tab default follows the authority', { concurrency: 4 }
       const response = await harness.callTool(1, 'anti.browser.wait', { condition: 'dom-stable' });
       assert.equal(toolCallFailed(response), false, harness.stderrText());
       assert.equal(harness.lastDispatch('anti.browser.wait').params.condition, 'dom-stable');
+    } finally {
+      harness.dispose();
+    }
+  });
+
+  it('14. tabs.create bind:false opens the tab without moving the default an omitted-tabId call rides', async () => {
+    const harness = await startHarness((capability) => (capability === 'browser.open-tab' ? { tabId: CREATED_TAB_ID } : {}));
+    try {
+      await harness.callTool(1, 'anti.browser.tabs.create', { bind: false });
+      assert.equal(harness.lastDispatch('browser.open-tab').params.bind, false, 'the flag reaches the capability');
+      await probeBoundTab(harness, 2, BOOTSTRAP_TAB_ID);
+    } finally {
+      harness.dispose();
+    }
+  });
+
+  it('15. a sequence whose body reports a failed step is delivered as an error with the body intact', async () => {
+    const harness = await startHarness((capability) =>
+      capability === 'browser.agent-sequence' ? { success: false, completedSteps: 1, failedStep: { index: 1, reason: 'Element not found' } } : {}
+    );
+    try {
+      const response = await harness.callTool(1, 'anti.agent.sequence', { actions: [{ type: 'wait', ms: 1 }] });
+      assert.equal(toolCallFailed(response), true, 'success:false must surface as isError');
+      const result = response.result;
+      assert.ok(typeof result === 'object' && result !== null && 'content' in result && Array.isArray(result.content), 'the result carries content blocks');
+      const first: unknown = result.content[0];
+      assert.ok(typeof first === 'object' && first !== null && 'text' in first && typeof first.text === 'string', 'the first block is text');
+      assert.equal(JSON.parse(first.text).failedStep.reason, 'Element not found');
+    } finally {
+      harness.dispose();
+    }
+  });
+});
+
+describe('MCP proxy structured failure fields', { concurrency: 4 }, () => {
+  it('16. retryable and retryAfterMs from the relayed failure become top-level fields of the error text', async () => {
+    const harness = await startHarness((capability) =>
+      capability === 'browser.dom' ? mockFailure('TARGET_BUSY_DRAINING', 'the tab is draining', { retryable: true, retryAfterMs: 1500 }) : {}
+    );
+    try {
+      const response = await harness.callTool(1, 'anti.inspect.dom', {});
+      assert.equal(toolCallFailed(response), true);
+      const result = response.result;
+      assert.ok(typeof result === 'object' && result !== null && 'content' in result && Array.isArray(result.content));
+      const first: unknown = result.content[0];
+      assert.ok(typeof first === 'object' && first !== null && 'text' in first && typeof first.text === 'string');
+      const diagnostic = JSON.parse(first.text);
+      assert.equal(diagnostic.code, 'TARGET_BUSY_DRAINING');
+      assert.equal(diagnostic.retryable, true);
+      assert.equal(diagnostic.retryAfterMs, 1500);
+    } finally {
+      harness.dispose();
+    }
+  });
+
+  it('17. a failure without hints keeps its message untouched', async () => {
+    const harness = await startHarness((capability) => (capability === 'browser.dom' ? mockFailure('INVALID_ARGUMENT', 'bad selector') : {}));
+    try {
+      const response = await harness.callTool(1, 'anti.inspect.dom', {});
+      assert.equal(toolCallFailed(response), true);
+      const result = response.result;
+      assert.ok(typeof result === 'object' && result !== null && 'content' in result && Array.isArray(result.content));
+      const first: unknown = result.content[0];
+      assert.ok(typeof first === 'object' && first !== null && 'text' in first && typeof first.text === 'string');
+      assert.doesNotMatch(first.text, /retryAfterMs|"retryable"/);
     } finally {
       harness.dispose();
     }

@@ -26,6 +26,7 @@ import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import http from 'node:http';
 import path from 'node:path';
+import net from 'node:net';
 import fs from 'node:fs';
 import os from 'node:os';
 import { createRequire } from 'node:module';
@@ -225,7 +226,7 @@ function startMockBridge(record, options = {}) {
     });
   });
   return new Promise((resolve) => {
-    server.listen(0, '127.0.0.1', () => resolve({ server, port: server.address().port }));
+    server.listen(options.port || 0, '127.0.0.1', () => resolve({ server, port: server.address().port }));
   });
 }
 
@@ -686,4 +687,114 @@ test('only a policy or scope refusal is definitive, never an availability fact',
   assert.equal(proxyModule.definitiveRefusalCode(refusal('BRIDGE_UNREACHABLE')), null);
   assert.equal(proxyModule.definitiveRefusalCode(refusal(null, 'connect ECONNREFUSED 127.0.0.1:1')), null);
   assert.equal(proxyModule.definitiveRefusalCode(refusal('PAIRING_TIMEOUT', 'timed out')), null);
+});
+
+// --- Restart window: a desktop that is restarting answers within ~10-20 s ----------------------
+
+function reservePort() {
+  return new Promise((resolve, reject) => {
+    const probe = net.createServer();
+    probe.once('error', reject);
+    probe.listen(0, '127.0.0.1', () => {
+      const { port } = probe.address();
+      probe.close(() => resolve(port));
+    });
+  });
+}
+
+function openProxy(env) {
+  const child = spawn(process.execPath, [PROXY], { env, stdio: ['pipe', 'pipe', 'pipe'] });
+  let stdout = '';
+  let stderr = '';
+  child.stdout.on('data', (chunk) => { stdout += chunk; });
+  child.stderr.on('data', (chunk) => { stderr += chunk; });
+  const send = (value) => child.stdin.write(JSON.stringify(value) + '\n');
+  const response = async (id, timeoutMs = 30_000) => {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const row = stdout.split('\n').filter(Boolean).map((line) => JSON.parse(line)).find((value) => value.id === id);
+      if (row) return row;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    throw new Error(`No MCP response for ${id}`);
+  };
+  const initialize = async () => {
+    send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'restart-window', version: '1' } } });
+    await response(1);
+    send({ jsonrpc: '2.0', method: 'notifications/initialized' });
+  };
+  return { child, send, response, initialize, stderr: () => stderr };
+}
+
+test('a read issued while the desktop is restarting waits for the new bridge and succeeds', async () => {
+  const port = await reservePort();
+  const env = childEnv(port);
+  env.ANTIFAN_AUTOHEAL_RESTART_WAIT_MS = '30000';
+  const proxy = openProxy(env);
+  const record = [];
+  let bridge = null;
+  try {
+    await proxy.initialize();
+    const startedAt = Date.now();
+    proxy.send({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'anti.browser.tabs.list', arguments: {} } });
+    // The desktop comes back well after the first refused connect.
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    bridge = await startMockBridge(record, { port });
+    const reply = await proxy.response(2);
+    assert.notEqual(reply.result?.isError, true, `the call must succeed once the bridge is back: ${JSON.stringify(reply.result)}`);
+    assert.ok(Date.now() - startedAt >= 2000, 'the call waited for the restart instead of failing at the first refused connect');
+    assert.ok(record.some((value) => value.method === 'antifan.capability.dispatch' && value.params.name === 'anti.browser.tabs.list'), 'the read reached the new bridge');
+  } finally {
+    proxy.child.kill();
+    if (bridge) {
+      bridge.server.closeAllConnections();
+      await new Promise((resolve) => bridge.server.close(resolve));
+    }
+  }
+});
+
+test('a window that runs out reports retryAfterMs, transmitted and waitedMs, and nothing was sent', async () => {
+  const port = await reservePort();
+  const env = childEnv(port);
+  env.ANTIFAN_AUTOHEAL_RESTART_WAIT_MS = '1500';
+  const proxy = openProxy(env);
+  try {
+    await proxy.initialize();
+    const startedAt = Date.now();
+    proxy.send({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'anti.browser.tabs.list', arguments: {} } });
+    const reply = await proxy.response(2);
+    const elapsedMs = Date.now() - startedAt;
+    assert.equal(reply.result?.isError, true);
+    const diagnostic = JSON.parse(reply.result.content[0].text);
+    assert.match(diagnostic.code, /CONNECTION_FAILED|MCP_BRIDGE_OFFLINE|CONNECTION_ERROR/);
+    assert.equal(diagnostic.retryable, true);
+    assert.equal(typeof diagnostic.retryAfterMs, 'number');
+    assert.ok(diagnostic.retryAfterMs > 0);
+    assert.equal(diagnostic.details?.transmitted, false, 'the frame never left');
+    assert.ok(diagnostic.details?.waitedMs >= 1400, `waitedMs reports the window that ran out (${diagnostic.details?.waitedMs})`);
+    assert.ok(elapsedMs >= 1400 && elapsedMs < 20_000, `the call returned after the window, not after a fixed long wait (${elapsedMs} ms)`);
+  } finally {
+    proxy.child.kill();
+  }
+});
+
+test('a definitive refusal is returned at once, never waited on', async () => {
+  const record = [];
+  const { server, port } = await startMockBridge(record, { refusePairing: { code: 'TERMINAL_SCOPE_UNRESOLVED', status: 409, details: { projectId: 'p1' } } });
+  const env = childEnv(port);
+  env.ANTIFAN_AUTOHEAL_RESTART_WAIT_MS = '60000';
+  const proxy = openProxy(env);
+  try {
+    await proxy.initialize();
+    const startedAt = Date.now();
+    proxy.send({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'anti.browser.tabs.list', arguments: {} } });
+    const reply = await proxy.response(2, 20_000);
+    assert.equal(reply.result?.isError, true);
+    assert.match(reply.result.content[0].text, /TERMINAL_SCOPE_UNRESOLVED/);
+    assert.ok(Date.now() - startedAt < 15_000, 'a bridge that answered and declined is not a restart: no window is waited');
+  } finally {
+    proxy.child.kill();
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+  }
 });

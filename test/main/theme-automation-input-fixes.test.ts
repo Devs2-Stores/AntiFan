@@ -258,7 +258,7 @@ describe('Theme Automation Input Fixes (Haravan Next Stack)', () => {
       documentGeneration = 2;
 
       await assert.rejects(
-        () => port.agentHover({ selector: '#header' }, staleTarget),
+        () => port.agentHover({ ref: '@e1' }, staleTarget),
         (err: unknown) => err instanceof CapabilityError && err.code === 'TARGET_STALE',
         'Stale documentGeneration must reject with TARGET_STALE'
       );

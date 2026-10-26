@@ -38,7 +38,7 @@ type TestHost = {
   tabs: Map<string, { view: { webContents: FakeWebContents }; state: { url: string }; redirectChain?: string[] }>;
   activeTabId: string;
   lastNavigationFailures: Map<string, { cause: string; message: string; timedOut: boolean }>;
-  navigateAndWait(tabId: string, url: string, timeoutMs?: number): Promise<boolean>;
+  navigateAndWait(tabId: string, url: string, wait?: number | { timeoutMs?: number; waitUntil?: 'commit' | 'domcontentloaded' | 'load' }): Promise<boolean>;
   reloadAndWait(tabId: string, timeoutMs?: number): Promise<boolean>;
   getLastNavigationFailure(tabId: string): { cause: string; message: string; timedOut: boolean } | undefined;
 };
@@ -145,6 +145,133 @@ describe('navigation lifecycle waiter post-timeout commit recheck', () => {
     const failure = host.getLastNavigationFailure('tab-1');
     assert.strictEqual(failure?.cause, 'NAVIGATION_START_TIMEOUT');
     assert.strictEqual(failure?.timedOut, true);
+  });
+});
+
+describe('navigateAndWait waitUntil stages', () => {
+  const target = 'https://example.com/next';
+  const track = (pending: Promise<boolean>) => {
+    const state = { done: false };
+    void pending.then(() => { state.done = true; });
+    return state;
+  };
+  const setup = () => {
+    const wc = new FakeWebContents();
+    wc.url = 'https://example.com/old';
+    return { wc, host: buildHost(wc, 'https://example.com/old') };
+  };
+
+  it("'commit' answers at the main-frame commit without waiting for the load", async () => {
+    const { wc, host } = setup();
+    const pending = host.navigateAndWait('tab-1', target, { timeoutMs: 5000, waitUntil: 'commit' });
+    const state = track(pending);
+    wc.emit('did-start-navigation', {}, target, false, true);
+    await delay(5);
+    assert.strictEqual(state.done, false, 'the start of a navigation is not a commit');
+    wc.emit('did-navigate', {}, target, 200, 'OK');
+    assert.strictEqual(await pending, true);
+    assert.strictEqual(host.getLastNavigationFailure('tab-1'), undefined);
+  });
+
+  it("'domcontentloaded' ignores the commit and answers at dom-ready", async () => {
+    const { wc, host } = setup();
+    const pending = host.navigateAndWait('tab-1', target, { timeoutMs: 5000, waitUntil: 'domcontentloaded' });
+    const state = track(pending);
+    wc.emit('did-start-navigation', {}, target, false, true);
+    wc.emit('did-navigate', {}, target, 200, 'OK');
+    await delay(5);
+    assert.strictEqual(state.done, false, 'a commit alone must not satisfy domcontentloaded');
+    wc.emit('dom-ready');
+    assert.strictEqual(await pending, true);
+  });
+
+  it("the default 'load' stage is not satisfied by a commit or by dom-ready", async () => {
+    const { wc, host } = setup();
+    const pending = host.navigateAndWait('tab-1', target, { timeoutMs: 5000 });
+    const state = track(pending);
+    wc.emit('did-start-navigation', {}, target, false, true);
+    wc.emit('did-navigate', {}, target, 200, 'OK');
+    wc.emit('dom-ready');
+    await delay(5);
+    assert.strictEqual(state.done, false);
+    wc.emit('did-finish-load');
+    assert.strictEqual(await pending, true);
+  });
+
+  it("a dom-ready from the previous document before the navigation starts does not satisfy 'domcontentloaded'", async () => {
+    const { wc, host } = setup();
+    const pending = host.navigateAndWait('tab-1', target, { timeoutMs: 5000, waitUntil: 'domcontentloaded' });
+    const state = track(pending);
+    wc.emit('dom-ready');
+    wc.emit('did-navigate', {}, 'https://example.com/old', 200, 'OK');
+    await delay(5);
+    assert.strictEqual(state.done, false);
+    wc.emit('did-start-navigation', {}, target, false, true);
+    wc.emit('dom-ready');
+    assert.strictEqual(await pending, true);
+  });
+
+  it("a committed chrome-error page is a failed load, not a 'commit'", async () => {
+    const { wc, host } = setup();
+    const pending = host.navigateAndWait('tab-1', target, { timeoutMs: 5000, waitUntil: 'commit' });
+    wc.emit('did-start-navigation', {}, target, false, true);
+    wc.emit('did-navigate', {}, 'chrome-error://chromewebdata/', 200, 'OK');
+    wc.emit('did-fail-load', {}, -105, 'ERR_NAME_NOT_RESOLVED', target, true);
+    assert.strictEqual(await pending, false);
+    assert.strictEqual(host.getLastNavigationFailure('tab-1')?.cause, 'LOAD_FAILED');
+  });
+
+  it("'commit' still times out when the navigation never starts", async () => {
+    const { host } = setup();
+    const res = await host.navigateAndWait('tab-1', target, { timeoutMs: 50, waitUntil: 'commit' });
+    assert.strictEqual(res, false);
+    assert.strictEqual(host.getLastNavigationFailure('tab-1')?.cause, 'NAVIGATION_START_TIMEOUT');
+  });
+
+  describe('same-URL navigation', () => {
+    const same = 'https://example.com/old';
+
+    it("'commit' on the current URL reloads and answers at the commit, not at the load", async () => {
+      const { wc, host } = setup();
+      let reloadAndWaitCalls = 0;
+      host.reloadAndWait = async () => { reloadAndWaitCalls += 1; return true; };
+      const pending = host.navigateAndWait('tab-1', same, { timeoutMs: 5000, waitUntil: 'commit' });
+      const state = track(pending);
+      assert.strictEqual(wc.reloadCalls, 1, 'the page is reloaded');
+      assert.strictEqual(wc.loadCalls, 0);
+      wc.emit('did-start-navigation', {}, same, false, true);
+      await delay(5);
+      assert.strictEqual(state.done, false, 'the start of the reload is not a commit');
+      wc.emit('did-navigate', {}, same, 200, 'OK');
+      assert.strictEqual(await pending, true, 'no did-finish-load was needed');
+      assert.strictEqual(reloadAndWaitCalls, 0, 'the load-waiting reload path is not taken');
+    });
+
+    it("'domcontentloaded' on the current URL answers at dom-ready without a load", async () => {
+      const { wc, host } = setup();
+      const pending = host.navigateAndWait('tab-1', same, { timeoutMs: 5000, waitUntil: 'domcontentloaded' });
+      wc.emit('did-start-navigation', {}, same, false, true);
+      wc.emit('dom-ready');
+      assert.strictEqual(await pending, true);
+      assert.strictEqual(wc.reloadCalls, 1);
+    });
+
+    it("'commit' on the current URL still times out when the reload never starts", async () => {
+      const { host } = setup();
+      const res = await host.navigateAndWait('tab-1', same, { timeoutMs: 50, waitUntil: 'commit' });
+      assert.strictEqual(res, false);
+      assert.strictEqual(host.getLastNavigationFailure('tab-1')?.cause, 'NAVIGATION_START_TIMEOUT');
+    });
+
+    it('the default load stage on the current URL still goes through reloadAndWait', async () => {
+      const { wc, host } = setup();
+      const timeouts: Array<number | undefined> = [];
+      host.reloadAndWait = async (_tabId: string, timeoutMs?: number) => { timeouts.push(timeoutMs); return true; };
+      assert.strictEqual(await host.navigateAndWait('tab-1', same, { timeoutMs: 1234 }), true);
+      assert.strictEqual(await host.navigateAndWait('tab-1', same, 4321), true);
+      assert.deepStrictEqual(timeouts, [1234, 4321]);
+      assert.strictEqual(wc.reloadCalls, 0, 'reloadAndWait owns the reload');
+    });
   });
 });
 

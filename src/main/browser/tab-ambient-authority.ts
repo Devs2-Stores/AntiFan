@@ -18,6 +18,7 @@
  *   stays diagnosable.
  */
 import { CapabilityError, type TargetStaleCause } from '../../shared/control-plane-contracts';
+import { SHARE_TAB_GUIDANCE } from '../../shared/tab-sharing';
 import { parseOwnerKey } from '../project/project-context';
 import type { NativeTabHost } from './native-tab-host';
 import type { TabAuthorityDirectory } from './tab-authority-directory';
@@ -25,14 +26,6 @@ import type { WorkspaceCapsule } from '../project/workspace-capsule';
 
 /** The affiliation a tab measures into, when one could be measured. */
 export type MeasuredTabAffiliation = { projectId?: string; workspaceId?: string; capsuleId?: string } | undefined;
-
-/**
- * How the user hands the agent a tab that no session of this project owns. The label is the
- * one the tab context menu renders; the sentence is repeated in the refusals that block on
- * tab ownership so the caller is never left without a next step.
- */
-const SHARE_TAB_GUIDANCE =
-  "To work in a tab the user already has open, ask them to right-click that tab in AntiFan and choose '🤝 Cho agent của project này dùng tab', then call anti.browser.rebind_target {tabId}.";
 
 export interface TabAmbientAuthorityDeps {
   /** The live window→host directory — the same instance index.ts registers shells into. */

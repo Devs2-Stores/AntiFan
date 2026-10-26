@@ -72,6 +72,8 @@ describe("a member page's own reports route to that page", () => {
     host.bumped = [];
     host.zoomed = [];
     host.bumpMutationRevision = (tabId: string) => { host.bumped.push(tabId); };
+    host.samples = [];
+    host.recordMutationSample = (tabId: string, raw: unknown) => { host.samples.push({ tabId, raw }); };
     host.setZoom = (tabId: string, zoom: number) => { host.zoomed.push({ tabId, zoom }); };
     (host.tabs.get('tab-a') as AnyRecord).state = { zoomFactor: 1 };
 
@@ -99,10 +101,11 @@ describe("a member page's own reports route to that page", () => {
 
     const listener = registrations.get('antifan:dom-mutation')?.listener;
     assert.ok(listener, "the route must be registered as a fire-and-forget channel");
-    listener(topLevelFrameEvent(otherPage));
+    listener(topLevelFrameEvent(otherPage), { sample: 'div#cart.is-open' });
     listener(topLevelFrameEvent(mobilePage));
 
     assert.deepStrictEqual(host.bumped, ['tab-b', 'tab-b'], "a page's DOM report did not reach the tab that sent it");
+    assert.deepStrictEqual(host.samples, [{ tabId: 'tab-b', raw: 'div#cart.is-open' }, { tabId: 'tab-b', raw: undefined }], "the page's mutation source did not reach the tab that sent it");
   });
 
   it('a wheel zoom from a page lands on that page, in that page\'s own zoom', () => {
@@ -134,5 +137,45 @@ describe("a member page's own reports route to that page", () => {
       (err: unknown) => (err as Error).name === 'UnknownChromeSenderError',
       'a sender no host owns was allowed to invoke a route',
     );
+  });
+});
+
+describe('the host keeps a short ring of the sources a page reported', () => {
+  const buildHost = (): AnyRecord => {
+    const host = Object.create(NativeTabHost.prototype) as AnyRecord;
+    host.activeTabId = 'tab-a';
+    return host;
+  };
+
+  it('keeps the newest 8 per tab, oldest first, and keeps tabs apart', () => {
+    const host = buildHost();
+    for (let i = 0; i < 10; i += 1) host.recordMutationSample('tab-a', `div#s${i}`);
+    host.recordMutationSample('tab-b', 'span#other');
+
+    assert.deepStrictEqual(host.getMutationSamples('tab-a'), ['div#s2', 'div#s3', 'div#s4', 'div#s5', 'div#s6', 'div#s7', 'div#s8', 'div#s9']);
+    assert.deepStrictEqual(host.getMutationSamples('tab-b'), ['span#other']);
+    assert.deepStrictEqual(host.getMutationSamples(), host.getMutationSamples('tab-a'), 'no tab id reads the active tab');
+  });
+
+  it('treats the page payload as untrusted: non-strings dropped, control characters and length clamped', () => {
+    const host = buildHost();
+    host.recordMutationSample('tab-a', undefined);
+    host.recordMutationSample('tab-a', { toString: () => 'x' });
+    host.recordMutationSample('tab-a', '   ');
+    host.recordMutationSample('tab-a', 'div\n#a\u0000b');
+    host.recordMutationSample('tab-a', 'y'.repeat(500));
+
+    const samples: string[] = host.getMutationSamples('tab-a');
+    assert.strictEqual(samples.length, 2);
+    assert.strictEqual(samples[0], 'div #a b');
+    assert.strictEqual(samples[1]!.length, 120);
+  });
+
+  it('returns a copy the caller cannot use to rewrite the ring', () => {
+    const host = buildHost();
+    host.recordMutationSample('tab-a', 'div#one');
+    const copy: string[] = host.getMutationSamples('tab-a');
+    copy.push('forged');
+    assert.deepStrictEqual(host.getMutationSamples('tab-a'), ['div#one']);
   });
 });

@@ -299,7 +299,7 @@ describe('Decoupled Dual-Plane Background Automation & TARGET_STALE Elimination 
     // 4. Interactive write with stale target (gen 1 vs live gen 5): must fail-close with TARGET_STALE diagnostic
     let writeError: CapabilityError | null = null;
     try {
-      await port.agentClick({ tabId: 'tab-1', selector: 'button.checkout' }, target);
+      await port.agentClick({ tabId: 'tab-1', ref: '@e1' }, target);
     } catch (err) {
       if (err instanceof CapabilityError) writeError = err;
     }

@@ -247,7 +247,9 @@ export function resolveWorkspaceFromUrl(tabUrl?: string, roots: string[] = DEFAU
  */
 export function validateAuthorizedWorkspaceRoot(
   candidateRoot: string,
-  authorizedRoots: string[] = resolveAuthorizedWorkspaceRoots()
+  authorizedRoots: string[] = resolveAuthorizedWorkspaceRoots(),
+  /** The file the caller is acting on, named in the refusal so a multi-file call says which one it was. */
+  subject?: { filePath?: string }
 ): string {
   if (typeof candidateRoot !== 'string' || !candidateRoot.trim()) {
     throw new CapabilityError('INVALID_ARGUMENT', 'workspaceRoot must be a non-empty string');
@@ -281,6 +283,7 @@ export function validateAuthorizedWorkspaceRoot(
         workspaceRoot: candidateRoot,
         authorizedRoots: [...authorizedRoots],
         failedCheck: 'workspaceRoot',
+        ...(typeof subject?.filePath === 'string' && subject.filePath ? { filePath: subject.filePath } : {}),
         recovery: 'pass a workspaceRoot inside one of authorizedRoots, or omit workspaceRoot to use the bound workspace',
       }
     );

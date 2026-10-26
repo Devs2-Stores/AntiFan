@@ -758,6 +758,12 @@ export const RENDER_SURFACE_PROBE_EXPRESSION =
 /** Bound for the render-surface probe: small enough to fail fast, one round-trip. */
 export const RENDER_SURFACE_PROBE_BOUND_MS = 3_000;
 
+/**
+ * Bound for the single retry after a probe timed out. The first probe's hung evaluate has usually
+ * unblocked by then, and a heavy page that was merely slow gets a longer window to answer.
+ */
+export const RENDER_SURFACE_PROBE_RETRY_BOUND_MS = 8_000;
+
 /** Classified cause for a rejected render surface, used to keep failures diagnosable. */
 export function classifyRenderSurfaceCause(snapshot: Partial<RenderSurfaceSnapshot> | null | undefined): string {
   if (!snapshot) return 'probe-unavailable';

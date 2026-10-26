@@ -18,7 +18,8 @@ import {
   InvocationState,
   type TargetStaleCause,
 } from '../../shared/control-plane-contracts';
-import { CapabilityCatalogue, SHARE_TAB_GUIDANCE } from './capability-catalogue';
+import { CapabilityCatalogue } from './capability-catalogue';
+import { SHARE_TAB_GUIDANCE } from '../../shared/tab-sharing';
 import { AttachmentRegistry, type PageCloseAdmission } from '../run/attachment-registry';
 import { onceCloseAdmissionRelease, assertPageAdmitsWork, assertApplicationAdmitsWork } from './browser-control-port';
 import { InvocationLedger } from '../session/invocation-ledger';
@@ -52,13 +53,44 @@ function relayErrorMessage(err: unknown): string {
   return text;
 }
 
+export interface RelayedFailure {
+  code: string;
+  message: string;
+  details?: Record<string, unknown>;
+  /** True when repeating the same call (after `retryAfterMs`, when given) can succeed without a change of arguments. */
+  retryable: boolean;
+  retryAfterMs?: number;
+}
+
+/** Codes whose refusal is transient: the same call can succeed later without a change of arguments. */
+const TRANSIENT_FAILURE_CODES: Record<string, true> = { TARGET_BUSY_DRAINING: true, WAIT_ABORTED: true, CAPTURE_TIMEOUT: true, CAPTURE_FRAME_STARVATION: true };
+
+/**
+ * Retry advice for a failure code. A raising site that states `details.retryable` /
+ * `details.retryAfterMs` wins; otherwise the code table decides: drain and timeout refusals are
+ * transient, a stale target is retryable only when it is recoverable (the document drifted or
+ * navigated, or the site flagged `canRebind`), and an anti-bot latch is retryable once its own
+ * `retryAfterMs` says when.
+ */
+function retryAdviceFor(code: string, details: Record<string, unknown> | undefined): { retryable: boolean; retryAfterMs?: number } {
+  const rawRetryAfterMs = details?.retryAfterMs;
+  const retryAfterMs = typeof rawRetryAfterMs === 'number' && Number.isFinite(rawRetryAfterMs) && rawRetryAfterMs >= 0 ? Math.round(rawRetryAfterMs) : undefined;
+  const explicit = details?.retryable;
+  const retryable = typeof explicit === 'boolean'
+    ? explicit
+    : TRANSIENT_FAILURE_CODES[code] === true
+      || (code === 'TARGET_STALE' && (details?.canRebind === true || details?.cause === 'dom-drift' || details?.cause === 'navigated-away'))
+      || (code === 'ANTI_BOT_CHALLENGE' && retryAfterMs !== undefined);
+  return { retryable, ...(retryable && retryAfterMs !== undefined ? { retryAfterMs } : {}) };
+}
+
 /**
  * The wire shape of a thrown value: its own string `code` and plain-object `details`
  * survive, whatever class carried them (a `CapabilityError`, a capture or host error
  * that only shares the `code`/`details` shape, or a plain object). Only a throw that
  * names no code of its own is labelled `CAPABILITY_ERROR`.
  */
-export function describeRelayedFailure(err: unknown): { code: string; message: string; details?: Record<string, unknown> } {
+export function describeRelayedFailure(err: unknown): RelayedFailure {
   const typed = err as { code?: unknown; details?: unknown } | null | undefined;
   const code = typed && typeof typed === 'object' && typeof typed.code === 'string' && typed.code ? typed.code : 'CAPABILITY_ERROR';
   const rawDetails = typed && typeof typed === 'object' ? typed.details : undefined;
@@ -71,7 +103,7 @@ export function describeRelayedFailure(err: unknown): { code: string; message: s
   const details = staleCause !== undefined && staleCause !== plainDetails?.cause
     ? { ...(plainDetails ?? {}), cause: staleCause }
     : plainDetails;
-  return { code, message, ...(details ? { details } : {}) };
+  return { code, message, ...(details ? { details } : {}), ...retryAdviceFor(code, details) };
 }
 
 const TARGET_STALE_CAUSES: ReadonlySet<string> = new Set<TargetStaleCause>(['dom-drift', 'tab-gone', 'poisoned', 'unowned', 'closing', 'navigated-away']);
@@ -134,17 +166,23 @@ export interface CapabilityTransportResponse {
     code: string;
     message: string;
     details?: unknown;
+    /** True when repeating the same call (after `retryAfterMs`, when given) can succeed without a change of arguments. */
+    retryable?: boolean;
+    retryAfterMs?: number;
   };
   evidence?: Record<string, unknown>;
   replacementAuthorityRevision?: string;
   /**
    * Set when this dispatch moved the attachment's bound tab: the call healed onto a failover
-   * tab, rebound, or opened the tab that is now its target. Absent when the binding is unchanged.
+   * tab, rebound, opened the tab that is now its target, or named a tab other than the bound
+   * one (`explicit-tabId`, which also carries the tab it left as `previousTabId`). Absent when
+   * the binding is unchanged.
    */
   bindingChanged?: {
     oldTabId?: string;
+    previousTabId?: string;
     newTabId: string;
-    reason: 'heal-failover' | 'rebind' | 'open-tab';
+    reason: 'heal-failover' | 'rebind' | 'open-tab' | 'explicit-tabId';
   };
   /** Terminal ledger state when known: 'completed' on success, classified state on failure, 'in_progress' for pending-cleanup. Lets callers (workflow retry gate) distinguish failed-clean from unknown/in-flight. */
   state?: InvocationState;
@@ -916,10 +954,11 @@ export class CapabilityTransportAdapter {
       let replacementAuthorityRevision: string | undefined;
       // The binding this dispatch ended on, when it moved. The first reason named for a tab
       // stands, so a heal that a later step confirms is still reported as a heal.
-      const bindingTransition: { current?: { newTabId: string; reason: 'heal-failover' | 'rebind' | 'open-tab' } } = {};
-      const noteBindingTransition = (newTabId: string, reason: 'heal-failover' | 'rebind' | 'open-tab'): void => {
+      type BindingReason = NonNullable<CapabilityTransportResponse['bindingChanged']>['reason'];
+      const bindingTransition: { current?: { newTabId: string; reason: BindingReason; previousTabId?: string } } = {};
+      const noteBindingTransition = (newTabId: string, reason: BindingReason, previousTabId?: string): void => {
         if (bindingTransition.current?.newTabId === newTabId) return;
-        bindingTransition.current = { newTabId, reason };
+        bindingTransition.current = { newTabId, reason, ...(previousTabId ? { previousTabId } : {}) };
       };
       if (healedBoundTabId) {
         const healedRev = await this.attachmentRegistry.updateAttachmentTab(authority.attachmentId, healedBoundTabId);
@@ -945,7 +984,15 @@ export class CapabilityTransportAdapter {
             newTabId = candidate;
           }
         }
-        if (newTabId) {
+        if (isOpenTab && newTabId && authContext.attachmentId) {
+          // The creating attachment keeps authority over the tab it opened, even after a later rebind
+          // moves its binding outside the session's tab pool.
+          this.catalogue.tabLedger.retainAttachments(this.attachmentRegistry.getActiveRecordIds());
+          this.catalogue.tabLedger.prune((tabId) => this.catalogue.resolveTabId(tabId) !== undefined);
+          this.catalogue.tabLedger.record(authContext.attachmentId, newTabId);
+        }
+        // `tabs.create {bind:false}` opens the tab without moving this session's binding.
+        if (newTabId && !(isOpenTab && p?.bind === false)) {
           const newRev = await this.attachmentRegistry.updateAttachmentTab(authority.attachmentId, newTabId);
           if (newRev) {
             replacementAuthorityRevision = newRev;
@@ -1037,7 +1084,12 @@ export class CapabilityTransportAdapter {
           );
           if (newRev) {
             replacementAuthorityRevision = newRev;
-            noteBindingTransition(targetTabId, 'rebind');
+            // A call that named another tab by id moves the binding onto it: report that as the
+            // caller's own explicit choice, with the tab it left, rather than as a bare rebind.
+            const namedAnotherTab = typeof requestedTabParam === 'string' && requestedTabParam.trim().length > 0
+              && Boolean(authorityTabId) && targetTabId !== authorityTabId;
+            if (namedAnotherTab) noteBindingTransition(targetTabId, 'explicit-tabId', authorityTabId);
+            else noteBindingTransition(targetTabId, 'rebind');
           } else {
             // navigate/reload moved the live target but authority did not rotate:
             // the underlying mutation committed, but authority transition was uncommitted.
@@ -1231,6 +1283,7 @@ export class CapabilityTransportAdapter {
                 ...(authorityTabId ? { oldTabId: authorityTabId } : {}),
                 newTabId: bindingTransition.current.newTabId,
                 reason: bindingTransition.current.reason,
+                ...(bindingTransition.current.previousTabId ? { previousTabId: bindingTransition.current.previousTabId } : {}),
               },
             }
           : {}),
@@ -1240,10 +1293,14 @@ export class CapabilityTransportAdapter {
       const classified = this.classifySettlement(error, policy, execControl);
       this.recordTransportIssue(intent, classified);
 
+      const errDetails = classified.details && typeof classified.details === 'object' && !Array.isArray(classified.details)
+        ? (classified.details as Record<string, unknown>)
+        : undefined;
       const errObj = {
         code: classified.code,
         message: classified.message,
         details: classified.details,
+        ...retryAdviceFor(classified.code, errDetails),
       };
 
       if (this.ledger && isOwner) {

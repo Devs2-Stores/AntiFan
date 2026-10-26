@@ -5,6 +5,7 @@
 import { Menu, MenuItem, BrowserWindow, shell, dialog } from 'electron';
 import { ChromeProfileSyncManager } from './chrome-profile-sync';
 import { HaravanUploader } from './haravan-uploader';
+import { shareTabMenuText } from '../../shared/tab-sharing';
 
 export interface TabContextMenuHostDelegate {
   getWindow(): BrowserWindow;
@@ -323,7 +324,7 @@ export class TabContextMenuBuilder {
         menu.append(new MenuItem({ type: 'separator' }));
         menu.append(
           new MenuItem({
-            label: shareState.shared ? '🚫 Thu hồi quyền dùng tab của agent' : '🤝 Cho agent của project này dùng tab',
+            label: shareTabMenuText(shareState.shared, true),
             click: () => this.toggleTabShare(targetTabId, shareState.shared),
           })
         );
@@ -358,7 +359,7 @@ export class TabContextMenuBuilder {
       ? [
           { type: 'separator' },
           {
-            label: shareState.shared ? 'Thu hồi quyền dùng tab của agent' : 'Cho agent của project này dùng tab',
+            label: shareTabMenuText(shareState.shared, false),
             click: () => this.toggleTabShare(shareTabId, shareState.shared),
           },
         ]

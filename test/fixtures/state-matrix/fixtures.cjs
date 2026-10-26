@@ -33,7 +33,7 @@ main{padding:16px;min-height:1600px}
 function overlayPage(opts = {}) {
   const o = {
     kind: 'drawer', escape: true, closeButton: true, backdrop: true, lockLeak: false, transparent: false,
-    spill: false, offscreen: false, stuck: false, focus: true, ...opts,
+    spill: false, offscreen: false, stuck: false, focus: true, closeDelayMs: 0, escapeIgnoresFirst: false, ...opts,
   };
   const panelClass = o.kind === 'modal' ? 'modal' : 'drawer';
   const panelStyle = [
@@ -58,13 +58,21 @@ function overlayPage(opts = {}) {
   const backdrop = document.getElementById('backdrop');
   const close = panel.querySelector('.close');
   const STUCK = ${o.stuck};
+  const CLOSE_DELAY = ${o.closeDelayMs};
+  let escapes = 0;
   function open() {
     panel.classList.add('is-open'); backdrop.classList.add('is-open'); document.body.classList.add('lock');
     btn.setAttribute('aria-expanded', 'true');
     if (${o.focus}) (close || panel.querySelector('a, button') || panel).focus();
   }
+  // A close driven by a timer (not a CSS transition) is invisible to getAnimations(): the panel
+  // reads open until the timer fires.
   function shut() {
     if (STUCK) return;
+    if (CLOSE_DELAY > 0) { setTimeout(finishShut, CLOSE_DELAY); return; }
+    finishShut();
+  }
+  function finishShut() {
     panel.classList.remove('is-open'); backdrop.classList.remove('is-open');
     if (!${o.lockLeak}) document.body.classList.remove('lock');
     btn.setAttribute('aria-expanded', 'false'); btn.focus();
@@ -72,7 +80,11 @@ function overlayPage(opts = {}) {
   btn.addEventListener('click', () => (panel.classList.contains('is-open') ? shut() : open()));
   if (close) close.addEventListener('click', shut);
   if (${o.backdrop}) backdrop.addEventListener('click', shut);
-  if (${o.escape}) document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && panel.classList.contains('is-open')) shut(); });
+  if (${o.escape}) document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || !panel.classList.contains('is-open')) return;
+    if (${o.escapeIgnoresFirst} && escapes++ === 0) return;
+    shut();
+  });
 </script></body></html>`;
 }
 
@@ -106,6 +118,19 @@ module.exports = [
     expect: { triggers: 1, status: { 0: 'PASS' }, noCodes: { 0: ['OVERLAY_OFFSCREEN', 'CLOSE_ESCAPE_FAILED', 'CLOSE_BACKDROP_FAILED'] } },
   },
   { id: 'drawer-escape-does-not-close', html: overlayPage({ escape: false }), expect: { status: { 0: 'FAIL' }, codes: { 0: ['CLOSE_ESCAPE_FAILED'] }, noCodes: { 0: ['CLOSE_BUTTON_FAILED', 'STATE_STUCK_OPEN'] } } },
+  {
+    // The close runs from a 900ms timer after the settle: the panel still reads open at the first
+    // sample, so one-shot measurement would call every close method a failure.
+    id: 'drawer-js-timer-close-is-measured-where-it-lands',
+    html: overlayPage({ closeDelayMs: 900 }),
+    expect: { triggers: 1, status: { 0: 'PASS' }, noCodes: { 0: ['CLOSE_ESCAPE_FAILED', 'CLOSE_ESCAPE_FLAKY', 'CLOSE_BUTTON_FAILED', 'CLOSE_BACKDROP_FAILED', 'STATE_STUCK_OPEN'] }, closeClosed: { 0: ['escape', 'close-button', 'backdrop'] } },
+  },
+  {
+    // The page drops the first Escape and honours the second: a warning, not an overlay that ignores Escape.
+    id: 'drawer-escape-honoured-on-the-second-press',
+    html: overlayPage({ escapeIgnoresFirst: true }),
+    expect: { triggers: 1, status: { 0: 'WARN' }, codes: { 0: ['CLOSE_ESCAPE_FLAKY'] }, noCodes: { 0: ['CLOSE_ESCAPE_FAILED', 'STATE_STUCK_OPEN'] }, closeClosed: { 0: ['escape'] } },
+  },
   { id: 'drawer-scroll-lock-leaks-after-close', html: overlayPage({ lockLeak: true }), expect: { status: { 0: 'FAIL' }, codes: { 0: ['BODY_NOT_RESTORED'] } } },
   { id: 'modal-without-close-control', html: overlayPage({ kind: 'modal', closeButton: false }), expect: { status: { 0: 'FAIL' }, codes: { 0: ['CLOSE_CONTROL_MISSING'] }, noCodes: { 0: ['CLOSE_ESCAPE_FAILED'] } } },
   { id: 'drawer-renders-semi-transparent', html: overlayPage({ transparent: true }), expect: { status: { 0: 'FAIL' }, codes: { 0: ['OVERLAY_TRANSPARENT'] } } },
