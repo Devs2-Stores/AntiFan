@@ -255,8 +255,9 @@ whose parent is gone leaves no orphan tab behind.
   (`openBuiltinSplits`, the same reuse / wake / duplicate refusal as a Space open). It runs once per
   window, after both Main's arming and the window's own terminal start or first new-session (a window
   opened beside others gets its first terminal later, so the attempt stays armed until a base exists).
-  A folder whose `space.json` declares a `sync` terminal or any `command` is left to that Space; a
-  Space of bare shells does not count. Each app-minted watcher carries the entry id
+  A folder whose `space.json` declares a `sync` terminal or a terminal typing a theme watcher
+  (`theme dev` / `theme watch`) is left to that Space; a Space of bare shells or agents does not
+  count. Each app-minted watcher carries the entry id
   `theme-sync-<platform>`, so its duplicate identity is that platform's own remote
   (`platformSyncIdentity`) and a dual-bound folder does not read the Sapo pane as the Haravan
   pane's duplicate.

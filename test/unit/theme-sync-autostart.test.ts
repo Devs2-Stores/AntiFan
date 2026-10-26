@@ -86,9 +86,16 @@ describe('planThemeSyncAutostart', () => {
       assert.deepEqual(planThemeSyncAutostart(folderWith({ ...bound, '.antifan/space.json': declared })), []);
     });
 
-    it('leaves it to the Space when any terminal types a command', () => {
+    it('still starts the watcher when the Space only declares an agent command', () => {
       const declared = space([{ id: 'a', label: 'omp', role: 'agent', command: 'omp' }]);
-      assert.deepEqual(planThemeSyncAutostart(folderWith({ ...bound, '.antifan/space.json': declared })), []);
+      assert.deepEqual(planThemeSyncAutostart(folderWith({ ...bound, '.antifan/space.json': declared })).map((spec) => spec.command), ['hrv theme dev']);
+    });
+
+    it('leaves it to the Space when a terminal types a theme watcher command', () => {
+      for (const command of ['hrv theme dev', 'sapo  theme watch --store x', 'shopify theme dev']) {
+        const declared = space([{ id: 'w', label: 'watch', role: 'shell', command }]);
+        assert.deepEqual(planThemeSyncAutostart(folderWith({ ...bound, '.antifan/space.json': declared })), [], command);
+      }
     });
 
     it('is not suppressed by a Space that is invalid JSON or fails validation', () => {

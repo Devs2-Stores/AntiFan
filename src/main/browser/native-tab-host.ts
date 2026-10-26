@@ -14070,10 +14070,19 @@ export class NativeTabHost extends EventEmitter {
     this.runThemeSyncAutostartWhenReady();
   }
 
+  /**
+   * One watcher start at a time across every window: the terminal daemon spawns a pty
+   * synchronously, so a boot restoring many project windows would otherwise queue a burst of
+   * spawns that starves every other terminal call past its deadline.
+   */
+  private static themeSyncQueue: Promise<unknown> = Promise.resolve();
+
   private runThemeSyncAutostartWhenReady(): void {
     if (this.themeSyncAutostart !== 'armed' || !this.terminalsStarted) return;
     this.themeSyncAutostart = 'running';
-    this.startThemeSyncWatchers().then(
+    const turn = NativeTabHost.themeSyncQueue.then(() => this.startThemeSyncWatchers());
+    NativeTabHost.themeSyncQueue = turn.catch(() => undefined);
+    turn.then(
       (settled) => {
         // No base terminal yet is not an answer: stay armed for this window's first one.
         this.themeSyncAutostart = settled ? 'done' : 'armed';

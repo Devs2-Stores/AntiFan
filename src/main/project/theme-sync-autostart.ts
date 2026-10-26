@@ -46,15 +46,21 @@ function declaresShopify(folder: string): boolean {
   }
 }
 
+/** A command that runs a theme watcher (`hrv theme dev`, `sapo theme watch`, `shopify theme dev`). */
+const THEME_WATCHER_COMMAND = /\btheme\s+(dev|watch)\b/;
+
 /**
- * True when the folder's own Space already says how its watcher runs: a `sync` terminal or any
- * terminal with a `command`. A Space of bare shells (what `Space init` writes from the open tabs)
- * declares no watcher, so it must not suppress the autostart; neither does a missing or invalid file.
+ * True when the folder's own Space already says how its watcher runs: a `sync` terminal or a
+ * terminal whose command is a theme watcher. A Space of bare shells (what `Space init` writes from
+ * the open tabs) or of agents (`omp`, `claude`) declares no watcher, so it must not suppress the
+ * autostart; neither does a missing or invalid file.
  */
 export function spaceDeclaresWatcher(folder: string): boolean {
   const read = readSpaceManifest(folder);
   if (!read.found || !read.parse.ok) return false;
-  return read.parse.manifest.terminals.some((terminal) => terminal.role === 'sync' || !!terminal.command);
+  return read.parse.manifest.terminals.some(
+    (terminal) => terminal.role === 'sync' || THEME_WATCHER_COMMAND.test(terminal.command ?? ''),
+  );
 }
 
 /**
