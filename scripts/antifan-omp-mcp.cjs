@@ -2054,7 +2054,8 @@ function failureText(error) {
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) diagnostic = parsed;
   } catch {}
   if (!diagnostic) {
-    const code = error && typeof error.code === 'string' && error.code ? error.code : 'CAPABILITY_ERROR';
+    const prefix = /^([A-Z][A-Z0-9_]+):/.exec(base);
+    const code = error && typeof error.code === 'string' && error.code ? error.code : prefix ? prefix[1] : 'CAPABILITY_ERROR';
     diagnostic = { code, message: base };
   }
   return JSON.stringify({ ...diagnostic, ...hints });

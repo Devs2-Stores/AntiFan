@@ -9,6 +9,7 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 ### Đổi — Công cụ MCP và QA (có thay đổi phá vỡ)
 
 - **BREAKING:** `theme.qa_validate` đổi tên tham số `viewports` thành `baselineViewports`; tên cũ giờ trả `INVALID_ARGUMENT` kèm `renamedField`.
+- **BREAKING (proxy):** khi một lỗi công cụ mang `retryable:true` hoặc `retryAfterMs`, nội dung lỗi là một JSON `{code, message, retryable, retryAfterMs}` thay vì chuỗi `CODE: message`. Lỗi không có gợi ý thử lại (hoặc chỉ `retryable:false`) giữ nguyên dạng `CODE: message`, nên bộ khớp theo tiền tố `^CODE:` chỉ cần xử lý thêm dạng JSON cho lỗi có thể thử lại.
 - Probe đóng bằng Escape của theme QA đo lặp (poll) thay vì đo một lần; ca không ổn định phát cảnh báo mới `CLOSE_ESCAPE_FLAKY`. Mỗi finding mang thông tin quy chiếu `baseline` / `unavailable`.
 - `terminal.wait`: deadline thực thi bằng đúng ngân sách chờ nên không còn bị nền tảng hủy sớm ở 25 s (`WAIT_ABORTED`); thông báo kẹp (clamp) khớp giá trị thật.
 - `anti.sheet.write_cell`: đọc lại sau khi ghi chờ lâu hơn và trả `SAVED_UNCONFIRMED` thay vì báo lỗi khi chưa xác nhận được; giá trị nhiều dòng nhập bằng Alt+Enter.
