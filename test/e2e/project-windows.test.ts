@@ -1721,7 +1721,9 @@ async function runLifecycle() {
       expect(row.role === 'sync' && row.idlePolicy === 'never', row.spaceTerminalId + ' was ' + String(row.role) + '/' + String(row.idlePolicy));
       expect(samePath(row.cwd, DELTA.path), row.spaceTerminalId + ' ran in ' + String(row.cwd));
     }
-    await waitFor(function () { return fs.existsSync(markerOf('hrv')) && fs.existsSync(markerOf('sapo')) ? true : false; }, 'both commands to reach a live shell', 60000);
+    // The stub creates its marker before it writes to it, so existence alone can be read while the file is still empty.
+    const markerWritten = function (name) { return fs.existsSync(markerOf(name)) && fs.readFileSync(markerOf(name), 'utf8').trim().length > 0; };
+    await waitFor(function () { return markerWritten('hrv') && markerWritten('sapo') ? true : false; }, 'both commands to reach a live shell', 60000);
     expect(fs.readFileSync(markerOf('hrv'), 'utf8').trim() === 'hrv theme dev', 'hrv got ' + fs.readFileSync(markerOf('hrv'), 'utf8'));
     expect(fs.readFileSync(markerOf('sapo'), 'utf8').trim() === 'sapo theme dev', 'sapo got ' + fs.readFileSync(markerOf('sapo'), 'utf8'));
 
