@@ -1272,6 +1272,22 @@ describe('Renderer smart tab search', () => {
       'a 2-character token stays literal, so it cannot fuzzy-match its way across the strip');
   });
 
+  it('never assembles a fuzzy token from several fields of one row', async () => {
+    const harness = loadStandalone();
+    await flush();
+    harness.assign("applyTerminalTabLayout('sidebar')");
+    seed(harness, [
+      { id: 'a', name: 'TrueBeef', cwd: 'E:\\Work\\customizes\\TrueBeef', state: 'running' },
+      { id: 'b', name: 'Terminal 2', cwd: 'E:\\Work\\customizes\\Epres', state: 'running' },
+      { id: 'c', name: 'Terminal 1', cwd: 'E:\\Work\\themes\\f1genz\\Lux Shoes', state: 'running' },
+    ], 'a');
+    harness.renderTabs();
+
+    search(harness, 'true');
+    assert.deepStrictEqual(visibleIds(harness), ['a'],
+      't-r-u-e is scattered over the name and the path of the other rows; only TrueBeef contains it');
+  });
+
   it('requires every token to match, and explains an empty result', async () => {
     const harness = loadStandalone();
     await flush();

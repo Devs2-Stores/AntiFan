@@ -8926,8 +8926,10 @@ function isSubsequence(needle, haystack) {
 
 /**
  * Smart match for one token: a literal substring always counts, while a fuzzy
- * subsequence counts only from three characters up, so "sh2" finds "Seahorse2" but a
- * stray "a" cannot match half the strip.
+ * subsequence counts only from three characters up and only inside ONE word, so "sh2"
+ * finds "Seahorse2" but "true" cannot be assembled from "Terminal 2" plus the letters of
+ * a path further along the row. The haystack is several fields and path segments joined,
+ * so an unbounded subsequence matches almost any long row.
  */
 function tokenMatchesHaystack(token, haystack) {
   if (haystack.includes(token)) return true;
@@ -8935,7 +8937,7 @@ function tokenMatchesHaystack(token, haystack) {
   // "work\apps" match "work\don-hang apps", which is not the folder the user named.
   if (token.includes('\\') || token.includes('/')) return false;
   if (token.length < 3) return false;
-  return isSubsequence(token, haystack);
+  return haystack.split(/[^a-z0-9]+/).some((word) => word.length >= token.length && isSubsequence(token, word));
 }
 
 /** Folded searchable text of one session row. */
