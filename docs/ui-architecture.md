@@ -261,6 +261,14 @@ whose parent is gone leaves no orphan tab behind.
   `theme-sync-<platform>`, so its duplicate identity is that platform's own remote
   (`platformSyncIdentity`) and a dual-bound folder does not read the Sapo pane as the Haravan
   pane's duplicate.
+  A watcher the user typed by hand into a plain shell, or one running in another window, pushes to
+  the same remote and carries no role, so the app also reads the operating system's process table
+  (`snapshotProcessesCached` in `src/main/process/theme-watcher-processes.ts`, one probe shared by
+  every window restoring within 12 s): a `theme dev` / `theme watch` below the shell of any running
+  terminal whose folder shares that remote suppresses that platform's autostart
+  (`specsWithoutRunningWatcher`). A command that names no CLI covers every platform its folder is
+  bound to. The check fails closed: an unreadable process table, or a running terminal whose
+  summary has no `shellPid` (a terminal daemon older than the build), starts nothing.
   Both pickers read `PROJECT_LIST`: one row per project, and the transfer names that
   `projectId` — never a capsule the renderer inferred. Main resolves the destination
   itself (`resolveProjectAssignment` in `src/main/index.ts`): exactly one capsule with

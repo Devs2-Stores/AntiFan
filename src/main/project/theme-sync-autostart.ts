@@ -2,11 +2,14 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { readSpaceManifest, type SpaceTerminalSpec } from './space-manifest';
 import {
+  platformSyncIdentity,
   readHaravanBinding,
   readSapoBinding,
+  themeSyncPlatformOfSpecId,
   themeSyncSpecId,
   type ThemeSyncPlatform,
 } from './sync-identity';
+import { watchersUnder, type ProcessRow } from '../process/theme-watcher-processes';
 
 /**
  * What a project window starts by itself when it opens: the theme watcher its platform needs, in a
@@ -76,4 +79,39 @@ export function planThemeSyncAutostart(folder: string): SpaceTerminalSpec[] {
     role: 'sync',
     idlePolicy: 'never',
   }));
+}
+
+/** A terminal as the already-running check sees it: where it started and the shell it runs. */
+export interface WatchCandidateSession {
+  cwd: string;
+  shellPid?: number;
+}
+
+/**
+ * The specs whose remote no running terminal already pushes to. A watcher counts wherever it
+ * runs - a plain shell the user typed it into, another window, an agent's terminal - because two
+ * watchers on one remote overwrite each other's uploads. A watcher whose command names no CLI
+ * (`unknown`) cannot be attributed to one platform, so it covers every platform its terminal's
+ * folder shares a remote with: not starting is the safe side of that doubt.
+ */
+export function specsWithoutRunningWatcher(
+  folder: string,
+  specs: readonly SpaceTerminalSpec[],
+  sessions: readonly WatchCandidateSession[],
+  processes: readonly ProcessRow[],
+): SpaceTerminalSpec[] {
+  const covered = new Set<ThemeSyncPlatform>();
+  for (const session of sessions) {
+    if (!session.shellPid) continue;
+    for (const running of watchersUnder(processes, session.shellPid)) {
+      for (const platform of PLATFORM_ORDER) {
+        if (running !== 'unknown' && running !== platform) continue;
+        if (platformSyncIdentity(session.cwd, platform).key === platformSyncIdentity(folder, platform).key) covered.add(platform);
+      }
+    }
+  }
+  return specs.filter((spec) => {
+    const platform = themeSyncPlatformOfSpecId(spec.id);
+    return !platform || !covered.has(platform);
+  });
 }

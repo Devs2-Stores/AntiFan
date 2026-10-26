@@ -113,6 +113,7 @@ const LIFECYCLE_ROWS: readonly string[] = [
   'window.agent-visible-ensure-shows-the-window-without-focus',
   'window.user-open-starts-theme-watchers-and-agent-open-does-not',
   'window.user-created-window-starts-theme-watchers-after-its-first-terminal',
+  'window.user-open-skips-a-watcher-already-running-in-a-plain-shell',
   'window.close-terminal-manager-keeps-project-windows',
   'window.survivor-toolbar-and-accelerator-after-sibling-close',
   'window.terminal-manager-menu-reopens-it-beside-project-windows',
@@ -1764,6 +1765,63 @@ async function runLifecycle() {
       expect(row.splitOf === base.id, row.spaceTerminalId + ' was ' + JSON.stringify(row));
     }
     await waitFor(function () { return fs.existsSync(markerOf('hrv')) && fs.existsSync(markerOf('sapo')) ? true : false; }, 'both commands to reach the new window shells', 60000);
+  });
+
+  // ---- (18e) a watcher the user typed by hand already pushes to the remote: a user's open starts only the other one
+  await check('window.user-open-skips-a-watcher-already-running-in-a-plain-shell', async function () {
+    const { TerminalManager } = require(compiledModule('browser/terminal-manager.js'));
+    const probe = require(compiledModule('process/theme-watcher-processes.js'));
+    const manager = TerminalManager.getInstance();
+    const rowsOf = function (project) {
+      return manager.listSessions().filter(function (row) { return row.ownerKey === keyOf(project); });
+    };
+    const watchersOf = function (project) {
+      return rowsOf(project).filter(function (row) { return String(row.spaceTerminalId || '').indexOf('theme-sync-') === 0; });
+    };
+
+    // hrv now stays alive the way the real watcher does; the process that runs it names the CLI.
+    const stubDir = path.join(tempRoot, 'cli-stubs');
+    if (process.platform === 'win32') {
+      fs.writeFileSync(path.join(stubDir, 'hrv.cmd'), ['@ping -n 90 127.0.0.1 > nul', ''].join(os.EOL));
+    } else {
+      fs.writeFileSync(path.join(stubDir, 'hrv'), ['#!/bin/sh', 'sleep 90', ''].join(os.EOL), { mode: 0o755 });
+    }
+    fs.rmSync(path.join(tempRoot, 'sapo.marker'), { force: true });
+
+    await closeWindowAndWait(keyOf(DELTA));
+    for (const row of rowsOf(DELTA).filter(function (item) { return !item.splitOf; })) {
+      await manager.closeSession(row.id);
+    }
+    expect(rowsOf(DELTA).length === 0, 'the project still owned terminals: ' + JSON.stringify(rowsOf(DELTA)));
+
+    // A plain shell in another project window, started in this project's folder, with the
+    // watcher typed into it by hand: it carries no role the app could read.
+    const handId = manager.createSession(DELTA.path, undefined, keyOf(ALPHA));
+    try {
+      await waitFor(function () {
+        const row = manager.listSessions().find(function (item) { return item.id === handId; });
+        return row && row.shellPid ? true : false;
+      }, 'the plain shell to have a process', 60000);
+      const shellPid = manager.listSessions().find(function (item) { return item.id === handId; }).shellPid;
+      manager.writeTo(handId, 'hrv theme dev' + String.fromCharCode(13));
+      let covered = false;
+      for (let attempt = 0; attempt < 30 && !covered; attempt++) {
+        const processes = await probe.snapshotProcesses();
+        covered = !!processes && probe.watchersUnder(processes, shellPid).length > 0;
+        if (!covered) await sleep(1000);
+      }
+      expect(covered, 'the hand-typed watcher never showed in the process table');
+
+      await openProjectFromSidebar(DELTA);
+      await waitFor(function () {
+        return watchersOf(DELTA).some(function (row) { return row.spaceTerminalId === 'theme-sync-sapo'; });
+      }, 'the Sapo watcher, which nothing was running, to be minted', 90000);
+      await sleep(1000);
+      const ids = watchersOf(DELTA).map(function (row) { return row.spaceTerminalId; });
+      expect(ids.length === 1 && ids[0] === 'theme-sync-sapo', 'the watchers minted were ' + JSON.stringify(ids));
+    } finally {
+      await manager.closeSession(handId);
+    }
   });
 
   // ---------- (19) closing the Terminal Manager keeps every project window and its tabs

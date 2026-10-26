@@ -599,6 +599,8 @@ export interface SessionSummary {
   role?: SpaceTerminalRole;
   idlePolicy?: TerminalIdlePolicy;
   spaceTerminalId?: string;
+  /** The OS process id of the shell this row runs, while it has one: what a process probe starts from. */
+  shellPid?: number;
   sleptAt?: number;
   cols?: number;
   rows?: number;
@@ -2904,6 +2906,7 @@ export class TerminalManager extends EventEmitter {
       ...(s.role ? { role: s.role } : {}),
       ...(s.idlePolicy ? { idlePolicy: s.idlePolicy } : {}),
       ...(s.spaceTerminalId ? { spaceTerminalId: s.spaceTerminalId } : {}),
+      ...(s.pty?.pid ? { shellPid: s.pty.pid } : {}),
       sleptAt: s.sleptAt,
       cols: s.pendingCols || s.pty?.cols || this.lastCols || 120,
       rows: s.pendingRows || s.pty?.rows || this.lastRows || 30,

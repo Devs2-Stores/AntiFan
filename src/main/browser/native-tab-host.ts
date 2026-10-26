@@ -47,7 +47,8 @@ import { buildKeyboardInputEvents } from './keyboard-normalizer';
 import { FirstPartyNetworkTracker, type NetworkTrackerStats } from './first-party-network-tracker';
 import { WorkspaceCapsuleManager, canonicalFolderKey, findCapsuleByRoot, findReusableCapsule, workspaceDialogDefaultPath, type WorkspaceCapsule, type CapsuleAffiliation } from '../project/workspace-capsule';
 import { findSyncDuplicate, syncIdentity, platformSyncIdentity, themeSyncPlatformOfSpecId } from '../project/sync-identity';
-import { planThemeSyncAutostart } from '../project/theme-sync-autostart';
+import { planThemeSyncAutostart, specsWithoutRunningWatcher } from '../project/theme-sync-autostart';
+import { snapshotProcessesCached } from '../process/theme-watcher-processes';
 import { PreviewWatcherPool, type PreviewChangeEvent } from '../server/preview-watcher-pool';
 import { buildPreviewUrl, parsePreviewUrl } from '../server/preview-url-codec';
 import type { ControlPlaneResourceStats, ControlPlaneRuntime } from '../control-plane/control-plane-runtime';
@@ -14121,7 +14122,8 @@ export class NativeTabHost extends EventEmitter {
     const specs = planThemeSyncAutostart(folder);
     if (specs.length === 0) return true;
     const owner = this.windowOwnerKey();
-    const rows = (TerminalManager.getInstance().listSessions() as SessionSummary[]).filter((s) => s.ownerKey === owner);
+    const sessions = TerminalManager.getInstance().listSessions() as SessionSummary[];
+    const rows = sessions.filter((s) => s.ownerKey === owner);
     // Stable base: the tab a watcher already hangs under, else a running tab, else any open tab.
     // None yet means the window has not made its first terminal: the caller tries again when it does.
     const watcherParents = new Set(
@@ -14130,11 +14132,32 @@ export class NativeTabHost extends EventEmitter {
     const bases = rows.filter((s) => !s.splitOf && (s.state === 'running' || s.state === 'sleeping'));
     const base = bases.find((s) => watcherParents.has(s.id)) ?? bases.find((s) => s.state === 'running') ?? bases[0];
     if (!base) return false;
+    // A watcher already running anywhere (a shell the user typed it into, another window) pushes to
+    // the same remote; a second one would overwrite its uploads. Only the process table can tell,
+    // since a hand-typed watcher carries no role. When it cannot be read, start nothing - and the
+    // same when a running terminal reports no shell pid (a terminal daemon older than this build
+    // keeps serving summaries without one): a terminal that cannot be inspected is not "empty".
+    const running = sessions.filter((s) => s.state === 'running');
+    let toStart = specs;
+    if (running.length > 0) {
+      if (running.some((s) => !s.shellPid)) {
+        console.warn('[native-tab-host] theme sync autostart skipped: a running terminal reports no shell pid (restart the terminal daemon to enable it)');
+        return true;
+      }
+      // One probe serves every window restoring together (a hand-typed watcher does not appear within seconds).
+      const processes = await snapshotProcessesCached(12_000);
+      if (!processes) {
+        console.warn('[native-tab-host] theme sync autostart skipped: the process table could not be read');
+        return true;
+      }
+      toStart = specsWithoutRunningWatcher(folder, specs, running.map((s) => ({ cwd: s.cwd, shellPid: s.shellPid })), processes);
+    }
+    if (toStart.length === 0) return true;
     const result = await openBuiltinSplits(
       this.spaceTerminalDeps(TERMINAL_CHANNELS.SPACE_OPEN_SPLITS, () => owner),
       folder,
       { sessionId: base.id, capsuleId: base.capsuleId ?? '' },
-      specs,
+      toStart,
     );
     if (!result.ok) {
       console.warn(`[native-tab-host] theme sync autostart refused (${result.reason}): ${'message' in result ? result.message : ''}`);
