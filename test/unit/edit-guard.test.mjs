@@ -1114,14 +1114,18 @@ async function asTerminal(worker, fn) {
   }
 }
 
-async function runBash(root, sessionId, command, extra = {}) {
+async function runTool(root, sessionId, toolName, input) {
   const hook = makeHook();
   editGuardHook(hook.pi);
   const ctx = hook.context(root, sessionId);
   await hook.emit("session_start", {}, ctx);
   await hook.emit("before_agent_start", { prompt: "làm việc Leader giao" }, ctx);
-  const results = await hook.emit("tool_call", { toolName: "bash", input: { command, ...extra } }, ctx);
+  const results = await hook.emit("tool_call", { toolName, input }, ctx);
   return results[0] ?? null;
+}
+
+function runBash(root, sessionId, command, extra = {}) {
+  return runTool(root, sessionId, "bash", { command, ...extra });
 }
 
 for (const [label, role, expectedCode] of [
@@ -1200,6 +1204,42 @@ test("theme reads in a worker and every theme command outside a worker pass with
       assert.equal(await runBash(root, "sess-user", "hrv theme push"), null, "the user's own sessions are not gated");
     });
     assert.equal(stub.recorded().length, 0);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(stub.dir, { recursive: true, force: true });
+  }
+});
+
+test("a worker's eval cell that runs the theme CLI is refused; other eval cells and non-workers pass", async () => {
+  const root = makeThemeWorkspace();
+  bindShop(root);
+  const stub = installInfoStub({ role: "unpublished" });
+  try {
+    await asTerminal(true, async () => {
+      for (const [language, code] of [
+        ["py", 'import subprocess\nsubprocess.run(["hrv", "theme", "push"], cwd=r"E:/other")'],
+        ["py", "import os\nos.chdir('E:/other')\nos.system('hrv theme push --only a.liquid')"],
+        ["py", "!shopify theme publish 123"],
+        ["js", "await Bun.$`C:/x/hrv.cmd theme info -j`"],
+        ["js", "require('child_process').execSync('haravan\\n theme push')"],
+      ]) {
+        const result = await runTool(root, `sess-eval-${language}-${code.length}`, "eval", { language, code });
+        assert.equal(result?.block, true, `${code} must be refused`);
+        assert.ok(result.reason.startsWith("REFUSED_THEME_VIA_EVAL:"), result.reason);
+      }
+      for (const code of [
+        "import json\nprint(json.load(open('.haravan-cli_local.json'))['theme_id'])",
+        "print(open('E:/Work/scratch/hrv-stub/calls.log').read())",
+        "fetch('https://admin.shopify.com/store/x/themes')",
+      ]) {
+        assert.equal(await runTool(root, `sess-eval-ok-${code.length}`, "eval", { language: "py", code }), null, code);
+      }
+    });
+    await asTerminal(false, async () => {
+      const code = 'import subprocess\nsubprocess.run(["hrv", "theme", "push"])';
+      assert.equal(await runTool(root, "sess-eval-user", "eval", { language: "py", code }), null, "the user's own sessions are not gated");
+    });
+    assert.equal(stub.recorded().length, 0, "no hrv call reaches the CLI");
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
     fs.rmSync(stub.dir, { recursive: true, force: true });

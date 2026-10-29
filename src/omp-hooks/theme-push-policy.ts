@@ -24,6 +24,8 @@ export const THEME_PUSH_CODES = {
   PUSH_LIVE: "REFUSED_THEME_PUSH_LIVE",
   /** No binding, or `hrv theme info` could not prove the bound theme is a draft. */
   PUSH_UNVERIFIED: "REFUSED_THEME_PUSH_UNVERIFIED",
+  /** An `eval` cell names the theme CLI: a subprocess there escapes the shell-line checks. */
+  VIA_EVAL: "REFUSED_THEME_VIA_EVAL",
 } as const;
 
 export interface ThemeCommand {
@@ -199,6 +201,24 @@ export function planThemeCommand(cmd: ThemeCommand, boundThemeId: string | null)
     };
   }
   return { decision: "verify-draft", themeId: boundThemeId };
+}
+
+/** A theme CLI word followed later by `theme`, across lines, quotes, list and call syntax. */
+const EVAL_THEME_CLI_RE = /(?:^|[^a-z0-9_.-])(?:hrv|haravan|shopify)(?:\.cmd|\.exe)?(?![a-z0-9_-])[\s\S]*?(?:^|[^a-z0-9_-])theme(?![a-z0-9_-])/i;
+
+/**
+ * An `eval` cell (Python or JS) can start the theme CLI through `subprocess`, `os.system`,
+ * `!cmd`, `Bun.$` or `child_process`, where argument lists and working-directory changes
+ * cannot be read back reliably. A worker runs theme commands through the bash tool only,
+ * so any eval cell naming the CLI next to `theme` is refused - read actions included.
+ */
+export function planEvalThemeCode(code: string): ThemeCommandPlan {
+  if (typeof code !== "string" || !EVAL_THEME_CLI_RE.test(code)) return { decision: "allow" };
+  return {
+    decision: "block",
+    code: THEME_PUSH_CODES.VIA_EVAL,
+    reason: `${THEME_PUSH_CODES.VIA_EVAL}: this eval cell runs the theme CLI (hrv/haravan/shopify ... theme). A Leader worker runs theme commands only through the bash tool, where the push rules can check them; use bash with its cwd set to the theme folder.`,
+  };
 }
 
 /** Parsed `hrv theme info -j`; null when the output holds no theme object. */

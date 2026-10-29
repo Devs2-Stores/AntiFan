@@ -51,7 +51,7 @@ import {
   WRITE_TOOLS,
 } from "./edit-guard-policy";
 import { resolveShopIdentity, resolveWorkspaceShape, type WorkspaceShape } from "./theme-paths";
-import { draftVerdict, parseThemeCommands, parseThemeInfo, planThemeCommand } from "./theme-push-policy";
+import { draftVerdict, parseThemeCommands, parseThemeInfo, planEvalThemeCode, planThemeCommand } from "./theme-push-policy";
 
 export const GUARD_ENTRY_TYPE = "antifan.edit-mode";
 export const LOG_DIR_PARTS = [".antifan", "edit-guard"];
@@ -608,6 +608,13 @@ export default function editGuardHook(pi: GuardPi): void {
         if (refusal !== null) {
           warnSafely(pi, refusal);
           return { block: true, reason: refusal };
+        }
+      } else if (normalizedTool === "eval" && isLeaderWorker()) {
+        const evalPlan = planEvalThemeCode(typeof input.code === "string" ? input.code : "");
+        if (evalPlan.decision === "block") {
+          appendRows(session, [rowFor(session, "eval", "", "block", evalPlan.code)]);
+          warnSafely(pi, evalPlan.reason);
+          return { block: true, reason: evalPlan.reason };
         }
       }
 
