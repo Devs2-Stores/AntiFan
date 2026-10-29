@@ -6769,7 +6769,12 @@ async function toggleTerminalLeader(session) {
     return;
   }
   if (reply && reply.ok === true) {
-    showTerminalNotice(want ? `Đã đặt “${name}” làm Leader` : `Đã bỏ Leader của “${name}”`, 'success');
+    showTerminalNotice(
+      want
+        ? `Đã đặt “${name}” làm Leader. Mở hoặc mở lại OMP trong terminal này để nhận quyền điều phối.`
+        : `Đã bỏ Leader của “${name}”. Các worker của nó vẫn bị chặn push theme và chuyển sang mục “Worker mồ côi” trên bảng Worker.`,
+      'success',
+    );
     return;
   }
   const reason = reply && typeof reply.error === 'string' && reply.error ? reply.error : 'bị từ chối';
@@ -7724,7 +7729,14 @@ function applyLeaderBadges(wrap, session) {
       btn.appendChild(workerBadge);
     }
     const owner = findSession(session.workerOf);
-    const title = `⇠ Leader: ${owner ? leaderDisplayName(owner) : session.workerOf}`;
+    // A worker whose owner is no longer a Leader here keeps its theme-push gate and is listed in the
+    // board's orphan section, so the tooltip must not name a Leader. An owner row that is still on the
+    // strip but unmarked is a former Leader; an owner missing from this window's list may simply live
+    // in another window, so it is not claimed to be a former one.
+    let title;
+    if (!owner) title = `⇠ Worker mồ côi (Leader không có trong cửa sổ này: ${session.workerOf})`;
+    else if (owner.leader !== true) title = `⇠ Worker mồ côi (Leader cũ: ${leaderDisplayName(owner)})`;
+    else title = `⇠ Leader: ${leaderDisplayName(owner)}`;
     if (workerBadge.title !== title) workerBadge.title = title;
   } else if (workerBadge) {
     workerBadge.remove();
@@ -7742,18 +7754,35 @@ const LEADER_BOARD_TICK_MS = 20_000;
 
 /**
  * One row's board status. `bucket` feeds the per-Leader tally; `attention` is what the
- * "Chỉ hiện dòng cần chú ý" filter keeps: a run waiting on the person, or one that is over.
+ * "Chỉ hiện dòng cần chú ý" filter keeps: a run waiting on the person, one that finished its
+ * turn, one that went silent, or one that is over.
  */
 function leaderBoardStatusOf(session) {
   if (session.state === 'exited') return { key: 'exited', label: 'đã thoát', bucket: 'ended', attention: true };
   const card = runCards.get(session.id);
   if (card) {
-    if (card.stale || card.state === 'ended') {
+    // A silent run is projected as ended + stale; "kết thúc" would claim the agent finished,
+    // so staleness is checked first and named for what is actually known.
+    if (card.stale) {
+      return {
+        key: 'stale',
+        label: 'không phản hồi',
+        bucket: 'stale',
+        attention: true,
+        hint: 'Hook OMP không báo cáo hơn 45 giây hoặc tiến trình OMP đã mất',
+      };
+    }
+    if (card.state === 'ended') {
       return { key: 'ended', label: RUN_CARD_STATE_LABELS.ended, bucket: 'ended', attention: true };
     }
     const label = RUN_CARD_STATE_LABELS[card.state] || card.state || '';
     if (card.state === 'running') return { key: 'running', label, bucket: 'running', attention: false };
     if (card.state === 'waiting_user') return { key: 'waiting_user', label, bucket: 'waiting_user', attention: true };
+    // An idle run that has already answered at least one prompt is a finished turn the person
+    // is expected to look at; an idle run that never ran one is just an open OMP.
+    if (card.state === 'idle' && typeof card.runSeq === 'number' && card.runSeq >= 1) {
+      return { key: 'done', label: 'xong lượt', bucket: 'done', attention: true };
+    }
     return { key: 'idle', label, bucket: 'idle', attention: false };
   }
   if (session.state === 'sleeping') return { key: 'sleeping', label: 'ngủ', bucket: 'idle', attention: false };
@@ -7808,53 +7837,79 @@ function buildLeaderBoardRow(worker) {
   const row = document.createElement('tr');
   row.className = `leader-board-row${status.attention ? ' is-attention' : ''}`;
   row.setAttribute('data-session-id', worker.id);
-  row.setAttribute('role', 'link');
-  row.tabIndex = 0;
   const taskTitle = worker.workerTitle || worker.name || worker.id;
   const project = leaderBoardProjectOf(worker);
   const prompt = card && card.promptHead ? card.promptHead : '';
+  // The name is a real button: it is the keyboard and screen-reader way into the terminal.
+  // The row stays clickable for the mouse; the button stops the click so it opens once.
+  const nameCell = buildLeaderBoardCell('', 'leader-board-cell-name', worker.name || '');
+  const open = document.createElement('button');
+  open.type = 'button';
+  open.className = 'leader-board-row-open';
+  open.textContent = taskTitle;
+  open.onclick = (e) => {
+    if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
+    focusTerminalFromBoard(worker.id);
+  };
+  nameCell.appendChild(open);
   const stateCell = document.createElement('td');
   const chip = document.createElement('span');
   chip.className = `leader-board-state run-${status.key}`;
   chip.textContent = status.label;
+  if (status.hint) chip.title = status.hint;
   stateCell.appendChild(chip);
   row.append(
-    buildLeaderBoardCell(taskTitle, 'leader-board-cell-name', worker.name || ''),
+    nameCell,
     buildLeaderBoardCell(project, 'leader-board-cell-project', worker.folderPath || worker.cwd || ''),
     stateCell,
     buildLeaderBoardCell(prompt, 'leader-board-cell-prompt', prompt),
     buildLeaderBoardCell(leaderBoardAgeText(card && card.lastEventAt), 'leader-board-cell-age', ''),
   );
   row.onclick = () => focusTerminalFromBoard(worker.id);
-  row.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      focusTerminalFromBoard(worker.id);
-    }
-  });
   return row;
 }
 
+/**
+ * One board section. `leader` is the Leader terminal that drives `workers`; `null` builds the
+ * orphan section, whose workers name a terminal that is no longer a Leader.
+ */
 function buildLeaderBoardSection(leader, workers) {
   const section = document.createElement('section');
-  section.className = 'leader-board-section';
-  section.setAttribute('data-leader-id', leader.id);
+  section.className = leader ? 'leader-board-section' : 'leader-board-section is-orphan';
+  if (leader) section.setAttribute('data-leader-id', leader.id);
+  else section.setAttribute('data-orphans', 'true');
 
   const head = document.createElement('div');
   head.className = 'leader-board-section-head';
-  const name = document.createElement('button');
-  name.type = 'button';
-  name.className = 'leader-board-leader';
-  name.textContent = `👑 ${leaderDisplayName(leader)}`;
-  name.title = 'Mở terminal Leader';
-  name.onclick = () => focusTerminalFromBoard(leader.id);
-  const tally = { running: 0, waiting_user: 0, idle: 0, ended: 0 };
+  let name;
+  if (leader) {
+    name = document.createElement('button');
+    name.type = 'button';
+    name.className = 'leader-board-leader';
+    name.textContent = `👑 ${leaderDisplayName(leader)}`;
+    name.title = 'Mở terminal Leader';
+    name.onclick = () => focusTerminalFromBoard(leader.id);
+  } else {
+    name = document.createElement('span');
+    name.className = 'leader-board-orphan-title';
+    name.textContent = 'Worker mồ côi';
+  }
+  const tally = { running: 0, waiting_user: 0, done: 0, idle: 0, ended: 0, stale: 0 };
   for (const worker of workers) tally[leaderBoardStatusOf(worker).bucket] += 1;
   const summary = document.createElement('span');
   summary.className = 'leader-board-summary';
-  summary.textContent = `${workers.length} worker · đang chạy ${tally.running} · chờ bạn ${tally.waiting_user} · nghỉ ${tally.idle} · kết thúc ${tally.ended}`;
+  let summaryText = `${workers.length} worker · đang chạy ${tally.running} · chờ bạn ${tally.waiting_user} · xong lượt ${tally.done} · nghỉ ${tally.idle} · kết thúc ${tally.ended}`;
+  if (tally.stale > 0) summaryText += ` · không phản hồi ${tally.stale}`;
+  summary.textContent = summaryText;
   head.append(name, summary);
   section.appendChild(head);
+
+  if (!leader) {
+    const hint = document.createElement('div');
+    hint.className = 'leader-board-orphan-hint';
+    hint.textContent = 'Leader của các worker này đã bị bỏ hoặc đã đóng. Chúng vẫn bị chặn push theme; một Leader (cũ hoặc khác) ghi vào terminal của worker để nhận lại.';
+    section.appendChild(hint);
+  }
 
   const shown = leaderBoardAttentionOnly
     ? workers.filter((worker) => leaderBoardStatusOf(worker).attention)
@@ -7863,7 +7918,7 @@ function buildLeaderBoardSection(leader, workers) {
     const none = document.createElement('div');
     none.className = 'leader-board-none';
     none.textContent = workers.length === 0
-      ? 'Chưa có worker nào. Leader tạo worker bằng terminal.create.'
+      ? 'Nhờ OMP trong terminal Leader giao việc để worker xuất hiện ở đây.'
       : 'Không có dòng nào cần chú ý.';
     section.appendChild(none);
     return section;
@@ -7886,13 +7941,48 @@ function buildLeaderBoardSection(leader, workers) {
   return section;
 }
 
+/**
+ * Which board control holds focus, so a repaint can give it back. The board repaints on every
+ * session push, every run-card push and the refresh tick, and rebuilding the body drops focus
+ * to the page.
+ */
+function leaderBoardFocusTarget(body) {
+  const active = typeof document !== 'undefined' ? document.activeElement : null;
+  if (!active || active === body || typeof active.closest !== 'function' || !body.contains(active)) return null;
+  const row = active.closest('.leader-board-row');
+  if (row) return { kind: 'row', id: row.getAttribute('data-session-id') };
+  const section = active.closest('.leader-board-section');
+  const leaderId = section ? section.getAttribute('data-leader-id') : null;
+  return leaderId ? { kind: 'leader', id: leaderId } : null;
+}
+
+function restoreLeaderBoardFocus(body, target) {
+  if (!target || !target.id) return;
+  let el = null;
+  if (target.kind === 'row') {
+    const row = Array.from(body.querySelectorAll('.leader-board-row'))
+      .find((candidate) => candidate.getAttribute('data-session-id') === target.id);
+    el = row ? row.querySelector('.leader-board-row-open') : null;
+  } else {
+    const section = Array.from(body.querySelectorAll('.leader-board-section'))
+      .find((candidate) => candidate.getAttribute('data-leader-id') === target.id);
+    el = section ? section.querySelector('.leader-board-leader') : null;
+  }
+  try { if (el) el.focus({ preventScroll: true }); } catch {}
+}
+
 /** Rebuild the board body from the live `sessions` and `runCards`. */
 function renderLeaderBoardBody(body) {
+  const focusTarget = leaderBoardFocusTarget(body);
   body.innerHTML = '';
   while (body.firstChild) body.removeChild(body.firstChild);
   const list = Array.isArray(sessions) ? sessions : [];
   const leaders = list.filter((s) => s.leader === true && !s.splitOf);
-  if (leaders.length === 0) {
+  const leaderIds = new Set(leaders.map((s) => s.id));
+  // A worker keeps its theme-push gate when its Leader is unmarked or closed; it is listed on
+  // its own so it neither vanishes from the board nor reads as a normal terminal.
+  const orphans = list.filter((s) => typeof s.workerOf === 'string' && s.workerOf && !leaderIds.has(s.workerOf) && !s.splitOf);
+  if (leaders.length === 0 && orphans.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'leader-board-empty';
     empty.textContent = 'Chưa có Leader nào. Bấm chuột phải vào một terminal → “Đặt làm Leader”, rồi chạy OMP trong terminal đó để nó điều phối các terminal khác.';
@@ -7903,6 +7993,8 @@ function renderLeaderBoardBody(body) {
     const workers = list.filter((s) => s.workerOf === leader.id && !s.splitOf);
     body.appendChild(buildLeaderBoardSection(leader, workers));
   }
+  if (orphans.length > 0) body.appendChild(buildLeaderBoardSection(null, orphans));
+  restoreLeaderBoardFocus(body, focusTarget);
 }
 
 /** Repaint the board if it is open; called from every session and run-card push. */
@@ -7929,7 +8021,9 @@ function openLeaderBoard() {
 
   let closed = false;
   let tick = null;
-  const close = () => {
+  // `returnFocus` is set only when the person dismissed the board from the board itself (Escape
+  // or the close button); an outside click or a jump into a terminal puts focus elsewhere.
+  const close = (returnFocus) => {
     if (closed) return;
     closed = true;
     dialog.style.display = 'none';
@@ -7938,12 +8032,16 @@ function openLeaderBoard() {
     clearInterval(tick);
     if (leaderBoardRender === render) leaderBoardRender = null;
     if (activeLeaderBoardClose === close) activeLeaderBoardClose = null;
+    if (returnFocus === true) {
+      const opener = document.getElementById('btnLeaderBoard');
+      try { if (opener) opener.focus(); } catch {}
+    }
   };
   const onDocumentClick = (e) => {
     if (!modal.contains(e.target)) close();
   };
   const onDocumentKeydown = (e) => {
-    if (e.key === 'Escape') close();
+    if (e.key === 'Escape') close(true);
   };
   const render = () => renderLeaderBoardBody(body);
 
@@ -7954,7 +8052,7 @@ function openLeaderBoard() {
       render();
     };
   }
-  if (closeBtn) closeBtn.onclick = (e) => { e.stopPropagation(); close(); };
+  if (closeBtn) closeBtn.onclick = (e) => { e.stopPropagation(); close(true); };
 
   leaderBoardRender = render;
   activeLeaderBoardClose = close;

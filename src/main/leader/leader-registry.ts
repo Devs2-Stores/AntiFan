@@ -22,11 +22,18 @@ const TITLE_MAX_CHARS = 80;
 /**
  * Which terminals the user marked Leader, and which terminals those Leaders drive.
  *
- * Authority is bound to the terminal id, and ids are never reissued (the terminal manager's counters
- * only grow), so a terminal minted later never inherits a closed Leader's rights. The flag is flipped
- * only through `setLeader`, which the host calls from the user's own Terminal Manager gesture: nothing
- * an agent sends can reach it. Persisted synchronously on every change, so a crash right after a
- * promotion cannot lose it. Emits `'change'` (no payload) whenever the persisted shape changes.
+ * Authority is bound to the terminal id. A terminal minted later must not inherit a closed Leader's
+ * rights, and the terminal manager raises its id counters so a live id is never reissued; a daemon that
+ * predates the persisted counters can still reissue a closed id until it is restarted, so an id minted
+ * for a Leader's worker is cleared of any stale flag or record before it is registered. The flag is
+ * flipped only through `setLeader`, which the host calls from the user's own Terminal Manager gesture:
+ * nothing an agent sends can reach it.
+ *
+ * A worker record lives until its own terminal closes: clearing or closing its Leader does not free it,
+ * because the record is what makes the worker's OMP hook refuse theme pushes. The worker becomes an
+ * orphan that a live Leader may adopt by writing to it. Persisted synchronously on every change, so a
+ * crash right after a promotion cannot lose it. Emits `'change'` (no payload) whenever the persisted
+ * shape changes.
  */
 export class LeaderRegistry extends EventEmitter {
   private static instance: LeaderRegistry | undefined;
@@ -84,7 +91,8 @@ export class LeaderRegistry extends EventEmitter {
     }
   }
 
-  private commit(): void {
+  /** Persist the current shape and announce it. Returns whether the file was written. */
+  private commit(): boolean {
     const file: LeaderRegistryFile = {
       schema: 1,
       leaders: [...this.leaderIds],
@@ -92,15 +100,18 @@ export class LeaderRegistry extends EventEmitter {
     };
     const target = this.filePath();
     const temp = `${target}.tmp-${process.pid}`;
+    let persisted = true;
     try {
       fs.mkdirSync(path.dirname(target), { recursive: true });
       fs.writeFileSync(temp, JSON.stringify(file), 'utf8');
       fs.renameSync(temp, target);
     } catch (err) {
+      persisted = false;
       console.warn('[leader-registry] failed to persist leader terminals:', err);
       try { fs.rmSync(temp, { force: true }); } catch {}
     }
     this.emit('change');
+    return persisted;
   }
 
   public isLeader(id: string): boolean {
@@ -113,8 +124,8 @@ export class LeaderRegistry extends EventEmitter {
 
   /**
    * Mark (or clear) a Leader. Marking drops any worker record the terminal had (a Leader is never
-   * anybody's worker); clearing also releases the workers it drove: a terminal that is no longer a
-   * Leader commands nobody. Returns whether the registry changed.
+   * anybody's worker). Clearing removes the flag only: the workers it drove keep their records, so
+   * their theme-push gate survives the Leader. Returns whether the registry changed.
    */
   public setLeader(id: string, on: boolean): boolean {
     if (!id) return false;
@@ -126,32 +137,58 @@ export class LeaderRegistry extends EventEmitter {
       return true;
     }
     if (!this.leaderIds.delete(id)) return false;
-    for (const [workerId, record] of this.workerRecords) {
-      if (record.leaderId === id) this.workerRecords.delete(workerId);
-    }
     this.commit();
     return true;
   }
 
   /**
    * Record that `leaderId` drives `workerId`. Ignored unless `leaderId` is a Leader, and a Leader
-   * is never its own worker nor another Leader's. A repeat assignment keeps its `assignedAt` and
-   * only refreshes the title when one is given.
+   * is never its own worker nor another Leader's. A worker another live Leader already drives is never
+   * taken from it; a record whose Leader is no longer a Leader may be adopted. A repeat assignment
+   * keeps its `assignedAt`, and the title carries over unless a new one is given.
+   *
+   * Returns true when the record names `leaderId` and is persisted, false when nothing was recorded
+   * (a refused assignment, or a file that could not be written).
    */
-  public assignWorker(workerId: string, leaderId: string, title?: string): void {
-    if (!workerId || !leaderId || workerId === leaderId) return;
-    if (!this.leaderIds.has(leaderId) || this.leaderIds.has(workerId)) return;
-    const cleanTitle = typeof title === 'string' ? title.trim().slice(0, TITLE_MAX_CHARS) : '';
+  public assignWorker(workerId: string, leaderId: string, title?: string): boolean {
+    if (!workerId || !leaderId || workerId === leaderId) return false;
+    if (!this.leaderIds.has(leaderId) || this.leaderIds.has(workerId)) return false;
     const existing = this.workerRecords.get(workerId);
+    if (existing && existing.leaderId !== leaderId && this.leaderIds.has(existing.leaderId)) return false;
+    const cleanTitle = typeof title === 'string' ? title.trim().slice(0, TITLE_MAX_CHARS) : '';
     const sameLeader = existing?.leaderId === leaderId ? existing : undefined;
-    const nextTitle = cleanTitle || sameLeader?.title;
-    if (sameLeader && nextTitle === sameLeader.title) return;
+    const nextTitle = cleanTitle || existing?.title;
+    if (sameLeader && nextTitle === sameLeader.title) return true;
+    const previous = existing;
     this.workerRecords.set(workerId, {
       leaderId,
       ...(nextTitle ? { title: nextTitle } : {}),
       assignedAt: sameLeader?.assignedAt ?? Date.now(),
     });
-    this.commit();
+    if (this.commit()) return true;
+    // The change is not on disk: the hook reads the file, so an unsaved record gates nothing. Keep memory honest.
+    if (previous) this.workerRecords.set(workerId, previous);
+    else this.workerRecords.delete(workerId);
+    this.emit('change');
+    return false;
+  }
+
+  /**
+   * Make `childId` a worker of the same Leader as `parentWorkerId`, whether or not that Leader is
+   * still a Leader: a split of an orphan worker must be gated like the orphan. Returns false when the
+   * parent has no record, the child is the parent or a Leader, or the record could not be saved.
+   */
+  public inheritWorker(childId: string, parentWorkerId: string): boolean {
+    if (!childId || !parentWorkerId || childId === parentWorkerId || this.leaderIds.has(childId)) return false;
+    const parent = this.workerRecords.get(parentWorkerId);
+    if (!parent) return false;
+    const previous = this.workerRecords.get(childId);
+    this.workerRecords.set(childId, { leaderId: parent.leaderId, assignedAt: Date.now() });
+    if (this.commit()) return true;
+    if (previous) this.workerRecords.set(childId, previous);
+    else this.workerRecords.delete(childId);
+    this.emit('change');
+    return false;
   }
 
   public workerOf(id: string): LeaderWorkerRecord | undefined {
@@ -160,24 +197,17 @@ export class LeaderRegistry extends EventEmitter {
   }
 
   /**
-   * A terminal was closed: forget it everywhere. Drops its Leader flag, its own worker record and the
-   * worker records of the workers it drove (so a closed Leader's rights, and its workers, go with it).
-   * Terminal ids are never reissued, so nothing else needs to be swept.
+   * A terminal was closed: forget it. Drops its Leader flag and its own worker record. The workers it
+   * drove keep theirs: their terminals are still open and still gated.
    */
   public forget(id: string): void {
     if (!id) return;
     let changed = this.leaderIds.delete(id);
     if (this.workerRecords.delete(id)) changed = true;
-    for (const [workerId, record] of [...this.workerRecords]) {
-      if (record.leaderId === id) {
-        this.workerRecords.delete(workerId);
-        changed = true;
-      }
-    }
     if (changed) this.commit();
   }
 
-  /** Drop every Leader and worker that is no longer live, and every worker whose Leader is gone. */
+  /** Drop every Leader and worker whose terminal is no longer live. Workers of a Leader that closed stay: they are orphans, still gated. */
   public prune(liveIds: ReadonlySet<string>): void {
     let changed = false;
     for (const id of [...this.leaderIds]) {
@@ -186,8 +216,8 @@ export class LeaderRegistry extends EventEmitter {
         changed = true;
       }
     }
-    for (const [workerId, record] of [...this.workerRecords]) {
-      if (!liveIds.has(workerId) || !this.leaderIds.has(record.leaderId)) {
+    for (const workerId of [...this.workerRecords.keys()]) {
+      if (!liveIds.has(workerId)) {
         this.workerRecords.delete(workerId);
         changed = true;
       }

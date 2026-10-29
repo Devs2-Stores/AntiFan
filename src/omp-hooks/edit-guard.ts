@@ -19,7 +19,9 @@
  * gated in every mode: only `hrv theme push --only ...` / `hrv theme dev` against
  * the bound theme pass, and only after `hrv theme info -j` reports that theme is not
  * the live (`main`) one. Publish, delete, Shopify writes, `--force` and whole-theme
- * pushes are refused (`theme-push-policy.ts`).
+ * pushes are refused, and so is any line that names the theme CLI in a shape the rules
+ * cannot read (wrapper, subshell, quoted CLI word; `REFUSED_THEME_COMPLEX`). The decision
+ * is `gateThemeLine` in `theme-draft-probe.ts`, shared with the Manager's `terminal.write`.
  *
  * Nothing in here throws: a hook that throws turns a policy into an outage, so
  * every handler catches and every refusal is a returned value. A `tool_call` the
@@ -28,7 +30,6 @@
  * outcome the guard exists to prevent.
  */
 
-import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -51,7 +52,8 @@ import {
   WRITE_TOOLS,
 } from "./edit-guard-policy";
 import { resolveShopIdentity, resolveWorkspaceShape, type WorkspaceShape } from "./theme-paths";
-import { draftVerdict, parseThemeCommands, parseThemeInfo, planEvalThemeCode, planThemeCommand } from "./theme-push-policy";
+import { describeError, gateThemeLine, lastOutputLine, runHrv } from "./theme-draft-probe";
+import { mentionsThemeCli, planEvalThemeCode } from "./theme-push-policy";
 
 export const GUARD_ENTRY_TYPE = "antifan.edit-mode";
 export const LOG_DIR_PARTS = [".antifan", "edit-guard"];
@@ -59,8 +61,6 @@ const MIRROR_DIR_PARTS = ["runtime", "edit-mode"];
 const LOG_ROTATE_BYTES = 2 * 1024 * 1024;
 const SETTINGS_DATA_RE = /(^|[/\\])config[/\\]settings_data\.json$/i;
 const SETTINGS_DATA_FETCH_TIMEOUT_MS = 90_000;
-/** Shell command prefix that runs the Haravan CLI; tests and non-PATH installs override it. */
-export const HRV_COMMAND_ENV = "ANTIFAN_HRV_COMMAND";
 const THEME_INFO_TIMEOUT_MS = 30_000;
 /** Audit code of a worker push/dev the guard let through after `hrv theme info` proved a draft. */
 const THEME_DRAFT_VERIFIED = "THEME_SYNC_DRAFT_VERIFIED";
@@ -207,28 +207,6 @@ function warnSafely(pi: GuardPi, message: string): void {
   }
 }
 
-/**
- * The text of a thrown value, without letting the value decide whether the guard can
- * report. A null-prototype object, a throwing `message` getter or a hostile `toString`
- * all reach here from the same place the refusal is being built.
- */
-function describeError(err: unknown): string {
-  try {
-    if (err instanceof Error && typeof err.message === "string") return err.message;
-  } catch {
-    /* a throwing message getter falls through to the coercion below */
-  }
-  try {
-    return String(err);
-  } catch {
-    try {
-      return Object.prototype.toString.call(err);
-    } catch {
-      return "unprintable error";
-    }
-  }
-}
-
 function buildSession(ctx: unknown): GuardSession {
   const sessionId = sessionIdOf(ctx);
   const cwd = cwdOf(ctx);
@@ -302,67 +280,6 @@ interface FetchOutcome {
   detail: string;
 }
 
-interface HrvRun {
-  /** Combined stdout+stderr (capped), or null when the CLI never ran to completion. */
-  output: string | null;
-  exitCode: number | null;
-  /** Why `output` is null: spawn error or timeout. */
-  failure: string;
-}
-
-/**
- * `<hrv> <args>` in `cwd`. One shell line (a `.cmd` shim on Windows needs the shell),
- * so callers must interpolate only values they validated as plain tokens.
- */
-function runHrv(cwd: string, args: string, timeoutMs: number): Promise<HrvRun> {
-  const { promise, resolve } = Promise.withResolvers<HrvRun>();
-  const command = (process.env[HRV_COMMAND_ENV] ?? "").trim() || "hrv";
-  let output = "";
-  let settled = false;
-  let timer: NodeJS.Timeout | undefined;
-  const finish = (run: HrvRun) => {
-    if (settled) return;
-    settled = true;
-    clearTimeout(timer);
-    resolve(run);
-  };
-  try {
-    const child = spawn(`${command} ${args}`, {
-      cwd,
-      shell: true,
-      windowsHide: true,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    const collect = (chunk: Buffer) => {
-      if (output.length < 16_384) output += chunk.toString("utf8");
-    };
-    child.stdout?.on("data", collect);
-    child.stderr?.on("data", collect);
-    child.on("error", (err) => finish({ output: null, exitCode: null, failure: describeError(err) }));
-    child.on("close", (code) => finish({ output, exitCode: code, failure: "" }));
-    timer = setTimeout(() => {
-      try {
-        child.kill();
-      } catch {
-        /* already gone */
-      }
-      finish({ output: null, exitCode: null, failure: `timed out after ${timeoutMs} ms` });
-    }, timeoutMs);
-  } catch (err) {
-    finish({ output: null, exitCode: null, failure: describeError(err) });
-  }
-  return promise;
-}
-
-function lastOutputLine(output: string): string {
-  const lines = output
-    .replace(/\u001b\[[0-9;]*m/g, "")
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0 && !/^\(node:\d+\)|^\(Use `node/.test(line));
-  return lines[lines.length - 1] ?? "(no output)";
-}
-
 /**
  * `hrv theme fetch <themeId> --only config/settings_data.json` in the theme root.
  * The CLI prints its failures and exits 0, so the job message is the only verdict:
@@ -378,76 +295,96 @@ async function runSettingsDataFetch(themeRoot: string, themeId: string): Promise
   return { ok: false, detail: `${lastOutputLine(run.output)} (exit ${run.exitCode ?? "null"})` };
 }
 
+/** Registry read errors that mean "the file is locked right now", not "there is no registry". */
+const TRANSIENT_READ_CODES: Record<string, true> = { EBUSY: true, EPERM: true, EACCES: true, EMFILE: true };
+const REGISTRY_READ_RETRIES = 2;
+const REGISTRY_RETRY_DELAY_MS = 50;
+
 /**
  * True when the terminal this OMP runs in is a Leader's worker. Read fresh per call:
- * the Leader can take a worker on or release it at any time, and the registry the
+ * the Leader can take a worker on or hand it over at any time, and the registry the
  * Manager writes is the only record of it.
+ *
+ * The Manager replaces the file atomically (temp file + rename), and on Windows a reader
+ * can hit EBUSY/EPERM/EACCES/EMFILE during that swap. Those lock errors are retried, and
+ * if the file still cannot be read the answer is "worker": a wrong "worker" only costs a
+ * refused theme remote operation, while a wrong "not a worker" lets a push through. A
+ * missing file, a directory in its place or unparsable JSON are not lock errors: there is
+ * no record that could name this terminal, so it is not a worker.
  */
-function isLeaderWorker(env: Record<string, string | undefined> = process.env): boolean {
+async function isLeaderWorker(env: Record<string, string | undefined> = process.env): Promise<boolean> {
   const terminalId = env.ANTIFAN_TERMINAL_SESSION_ID?.trim();
   if (!terminalId) return false;
   const dataRoot = env.ANTIFAN_DATA_ROOT?.trim();
   const configDir = env.ANTIFAN_CONFIG_DIR?.trim() || (dataRoot ? path.join(dataRoot, "config") : "");
   if (!configDir) return false;
-  try {
-    const file = JSON.parse(fs.readFileSync(path.join(configDir, LEADER_REGISTRY_FILE), "utf8")) as {
-      workers?: Record<string, { leaderId?: unknown } | undefined>;
-    };
-    const record = file?.workers?.[terminalId];
-    return typeof record?.leaderId === "string" && record.leaderId.length > 0;
-  } catch {
-    return false;
+  const registryPath = path.join(configDir, LEADER_REGISTRY_FILE);
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      const file = JSON.parse(fs.readFileSync(registryPath, "utf8")) as {
+        workers?: Record<string, { leaderId?: unknown } | undefined>;
+      };
+      const record = file?.workers?.[terminalId];
+      return typeof record?.leaderId === "string" && record.leaderId.length > 0;
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException | undefined)?.code;
+      if (typeof code !== "string" || TRANSIENT_READ_CODES[code] !== true) return false;
+      if (attempt >= REGISTRY_READ_RETRIES) return true;
+      const { promise, resolve } = Promise.withResolvers<void>();
+      setTimeout(resolve, REGISTRY_RETRY_DELAY_MS);
+      await promise;
+    }
   }
 }
 
-/** Nearest folder at or above `start` that holds `.haravan-cli_local.json`. */
-function findBindingRoot(start: string): string | null {
-  let current = path.resolve(start);
-  for (let depth = 0; depth < 12; depth += 1) {
-    if (fs.existsSync(path.join(current, ".haravan-cli_local.json"))) return current;
-    const parent = path.dirname(current);
-    if (parent === current) return null;
-    current = parent;
-  }
-  return null;
-}
+/** Longest command text an audit row keeps in its `path` column. */
+const AUDIT_COMMAND_MAX = 200;
 
 /**
  * The refusal for a worker's shell call that would change a theme on the shop, or
- * null when the call may run. Non-worker sessions and calls with no theme command
- * pass untouched; a worker may only sync its own bound draft theme.
+ * null when the call may run. Calls that name no theme CLI pass untouched, without
+ * touching the registry; so do non-worker sessions, without a probe. A worker may
+ * only sync its own bound draft theme, as one plain command (see `theme-draft-probe.ts`).
  */
 async function gateThemeCommand(session: GuardSession, input: Record<string, unknown>): Promise<string | null> {
-  const commands = parseThemeCommands(typeof input.command === "string" ? input.command : "");
-  if (commands.length === 0 || !isLeaderWorker()) return null;
+  const text = typeof input.command === "string" ? input.command : "";
+  if (!mentionsThemeCli(text) || !(await isLeaderWorker())) return null;
   const cwd =
     typeof input.cwd === "string" && input.cwd.trim().length > 0
       ? path.resolve(session.shape.cwd, input.cwd.trim())
       : session.shape.cwd;
-  const bindingRoot = findBindingRoot(cwd);
-  const boundThemeId = bindingRoot === null ? null : (resolveShopIdentity(bindingRoot)?.themeId ?? null);
-  for (const cmd of commands) {
-    const plan = planThemeCommand(cmd, boundThemeId);
-    let verdict: { decision: "allow" } | { decision: "block"; code: string; reason: string };
-    if (plan.decision === "verify-draft" && bindingRoot !== null) {
-      const run = await runHrv(bindingRoot, "theme info -j", THEME_INFO_TIMEOUT_MS);
-      const info = run.output === null ? null : parseThemeInfo(run.output);
-      const detail = run.output === null ? run.failure : lastOutputLine(run.output);
-      verdict = draftVerdict(cmd, plan.themeId, info, detail);
-      if (verdict.decision === "allow") {
-        appendRows(session, [rowFor(session, cmd.text, "", "allow", THEME_DRAFT_VERIFIED)]);
-      }
-    } else if (plan.decision === "verify-draft") {
-      verdict = draftVerdict(cmd, plan.themeId, null, "no binding folder");
-    } else {
-      verdict = plan;
-    }
-    if (verdict.decision === "block") {
-      appendRows(session, [rowFor(session, "bash", cmd.text, "block", verdict.code)]);
-      return verdict.reason;
-    }
+  const outcome = await gateThemeLine({ text, cwd, timeoutMs: THEME_INFO_TIMEOUT_MS });
+  if (outcome.decision === "pass") return null;
+  if (outcome.decision === "block") {
+    appendRows(session, [rowFor(session, "bash", outcome.command.slice(0, AUDIT_COMMAND_MAX), "block", outcome.code)]);
+    return outcome.reason;
   }
+  // The path stays empty on purpose: the Manager counts every allow row with a path as a
+  // changed file, and a verified sync is not one.
+  appendRows(session, outcome.verified.map(() => rowFor(session, "bash", "", "allow", THEME_DRAFT_VERIFIED)));
   return null;
+}
+
+/**
+ * Whether a `bash` / `eval` call the guard failed to classify names the theme CLI inside an
+ * AntiFan terminal (every terminal carries `ANTIFAN_TERMINAL_SESSION_ID`); the caller then
+ * refuses it only for a Leader's worker. A failure while reading the call itself counts as a
+ * mention: the call is unclassified, and an unclassified call that might change the shop is
+ * not cleared.
+ */
+function failedCallNamesThemeCli(event: unknown): boolean {
+  const terminal = process.env.ANTIFAN_TERMINAL_SESSION_ID;
+  if (typeof terminal !== "string" || terminal.trim().length === 0) return false;
+  try {
+    const record = contextRecord(event);
+    const tool = String(record.toolName ?? record.name ?? "").trim().toLowerCase();
+    if (tool !== "bash" && tool !== "eval") return false;
+    const input = contextRecord(record.input);
+    const text = tool === "bash" ? input.command : input.code;
+    return typeof text === "string" && mentionsThemeCli(text);
+  } catch {
+    return true;
+  }
 }
 
 function isSettingsDataPath(rawPath: string, cwd: string): boolean {
@@ -609,7 +546,7 @@ export default function editGuardHook(pi: GuardPi): void {
           warnSafely(pi, refusal);
           return { block: true, reason: refusal };
         }
-      } else if (normalizedTool === "eval" && isLeaderWorker()) {
+      } else if (normalizedTool === "eval" && (await isLeaderWorker())) {
         const evalPlan = planEvalThemeCode(typeof input.code === "string" ? input.code : "");
         if (evalPlan.decision === "block") {
           appendRows(session, [rowFor(session, "eval", "", "block", evalPlan.code)]);
@@ -704,8 +641,22 @@ export default function editGuardHook(pi: GuardPi): void {
       // unclassified call is refused. An unscoped session falls through, because there
       // is nothing to enforce there and a stuck write tool would be an outage.
       const mode = scopeEvidence(ctx);
-      if (!isScopedMode(mode)) return undefined;
-      const reason = `${REFUSAL_CODES.GUARD_ERROR}: the guard could not classify this call (${describeError(err)}), and ${MODE_LABELS[mode]} refuses what it cannot verify. Retry with explicit file paths, or ask the user to re-send the request in Core mode (the [🧠Core-Context] tag) to run it unguarded.`;
+      if (!isScopedMode(mode)) {
+        // Outside a scoped session only a Leader's worker is held to the theme gate: an
+        // OMP of the user's own, or a Leader, is not refused for a guard failure.
+        if (!failedCallNamesThemeCli(event)) return undefined;
+        let worker: boolean;
+        try {
+          worker = await isLeaderWorker();
+        } catch {
+          worker = true; // cannot tell: a call that may change the shop is not cleared
+        }
+        if (!worker) return undefined;
+      }
+      const unclassified = `the guard could not classify this call (${describeError(err)})`;
+      const reason = isScopedMode(mode)
+        ? `${REFUSAL_CODES.GUARD_ERROR}: ${unclassified}, and ${MODE_LABELS[mode]} refuses what it cannot verify. Retry with explicit file paths, or ask the user to re-send the request in Core mode (the [🧠Core-Context] tag) to run it unguarded.`
+        : `${REFUSAL_CODES.GUARD_ERROR}: ${unclassified}, and a Leader worker's call that names the theme CLI is refused when it cannot be checked. Retry the command on its own; only the user can run theme commands that change the shop.`;
       try {
         const session = sessions.get(sessionIdOf(ctx));
         if (session) {

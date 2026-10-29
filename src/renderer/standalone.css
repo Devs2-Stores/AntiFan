@@ -2671,6 +2671,24 @@ button {
   padding: 8px 10px;
 }
 
+.leader-board-section.is-orphan {
+  border-style: dashed;
+  background: rgba(30, 41, 59, 0.2);
+}
+
+.leader-board-orphan-title {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #94a3b8;
+}
+
+.leader-board-orphan-hint {
+  margin-bottom: 4px;
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: #7c8ba1;
+}
+
 .leader-board-section-head {
   display: flex;
   align-items: baseline;
@@ -2726,10 +2744,36 @@ button {
   cursor: pointer;
 }
 
-.leader-board-row:hover,
-.leader-board-row:focus-visible {
+.leader-board-row:hover {
   background: rgba(148, 163, 184, 0.1);
-  outline: none;
+}
+
+.leader-board-row:focus-within {
+  background: rgba(148, 163, 184, 0.1);
+}
+
+.leader-board-row-open {
+  max-width: 100%;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.leader-board-row-open:hover {
+  text-decoration: underline;
+}
+
+.leader-board-row-open:focus-visible {
+  outline: 2px solid #38bdf8;
+  outline-offset: 2px;
+  border-radius: 2px;
 }
 
 .leader-board-row.is-attention .leader-board-cell-name {
@@ -2757,6 +2801,16 @@ button {
 .leader-board-state.run-waiting_user {
   color: #fbbf24;
   background: rgba(245, 158, 11, 0.15);
+}
+
+.leader-board-state.run-done {
+  color: #86efac;
+  background: rgba(34, 197, 94, 0.14);
+}
+
+.leader-board-state.run-stale {
+  color: #fdba74;
+  background: rgba(249, 115, 22, 0.15);
 }
 
 .leader-board-state.run-ended,

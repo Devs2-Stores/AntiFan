@@ -277,6 +277,15 @@ export class DaemonClient {
 }
 
 /**
+ * Whether the daemon's reply to an input RPC says the input reached a session. Only an explicit
+ * `{ written: false }` is a refusal: a daemon from before the field existed answers with `{ written: true }`
+ * or no body, and that stays "delivered".
+ */
+function deliveredFrom(reply: unknown): boolean {
+  return !(typeof reply === 'object' && reply !== null && 'written' in reply && reply.written === false);
+}
+
+/**
  * TerminalManager-shaped async facade. Method names mirror the manager's; every one is a forwarded
  * RPC. Events are re-emitted under TerminalManager's names so existing subscribers are unchanged.
  */
@@ -514,7 +523,9 @@ export class DaemonTerminalProxy extends EventEmitter {
    * ASYNC/SYNC SEAM CONTRACT:
    * `TerminalManager.write(input)` in-process is `void`, but this proxy is a daemon
    * round-trip, so it returns `Promise<boolean>` resolving when the daemon settles it —
-   * `true` when the input was delivered, `false` when the RPC failed. The promise must
+   * `true` when the input was delivered, `false` when the RPC failed or the daemon reports
+   * `{ written: false }` (no writable session took it). A reply with no `written` field (a daemon
+   * from before the field existed) still counts as delivered. The promise must
    * NOT be discarded here: callers admit this write against the close gate and release
    * that admission from the returned value's own settlement, so a swallowed promise would
    * report the write finished while the daemon is still waking or spawning the PTY that
@@ -523,19 +534,19 @@ export class DaemonTerminalProxy extends EventEmitter {
    * rejection.
    */
   write(input: string): Promise<boolean> {
-    return this.client.call(HOST_METHOD.input, { text: input }).then(() => true, () => false);
+    return this.client.call(HOST_METHOD.input, { text: input }).then(deliveredFrom, () => false);
   }
 
   /**
    * Write input to a named session in the daemon.
    *
    * ASYNC/SYNC SEAM CONTRACT: same shape as {@link write} — returns `Promise<boolean>`
-   * settling when the daemon RPC settles (`true` delivered / `false` failed, never
-   * rejects) instead of the in-process manager's `void`, so a close admission held
+   * settling when the daemon RPC settles (`true` delivered / `false` not delivered or the RPC
+   * failed, never rejects) instead of the in-process manager's `void`, so a close admission held
    * against the write releases only once the daemon is actually done with it.
    */
   writeTo(sessionId: string, input: string): Promise<boolean> {
-    return this.client.call(HOST_METHOD.input, { sessionId, text: input }).then(() => true, () => false);
+    return this.client.call(HOST_METHOD.input, { sessionId, text: input }).then(deliveredFrom, () => false);
   }
 
   async sendKey(key: string, sessionId?: string): Promise<void> {

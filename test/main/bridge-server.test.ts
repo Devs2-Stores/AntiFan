@@ -223,7 +223,9 @@ describe('AntiFan Bridge Server', () => {
     ws.send(JSON.stringify({ id: 'req-key', method: 'antifan.terminalSendKey', params: { key: 'ctrl_c' } }));
     const keyResp = await keyPromise;
     assert.strictEqual(keyResp.success, true);
-    assert.strictEqual(keyResp.data.sent, true);
+    // No terminal session exists in this test, so no shell took the key: the reply must say so.
+    assert.strictEqual(keyResp.data.key, 'ctrl_c');
+    assert.strictEqual(keyResp.data.sent, false);
     ws.close();
     server.dispose();
   });
@@ -1754,8 +1756,8 @@ describe('Bridge failure ledger, derived health, and record publish', () => {
 });
 
 type TerminalWriteSurface = {
-  writeTo: (sessionId: string, input: string) => void;
-  write: (input: string) => void;
+  writeTo: (sessionId: string, input: string) => boolean | void;
+  write: (input: string) => boolean | void;
   closeSession: (id: string) => Promise<boolean>;
   renameSession: (id: string, name: string) => boolean;
   resizeTo: (id: string, cols: number, rows: number) => void;
@@ -1844,6 +1846,19 @@ describe('Bridge terminal write planes', () => {
       const masterActive = await call(master, 'term-master-active', 'antifan.terminalInput', { text: 'echo active\r' });
       assert.strictEqual(masterActive.success, true, masterActive.error);
       assert.deepStrictEqual(writes[writes.length - 1], { input: 'echo active\r' });
+
+      // A write the manager reports as undelivered must not be answered as delivered.
+      tm.writeTo = (sessionId: string, input: string) => { writes.push({ sessionId, input }); return false; };
+      tm.write = (input: string) => { writes.push({ input }); return false; };
+      const lostWrite = await call(master, 'term-master-lost', 'antifan.terminalInput', { sessionId: 'session-alpha', text: 'echo lost\r' });
+      assert.strictEqual(lostWrite.success, true, lostWrite.error);
+      assert.deepStrictEqual(lostWrite.data, { written: false });
+      const lostActive = await call(master, 'term-master-lost-active', 'antifan.terminalInput', { text: 'echo lost\r' });
+      assert.deepStrictEqual(lostActive.data, { written: false });
+      const lostKey = await call(master, 'term-master-lost-key', 'antifan.terminalSendKey', { sessionId: 'session-alpha', key: 'enter' });
+      assert.deepStrictEqual(lostKey.data, { sent: false, key: 'enter' });
+      tm.writeTo = (sessionId: string, input: string) => { writes.push({ sessionId, input }); };
+      tm.write = (input: string) => { writes.push({ input }); };
 
       // Attachment sockets cannot reach the legacy terminal RPCs at all: the agent
       // plane writes through antifan.capability.dispatch, which runs its own

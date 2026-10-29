@@ -302,3 +302,15 @@ export function resolveShopIdentity(workspaceRoot: string): ShopIdentityTuple | 
 
   return null;
 }
+
+/** Nearest folder at or above `start` that holds `.haravan-cli_local.json`. */
+export function findBindingRoot(start: string): string | null {
+  let current = path.resolve(start);
+  for (let depth = 0; depth < MAX_WALK_UP; depth += 1) {
+    if (fs.existsSync(path.join(current, ".haravan-cli_local.json"))) return current;
+    const parent = path.dirname(current);
+    if (parent === current) return null;
+    current = parent;
+  }
+  return null;
+}

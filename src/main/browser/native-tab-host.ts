@@ -3318,8 +3318,8 @@ export class NativeTabHost extends EventEmitter {
             return false;
           }
           const written: unknown = TerminalManager.getInstance().writeTo(targetId, input);
-          // The singleton is a daemon proxy installed by cast: it answers boolean|Promise<boolean>
-          // while the in-process manager answers undefined, which maps to the old constant true.
+          // The singleton is a daemon proxy installed by cast (boolean|Promise<boolean>); the
+          // in-process manager answers a boolean too. Only a test double answers undefined: delivered.
           return written === undefined ? true : (written as boolean | Promise<boolean>);
         }
       );
@@ -7402,8 +7402,10 @@ export class NativeTabHost extends EventEmitter {
 
   /**
    * Stamp the Leader fields on a window's rows: `leader` on a Leader terminal, `workerOf` /
-   * `workerTitle` on a terminal a Leader drives. Projection-only, like `agentHeld`: the registry
-   * is the record, and every registry change re-pushes the projections.
+   * `workerTitle` on a terminal a Leader drives. `workerOf` can name a terminal that is no longer a
+   * Leader: the worker record outlives its Leader (it is what gates the worker's theme pushes), and the
+   * board shows such an orphan until a Leader adopts it or its own terminal closes. Projection-only, like
+   * `agentHeld`: the registry is the record, and every registry change re-pushes the projections.
    */
   private stampLeaderState(rows: SessionSummary[]): SessionSummary[] {
     const registry = LeaderRegistry.getInstance();
@@ -7418,9 +7420,10 @@ export class NativeTabHost extends EventEmitter {
   }
 
   /**
-   * A terminal closed: drop its Leader flag and worker record, and every worker that answered to
-   * it. Forgetting the one closed id (not pruning against the session list) keeps a Leader safe
-   * when the list is a daemon cache that has not yet seen a freshly minted session.
+   * A terminal closed: drop its Leader flag and its own worker record. The workers it drove keep theirs
+   * (their terminals are still open and still gated; they become orphans). Forgetting the one closed id
+   * (not pruning against the session list) keeps a Leader safe when the list is a daemon cache that has
+   * not yet seen a freshly minted session.
    */
   private pruneLeaderRegistry(closedId: string): void {
     try {
@@ -12773,8 +12776,8 @@ export class NativeTabHost extends EventEmitter {
     }
     this.assertTerminalAccess(tabId, targetTerminalId);
     const written: unknown = TerminalManager.getInstance().writeTo(targetTerminalId, input);
-    // The singleton is a daemon proxy installed by cast: it answers boolean|Promise<boolean>
-    // while the in-process manager answers undefined, which maps to the old constant true.
+    // The singleton is a daemon proxy installed by cast (boolean|Promise<boolean>); the
+    // in-process manager answers a boolean too. Only a test double answers undefined: delivered.
     return written === undefined ? true : (written as boolean | Promise<boolean>);
   }
   /**

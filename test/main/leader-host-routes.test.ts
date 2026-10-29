@@ -283,8 +283,8 @@ describe('Leader host: projection, prune and placement', () => {
     assert.equal('workerTitle' in plain, false);
   });
 
-  it('drops the Leader and its workers when the Leader session closes', () => {
-    const { host, recording } = windowFixture({ owner: MANAGER, rows: [LEAD_ROW, WORK_ROW] });
+  it('drops the Leader flag when the Leader session closes, and keeps its workers gated as orphans', () => {
+    const { host, recording, senderId } = windowFixture({ owner: MANAGER, rows: [LEAD_ROW, WORK_ROW] });
     const registry = LeaderRegistry.getInstance();
     registry.setLeader('terminal-lead', true);
     registry.assignWorker('terminal-work', 'terminal-lead');
@@ -297,7 +297,9 @@ describe('Leader host: projection, prune and placement', () => {
     registry.assignWorker('terminal-work', 'terminal-lead');
     host.pruneLeaderRegistry('terminal-lead');
     assert.equal(registry.isLeader('terminal-lead'), false, 'the Leader lost its rights with its terminal');
-    assert.equal(registry.workerOf('terminal-work'), undefined, 'and its workers were released with it');
+    assert.equal(registry.workerOf('terminal-work')?.leaderId, 'terminal-lead', 'its worker keeps the record that gates its theme pushes');
+    const projected = host.terminalStateForWindow(recording.getSessionState(), undefined, senderId).sessions;
+    assert.equal(projected.find((entry) => entry.id === 'terminal-work')?.workerOf, 'terminal-lead', 'the board still shows the orphan');
     assert.deepEqual(recording.calls, []);
   });
 

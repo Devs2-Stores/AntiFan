@@ -441,8 +441,20 @@ export class FakeElement {
     return this.descendants().includes(node as FakeElement);
   }
 
-  public focus(): void {}
-  public blur(): void {}
+  /**
+   * The element `focus()` last claimed, shared like the DOM's one-focused-element rule.
+   * `document.activeElement` reads it back and treats a node that left the page as unfocused,
+   * as a browser does when the focused node is removed.
+   */
+  public static focused: FakeElement | null = null;
+
+  public focus(): void {
+    FakeElement.focused = this;
+  }
+
+  public blur(): void {
+    if (FakeElement.focused === this) FakeElement.focused = null;
+  }
   public click(): void {
     this.dispatch('click');
   }
@@ -687,6 +699,8 @@ export function loadStandalone(options: {
   initialBridgeReport?: unknown;
 } = {}): StandaloneHarness {
   const elements = new Map<string, FakeElement>();
+  // One focused element per page: a new page starts with none.
+  FakeElement.focused = null;
   const elementById = (id: string): FakeElement => {
     if (!elements.has(id)) elements.set(id, new FakeElement('div', id));
     return elements.get(id)!;
@@ -792,6 +806,7 @@ export function loadStandalone(options: {
   // discriminate between rows; declaring the hit instead keeps the renderer's own
   // `closest()` walk — the part that decides drop target vs. no drop — fully exercised.
   let elementFromPointHit: FakeElement | null = null;
+  const documentBodyElement = new FakeElement('body', 'body');
   const documentStub = {
     getElementById: (id: string) => {
       if (standaloneElement.elementId === id) return standaloneElement;
@@ -809,7 +824,7 @@ export function loadStandalone(options: {
       return el;
     },
     createTextNode: (text: string) => ({ textContent: text }),
-    body: new FakeElement('body', 'body'),
+    body: documentBodyElement,
     documentElement: new FakeElement('html', 'html'),
     head: new FakeElement('head', 'head'),
     elementFromPoint: () => elementFromPointHit,
@@ -820,6 +835,13 @@ export function loadStandalone(options: {
       if (type !== 'keydown') return;
       const index = documentKeydownListeners.indexOf(listener);
       if (index >= 0) documentKeydownListeners.splice(index, 1);
+    },
+    get activeElement() {
+      const focused = FakeElement.focused;
+      if (!focused) return documentBodyElement;
+      let top: FakeElement = focused;
+      while (top.parent) top = top.parent;
+      return top === standaloneElement || top === documentBodyElement ? focused : documentBodyElement;
     },
     querySelector: (selector: string) => {
       if (selector === '.standalone' || selector === 'main.standalone' || selector === 'main' || standaloneElement.matches(selector)) {

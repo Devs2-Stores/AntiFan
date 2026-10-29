@@ -18,6 +18,8 @@
 // 15. Mode read fresh from edit-mode mirror, unset when absent or malformed.
 
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { createRequire, syncBuiltinESMExports } from "node:module";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -191,7 +193,10 @@ test("session_start writes the file and resets runSeq only for a different ompSe
     assert.equal(resumedState.runSeq, 1, "runSeq preserved on resume with same ompSessionId");
     assert.equal(resumedState.state, "idle");
 
-    // Simulate new session with a DIFFERENT ompSessionId: runSeq resets to 0
+    // A new session with a DIFFERENT ompSessionId starts after the previous one ended (what
+    // `/new` does): the file changes hands and runSeq resets to 0. Without the shutdown the
+    // previous session would still own the card, see the lease tests below.
+    await resumeHost.emit("session_shutdown", {}, ctx1);
     const ctx2 = makeContext({ sessionId: "omp-session-B" });
     const freshHost = makeHost();
     hook(freshHost.pi);
@@ -201,6 +206,227 @@ test("session_start writes the file and resets runSeq only for a different ompSe
     assert.equal(resetState.ompSessionId, "omp-session-B");
     assert.equal(resetState.runSeq, 0, "runSeq reset to 0 when ompSessionId changes");
     assert.equal(resetState.state, "idle");
+  });
+});
+
+function writeRunFile(dataRoot, overrides = {}) {
+  const now = Date.now();
+  const file = {
+    schema: 1,
+    terminalSessionId: "term-1",
+    ompSessionId: "owner",
+    pid: process.pid,
+    cwd: process.cwd(),
+    mode: "unset",
+    state: "running",
+    runSeq: 3,
+    runStartedAt: now,
+    lastEventAt: now,
+    promptHead: "owner task",
+    updatedAt: now,
+    ...overrides,
+  };
+  const target = path.join(dataRoot, "runtime", "runs", "term-1.json");
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.writeFileSync(target, `${JSON.stringify(file, null, 2)}\n`);
+  return file;
+}
+
+/** The pid of a process that has already exited. */
+function deadPid() {
+  return spawnSync(process.execPath, ["-e", ""]).pid;
+}
+
+test("a second session in the same terminal and process (a subagent) never overwrites the owner's card", async () => {
+  await withDataRoot(async (dataRoot) => {
+    const { default: hook } = await loadHook();
+    const root = makeHost();
+    hook(root.pi);
+    const rootCtx = makeContext({ sessionId: "root-session" });
+    await root.emit("session_start", {}, rootCtx);
+    await root.emit("before_agent_start", { prompt: "root task" }, rootCtx);
+
+    const sub = makeHost();
+    hook(sub.pi);
+    const subCtx = makeContext({ sessionId: "sub-session" });
+    await sub.emit("session_start", {}, subCtx);
+    await sub.emit("before_agent_start", { prompt: "subagent task" }, subCtx);
+    await sub.emit("tool_call", { toolName: "read" }, subCtx);
+    await sub.emit("turn_end", {}, subCtx);
+    await sub.emit("agent_end", {}, subCtx);
+    await sub.emit("session_shutdown", {}, subCtx);
+
+    const kept = readStateFile(dataRoot);
+    assert.equal(kept.ompSessionId, "root-session");
+    assert.equal(kept.promptHead, "root task");
+    assert.equal(kept.runSeq, 1);
+    assert.equal(kept.state, "running", "the subagent's agent_end and shutdown do not settle the root's card");
+    assert.equal(kept.lastTool, undefined);
+    assert.ok(
+      fs.existsSync(path.join(dataRoot, "runtime", "runs", "control", "sub-session")),
+      "the guest still listens for control requests addressed to its own session",
+    );
+
+    await root.emit("agent_end", {}, rootCtx);
+    const settled = readStateFile(dataRoot);
+    assert.equal(settled.ompSessionId, "root-session");
+    assert.equal(settled.state, "idle", "the root still settles its own card");
+  });
+});
+
+test("a different session takes the card over from an ended, dead or silent owner, never from a live one", async () => {
+  const takeover = async (ownerOverrides, expectOwner) => {
+    await withDataRoot(async (dataRoot) => {
+      writeRunFile(dataRoot, ownerOverrides);
+      const { default: hook } = await loadHook();
+      const host = makeHost();
+      hook(host.pi);
+      const ctx = makeContext({ sessionId: "newcomer" });
+      await host.emit("session_start", {}, ctx);
+      await host.emit("before_agent_start", { prompt: "newcomer task" }, ctx);
+      const state = readStateFile(dataRoot);
+      assert.equal(state.ompSessionId, expectOwner, JSON.stringify(ownerOverrides));
+      assert.equal(state.promptHead, expectOwner === "newcomer" ? "newcomer task" : "owner task");
+    });
+  };
+  await takeover({ state: "ended" }, "newcomer");
+  await takeover({ pid: deadPid() }, "newcomer");
+  await takeover({ updatedAt: Date.now() - 46_000 }, "newcomer");
+  await takeover({ updatedAt: Date.now() - 30_000 }, "owner");
+  await takeover({ state: "idle" }, "owner");
+});
+
+test("a resumed session writes even when the pid that owned its card is gone", async () => {
+  await withDataRoot(async (dataRoot) => {
+    writeRunFile(dataRoot, { ompSessionId: "resumed", pid: deadPid(), state: "idle", runSeq: 4 });
+    const { default: hook } = await loadHook();
+    const host = makeHost();
+    hook(host.pi);
+    await host.emit("session_start", {}, makeContext({ sessionId: "resumed" }));
+    const state = readStateFile(dataRoot);
+    assert.equal(state.pid, process.pid);
+    assert.equal(state.runSeq, 4);
+  });
+});
+
+test("a session that starts before the previous one ends is a guest until the owner's shutdown, then takes over", async () => {
+  // The hook has no signal telling a subagent from `/new`: B starting while A is alive looks
+  // exactly like a subagent. The card stays A's until A writes `ended` (or goes silent), so a
+  // new session's first events are not shown in the window between its start and A's shutdown.
+  await withDataRoot(async (dataRoot) => {
+    const { default: hook } = await loadHook();
+    const a = makeHost();
+    hook(a.pi);
+    const aCtx = makeContext({ sessionId: "session-a" });
+    await a.emit("session_start", {}, aCtx);
+    await a.emit("before_agent_start", { prompt: "task a" }, aCtx);
+
+    const b = makeHost();
+    hook(b.pi);
+    const bCtx = makeContext({ sessionId: "session-b" });
+    await b.emit("session_start", {}, bCtx);
+    await b.emit("before_agent_start", { prompt: "task b" }, bCtx);
+    assert.equal(readStateFile(dataRoot).ompSessionId, "session-a", "B is a guest while A runs");
+
+    await a.emit("session_shutdown", {}, aCtx);
+    assert.equal(readStateFile(dataRoot).state, "ended");
+
+    await b.emit("tool_call", { toolName: "read" }, bCtx);
+    const taken = readStateFile(dataRoot);
+    assert.equal(taken.ompSessionId, "session-b");
+    assert.equal(taken.promptHead, "task b");
+    assert.equal(taken.state, "running");
+  });
+});
+
+test("a resumed session keeps the time of its last real event until its first prompt", async () => {
+  await withDataRoot(async (dataRoot) => {
+    const { default: hook } = await loadHook();
+    const first = makeHost();
+    hook(first.pi);
+    const ctx = makeContext({ sessionId: "resume-me" });
+    await first.emit("session_start", {}, ctx);
+    await first.emit("before_agent_start", { prompt: "work" }, ctx);
+    await first.emit("agent_end", {}, ctx);
+    const before = readStateFile(dataRoot);
+    assert.equal(before.state, "idle");
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    const resumed = makeHost();
+    hook(resumed.pi);
+    await resumed.emit("session_start", {}, ctx);
+    const idle = readStateFile(dataRoot);
+    assert.equal(idle.runSeq, 1, "runSeq carries over");
+    assert.equal(idle.state, "idle");
+    assert.equal(idle.lastEventAt, before.lastEventAt, "a fresh lastEventAt would make the idle card look just-settled");
+
+    await resumed.emit("before_agent_start", { prompt: "more" }, ctx);
+    const running = readStateFile(dataRoot);
+    assert.equal(running.runSeq, 2);
+    assert.ok(running.lastEventAt > before.lastEventAt);
+  });
+});
+
+/** Makes reads of the terminal's run file throw `code` while `state.on` is true; every other read is untouched. */
+function lockRunFileReads(code) {
+  const nodeFs = createRequire(import.meta.url)("node:fs");
+  const original = nodeFs.readFileSync;
+  const state = { on: false, hits: 0 };
+  nodeFs.readFileSync = function patched(file, ...rest) {
+    if (state.on && typeof file === "string" && path.basename(file) === "term-1.json") {
+      state.hits += 1;
+      throw Object.assign(new Error(`${code}: simulated`), { code });
+    }
+    return original.call(this, file, ...rest);
+  };
+  syncBuiltinESMExports();
+  return {
+    state,
+    restore() {
+      nodeFs.readFileSync = original;
+      syncBuiltinESMExports();
+    },
+  };
+}
+
+test("a run file that is locked for a moment is not taken over by a guest; a corrupt one is replaced", async () => {
+  await withDataRoot(async (dataRoot) => {
+    const { default: hook } = await loadHook();
+    const root = makeHost();
+    hook(root.pi);
+    const rootCtx = makeContext({ sessionId: "root-session" });
+    await root.emit("session_start", {}, rootCtx);
+    await root.emit("before_agent_start", { prompt: "root task" }, rootCtx);
+
+    const guest = makeHost();
+    hook(guest.pi);
+    const guestCtx = makeContext({ sessionId: "guest-session" });
+    await guest.emit("session_start", {}, guestCtx);
+
+    const lock = lockRunFileReads("EBUSY");
+    try {
+      lock.state.on = true;
+      await guest.emit("tool_call", { toolName: "read" }, guestCtx);
+      await guest.emit("before_agent_start", { prompt: "guest task" }, guestCtx);
+      assert.ok(lock.state.hits > 0, "the guest tried to read the owner's file");
+      lock.state.on = false;
+    } finally {
+      lock.restore();
+    }
+    const kept = readStateFile(dataRoot);
+    assert.equal(kept.ompSessionId, "root-session", "an unreadable owner is not an absent owner");
+    assert.equal(kept.promptHead, "root task");
+  });
+
+  await withDataRoot(async (dataRoot) => {
+    const target = path.join(dataRoot, "runtime", "runs", "term-1.json");
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, "{ this is not json");
+    const { default: hook } = await loadHook();
+    const host = makeHost();
+    hook(host.pi);
+    await host.emit("session_start", {}, makeContext({ sessionId: "replacer" }));
+    assert.equal(readStateFile(dataRoot).ompSessionId, "replacer", "a damaged card must stay replaceable");
   });
 });
 

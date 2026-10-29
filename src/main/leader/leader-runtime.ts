@@ -1,3 +1,4 @@
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { StorageLocations } from '../config/storage-locations';
 import { readTerminalRunSnapshot, type TerminalRunSnapshotOptions } from '../run/run-state-service';
@@ -54,6 +55,25 @@ export function getLeaderPlacementPort(): LeaderPlacementPort | undefined {
 /** `<runtime dir>/runs`, resolved on every call so an isolated data root is honoured. */
 export function leaderRunsDir(): string {
   return path.join(StorageLocations.getRuntimeDir(), 'runs');
+}
+
+/**
+ * Remove every run file a terminal id left behind: its run snapshot, its brief and half-written
+ * temporaries. A terminal minted for a Leader's worker must start with no history: the hook reads these
+ * files by terminal id, and a daemon that predates the persisted id counters can reissue a closed id.
+ */
+export function clearRunFilesOf(terminalId: string): void {
+  const dir = leaderRunsDir();
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(dir);
+  } catch {
+    return;
+  }
+  for (const name of entries) {
+    if (name !== `${terminalId}.json` && name !== `${terminalId}.brief.json` && !name.startsWith(`${terminalId}.json.tmp-`) && !name.startsWith(`${terminalId}.brief.json.tmp-`)) continue;
+    try { fs.rmSync(path.join(dir, name), { force: true }); } catch { /* a run file the hook holds open is rewritten by that hook anyway */ }
+  }
 }
 
 /** One terminal's OMP run, or undefined when no hook ever wrote a run file for it. */

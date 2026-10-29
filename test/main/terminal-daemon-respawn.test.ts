@@ -42,8 +42,11 @@ class ScriptedTransport implements DaemonClientTransport {
     throw err;
   }
 
-  async call<T>(): Promise<T> {
-    return {} as T;
+  /** What the next RPCs answer; the default is an empty-bodied success. */
+  callImpl: (method: string, params?: Record<string, unknown>) => Promise<unknown> = async () => ({});
+
+  async call<T>(method: string, params?: Record<string, unknown>): Promise<T> {
+    return (await this.callImpl(method, params)) as T;
   }
 
   onEvent(): () => void {
@@ -147,6 +150,36 @@ describe('DaemonTerminalProxy respawn', () => {
 
     assert.equal(respawns, MAX_DAEMON_RESPAWNS, 'no respawn past the cap inside the window');
     assert.deepEqual(transport.endpoints, [], 'a refused respawn never repoints the transport');
+  });
+});
+
+describe('DaemonTerminalProxy input delivery', () => {
+  const proxyWith = (callImpl: ScriptedTransport['callImpl']): DaemonTerminalProxy => {
+    const transport = new ScriptedTransport(['ok']);
+    transport.callImpl = callImpl;
+    return makeProxy(transport, async () => ({ mode: 'in-process', reason: 'unused' }));
+  };
+
+  it('reports delivery from the daemon reply: false only for an explicit written:false', async () => {
+    assert.equal(await proxyWith(async () => ({ written: false })).writeTo('terminal-1', 'x'), false, 'the daemon says no session took it');
+    assert.equal(await proxyWith(async () => ({ written: true })).writeTo('terminal-1', 'x'), true);
+    assert.equal(await proxyWith(async () => undefined).writeTo('terminal-1', 'x'), true, 'a daemon from before the field existed sends no body');
+    assert.equal(await proxyWith(async () => ({})).writeTo('terminal-1', 'x'), true);
+    assert.equal(await proxyWith(async () => { throw new Error('rpc failed'); }).writeTo('terminal-1', 'x'), false, 'a failed RPC never rejects');
+  });
+
+  it('maps the active-session write the same way', async () => {
+    assert.equal(await proxyWith(async () => ({ written: false })).write('x'), false);
+    assert.equal(await proxyWith(async () => ({ written: true })).write('x'), true);
+    assert.equal(await proxyWith(async () => undefined).write('x'), true);
+    assert.equal(await proxyWith(async () => { throw new Error('rpc failed'); }).write('x'), false);
+  });
+
+  it('sends the target session and the text to the input RPC', async () => {
+    const seen: Array<{ method: string; params?: Record<string, unknown> }> = [];
+    await proxyWith(async (method, params) => { seen.push({ method, params }); return { written: true }; }).writeTo('terminal-9', 'ls\r');
+    assert.equal(seen.length, 1);
+    assert.deepEqual(seen[0]?.params, { sessionId: 'terminal-9', text: 'ls\r' });
   });
 });
 

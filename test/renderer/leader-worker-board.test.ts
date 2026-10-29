@@ -102,7 +102,7 @@ function fleetCards(): Record<string, unknown>[] {
     card('W1'),
     card('W2', { state: 'waiting_user' }),
     card('W3', { state: 'idle' }),
-    card('W5', { state: 'ended', stale: true }),
+    card('W5', { state: 'ended' }),
   ];
 }
 
@@ -133,6 +133,30 @@ function stateOf(harness: StandaloneHarness, id: string): string {
   return rowFor(harness, id).querySelector('.leader-board-state')?.textContent ?? '';
 }
 
+function openButton(harness: StandaloneHarness, id: string): FakeElement {
+  const found = rowFor(harness, id).querySelector('.leader-board-row-open');
+  assert.ok(found, `expected an open button on the row for ${id}`);
+  return found;
+}
+
+function nameOf(harness: StandaloneHarness, id: string): string {
+  return openButton(harness, id).textContent;
+}
+
+function activeElement(harness: StandaloneHarness): FakeElement {
+  return harness.read<FakeElement>('document.activeElement');
+}
+
+function pressEscape(harness: StandaloneHarness): void {
+  for (const listener of [...harness.documentKeydownListeners]) listener({
+    key: 'Escape', preventDefault: () => {}, stopPropagation: () => {},
+  });
+}
+
+function summaryOf(dialog: FakeElement, index = 0): string {
+  return dialog.querySelectorAll('.leader-board-summary')[index]?.textContent ?? '';
+}
+
 function leaderItem(harness: StandaloneHarness): FakeElement {
   const item = harness.contextMenu.querySelector('.context-item[data-action="leader"]');
   assert.ok(item, 'the menu offers the leader action');
@@ -160,6 +184,7 @@ describe('Leader context menu', () => {
     const first = harness.apiCallArgs.filter((entry) => entry.name === 'setTerminalLeader');
     assert.deepStrictEqual(JSON.parse(JSON.stringify(first.map((entry) => entry.args))), [['S9', true]]);
     assert.match(noticeText(harness), /Đã đặt “Terminal thường” làm Leader/);
+    assert.match(noticeText(harness), /Mở hoặc mở lại OMP trong terminal này/);
 
     harness.showContextMenu(MENU_EVENT as never, 'L1');
     assert.strictEqual(labelOf(leaderItem(harness)), 'Bỏ Leader');
@@ -168,6 +193,7 @@ describe('Leader context menu', () => {
     const all = harness.apiCallArgs.filter((entry) => entry.name === 'setTerminalLeader');
     assert.deepStrictEqual(JSON.parse(JSON.stringify(all.at(-1)?.args)), ['L1', false]);
     assert.match(noticeText(harness), /Đã bỏ Leader/);
+    assert.match(noticeText(harness), /vẫn bị chặn push theme.*Worker mồ côi/);
   });
 
   it('is hidden on a split pane and never calls Main for one', async () => {
@@ -257,20 +283,21 @@ describe('Worker board', () => {
     assert.strictEqual(sections.length, 1, 'one section per Leader');
     assert.strictEqual(sections[0]!.querySelector('.leader-board-leader')?.textContent, '👑 Leader F1');
     assert.strictEqual(
-      sections[0]!.querySelector('.leader-board-summary')?.textContent,
-      '5 worker · đang chạy 1 · chờ bạn 1 · nghỉ 2 · kết thúc 1',
+      summaryOf(dialog),
+      '5 worker · đang chạy 1 · chờ bạn 1 · xong lượt 1 · nghỉ 1 · kết thúc 1',
+      'a shell with no run card counts as nghỉ; no không phản hồi tail while nothing is silent',
     );
 
     assert.deepStrictEqual(boardRows(harness).map((r) => r.getAttribute('data-session-id')), ['W1', 'W2', 'W3', 'W4', 'W5']);
     assert.strictEqual(stateOf(harness, 'W1'), 'đang chạy');
     assert.strictEqual(stateOf(harness, 'W2'), 'chờ bạn');
-    assert.strictEqual(stateOf(harness, 'W3'), 'nghỉ');
+    assert.strictEqual(stateOf(harness, 'W3'), 'xong lượt', 'an idle run that already ran a turn is a finished turn');
     assert.strictEqual(stateOf(harness, 'W4'), 'shell', 'no run card falls back to the session state');
     assert.strictEqual(stateOf(harness, 'W5'), 'kết thúc');
 
     const first = rowFor(harness, 'W1');
-    assert.strictEqual(first.querySelector('.leader-board-cell-name')?.textContent, 'Sửa header', 'workerTitle wins over the name');
-    assert.strictEqual(rowFor(harness, 'W2').querySelector('.leader-board-cell-name')?.textContent, 'Worker 2');
+    assert.strictEqual(nameOf(harness, 'W1'), 'Sửa header', 'workerTitle wins over the name');
+    assert.strictEqual(nameOf(harness, 'W2'), 'Worker 2');
     assert.strictEqual(first.querySelector('.leader-board-cell-project')?.textContent, 'Comnieu');
     assert.strictEqual(first.querySelector('.leader-board-cell-prompt')?.textContent, 'việc của W1');
     assert.strictEqual(first.querySelector('.leader-board-cell-age')?.textContent, '1 phút trước');
@@ -335,8 +362,8 @@ describe('Worker board', () => {
 
     assert.deepStrictEqual(
       boardRows(harness).map((r) => r.getAttribute('data-session-id')),
-      ['W2', 'W5', 'W6'],
-      'waiting, ended and exited stay; running, idle and shell go',
+      ['W2', 'W3', 'W5', 'W6'],
+      'waiting, finished turn, ended and exited stay; running and shell go',
     );
     assert.match(
       dialog.querySelector('.leader-board-summary')?.textContent ?? '',
@@ -364,7 +391,7 @@ describe('Worker board', () => {
       activeSessionId: 'S9',
     });
     assert.strictEqual(boardRows(harness).length, 6);
-    assert.strictEqual(rowFor(harness, 'W7').querySelector('.leader-board-cell-name')?.textContent, 'Việc mới');
+    assert.strictEqual(nameOf(harness, 'W7'), 'Việc mới');
 
     harness.emitSession({ sessions: fleet().filter((entry) => (entry as { id: string }).id !== 'W3'), activeSessionId: 'S9' });
     assert.strictEqual(boardRows(harness).some((r) => r.getAttribute('data-session-id') === 'W3'), false);
@@ -387,5 +414,216 @@ describe('Worker board', () => {
     // A closed board no longer repaints from pushes.
     harness.emitSession({ sessions: fleet(), activeSessionId: 'S9' });
     assert.strictEqual(dialog.querySelectorAll('.leader-board-section').length, 0);
+  });
+});
+
+describe('Worker board status', () => {
+  it('keeps a finished turn visible under the attention filter and an unused idle OMP out of it', async () => {
+    const harness = await load();
+    seed(harness, fleet(), 'S9');
+    harness.emitRunCardState({
+      runs: [
+        card('W1', { state: 'idle', runSeq: 1 }),
+        card('W2', { state: 'idle', runSeq: 0 }),
+      ],
+    });
+    const dialog = await openBoard(harness);
+
+    assert.strictEqual(stateOf(harness, 'W1'), 'xong lượt');
+    assert.strictEqual(stateOf(harness, 'W2'), 'nghỉ', 'an OMP that never ran a prompt is only open');
+
+    const box = harness.elements.get('leaderBoardAttention') as FakeElement & { checked?: boolean };
+    box.checked = true;
+    box.dispatch('change');
+    assert.deepStrictEqual(boardRows(harness).map((r) => r.getAttribute('data-session-id')), ['W1']);
+    assert.match(summaryOf(dialog), /xong lượt 1 · nghỉ 4 · kết thúc 0$/);
+  });
+
+  it('reads a silent run as không phản hồi, never as kết thúc', async () => {
+    const harness = await load();
+    seed(harness, fleet(), 'S9');
+    // The run-state projection marks a run whose hook went quiet as ended + stale.
+    harness.emitRunCardState({ runs: [card('W1', { state: 'ended', stale: true }), card('W2', { state: 'ended' })] });
+    const dialog = await openBoard(harness);
+
+    assert.strictEqual(stateOf(harness, 'W1'), 'không phản hồi');
+    assert.strictEqual(stateOf(harness, 'W2'), 'kết thúc', 'a run that really ended keeps its label');
+    const chip = rowFor(harness, 'W1').querySelector('.leader-board-state');
+    assert.match(chip?.title ?? '', /45 giây/);
+    assert.ok(chip?.classList.contains('run-stale'));
+    assert.match(summaryOf(dialog), /kết thúc 1 · không phản hồi 1$/);
+
+    const box = harness.elements.get('leaderBoardAttention') as FakeElement & { checked?: boolean };
+    box.checked = true;
+    box.dispatch('change');
+    assert.deepStrictEqual(boardRows(harness).map((r) => r.getAttribute('data-session-id')), ['W1', 'W2']);
+  });
+});
+
+describe('Worker board orphans', () => {
+  it('lists a worker whose Leader was unmarked in its own section instead of dropping it', async () => {
+    const harness = await load();
+    const unmarked = fleet().map((entry) => (
+      (entry as { id: string }).id === 'L1' ? row({ id: 'L1', name: 'Leader F1' }) : entry
+    ));
+    seed(harness, unmarked, 'S9');
+    harness.emitRunCardState({ runs: fleetCards() });
+    const dialog = await openBoard(harness);
+
+    const sections = dialog.querySelectorAll('.leader-board-section');
+    assert.strictEqual(sections.length, 1, 'only the orphan section: nothing is a Leader any more');
+    assert.ok(sections[0]!.classList.contains('is-orphan'));
+    assert.strictEqual(sections[0]!.querySelector('.leader-board-orphan-title')?.textContent, 'Worker mồ côi');
+    assert.match(sections[0]!.querySelector('.leader-board-orphan-hint')?.textContent ?? '', /vẫn bị chặn push theme.*nhận lại/);
+    assert.deepStrictEqual(boardRows(harness).map((r) => r.getAttribute('data-session-id')), ['W1', 'W2', 'W3', 'W4', 'W5']);
+    assert.strictEqual(dialog.querySelector('.leader-board-empty'), null, 'orphans are not an empty board');
+    assert.strictEqual(dialog.querySelector('.leader-board-leader'), null);
+  });
+
+  it('lists a worker whose Leader terminal is gone beside the live Leaders, and nothing for ordinary terminals', async () => {
+    const harness = await load();
+    seed(harness, [
+      ...fleet(),
+      row({ id: 'W8', name: 'Worker 8', workerOf: 'terminal-closed' }),
+      row({ id: 'split-8', name: 'Pane', splitOf: 'W8', workerOf: 'terminal-closed' }),
+    ], 'S9');
+    const dialog = await openBoard(harness);
+
+    const sections = dialog.querySelectorAll('.leader-board-section');
+    assert.strictEqual(sections.length, 2, 'the Leader plus the orphans');
+    assert.strictEqual(sections[0]!.getAttribute('data-leader-id'), 'L1');
+    assert.ok(sections[1]!.classList.contains('is-orphan'));
+    assert.strictEqual(summaryOf(dialog, 1).startsWith('1 worker'), true, 'a split pane is not a worker of its own');
+    const orphanRows = sections[1]!.querySelectorAll('.leader-board-row').map((r) => r.getAttribute('data-session-id'));
+    assert.deepStrictEqual(orphanRows, ['W8']);
+  });
+
+  it('says in the worker tooltip that the old Leader is gone', async () => {
+    const harness = await load();
+    seed(harness, fleet(), 'S9');
+    const unmarked = fleet().map((entry) => (
+      (entry as { id: string }).id === 'L1' ? row({ id: 'L1', name: 'Leader F1' }) : entry
+    ));
+    harness.emitSession({ sessions: unmarked, activeSessionId: 'S9' });
+    const worker = harness.tabsRoot.querySelector('.terminal-tab-wrap[data-session-id="W1"] .terminal-tab-worker-badge');
+    assert.strictEqual(worker?.title, '⇠ Worker mồ côi (Leader cũ: Leader F1)');
+  });
+
+  it('does not name a Leader in the worker tooltip when the owner row is not in this window', async () => {
+    const harness = await load();
+    seed(harness, fleet(), 'S9');
+    harness.emitSession({
+      sessions: fleet().filter((entry) => (entry as { id: string }).id !== 'L1'),
+      activeSessionId: 'S9',
+    });
+    const worker = harness.tabsRoot.querySelector('.terminal-tab-wrap[data-session-id="W1"] .terminal-tab-worker-badge');
+    assert.strictEqual(worker?.title, '⇠ Worker mồ côi (Leader không có trong cửa sổ này: L1)');
+  });
+
+  it('tells a Leader with no worker how workers appear', async () => {
+    const harness = await load();
+    seed(harness, [row({ id: 'L1', name: 'Leader F1', leader: true })], 'L1');
+    const dialog = await openBoard(harness);
+    assert.match(dialog.querySelector('.leader-board-none')?.textContent ?? '', /Nhờ OMP trong terminal Leader giao việc/);
+  });
+});
+
+describe('Worker board keyboard and focus', () => {
+  it('opens a worker from a real button, once, and gives the row no link semantics', async () => {
+    const harness = await load();
+    seed(harness, fleet(), 'S9');
+    harness.emitRunCardState({ runs: fleetCards() });
+    await openBoard(harness);
+    harness.apiCallArgs.length = 0;
+
+    const target = rowFor(harness, 'W2');
+    assert.strictEqual(target.getAttribute('role'), null);
+    assert.strictEqual(target.listeners['keydown'], undefined, 'the row no longer emulates a button');
+    const button = openButton(harness, 'W2');
+    assert.strictEqual(button.tagName, 'button');
+
+    // The row opens on a click too, so the button has to stop its own click or one press opens twice.
+    let stopped = false;
+    button.dispatch('click', { stopPropagation: () => { stopped = true; } });
+    const switched = harness.apiCallArgs.filter((entry) => entry.name === 'switchTerminal');
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(switched.map((entry) => entry.args))), [['W2']]);
+    assert.strictEqual(stopped, true);
+    assert.strictEqual(harness.getActiveId(), 'W2');
+  });
+
+  it('keeps focus on the same row button when a push repaints the board', async () => {
+    const harness = await load();
+    seed(harness, fleet(), 'S9');
+    harness.emitRunCardState({ runs: fleetCards() });
+    await openBoard(harness);
+
+    const before = openButton(harness, 'W2');
+    before.focus();
+    assert.strictEqual(activeElement(harness), before);
+
+    harness.emitSession({ sessions: [...fleet(), row({ id: 'W7', name: 'Worker 7', workerOf: 'L1' })], activeSessionId: 'S9' });
+    const after = openButton(harness, 'W2');
+    assert.notStrictEqual(after, before, 'the repaint rebuilt the row');
+    assert.strictEqual(activeElement(harness), after, 'focus follows the row to its rebuilt button');
+
+    harness.emitRunCardState({ runs: [card('W2', { state: 'running' }), ...fleetCards().slice(2)] });
+    assert.strictEqual(activeElement(harness), openButton(harness, 'W2'), 'a run-card push keeps it too');
+  });
+
+  it('keeps focus on a Leader name across a repaint, and does not steal focus from outside the board body', async () => {
+    const harness = await load();
+    seed(harness, fleet(), 'S9');
+    await openBoard(harness);
+
+    const leader = harness.leaderBoardDialog.querySelector('.leader-board-leader')!;
+    leader.focus();
+    harness.emitSession({ sessions: fleet(), activeSessionId: 'S9' });
+    const rebuilt = harness.leaderBoardDialog.querySelector('.leader-board-leader')!;
+    assert.notStrictEqual(rebuilt, leader);
+    assert.strictEqual(activeElement(harness), rebuilt);
+
+    const closeButton = harness.elements.get('leaderBoardClose')!;
+    closeButton.focus();
+    harness.emitSession({ sessions: fleet(), activeSessionId: 'S9' });
+    assert.strictEqual(activeElement(harness), closeButton, 'a repaint never moves focus that was not in the body');
+  });
+
+  it('drops focus quietly when the focused worker leaves the board', async () => {
+    const harness = await load();
+    seed(harness, fleet(), 'S9');
+    await openBoard(harness);
+    openButton(harness, 'W3').focus();
+
+    harness.emitSession({ sessions: fleet().filter((entry) => (entry as { id: string }).id !== 'W3'), activeSessionId: 'S9' });
+    assert.strictEqual(boardRows(harness).some((r) => r.getAttribute('data-session-id') === 'W3'), false);
+    assert.notStrictEqual(activeElement(harness).getAttribute('data-session-id'), 'W3');
+  });
+
+  it('returns focus to the opener on Escape and on the close button', async () => {
+    const harness = await load();
+    seed(harness, fleet(), 'S9');
+    const dialog = await openBoard(harness);
+    harness.elements.get('leaderBoardClose')!.focus();
+
+    pressEscape(harness);
+    assert.strictEqual(dialog.style.display, 'none');
+    assert.strictEqual(activeElement(harness), harness.leaderBoardButton);
+
+    await openBoard(harness);
+    harness.elements.get('leaderBoardClose')!.focus();
+    harness.elements.get('leaderBoardClose')!.dispatch('click');
+    assert.strictEqual(dialog.style.display, 'none');
+    assert.strictEqual(activeElement(harness), harness.leaderBoardButton);
+  });
+
+  it('does not pull focus back to the opener when a row sends the person into a terminal', async () => {
+    const harness = await load();
+    seed(harness, fleet(), 'S9');
+    harness.emitRunCardState({ runs: fleetCards() });
+    const dialog = await openBoard(harness);
+
+    openButton(harness, 'W2').dispatch('click');
+    assert.strictEqual(dialog.style.display, 'none');
+    assert.notStrictEqual(activeElement(harness), harness.leaderBoardButton);
   });
 });

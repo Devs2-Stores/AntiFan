@@ -11,6 +11,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { after, test } from "node:test";
+import { createRequire, syncBuiltinESMExports } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -21,9 +22,9 @@ const SRC = path.join(REPO, "src", "omp-hooks");
 // specifiers rewritten - same trick as anti-direct-policy.test.mjs, extended to a
 // multi-file module.
 const TEMP = fs.mkdtempSync(path.join(os.tmpdir(), "edit-guard-"));
-for (const name of ["edit-mode", "theme-paths", "edit-guard-policy", "theme-push-policy", "edit-guard"]) {
+for (const name of ["edit-mode", "theme-paths", "edit-guard-policy", "theme-push-policy", "theme-draft-probe", "edit-guard"]) {
   const source = fs.readFileSync(path.join(SRC, `${name}.ts`), "utf8").replace(
-    /from "\.\/(edit-mode|theme-paths|edit-guard-policy|theme-push-policy)"/g,
+    /from "\.\/(edit-mode|theme-paths|edit-guard-policy|theme-push-policy|theme-draft-probe)"/g,
     'from "./$1.mts"',
   );
   fs.writeFileSync(path.join(TEMP, `${name}.mts`), source);
@@ -725,7 +726,7 @@ test("a call the guard cannot classify is refused while scoped and passed throug
 // config/settings_data.json: writable in every mode, after one scoped fetch per run
 // ---------------------------------------------------------------------------
 
-const { HRV_COMMAND_ENV } = await load("edit-guard");
+const { HRV_COMMAND_ENV } = await load("theme-draft-probe");
 const HRV_AT_LOAD = process.env[HRV_COMMAND_ENV];
 after(() => {
   if (HRV_AT_LOAD === undefined) delete process.env[HRV_COMMAND_ENV];
@@ -1083,17 +1084,13 @@ function installInfoStub({ themeId = "1001507144", role }) {
   return { dir, recorded };
 }
 
-/** Runs `fn` as terminal `terminal-w` whose Leader registry entry is `worker` (true = a Leader's worker). */
-async function asTerminal(worker, fn) {
+/**
+ * Runs `fn` as terminal `terminal-w` with a Leader config dir that `prepare(configDir)` fills
+ * (or leaves empty): the registry file is whatever the case needs.
+ */
+async function asTerminalWithConfig(prepare, fn) {
   const configDir = fs.mkdtempSync(path.join(os.tmpdir(), "leader-cfg-"));
-  fs.writeFileSync(
-    path.join(configDir, "leader-terminals.json"),
-    JSON.stringify({
-      schema: 1,
-      leaders: ["terminal-lead"],
-      workers: worker ? { "terminal-w": { leaderId: "terminal-lead", assignedAt: 1 } } : {},
-    }),
-  );
+  prepare(configDir);
   const previous = {
     id: process.env.ANTIFAN_TERMINAL_SESSION_ID,
     config: process.env.ANTIFAN_CONFIG_DIR,
@@ -1112,6 +1109,20 @@ async function asTerminal(worker, fn) {
     }
     fs.rmSync(configDir, { recursive: true, force: true });
   }
+}
+
+/** Runs `fn` as terminal `terminal-w` whose Leader registry entry is `worker` (true = a Leader's worker). */
+function asTerminal(worker, fn) {
+  return asTerminalWithConfig((configDir) => {
+    fs.writeFileSync(
+      path.join(configDir, "leader-terminals.json"),
+      JSON.stringify({
+        schema: 1,
+        leaders: ["terminal-lead"],
+        workers: worker ? { "terminal-w": { leaderId: "terminal-lead", assignedAt: 1 } } : {},
+      }),
+    );
+  }, fn);
 }
 
 async function runTool(root, sessionId, toolName, input) {
@@ -1167,11 +1178,11 @@ for (const [label, role, expectedCode] of [
 for (const [label, command, extra, expectedCode] of [
   ["a whole-theme push", "hrv theme push", {}, "REFUSED_THEME_PUSH_SCOPE"],
   ["a forced push", "hrv theme push -f --only a.liquid", {}, "REFUSED_THEME_PUSH_SCOPE"],
+  ["a push with an inline --force value", "hrv theme push --only a.liquid --force=1", {}, "REFUSED_THEME_PUSH_SCOPE"],
   ["a publish", "hrv theme publish 1001507144", {}, "REFUSED_THEME_REMOTE_OP"],
   ["a Shopify push", "shopify theme push --only sections/a.liquid", {}, "REFUSED_THEME_REMOTE_OP"],
   ["a push to another theme id", "hrv theme push 999 --only a.liquid", {}, "REFUSED_THEME_PUSH_FOREIGN_THEME"],
   ["a push after cd", "cd ../other && hrv theme push --only a.liquid", {}, "REFUSED_THEME_PUSH_UNVERIFIED"],
-  ["a push wrapped in powershell", 'powershell -Command "& C:\\tools\\hrv.cmd theme push"', {}, "REFUSED_THEME_PUSH_SCOPE"],
   ["a push from an unbound folder", "hrv theme dev", { cwd: os.tmpdir() }, "REFUSED_THEME_PUSH_UNVERIFIED"],
 ]) {
   test(`a worker's ${label} is refused without touching the shop`, async () => {
@@ -1243,5 +1254,501 @@ test("a worker's eval cell that runs the theme CLI is refused; other eval cells 
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
     fs.rmSync(stub.dir, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Leader worker: lines whose theme-CLI use cannot be read back
+// ---------------------------------------------------------------------------
+
+for (const [label, command] of [
+  ["a parenthesised group", "(hrv theme push --only a.liquid)"],
+  ["a command substitution", "echo $(hrv theme publish 1)"],
+  ["bash -c", 'bash -c "cd x && hrv theme push --only a.liquid"'],
+  ["cmd /c", "cmd /c hrv theme push --only a.liquid"],
+  ["powershell -c", 'powershell -c "Push-Location x; hrv theme push --only a.liquid"'],
+  ["a powershell call of a quoted path", 'powershell -Command "& C:\\tools\\hrv.cmd theme push"'],
+  ["python -c", `python -c "subprocess.run(['hrv','theme','push'])"`],
+  ["node -e", `node -e "spawnSync('hrv', ['theme', 'publish', '1'])"`],
+  ["a global option before theme", "hrv --org 123 theme push --only a.liquid"],
+  ["a backslash-newline continuation", "hrv \\\ntheme push --only a.liquid"],
+  ["npx on the package name", "npx @f1genz/haravan-cli theme push --only a.liquid"],
+  ["a quote-split CLI word", 'h""rv theme push --only a.liquid'],
+  ["a write to the binding file", 'echo {"theme_id":"999"} > .haravan-cli_local.json && hrv theme push --only a.liquid'],
+  ["a mention inside another command's text", 'git commit -m "fix hrv theme header"'],
+]) {
+  test(`a worker's ${label} is refused as REFUSED_THEME_COMPLEX before anything reaches the shop`, async () => {
+    const root = makeThemeWorkspace();
+    bindShop(root);
+    const stub = installInfoStub({ role: "unpublished" });
+    const sessionId = `sess-complex-${label.replace(/\W+/g, "-")}`;
+    try {
+      await asTerminal(true, async () => {
+        const result = await runBash(root, sessionId, command);
+        assert.equal(result?.block, true, `${command} must be refused`);
+        assert.ok(result.reason.startsWith("REFUSED_THEME_COMPLEX:"), result.reason);
+        assert.equal(stub.recorded().length, 0, "no hrv call reaches the CLI");
+        const row = readLog(root, sessionId).at(-1);
+        assert.deepEqual(
+          [row.decision, row.code, row.tool, row.path],
+          ["block", "REFUSED_THEME_COMPLEX", "bash", command.trim().slice(0, 200)],
+        );
+      });
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+      fs.rmSync(stub.dir, { recursive: true, force: true });
+    }
+  });
+}
+
+test("plain theme commands a worker may run, and lines that only look close, are not refused as complex", async () => {
+  const root = makeThemeWorkspace();
+  bindShop(root);
+  const stub = installInfoStub({ role: "unpublished" });
+  try {
+    await asTerminal(true, async () => {
+      // `hrv` is also in the file name: a mention counter would refuse this.
+      assert.equal(await runBash(root, "sess-plain-push", "hrv theme push --only sections/hrv.liquid"), null);
+      assert.equal(stub.recorded().length, 1, "one theme info probe for the push");
+      assert.equal(await runBash(root, "sess-plain-info", "hrv theme info"), null);
+      assert.equal(await runBash(root, "sess-plain-dev", "hrv theme dev"), null);
+      assert.equal(stub.recorded().length, 2, "dev is probed, info is a read");
+      for (const command of ["git commit -F msg.txt", "ls", "rg hrv sections", "cat sections/hrv.liquid theme.json"]) {
+        assert.equal(await runBash(root, `sess-plain-${command.length}`, command), null, command);
+      }
+      assert.equal(await runBash(root, "sess-plain-cd-info", "cd x && hrv theme info"), null, "a read after cd is still readable");
+      assert.equal(stub.recorded().length, 2, "none of those reached the CLI");
+      const afterCd = await runBash(root, "sess-plain-cd-push", "cd x && hrv theme push --only a.liquid");
+      assert.ok(afterCd?.reason.startsWith("REFUSED_THEME_PUSH_UNVERIFIED:"), afterCd?.reason);
+    });
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(stub.dir, { recursive: true, force: true });
+  }
+});
+
+test("a worker's eval cell naming haravan-cli or a quote-split CLI word is refused", async () => {
+  const root = makeThemeWorkspace();
+  bindShop(root);
+  const stub = installInfoStub({ role: "unpublished" });
+  try {
+    await asTerminal(true, async () => {
+      for (const [language, code] of [
+        ["js", "await Bun.$`haravan-cli theme push --only a.liquid`"],
+        ["py", "import os\nos.system('h\"\"rv theme push --only a.liquid')"],
+        ["js", "await Bun.$`npx @f1genz/haravan-cli theme push --only a.liquid`"],
+      ]) {
+        const result = await runTool(root, `sess-eval-wide-${code.length}`, "eval", { language, code });
+        assert.ok(result?.reason.startsWith("REFUSED_THEME_VIA_EVAL:"), `${code}: ${result?.reason}`);
+      }
+    });
+    assert.equal(stub.recorded().length, 0);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(stub.dir, { recursive: true, force: true });
+  }
+});
+
+test("audit rows name the bash tool; a verified sync carries no path, a refusal carries the capped command", async () => {
+  const root = makeThemeWorkspace();
+  bindShop(root);
+  const stub = installInfoStub({ role: "unpublished" });
+  try {
+    await asTerminal(true, async () => {
+      assert.equal(await runBash(root, "sess-audit-allow", "hrv theme push --only sections/hero.liquid"), null);
+      const allow = readLog(root, "sess-audit-allow").at(-1);
+      assert.deepEqual(
+        [allow.decision, allow.code, allow.tool, allow.path],
+        ["allow", "THEME_SYNC_DRAFT_VERIFIED", "bash", ""],
+        "an empty path keeps the verified sync out of the changed-file count",
+      );
+      const long = `hrv theme publish 1 ${"x".repeat(400)}`;
+      assert.equal((await runBash(root, "sess-audit-block", long))?.block, true);
+      const block = readLog(root, "sess-audit-block").at(-1);
+      assert.deepEqual([block.decision, block.code, block.tool], ["block", "REFUSED_THEME_REMOTE_OP", "bash"]);
+      assert.equal(block.path.length, 200);
+      assert.ok(block.path.startsWith("hrv theme publish 1 xxx"));
+    });
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(stub.dir, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Leader worker: how the registry is read
+// ---------------------------------------------------------------------------
+
+for (const [label, prepare] of [
+  ["no registry file", () => {}],
+  ["a directory in place of the registry", (dir) => fs.mkdirSync(path.join(dir, "leader-terminals.json"))],
+  ["a corrupt registry", (dir) => fs.writeFileSync(path.join(dir, "leader-terminals.json"), "{not json")],
+]) {
+  test(`${label} names no worker, so the user's own theme commands are not gated`, async () => {
+    const root = makeThemeWorkspace();
+    bindShop(root);
+    const stub = installInfoStub({ role: "main" });
+    try {
+      await asTerminalWithConfig(prepare, async () => {
+        assert.equal(await runBash(root, `sess-registry-${label.replace(/\W+/g, "-")}`, "hrv theme publish 1"), null);
+      });
+      assert.equal(stub.recorded().length, 0);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+      fs.rmSync(stub.dir, { recursive: true, force: true });
+    }
+  });
+}
+
+const nodeFs = createRequire(import.meta.url)("node:fs");
+
+/** Makes the first `failures` reads of the registry throw `code`, as a Windows lock during the Manager's rename does. */
+function failRegistryReads(failures, code) {
+  const original = nodeFs.readFileSync;
+  const state = { attempts: 0 };
+  nodeFs.readFileSync = function patched(file, ...rest) {
+    if (typeof file === "string" && path.basename(file) === "leader-terminals.json") {
+      state.attempts += 1;
+      if (state.attempts <= failures) throw Object.assign(new Error(`${code}: simulated`), { code });
+    }
+    return original.call(this, file, ...rest);
+  };
+  syncBuiltinESMExports();
+  return {
+    state,
+    restore() {
+      nodeFs.readFileSync = original;
+      syncBuiltinESMExports();
+    },
+  };
+}
+
+for (const code of ["EBUSY", "EPERM", "EACCES", "EMFILE"]) {
+  test(`a registry that stays locked (${code}) after two retries is treated as a worker`, async () => {
+    const root = makeThemeWorkspace();
+    bindShop(root);
+    const stub = installInfoStub({ role: "unpublished" });
+    try {
+      await asTerminal(false, async () => {
+        const lock = failRegistryReads(Infinity, code);
+        try {
+          const result = await runBash(root, `sess-locked-${code}`, "hrv theme publish 1");
+          assert.ok(result?.reason.startsWith("REFUSED_THEME_REMOTE_OP:"), result?.reason);
+          assert.equal(lock.state.attempts, 3, "one read and two retries");
+        } finally {
+          lock.restore();
+        }
+      });
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+      fs.rmSync(stub.dir, { recursive: true, force: true });
+    }
+  });
+}
+
+test("a registry lock that clears within the retries is decided by the file; other read errors are not retried", async () => {
+  const root = makeThemeWorkspace();
+  bindShop(root);
+  const stub = installInfoStub({ role: "unpublished" });
+  try {
+    await asTerminal(false, async () => {
+      const lock = failRegistryReads(1, "EBUSY");
+      try {
+        assert.equal(await runBash(root, "sess-lock-clears", "hrv theme publish 1"), null, "the file says this is no worker");
+        assert.equal(lock.state.attempts, 2);
+      } finally {
+        lock.restore();
+      }
+      const broken = failRegistryReads(Infinity, "EIO");
+      try {
+        assert.equal(await runBash(root, "sess-lock-eio", "hrv theme publish 1"), null, "EIO is not a lock error");
+        assert.equal(broken.state.attempts, 1);
+      } finally {
+        broken.restore();
+      }
+    });
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(stub.dir, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// A call the guard cannot read, in an AntiFan terminal
+// ---------------------------------------------------------------------------
+
+test("a call the guard cannot read is refused for a Leader worker that names the theme CLI, and only for a worker", async () => {
+  const root = makeThemeWorkspace();
+  const unreadableContext = {
+    cwd: root,
+    sessionManager: {
+      getSessionId: () => {
+        throw new Error("identity read failed");
+      },
+      getBranch: () => [],
+    },
+  };
+  const unscopedHook = async (sessionId) => {
+    const hook = makeHook();
+    editGuardHook(hook.pi);
+    const ctx = hook.context(root, sessionId);
+    await hook.emit("session_start", {}, ctx);
+    await hook.emit("before_agent_start", { prompt: "no tag here" }, ctx);
+    return { hook, ctx };
+  };
+  const hostileInput = {
+    toolName: "bash",
+    input: {
+      get command() {
+        throw new Error("input unreadable");
+      },
+    },
+  };
+  const emitNamed = async (sessionId) =>
+    (await unscopedHook(sessionId)).hook.emit(
+      "tool_call",
+      { toolName: "bash", input: { command: "hrv theme publish 1" } },
+      unreadableContext,
+    );
+  try {
+    await asTerminal(true, async () => {
+      const { hook, ctx } = await unscopedHook("sess-unreadable-input");
+      const hostile = await hook.emit("tool_call", hostileInput, ctx);
+      assert.equal(hostile.length, 1, "an unreadable bash call in a worker is not cleared");
+      assert.ok(hostile[0].reason.startsWith("REFUSED_GUARD_ERROR:"), hostile[0].reason);
+      assert.ok(hostile[0].reason.includes("Leader worker"), hostile[0].reason);
+      const row = readLog(root, "sess-unreadable-input").at(-1);
+      assert.deepEqual([row.decision, row.code, row.tool], ["block", "REFUSED_GUARD_ERROR", "bash"]);
+
+      const named = await emitNamed("sess-unreadable-ctx");
+      assert.equal(named.length, 1, "a readable theme command on an unreadable session is refused");
+      assert.ok(named[0].reason.startsWith("REFUSED_GUARD_ERROR:"), named[0].reason);
+
+      const unrelated = await unscopedHook("sess-unreadable-ls").then(({ hook: h }) =>
+        h.emit("tool_call", { toolName: "bash", input: { command: "ls" } }, unreadableContext),
+      );
+      assert.deepEqual(unrelated, [], "a call that names no theme CLI is not caught by this rule");
+    });
+
+    // A terminal that is not a worker's (the user's own OMP, or a Leader) is never held to it.
+    await asTerminal(false, async () => {
+      const { hook, ctx } = await unscopedHook("sess-unreadable-user");
+      assert.deepEqual(await hook.emit("tool_call", hostileInput, ctx), []);
+      assert.deepEqual(await emitNamed("sess-unreadable-user-ctx"), []);
+    });
+
+    // Outside an AntiFan terminal there is nothing to enforce.
+    const ambientTerminal = process.env.ANTIFAN_TERMINAL_SESSION_ID;
+    delete process.env.ANTIFAN_TERMINAL_SESSION_ID;
+    try {
+      assert.deepEqual(await emitNamed("sess-unreadable-no-terminal"), []);
+      const { hook: outsideHook, ctx: outsideCtx } = await unscopedHook("sess-unreadable-input-no-terminal");
+      assert.deepEqual(await outsideHook.emit("tool_call", hostileInput, outsideCtx), []);
+    } finally {
+      if (ambientTerminal !== undefined) process.env.ANTIFAN_TERMINAL_SESSION_ID = ambientTerminal;
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Wider classification: paths are not mentions, shop writes and indirection are
+// ---------------------------------------------------------------------------
+
+for (const command of [
+  "rg -n haravan layout/theme.liquid",
+  "Get-Content E:\\Work\\customizes\\Shopify\\Rebel\\layout\\theme.liquid",
+  "ls shopify/theme",
+  "grep -rn shopify theme/",
+  "cat layout/theme.liquid sections/hrv.liquid",
+  "hrv api get /web/themes.json",
+]) {
+  test(`a worker's benign line is passed untouched: ${command}`, async () => {
+    const root = makeThemeWorkspace();
+    bindShop(root);
+    const stub = installInfoStub({ role: "main" });
+    try {
+      await asTerminal(true, async () => {
+        assert.equal(await runBash(root, `sess-benign-${command.length}`, command), null, command);
+        for (const language of ["py", "js"]) {
+          assert.equal(await runTool(root, `sess-benign-eval-${language}-${command.length}`, "eval", { language, code: command }), null);
+        }
+      });
+      assert.equal(stub.recorded().length, 0);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+      fs.rmSync(stub.dir, { recursive: true, force: true });
+    }
+  });
+}
+
+for (const [label, command, expectedCode] of [
+  ["publishing through the raw API", `hrv api put /web/themes/1001507144.json --data '{"role":"main"}'`, "REFUSED_THEME_REMOTE_OP"],
+  ["deleting a theme through the raw API", "hrv api delete /web/themes/1001507144.json --yes", "REFUSED_THEME_REMOTE_OP"],
+  ["a raw API post with a leading option", "hrv --json api POST /web/themes.json --set name=x", "REFUSED_THEME_REMOTE_OP"],
+  ["a raw API write by a quote-split CLI word", 'h""rv api put /web/themes/1.json --data @x.json', "REFUSED_THEME_REMOTE_OP"],
+  ["a path-qualified raw API write", "C:\\tools\\hrv.cmd api patch /web/themes/1.json --data @x.json", "REFUSED_THEME_REMOTE_OP"],
+  ["rollback-last-push", "hrv rollback-last-push -y", "REFUSED_THEME_REMOTE_OP"],
+  ["an alias for the CLI", "Set-Alias h hrv", "REFUSED_THEME_COMPLEX"],
+  ["a shell alias for the CLI", "alias h=haravan", "REFUSED_THEME_COMPLEX"],
+  ["a variable holding the CLI", "$h = 'hrv'", "REFUSED_THEME_COMPLEX"],
+  ["a cmd variable holding the CLI", "set H=hrv.cmd", "REFUSED_THEME_COMPLEX"],
+  ["a function wrapping the CLI", "function h { hrv @args }", "REFUSED_THEME_COMPLEX"],
+  ["the CLI with a variable as its next word", "hrv $c publish 1001507144", "REFUSED_THEME_COMPLEX"],
+  ["the CLI with an expansion as its next word", "hrv %c% publish 1001507144", "REFUSED_THEME_COMPLEX"],
+  ["a bundled short force flag", "hrv theme push -nf --only a.liquid", "REFUSED_THEME_PUSH_SCOPE"],
+]) {
+  test(`a worker's ${label} is refused (${expectedCode}) before anything reaches the shop`, async () => {
+    const root = makeThemeWorkspace();
+    bindShop(root);
+    const stub = installInfoStub({ role: "unpublished" });
+    try {
+      await asTerminal(true, async () => {
+        const result = await runBash(root, `sess-wide-${label.replace(/\W+/g, "-")}`, command);
+        assert.equal(result?.block, true, `${command} must be refused`);
+        assert.ok(result.reason.startsWith(`${expectedCode}:`), result.reason);
+        assert.equal(stub.recorded().length, 0, "no hrv call reaches the CLI");
+      });
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+      fs.rmSync(stub.dir, { recursive: true, force: true });
+    }
+  });
+}
+
+test("a worker's eval cell that writes through the raw API or aliases the CLI is refused; the user's is not", async () => {
+  const root = makeThemeWorkspace();
+  bindShop(root);
+  try {
+    await asTerminal(true, async () => {
+      for (const [language, code] of [
+        ["js", "await Bun.$`hrv api put /web/themes/1.json --data @x.json`"],
+        ["py", "import os\nos.system('hrv rollback-last-push -y')"],
+        ["py", "cli = 'hrv'\nimport subprocess\nsubprocess.run([cli, 'x'])"],
+      ]) {
+        const result = await runTool(root, `sess-eval-api-${code.length}`, "eval", { language, code });
+        assert.ok(result?.reason.startsWith("REFUSED_THEME_VIA_EVAL:"), `${code}: ${result?.reason}`);
+      }
+    });
+    await asTerminal(false, async () => {
+      assert.equal(await runTool(root, "sess-eval-api-user", "eval", { language: "js", code: "await Bun.$`hrv api put /x.json`" }), null);
+    });
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a theme probe that times out is stopped together with the process it started", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "hrv-slow-"));
+  const pidFile = path.join(dir, "pid.txt");
+  const script = path.join(dir, "slow.mjs");
+  fs.writeFileSync(
+    script,
+    [
+      'import { writeFileSync } from "node:fs";',
+      `writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));`,
+      "setInterval(() => {}, 1000);",
+    ].join("\n"),
+  );
+  process.env[HRV_COMMAND_ENV] = `"${process.execPath}" "${script}"`;
+  let pid = 0;
+  const alive = () => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  try {
+    const run = await draftProbe.runHrv(os.tmpdir(), "theme info -j", 4_000);
+    assert.equal(run.output, null);
+    assert.match(run.failure, /timed out/);
+    assert.ok(fs.existsSync(pidFile), "the probe's CLI had started before the timeout");
+    pid = Number(fs.readFileSync(pidFile, "utf8"));
+    assert.ok(pid > 0);
+    for (let waited = 0; alive() && waited < 5_000; waited += 100) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    assert.equal(alive(), false, "the CLI process behind the shell is gone, not left running");
+  } finally {
+    if (pid > 0 && alive()) process.kill(pid, "SIGKILL");
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// theme-push-policy and theme-draft-probe, as the Manager consumes them
+// ---------------------------------------------------------------------------
+
+const themePolicy = await load("theme-push-policy");
+const draftProbe = await load("theme-draft-probe");
+
+test("startsDirChange sees every way a line moves the shell, and nothing else", () => {
+  for (const line of [
+    "cd x", "ls && cd ..", "pushd x", "popd", "Push-Location x", "Pop-Location", "Set-Location x", "cd..", "D:", "hrv theme info; sl x",
+    "if ($x) { cd ..\\Other }", "& { Set-Location .. }", "try { cd x } catch {}", "iex 'cd ..'", ". .\\go.ps1", ".\\go.ps1",
+    "for d in a b; do cd $d; done", "source env.sh", "setup.bat",
+  ]) {
+    assert.equal(themePolicy.startsDirChange(line), true, line);
+  }
+  for (const line of ["hrv theme info", "ls -la", "git commit -F msg.txt", "hrv theme push --only sections/hrv.liquid", ""]) {
+    assert.equal(themePolicy.startsDirChange(line), false, line);
+  }
+});
+
+test("classifyThemeLine: no mention is none, a plain command is read, assumeDirChanged marks every command", () => {
+  assert.deepEqual(themePolicy.classifyThemeLine("ls"), { decision: "none" });
+  const plain = themePolicy.classifyThemeLine("hrv theme push --only a.liquid");
+  assert.equal(plain.decision, "commands");
+  assert.equal(plain.commands[0].dirChanged, false);
+  const moved = themePolicy.classifyThemeLine("hrv theme push --only a.liquid", { assumeDirChanged: true });
+  assert.equal(moved.commands[0].dirChanged, true);
+  assert.equal(themePolicy.classifyThemeLine("npx @f1genz/haravan-cli theme push").code, "REFUSED_THEME_COMPLEX");
+  assert.equal(themePolicy.mentionsThemeCli('h""rv theme push'), true);
+  assert.equal(themePolicy.mentionsThemeCli("cat sections/hrv.liquid theme.json"), false);
+});
+
+test("gateThemeLine decides one line: pass, probed allow, live refusal, unverifiable refusal", async () => {
+  const root = makeThemeWorkspace();
+  bindShop(root);
+  const draft = installInfoStub({ role: "unpublished" });
+  try {
+    assert.deepEqual(await draftProbe.gateThemeLine({ text: "ls", cwd: root, timeoutMs: 20_000 }), { decision: "pass" });
+    assert.deepEqual(
+      await draftProbe.gateThemeLine({ text: "hrv theme info", cwd: root, timeoutMs: 20_000 }),
+      { decision: "allow", verified: [] },
+      "a read needs no probe",
+    );
+    assert.equal(draft.recorded().length, 0);
+    assert.deepEqual(
+      await draftProbe.gateThemeLine({ text: "hrv theme push --only a.liquid", cwd: path.join(root, "sections"), timeoutMs: 20_000 }),
+      { decision: "allow", verified: ["hrv theme push --only a.liquid"] },
+      "the binding is found from a sub-folder",
+    );
+    assert.equal(draft.recorded().length, 1);
+
+    const moved = await draftProbe.gateThemeLine({
+      text: "hrv theme push --only a.liquid",
+      cwd: root,
+      timeoutMs: 20_000,
+      assumeDirChanged: true,
+    });
+    assert.equal(moved.code, "REFUSED_THEME_PUSH_UNVERIFIED");
+    assert.equal(draft.recorded().length, 1, "no probe when the folder cannot be trusted");
+
+    const tooSlow = await draftProbe.gateThemeLine({ text: "hrv theme dev", cwd: root, timeoutMs: 1 });
+    assert.equal(tooSlow.code, "REFUSED_THEME_PUSH_UNVERIFIED", "a probe that cannot answer in time refuses");
+
+    const live = installInfoStub({ role: "main" });
+    const refused = await draftProbe.gateThemeLine({ text: "hrv theme push --only a.liquid", cwd: root, timeoutMs: 20_000 });
+    assert.equal(refused.code, "REFUSED_THEME_PUSH_LIVE");
+    assert.equal(refused.command, "hrv theme push --only a.liquid");
+    fs.rmSync(live.dir, { recursive: true, force: true });
+  } finally {
+    // The probe the 1 ms budget cut off may still be exiting inside `root`, and Windows refuses to remove a folder a live process holds.
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 200 });
+    fs.rmSync(draft.dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 200 });
   }
 });

@@ -26,6 +26,13 @@ export const OMP_ASK_TOOLS: ReadonlySet<string> = new Set([
 export const RUN_HEARTBEAT_MS = 15_000;
 export const CONTROL_POLL_INTERVAL_MS = 1_000;
 
+/**
+ * How long a run file whose owner is another live session keeps that owner. It matches
+ * `RUN_STALE_MS` in `src/main/run/run-state-service.ts`: past it the Manager already
+ * shows the file as stale, so a different session may take the terminal over.
+ */
+export const LEASE_STALE_MS = 45_000;
+
 export interface TerminalRunStateFile {
   schema: 1;
   terminalSessionId: string;
@@ -70,6 +77,53 @@ function readRunStateFile(filePath: string): TerminalRunStateFile | null {
     }
   } catch {}
   return null;
+}
+
+/** Read errors that mean "the file exists but is locked right now" (the owner's atomic rename on Windows). */
+const TRANSIENT_READ_CODES: Record<string, true> = { EBUSY: true, EPERM: true, EACCES: true, EMFILE: true, EAGAIN: true };
+
+/**
+ * The run file as the lease sees it. A file that exists but cannot be read for a transient
+ * reason is `"locked"`: its owner is unknown, so for that tick nobody else may take it over
+ * (the next heartbeat retries). An absent file, a corrupt one or one with a foreign schema is
+ * `null`, which stays fail-open so a damaged card can always be replaced.
+ */
+function readRunStateForLease(filePath: string): TerminalRunStateFile | null | "locked" {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    return parsed && typeof parsed === "object" && parsed.schema === 1 ? (parsed as TerminalRunStateFile) : null;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException | undefined)?.code;
+    return typeof code === "string" && TRANSIENT_READ_CODES[code] === true ? "locked" : null;
+  }
+}
+
+/** `process.kill(pid, 0)` probe; EPERM means the process exists but belongs to someone else. */
+function pidAlive(pid: unknown): boolean {
+  if (typeof pid !== "number" || !Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException)?.code === "EPERM";
+  }
+}
+
+/**
+ * Whether the session `mine` may write the terminal's run file. One terminal has one
+ * run file, but several OMP sessions can run in it at once (a subagent loads this hook
+ * in the same process under its own session id). A session only takes the file over
+ * when the current owner is the same session (resume), has ended, died, or went silent
+ * for longer than the lease; otherwise it is a guest and leaves the owner's card alone.
+ * An absent or corrupt file is fail-open: the first writer must be able to create it.
+ */
+function ownsFile(existing: TerminalRunStateFile | null | "locked", mine: string, now: number): boolean {
+  if (existing === "locked") return false;
+  if (!existing) return true;
+  if (existing.ompSessionId === mine) return true;
+  if (existing.state === "ended") return true;
+  if (!pidAlive(existing.pid)) return true;
+  return typeof existing.updatedAt !== "number" || now - existing.updatedAt > LEASE_STALE_MS;
 }
 
 function readMode(dataRoot: string, ompSessionId: string): "unset" | "core" | "direct" | "fast" {
@@ -271,6 +325,9 @@ export default function runStateHook(pi: HookPi): void {
   function writeState(): void {
     if (!runStateFilePath || !dataRoot || !terminalSessionId) return;
     const now = Date.now();
+    // A guest session keeps tracking in memory (and keeps its own control watcher) but
+    // never overwrites the owner's card.
+    if (!ownsFile(readRunStateForLease(runStateFilePath), ompSessionId, now)) return;
     const mode = readMode(dataRoot, ompSessionId);
     const payload: TerminalRunStateFile = {
       schema: 1,
@@ -511,10 +568,14 @@ export default function runStateHook(pi: HookPi): void {
       const newOmpSessionId = sessionIdOf(ctx);
       cwd = cwdOf(ctx);
 
-      // Carry-over rule: keep stored runSeq when ompSessionId matches, reset to 0 otherwise
       const existing = readRunStateFile(runStateFilePath);
+      // Carry-over rule: a resumed session (same id) keeps its stored runSeq and the
+      // time of its last real event. Stamping "now" would make the card look settled
+      // (idle, fresh, runSeq >= 1) between this event and the first prompt.
+      let carriedLastEventAt: number | undefined;
       if (existing && existing.ompSessionId === newOmpSessionId) {
         runSeq = typeof existing.runSeq === "number" ? existing.runSeq : 0;
+        carriedLastEventAt = typeof existing.lastEventAt === "number" ? existing.lastEventAt : undefined;
       } else {
         runSeq = 0;
       }
@@ -522,7 +583,7 @@ export default function runStateHook(pi: HookPi): void {
       ompSessionId = newOmpSessionId;
       state = "idle";
       pendingAskTool = null;
-      lastEventAt = Date.now();
+      lastEventAt = carriedLastEventAt ?? Date.now();
       sessionInitialized = true;
 
       writeState();

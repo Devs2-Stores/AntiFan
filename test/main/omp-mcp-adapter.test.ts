@@ -2004,7 +2004,7 @@ describe('bridge client-failure journal', () => {
         'the discovered record was tried: CONNECT_FAILED names its port'
       );
       assert.ok(
-        !rows.some((r) => r.code === 'BRIDGE_NOT_RUNNING' && String(r.message).includes('no endpoint discovered')),
+        !rows.some((r) => r.code === 'BRIDGE_NOT_RUNNING'),
         'discovery must not be skipped for lack of terminal env'
       );
     } finally {
@@ -2219,7 +2219,7 @@ describe('bridge client-failure journal', () => {
         .map((l) => { try { return JSON.parse(l); } catch { return null; } })
         .filter(Boolean);
       assert.ok(
-        rows.some((r) => r.code === 'BRIDGE_NOT_RUNNING' && String(r.message).includes('no endpoint discovered')),
+        rows.some((r) => r.code === 'BRIDGE_NOT_RUNNING' && String(r.message).includes('no live endpoint discovered')),
         'the zero-candidate branch records BRIDGE_NOT_RUNNING'
       );
       assert.ok(

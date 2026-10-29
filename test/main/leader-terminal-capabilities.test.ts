@@ -10,6 +10,7 @@ import {
   resolveHomeBaseTerminal,
   isLiveSplitOf,
   isLiveTerminal,
+  type TerminalCapabilityDeps,
   type TerminalOwnershipPort,
 } from '../../src/main/tools/terminal-capabilities';
 import { LeaderRegistry } from '../../src/main/leader/leader-registry';
@@ -125,12 +126,17 @@ describe('Leader scope of the terminal capabilities', () => {
     rows: FakeRow[] = rowsOf(),
     homes: Record<string, string> = { 'att-lead': 'terminal-lead', 'att-plain': 'terminal-plain' },
     overrides: Partial<TerminalOwnershipPort> = {},
+    deps: TerminalCapabilityDeps = {},
   ) => {
     const calls = {
       writes: [] as Array<{ sessionId: string; input: string }>,
       closedSplits: [] as string[],
       closedBases: [] as string[],
       splitCreates: [] as string[],
+      /** What the facade's `writeTo` resolves to; `false` is a daemon that reports no session took the input. */
+      writeResult: true as unknown,
+      /** What the facade's `closeSession` resolves to; `false` is a close that was refused or failed. */
+      closeResult: true as unknown,
     };
     const facade = {
       listSessions: () => rows.map((row) => ({ ...row })),
@@ -138,7 +144,7 @@ describe('Leader scope of the terminal capabilities', () => {
       getActiveSessionId: () => 'terminal-w1',
       writeTo: async (sessionId: string, input: string) => {
         calls.writes.push({ sessionId, input });
-        return true;
+        return calls.writeResult;
       },
       resizeTo: () => {},
       waitTerminal: async (params: { sessionId: string }) => ({ satisfied: true, sessionId: params.sessionId }),
@@ -148,7 +154,7 @@ describe('Leader scope of the terminal capabilities', () => {
       },
       closeSession: async (id: string) => {
         calls.closedBases.push(id);
-        return true;
+        return calls.closeResult;
       },
       createSplitSession: async (parentId: string) => {
         calls.splitCreates.push(parentId);
@@ -174,7 +180,7 @@ describe('Leader scope of the terminal capabilities', () => {
       hostEpoch: 1,
       getActiveLease: () => lease,
     });
-    registerTerminalCapabilities(catalogue, facade, ownership);
+    registerTerminalCapabilities(catalogue, facade, ownership, deps);
     return { rows, calls, catalogue };
   };
 
@@ -188,10 +194,10 @@ describe('Leader scope of the terminal capabilities', () => {
 
       assert.strictEqual(registry.setLeader('terminal-lead', true), true);
       assert.strictEqual(registry.setLeader('terminal-lead', true), false, 'a repeat flip changes nothing');
-      registry.assignWorker('terminal-w1', 'terminal-lead', ' Worker one ');
-      registry.assignWorker('terminal-ghost', 'terminal-nobody');
+      assert.strictEqual(registry.assignWorker('terminal-w1', 'terminal-lead', ' Worker one '), true);
+      assert.strictEqual(registry.assignWorker('terminal-ghost', 'terminal-nobody'), false);
       assert.strictEqual(registry.workerOf('terminal-ghost'), undefined, 'only a Leader can own workers');
-      registry.assignWorker('terminal-lead', 'terminal-lead');
+      assert.strictEqual(registry.assignWorker('terminal-lead', 'terminal-lead'), false);
       assert.strictEqual(registry.workerOf('terminal-lead'), undefined, 'a Leader is never its own worker');
       assert.deepStrictEqual(registry.leaders(), ['terminal-lead']);
       assert.strictEqual(registry.workerOf('terminal-w1')?.title, 'Worker one');
@@ -216,19 +222,22 @@ describe('Leader scope of the terminal capabilities', () => {
 
       reloaded.prune(new Set(['terminal-w2']));
       assert.strictEqual(reloaded.isLeader('terminal-lead'), false, 'a closed Leader loses its rights');
-      assert.strictEqual(reloaded.workerOf('terminal-w2'), undefined, 'and its workers are released with it');
+      assert.strictEqual(reloaded.workerOf('terminal-w2')?.leaderId, 'terminal-lead', 'but its live worker keeps the record that gates its theme pushes');
       assert.deepStrictEqual(JSON.parse(fs.readFileSync(path.join(CONFIG_DIR, 'leader-terminals.json'), 'utf8')).leaders, []);
+      assert.strictEqual(JSON.parse(fs.readFileSync(path.join(CONFIG_DIR, 'leader-terminals.json'), 'utf8')).workers['terminal-w2'].leaderId, 'terminal-lead', 'the orphan survives a reload too');
     });
 
-    it('clearing a Leader releases its workers', () => {
+    it('clearing a Leader keeps its workers: they become orphans that are still gated', () => {
       const registry = LeaderRegistry.getInstance();
       registry.setLeader('terminal-lead', true);
-      registry.assignWorker('terminal-w1', 'terminal-lead');
+      registry.assignWorker('terminal-w1', 'terminal-lead', 'Row 7');
       assert.strictEqual(registry.setLeader('terminal-lead', false), true);
-      assert.strictEqual(registry.workerOf('terminal-w1'), undefined);
+      assert.strictEqual(registry.isLeader('terminal-lead'), false);
+      assert.strictEqual(registry.workerOf('terminal-w1')?.leaderId, 'terminal-lead');
+      assert.strictEqual(registry.workerOf('terminal-w1')?.title, 'Row 7');
     });
 
-    it('forgetting a closed terminal drops its Leader flag, its own record and the workers it drove, and leaves the rest', () => {
+    it('forgetting a closed terminal drops its Leader flag and its own record, and leaves the workers it drove and the rest', () => {
       const registry = LeaderRegistry.getInstance();
       registry.setLeader('terminal-lead', true);
       registry.setLeader('terminal-other', true);
@@ -236,12 +245,84 @@ describe('Leader scope of the terminal capabilities', () => {
       registry.assignWorker('terminal-w2', 'terminal-other');
       registry.forget('terminal-lead');
       assert.strictEqual(registry.isLeader('terminal-lead'), false);
-      assert.strictEqual(registry.workerOf('terminal-w1'), undefined);
+      assert.strictEqual(registry.workerOf('terminal-w1')?.leaderId, 'terminal-lead', 'the worker terminal is still open and still gated');
       assert.strictEqual(registry.isLeader('terminal-other'), true);
       assert.strictEqual(registry.workerOf('terminal-w2')?.leaderId, 'terminal-other');
       registry.forget('terminal-w2');
       assert.strictEqual(registry.workerOf('terminal-w2'), undefined);
       assert.strictEqual(LeaderRegistry.getInstance().isLeader('terminal-other'), true);
+    });
+
+    it('never takes a worker from a Leader that is still a Leader, and lets a live Leader adopt an orphan', () => {
+      const registry = LeaderRegistry.getInstance();
+      registry.setLeader('terminal-a', true);
+      registry.setLeader('terminal-b', true);
+      assert.strictEqual(registry.assignWorker('terminal-w1', 'terminal-a', 'Row 7'), true);
+      const assignedAt = registry.workerOf('terminal-w1')?.assignedAt;
+
+      assert.strictEqual(registry.assignWorker('terminal-w1', 'terminal-b'), false, 'B cannot steal A\'s worker while A is a Leader');
+      assert.strictEqual(registry.workerOf('terminal-w1')?.leaderId, 'terminal-a');
+
+      registry.setLeader('terminal-a', false);
+      assert.strictEqual(registry.assignWorker('terminal-w1', 'terminal-b'), true, 'B adopts the orphan');
+      assert.strictEqual(registry.workerOf('terminal-w1')?.leaderId, 'terminal-b');
+      assert.strictEqual(registry.workerOf('terminal-w1')?.title, 'Row 7', 'the title carries over unless a new one is given');
+      assert.ok((registry.workerOf('terminal-w1')?.assignedAt ?? 0) >= (assignedAt ?? 0));
+    });
+
+    it('a repeat claim by the same Leader writes and announces nothing, and only a new title changes the record', () => {
+      const registry = LeaderRegistry.getInstance();
+      registry.setLeader('terminal-lead', true);
+      assert.strictEqual(registry.assignWorker('terminal-w1', 'terminal-lead', 'Row 7'), true);
+      const first = registry.workerOf('terminal-w1');
+      const changes: number[] = [];
+      registry.on('change', () => changes.push(1));
+
+      // A later clock: a record rewritten from scratch would carry this time instead of the first one.
+      const realNow = Date.now;
+      Date.now = () => (first?.assignedAt ?? 0) + 60_000;
+      try {
+        assert.strictEqual(registry.assignWorker('terminal-w1', 'terminal-lead'), true);
+        assert.strictEqual(registry.assignWorker('terminal-w1', 'terminal-lead', 'Row 7'), true);
+        assert.strictEqual(changes.length, 0, 'no file write and no board re-push for a repeat claim');
+
+        assert.strictEqual(registry.assignWorker('terminal-w1', 'terminal-lead', 'Row 8'), true);
+      } finally {
+        Date.now = realNow;
+      }
+      assert.strictEqual(changes.length, 1);
+      assert.strictEqual(registry.workerOf('terminal-w1')?.title, 'Row 8');
+      assert.strictEqual(registry.workerOf('terminal-w1')?.assignedAt, first?.assignedAt, 'a new title keeps the time the worker was first assigned');
+    });
+
+    it('inheritWorker gives a split the parent worker\'s Leader even when that Leader is gone, and refuses a Leader or an unrecorded parent', () => {
+      const registry = LeaderRegistry.getInstance();
+      registry.setLeader('terminal-lead', true);
+      registry.assignWorker('terminal-w1', 'terminal-lead');
+      registry.setLeader('terminal-lead', false);
+
+      assert.strictEqual(registry.inheritWorker('split-w1', 'terminal-w1'), true);
+      assert.strictEqual(registry.workerOf('split-w1')?.leaderId, 'terminal-lead', 'the orphan\'s split is gated too');
+      assert.strictEqual(registry.inheritWorker('split-x', 'terminal-unrecorded'), false);
+      assert.strictEqual(registry.workerOf('split-x'), undefined);
+      registry.setLeader('terminal-other', true);
+      assert.strictEqual(registry.inheritWorker('terminal-other', 'terminal-w1'), false, 'a Leader is never a worker');
+      assert.strictEqual(registry.inheritWorker('terminal-w1', 'terminal-w1'), false);
+    });
+
+    it('reports false and keeps nothing in memory when the registry file cannot be written', () => {
+      const registry = LeaderRegistry.getInstance();
+      registry.setLeader('terminal-lead', true);
+      const target = path.join(CONFIG_DIR, 'leader-terminals.json');
+      fs.rmSync(target, { force: true });
+      fs.mkdirSync(target); // a directory in the file's place: the rename onto it fails
+      try {
+        assert.strictEqual(registry.assignWorker('terminal-w1', 'terminal-lead'), false);
+        assert.strictEqual(registry.workerOf('terminal-w1'), undefined, 'the record that never reached the file is not claimed in memory');
+        assert.strictEqual(registry.inheritWorker('split-w1', 'terminal-w1'), false);
+      } finally {
+        fs.rmSync(target, { recursive: true, force: true });
+      }
     });
   });
 
@@ -355,6 +436,155 @@ describe('Leader scope of the terminal capabilities', () => {
       } finally {
         release();
       }
+    });
+
+    it('terminal.create says which state a worker terminal is left in when it cannot be recorded: closed again, or still open and ungated', async () => {
+      LeaderRegistry.getInstance().setLeader('terminal-lead', true);
+      const release = registerLeaderPlacementPort({
+        placeTerminal: async () => ({ ok: true, sessionId: 'terminal-new', ownerKey: 'project:p9', capsuleId: 'capsule-9' }),
+      });
+      const registryFile = path.join(CONFIG_DIR, 'leader-terminals.json');
+      try {
+        for (const [closeResult, expected] of [[true, /was closed again/], [false, /could not be closed: it is still open and ungated/]] as const) {
+          const { catalogue, calls } = build();
+          calls.closeResult = closeResult;
+          fs.rmSync(registryFile, { recursive: true, force: true });
+          fs.mkdirSync(registryFile);
+          await assert.rejects(
+            () => catalogue.dispatch('terminal.create', { cwd: 'E:/Work/shop' }, ctx()),
+            (err: unknown) => err instanceof CapabilityError && err.code === 'EXECUTION_ERROR' && expected.test(err.message) && err.details?.closed === closeResult
+          );
+          assert.deepStrictEqual(calls.closedBases, ['terminal-new']);
+        }
+      } finally {
+        release();
+        fs.rmSync(registryFile, { recursive: true, force: true });
+      }
+    });
+
+    it('terminal.write reports written:false when the facade says no session took the input, and claims no worker for it', async () => {
+      LeaderRegistry.getInstance().setLeader('terminal-lead', true);
+      const { catalogue, calls } = build();
+      calls.writeResult = false;
+      const result = (await catalogue.dispatch('terminal.write', { sessionId: 'terminal-w1', input: 'hello\r' }, ctx())) as {
+        written: boolean; woke: boolean; message?: string;
+      };
+      assert.strictEqual(result.written, false);
+      assert.match(result.message ?? '', /did not confirm the input/);
+      assert.match(result.message ?? '', /before writing again/, 'a timed-out daemon call may still have delivered, so the caller is told to check');
+      assert.strictEqual(LeaderRegistry.getInstance().workerOf('terminal-w1'), undefined, 'an undelivered write claims nothing');
+
+      // Anything else the facade returns (an in-process manager returns nothing; an older daemon replies true) is delivery.
+      for (const reply of [true, undefined]) {
+        calls.writeResult = reply;
+        const delivered = (await catalogue.dispatch('terminal.write', { sessionId: 'terminal-w1', input: 'hello\r' }, ctx())) as { written: boolean };
+        assert.strictEqual(delivered.written, true, `reply ${String(reply)}`);
+      }
+      assert.strictEqual(LeaderRegistry.getInstance().workerOf('terminal-w1')?.leaderId, 'terminal-lead');
+    });
+
+    it('a second Leader writing to a worker leaves the record alone, and adopts it once the first is no longer a Leader', async () => {
+      const registry = LeaderRegistry.getInstance();
+      registry.setLeader('terminal-lead', true);
+      registry.setLeader('terminal-plain', true);
+      const { catalogue, calls } = build(undefined, { 'att-lead': 'terminal-lead', 'att-b': 'terminal-plain' });
+      await catalogue.dispatch('terminal.write', { sessionId: 'terminal-w1', input: 'a\r' }, ctx());
+      assert.strictEqual(registry.workerOf('terminal-w1')?.leaderId, 'terminal-lead');
+      const assignedAt = registry.workerOf('terminal-w1')?.assignedAt;
+
+      const byB = (await catalogue.dispatch('terminal.write', { sessionId: 'terminal-w1', input: 'b\r' }, attachmentContext('att-b'))) as { written: boolean; message?: string };
+      assert.strictEqual(byB.written, true, 'the write itself is allowed: B is a Leader');
+      assert.strictEqual(byB.message, undefined, 'a refused claim is not a persistence failure');
+      assert.strictEqual(registry.workerOf('terminal-w1')?.leaderId, 'terminal-lead', 'B did not steal A\'s worker');
+      assert.strictEqual(registry.workerOf('terminal-w1')?.assignedAt, assignedAt);
+
+      registry.setLeader('terminal-lead', false);
+      await catalogue.dispatch('terminal.write', { sessionId: 'terminal-w1', input: 'c\r' }, attachmentContext('att-b'));
+      assert.strictEqual(registry.workerOf('terminal-w1')?.leaderId, 'terminal-plain', 'B adopts the orphan');
+      assert.deepStrictEqual(calls.writes.map((w) => w.input), ['a\r', 'b\r', 'c\r']);
+    });
+
+    it('says so when the claim on a target could not be saved: that terminal\'s OMP is not gated', async () => {
+      const registry = LeaderRegistry.getInstance();
+      registry.setLeader('terminal-lead', true);
+      const { catalogue } = build();
+      const target = path.join(CONFIG_DIR, 'leader-terminals.json');
+      fs.rmSync(target, { force: true });
+      fs.mkdirSync(target);
+      try {
+        const result = (await catalogue.dispatch('terminal.write', { sessionId: 'terminal-w1', input: 'x\r' }, ctx())) as { written: boolean; message?: string };
+        assert.strictEqual(result.written, true, 'the keystrokes were delivered');
+        assert.match(result.message ?? '', /Leader registry could not be saved/);
+        assert.strictEqual(registry.workerOf('terminal-w1'), undefined);
+      } finally {
+        fs.rmSync(target, { recursive: true, force: true });
+      }
+    });
+
+    it('a worker minted under a recycled id starts clean: stale run files and a stale Leader flag are gone', async () => {
+      const registry = LeaderRegistry.getInstance();
+      registry.setLeader('terminal-lead', true);
+      registry.setLeader('terminal-9', true);
+      writeRun('terminal-9', 'running', 5);
+      fs.writeFileSync(path.join(RUNS_DIR, 'terminal-9.brief.json'), '{}');
+      fs.writeFileSync(path.join(RUNS_DIR, 'terminal-9.json.tmp-1-2-abcd'), '{}');
+      fs.writeFileSync(path.join(RUNS_DIR, 'terminal-90.json'), '{}');
+      const release = registerLeaderPlacementPort({
+        placeTerminal: async (): Promise<LeaderPlacementResult> => ({ ok: true, sessionId: 'terminal-9' }),
+      });
+      try {
+        const { catalogue } = build();
+        const created = (await catalogue.dispatch('terminal.create', { cwd: 'E:/Work/f1genz', name: 'Row 9' }, ctx())) as { sessionId: string };
+        assert.strictEqual(created.sessionId, 'terminal-9');
+        assert.strictEqual(registry.isLeader('terminal-9'), false, 'a fresh id cannot be a Leader');
+        assert.strictEqual(registry.workerOf('terminal-9')?.leaderId, 'terminal-lead');
+        assert.deepStrictEqual(fs.readdirSync(RUNS_DIR), ['terminal-90.json'], 'only the recycled id\'s files went; a neighbour with the same prefix stays');
+      } finally {
+        release();
+      }
+    });
+
+    it('closes the minted worker and refuses when the registry cannot record it, instead of returning an ungated worker', async () => {
+      LeaderRegistry.getInstance().setLeader('terminal-lead', true);
+      const target = path.join(CONFIG_DIR, 'leader-terminals.json');
+      const release = registerLeaderPlacementPort({
+        placeTerminal: async (): Promise<LeaderPlacementResult> => ({ ok: true, sessionId: 'terminal-new' }),
+      });
+      fs.rmSync(target, { force: true });
+      fs.mkdirSync(target);
+      try {
+        const { catalogue, calls } = build();
+        await assert.rejects(
+          () => catalogue.dispatch('terminal.create', { cwd: 'E:/Work/f1genz' }, ctx()),
+          (err: unknown) => err instanceof CapabilityError && err.code === 'EXECUTION_ERROR' && /not gated/.test(err.message)
+        );
+        assert.deepStrictEqual(calls.closedBases, ['terminal-new'], 'the unrecorded terminal is closed again');
+        assert.strictEqual(LeaderRegistry.getInstance().workerOf('terminal-new'), undefined);
+      } finally {
+        release();
+        fs.rmSync(target, { recursive: true, force: true });
+      }
+    });
+
+    it('terminal.list carries daemonOutdated for a Leader when the daemon runs an older bundle, and nothing otherwise', async () => {
+      LeaderRegistry.getInstance().setLeader('terminal-lead', true);
+      let status = { running: 'v-old', staged: 'v-new', outdated: true };
+      const { catalogue } = build(undefined, undefined, {}, { daemonStatus: () => status });
+      const outdated = (await catalogue.dispatch('terminal.list', {}, ctx())) as { daemonOutdated?: { running: string; staged: string; message: string } };
+      assert.strictEqual(outdated.daemonOutdated?.running, 'v-old');
+      assert.strictEqual(outdated.daemonOutdated?.staged, 'v-new');
+      assert.match(outdated.daemonOutdated?.message ?? '', /restart the daemon/);
+
+      status = { running: 'v-new', staged: 'v-new', outdated: false };
+      const current = (await catalogue.dispatch('terminal.list', {}, ctx())) as Record<string, unknown>;
+      assert.strictEqual('daemonOutdated' in current, false);
+
+      status = { running: 'v-old', staged: 'v-new', outdated: true };
+      const plain = (await catalogue.dispatch('terminal.list', {}, attachmentContext('att-plain'))) as Record<string, unknown>;
+      assert.strictEqual('daemonOutdated' in plain, false, 'a plain agent in a split pane is not told');
+
+      const unbound = (await catalogue.dispatch('terminal.list', {}, { lease, leaseToken: lease.token, projectId, workspaceId, grant: 'write' as const })) as Record<string, unknown>;
+      assert.strictEqual('daemonOutdated' in unbound, false, 'a caller with no attachment cannot restart or relay about the daemon either');
     });
 
     it('terminal.write refuses a running target with TERMINAL_BUSY, allows force, and allows idle, waiting, ended and run-less targets', async () => {

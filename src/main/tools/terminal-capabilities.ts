@@ -12,7 +12,9 @@ import {
 } from '../../shared/control-plane-contracts';
 import type { TerminalRunSnapshot } from '../../shared/contracts';
 import { LeaderRegistry } from '../leader/leader-registry';
-import { getLeaderPlacementPort, leaderRunSnapshot, waitForRunSettled } from '../leader/leader-runtime';
+import { clearRunFilesOf, getLeaderPlacementPort, leaderRunSnapshot, waitForRunSettled } from '../leader/leader-runtime';
+import { daemonVersionStatus, type DaemonVersionStatus } from '../terminal-daemon/daemon-spawner';
+import { WorkerTerminalInputGate } from './worker-terminal-input-gate';
 
 /**
  * Read-only lifecycle view of a terminal record.
@@ -238,7 +240,11 @@ export interface TerminalOwnershipPort {
    * another terminal's tab, the origin cannot. Omitted: nobody is a Leader.
    */
   originTerminalId?(attachmentId: string): string | undefined;
-  /** Whether `terminalId` is a terminal the user marked Leader. Decided by the host, never by the caller. */
+  /**
+   * Whether `terminalId` is a terminal the user marked Leader. The host decides from its own registry,
+   * but the terminal id it is asked about is the attachment's origin as the caller declared it when it
+   * paired: the id is a claim the same user's tooling makes, not something this port can prove.
+   */
   isLeader?(terminalId: string): boolean;
   /** Whether `terminalId` is a live terminal (any base or split, any project). A Leader reaches exactly these. */
   isLiveTerminal?(terminalId: string): boolean;
@@ -408,8 +414,13 @@ async function waitForRunIdle(
   }
 }
 
-/** A Leader's base terminal for a project folder: minted through the host's placement port and registered as its worker. */
+/**
+ * A Leader's base terminal for a project folder: minted through the host's placement port and registered
+ * as its worker. The registration is what makes the worker's OMP hook refuse unsafe theme commands, so a
+ * terminal that cannot be registered is closed again instead of being handed back ungated.
+ */
 async function placeLeaderWorker(
+  terminal: TerminalManager,
   homeId: string,
   params: { cwd?: string; name?: string }
 ): Promise<{ sessionId: string; cwd: string; workerOf: string; ownerKey?: string; capsuleId?: string }> {
@@ -432,7 +443,17 @@ async function placeLeaderWorker(
   if (!placed.ok) {
     throw new CapabilityError('EXECUTION_ERROR', `${placed.reason}: ${placed.message}`, { reason: placed.reason });
   }
-  LeaderRegistry.getInstance().assignWorker(placed.sessionId, homeId, name || undefined);
+  // A freshly minted id has no legitimate history: the Leader flag only comes from the user's own gesture,
+  // and a live id is never reissued. Anything recorded under it belongs to a closed terminal (a daemon that
+  // predates the persisted id counters can hand a closed id out again), and must not make this worker look
+  // like a Leader or like a run it never had.
+  const registry = LeaderRegistry.getInstance();
+  registry.forget(placed.sessionId);
+  clearRunFilesOf(placed.sessionId);
+  if (!registry.assignWorker(placed.sessionId, homeId, name || undefined)) {
+    const closed = await closeUnrecordedTerminal(() => terminal.closeSession(placed.sessionId));
+    throw unrecordedWorkerError('The worker terminal', placed.sessionId, closed);
+  }
   return {
     sessionId: placed.sessionId,
     cwd,
@@ -440,6 +461,25 @@ async function placeLeaderWorker(
     ...(placed.ownerKey ? { ownerKey: placed.ownerKey } : {}),
     ...(placed.capsuleId ? { capsuleId: placed.capsuleId } : {}),
   };
+}
+
+/** Close a terminal that could not be recorded as a worker. False when it is still open (the close was refused or failed). */
+async function closeUnrecordedTerminal(close: () => Promise<unknown> | unknown): Promise<boolean> {
+  try {
+    return (await close()) !== false;
+  } catch {
+    return false;
+  }
+}
+
+function unrecordedWorkerError(label: string, sessionId: string, closed: boolean): CapabilityError {
+  return new CapabilityError(
+    'EXECUTION_ERROR',
+    closed
+      ? `${label} "${sessionId}" was closed again: the Leader registry could not record it, and an unrecorded worker's OMP is not gated. Check that the AntiFan config directory is writable, then retry`
+      : `${label} "${sessionId}" could not be closed: it is still open and ungated, because the Leader registry could not record it and an unrecorded worker's OMP is not gated. Close it with terminal.close, check that the AntiFan config directory is writable, then retry`,
+    { sessionId, closed }
+  );
 }
 
 /**
@@ -470,15 +510,33 @@ function findReusableOwnTerminal(
   return undefined;
 }
 
+/** What a test may substitute for the production wiring of {@link registerTerminalCapabilities}. */
+export interface TerminalCapabilityDeps {
+  /** Time a worker's `hrv theme info -j` probe may take inside `terminal.write` (default 7 s, inside the call's 10 s execution budget). */
+  probeTimeoutMs?: number;
+  /** Staged-versus-running daemon bundle comparison reported by `terminal.list` (default: the spawner's). */
+  daemonStatus?: () => DaemonVersionStatus;
+}
+
+/**
+ * The probe may use at most this much of `terminal.write`'s execution budget (15 s policy minus the 5 s
+ * cancellation ack), so a slow `hrv` is answered with a refusal before the platform aborts the call.
+ */
+const WORKER_PROBE_TIMEOUT_MS = 7_000;
+
 export function registerTerminalCapabilities(
   catalogue: CapabilityCatalogue,
   terminal: TerminalManager,
-  ownership?: TerminalOwnershipPort
+  ownership?: TerminalOwnershipPort,
+  deps: TerminalCapabilityDeps = {}
 ): void {
+  const workerProbeTimeoutMs = deps.probeTimeoutMs ?? WORKER_PROBE_TIMEOUT_MS;
+  const workerInputGate = new WorkerTerminalInputGate({ probeTimeoutMs: workerProbeTimeoutMs });
+  const daemonStatus = deps.daemonStatus ?? daemonVersionStatus;
   catalogue.register<{ sessionId: string; input: string; force?: boolean }, TerminalWriteResult>({
     name: 'terminal.write',
     description:
-      'Write raw input text to one of your terminal split panes (the panes under the terminal you run in; never the terminal you run in itself). Writing to a SLEEPING pane wakes it (a fresh shell in the same cwd) and then delivers the input; the result reports woke=true. The result also carries writtenAt (epoch ms taken just before the write) and, when the terminal has an OMP run file, its run state from before the write: pass writtenAt to terminal.wait run-idle as afterEventAt to wait for the answer to THIS input. A Leader terminal (marked by the user) may write to any live terminal of any project except its own: a terminal whose OMP run is `running` is refused with TERMINAL_BUSY unless force:true',
+      'Write raw input text to one of your terminal split panes (the panes under the terminal you run in; never the terminal you run in itself). Writing to a SLEEPING pane wakes it (a fresh shell in the same cwd) and then delivers the input; the result reports woke=true. The result also carries writtenAt (epoch ms taken just before the write) and, when the terminal has an OMP run file, its run state from before the write: pass writtenAt to terminal.wait run-idle as afterEventAt to wait for the answer to THIS input. written:false means no live shell was confirmed to take the input (a dead terminal, a failed wake or a failed daemon call; a daemon call that timed out may still have delivered it): check the terminal with terminal.list before writing again, or re-create it. A Leader terminal (marked by the user) may write to any live terminal of any project except its own: a terminal whose OMP run is `running` is refused with TERMINAL_BUSY unless force:true. A terminal a Leader drives (a worker) has the theme-CLI lines it types here checked like its bash tool: each completed line that names hrv/haravan/shopify theme is judged by the same rules (read actions pass; a sync such as `hrv theme dev` or `hrv theme push --only <files>` passes only after `hrv theme info -j` proves the bound theme is a draft) and anything else is refused with POLICY_DENIED and a REFUSED_THEME_* refusalCode: report NEEDS_INPUT to your Leader instead of retrying. A worker may type only plain text, Enter, Backspace, Tab, Esc and Ctrl-C: any other control key, a line that ends in a continuation (a trailing backtick, backslash, caret, pipe, ampersand or comma, or an open quote or bracket) and a line that cannot be read back (after Esc or Tab, or over 8 KiB) are refused too, so write a multi-line script to a file instead',
     risk: 'write',
     policy: {
       effect: 'interactive-effect',
@@ -514,46 +572,115 @@ export function registerTerminalCapabilities(
       if (typeof params.input !== 'string') {
         throw new CapabilityError('INVALID_ARGUMENT', 'input string is required');
       }
+      const startedAt = Date.now();
+      const signal = (context && 'signal' in context ? context.signal : undefined) ?? (context && 'control' in context ? context.control?.signal : undefined);
       const scope = resolveTerminalCallerScope(ownership, context);
       assertTerminalOwnership(scope, params.sessionId);
       if (scope.bound && scope.leader && params.force !== true) assertLeaderTargetNotBusy(params.sessionId);
-      const before = probeTerminalLifecycle(terminal, params.sessionId);
-      const wasSleeping = before !== undefined && before.disposed !== true && before.state === 'sleeping';
-      // Writing IS the wake path. `writeTo` runs the manager's own wake transition
-      // (shell spawn + `session-woken` emit + affinity-tombstone cleanup) and then
-      // delivers the input to the fresh shell. No explicit wakeSession() call is made
-      // here on purpose: a second wake would race that transition and could spawn two
-      // shells for one keystroke.
-      // The singleton may be the daemon proxy, whose writeTo resolves only once the daemon
-      // has delivered the input (and completed any wake it triggered). Awaiting keeps the
-      // probe honest: `after` — and therefore `woke` — describes the session after the
-      // input landed, not mid-RPC while the wake is still in flight.
-      const run = leaderRunSnapshot(params.sessionId);
-      const writtenAt = Date.now();
-      await terminal.writeTo(params.sessionId, params.input);
-      // A Leader's first successful write claims the terminal as one of its workers, so the Worker board shows it.
-      if (scope.bound && scope.leader) LeaderRegistry.getInstance().assignWorker(params.sessionId, scope.homeId);
-      const after = probeTerminalLifecycle(terminal, params.sessionId) || before;
-      const woke = wasSleeping && after !== undefined && after.state !== 'sleeping';
-      const result: TerminalWriteResult = {
-        // Historical semantics for a live session stay exactly as they were: the write
-        // is reported as handed to the shell. A sleeping session whose wake failed is
-        // the one case where `written: true` would be a fabrication — the manager's
-        // write route returns without a shell and the input is dropped.
-        written: wasSleeping ? woke : true,
-        woke,
-        priorState: before?.state,
-        state: after?.state,
-        sessionGeneration: after?.sessionGeneration,
-        writtenAt,
-        ...(run ? { run } : {}),
+      const registry = LeaderRegistry.getInstance();
+      const deliver = async (): Promise<TerminalWriteResult> => {
+        const before = probeTerminalLifecycle(terminal, params.sessionId);
+        const wasSleeping = before !== undefined && before.disposed !== true && before.state === 'sleeping';
+        // Writing IS the wake path. `writeTo` runs the manager's own wake transition
+        // (shell spawn + `session-woken` emit + affinity-tombstone cleanup) and then
+        // delivers the input to the fresh shell. No explicit wakeSession() call is made
+        // here on purpose: a second wake would race that transition and could spawn two
+        // shells for one keystroke.
+        // The singleton may be the daemon proxy, whose writeTo resolves only once the daemon
+        // has delivered the input (and completed any wake it triggered). Awaiting keeps the
+        // probe honest: `after` — and therefore `woke` — describes the session after the
+        // input landed, not mid-RPC while the wake is still in flight.
+        const run = leaderRunSnapshot(params.sessionId);
+        const writtenAt = Date.now();
+        // The facade's result is read as `unknown`: only an explicit `false` means the input was not
+        // delivered. An in-process manager that returns nothing, or a daemon that predates the field, is delivery.
+        const delivered = (await terminal.writeTo(params.sessionId, params.input)) as unknown;
+        // A Leader's first successful write claims the terminal as one of its workers, so the Worker board
+        // shows it. A write that reached no shell claims nothing.
+        let registryNote = '';
+        if (delivered !== false && scope.bound && scope.leader && !registry.assignWorker(params.sessionId, scope.homeId)) {
+          const owner = registry.workerOf(params.sessionId);
+          const refusedOnPurpose = registry.isLeader(params.sessionId) || (owner !== undefined && owner.leaderId !== scope.homeId && registry.isLeader(owner.leaderId));
+          if (!refusedOnPurpose) registryNote = " Leader registry could not be saved: this terminal's OMP is not gated.";
+        }
+        const after = probeTerminalLifecycle(terminal, params.sessionId) || before;
+        const woke = wasSleeping && after !== undefined && after.state !== 'sleeping';
+        const result: TerminalWriteResult = {
+          // A live session reports the write as handed to the shell unless the facade says it was not. A
+          // sleeping session whose wake failed is the other case where `written: true` would be a
+          // fabrication — the manager's write route returns without a shell and the input is dropped.
+          written: delivered === false ? false : wasSleeping ? woke : true,
+          woke,
+          priorState: before?.state,
+          state: after?.state,
+          sessionGeneration: after?.sessionGeneration,
+          writtenAt,
+          ...(run ? { run } : {}),
+        };
+        if (wasSleeping && !woke) {
+          result.message =
+            `Session "${params.sessionId}" was sleeping and did not wake — the shell spawn failed, so the input was NOT delivered. ` +
+            `Retry terminal.write, or re-create the session.${registryNote}`;
+        } else if (delivered === false) {
+          // A daemon call that timed out reads as `false` too, and the input may have arrived before it did.
+          result.message =
+            `Terminal "${params.sessionId}" did not confirm the input: no live shell was confirmed to take it (the terminal is gone, its shell could not be reached, or the daemon call timed out), so it may NOT have been delivered. ` +
+            `Check the terminal with terminal.list before writing again, or re-create it.${registryNote}`;
+        } else if (registryNote) {
+          result.message = registryNote.trim();
+        }
+        return result;
       };
-      if (wasSleeping && !woke) {
-        result.message =
-          `Session "${params.sessionId}" was sleeping and did not wake — the shell spawn failed, so the input was NOT delivered. ` +
-          `Retry terminal.write, or re-create the session.`;
-      }
-      return result;
+      // A Leader's worker types through this tool exactly as it types through its bash tool, so each
+      // completed line is held to the same theme-push rules before any of it reaches the shell.
+      const worker = scope.bound && !scope.leader ? registry.workerOf(scope.homeId) : undefined;
+      if (!worker) return deliver();
+      const abortedError = (): Error =>
+        Object.assign(new Error('terminal.write was aborted before the input was written; nothing was typed'), { code: 'ABORTED', name: 'AbortError' });
+      return workerInputGate.run(params.sessionId, async () => {
+        // A call the platform already gave up on (its budget ran out while it queued behind another write)
+        // must not type anything: the worker is told it failed and would retry, so it would run twice.
+        if (signal?.aborted) throw abortedError();
+        const cwd = terminal.listSessions(true).find((row) => row.id === params.sessionId)?.cwd;
+        const verdict = await workerInputGate.inspect(params.sessionId, params.input, cwd, { deadlineAt: startedAt + workerProbeTimeoutMs });
+        if (verdict.decision === 'block') {
+          // Half a line typed by an earlier call would otherwise stay in the shell and be completed by
+          // whatever is typed next: clear it. A sleeping shell holds no line, and writing would wake it.
+          let interruptDelivered = true;
+          if (verdict.interruptPending && probeTerminalLifecycle(terminal, params.sessionId)?.state !== 'sleeping') {
+            try {
+              interruptDelivered = ((await terminal.writeTo(params.sessionId, '\x03')) as unknown) !== false;
+            } catch {
+              interruptDelivered = false;
+            }
+            // The line is still in the shell: the next Enter there must not run it unjudged.
+            if (!interruptDelivered) workerInputGate.markTainted(params.sessionId);
+          }
+          throw new CapabilityError('POLICY_DENIED', verdict.reason, {
+            refusalCode: verdict.code,
+            sessionId: params.sessionId,
+            command: verdict.command,
+            ...(interruptDelivered ? {} : { interruptDelivered: false }),
+            recovery: interruptDelivered
+              ? 'Report NEEDS_INPUT to your Leader; nothing of this input was written'
+              : 'Report NEEDS_INPUT to your Leader; nothing of this input was written, but the half-typed line in the terminal could not be cleared (Ctrl-C was not delivered), so the next input there is refused until it is',
+          });
+        }
+        if (signal?.aborted) {
+          verdict.revert();
+          throw abortedError();
+        }
+        let result: TerminalWriteResult;
+        try {
+          result = await deliver();
+        } catch (err) {
+          verdict.undelivered();
+          throw err;
+        }
+        // A write that was not confirmed may still have reached the shell: the buffer keeps the stricter reading.
+        if (result.written === false) verdict.undelivered();
+        return result;
+      });
     },
   });
 
@@ -664,11 +791,16 @@ export function registerTerminalCapabilities(
 
   catalogue.register<
     { paged?: boolean; includeBuffer?: boolean },
-    { sessions: unknown[]; activeSessionId: string; omittedOutOfScopeTerminals?: number }
+    {
+      sessions: unknown[];
+      activeSessionId: string;
+      omittedOutOfScopeTerminals?: number;
+      daemonOutdated?: { running: string; staged: string; message: string };
+    }
   >({
     name: 'terminal.list',
     description:
-      'List the terminal split panes you may drive: the panes under the terminal you run in (the Space panes such as a sync watcher, and panes you created). The terminal you run in, other terminals, and other projects\' terminals are never listed; `omittedOutOfScopeTerminals` counts them. A Leader terminal (marked by the user) instead lists every live terminal of every project except its own, each row adding `workerOf` (when it is one of your workers) and `run` (the OMP run state read from its run file: state, runSeq, ompSessionId, promptHead, lastEventAt, stale). Rows carry bounded wire summary and incarnation metadata; includeBuffer:false drops the raw output tail (`buffer`) from every row, for polling many terminals',
+      'List the terminal split panes you may drive: the panes under the terminal you run in (the Space panes such as a sync watcher, and panes you created). The terminal you run in, other terminals, and other projects\' terminals are never listed; `omittedOutOfScopeTerminals` counts them. A Leader terminal (marked by the user) instead lists every live terminal of every project except its own, each row adding `workerOf` (when it is one of your workers) and `run` (the OMP run state read from its run file: state, runSeq, ompSessionId, promptHead, lastEventAt, stale). `daemonOutdated` ({ running, staged, message }) appears for a Leader when the terminal daemon still runs an older bundle than the one staged on disk: relay it to the user as "cần khởi động lại daemon", never restart it yourself (a restart ends every live shell). Rows carry bounded wire summary and incarnation metadata; includeBuffer:false drops the raw output tail (`buffer`) from every row, for polling many terminals',
     risk: 'read',
     policy: {
       effect: 'read',
@@ -705,6 +837,21 @@ export function registerTerminalCapabilities(
         if (dropBuffer) delete row.buffer;
         return row;
       };
+      // Only a caller that may restart or relay about the daemon hears about its version: a plain
+      // agent in a split pane can do nothing with it.
+      const outdatedNote = (): { daemonOutdated?: { running: string; staged: string; message: string } } => {
+        const status = daemonStatus();
+        if (!status.outdated) return {};
+        const running = status.running ?? 'unknown';
+        const staged = status.staged ?? 'unknown';
+        return {
+          daemonOutdated: {
+            running,
+            staged,
+            message: `The terminal daemon runs bundle ${running} but ${staged} is staged: restart the daemon to load the newer terminal code. A restart ends every live shell, so ask the user first.`,
+          },
+        };
+      };
       if (!scope.bound) {
         // A caller with no attachment carries no ownership question: every row is its to drive.
         return { sessions: sessions.map((session) => withOwned(session, true)), activeSessionId: terminal.getActiveSessionId() };
@@ -729,6 +876,7 @@ export function registerTerminalCapabilities(
           sessions: rows,
           activeSessionId: rows.some((row) => row.id === activeId) ? activeId : (rows[0]?.id ?? ''),
           ...(sessions.length - rows.length > 0 ? { omittedOutOfScopeTerminals: sessions.length - rows.length } : {}),
+          ...outdatedNote(),
         };
       }
       // An attachment sees the panes of its own terminal and nothing else: listing is how a caller
@@ -790,7 +938,7 @@ export function registerTerminalCapabilities(
   >({
     name: 'terminal.create',
     description:
-      'Create a new terminal split pane under the terminal you run in (always a new pane, never the user\'s own split). You can only ever drive the panes under your own terminal, so this is the only way to get a shell. Close panes you no longer need with terminal.close. reuse:true returns your own idle pane for the same folder instead of a new one; use it only when that pane is idle, because a pane still running a command receives the input. A Leader terminal (marked by the user) that passes cwd without parentId instead mints a BASE terminal in the project that owns that folder, named by `name`, and registers it as its worker',
+      'Create a new terminal split pane under the terminal you run in (always a new pane, never the user\'s own split). You can only ever drive the panes under your own terminal, so this is the only way to get a shell. Close panes you no longer need with terminal.close. reuse:true returns your own idle pane for the same folder instead of a new one; use it only when that pane is idle, because a pane still running a command receives the input. A Leader terminal (marked by the user) that passes cwd without parentId instead mints a BASE terminal in the project that owns that folder, named by `name`, and registers it as its worker. A split minted under a terminal a Leader drives is registered as that Leader\'s worker too, so the theme-push rules that apply to the worker apply in the split',
     risk: 'write',
     policy: {
       effect: 'management',
@@ -855,7 +1003,7 @@ export function registerTerminalCapabilities(
         return { sessionId: id };
       }
       if (scope.leader && !(typeof params.parentId === 'string' && params.parentId.trim()) && typeof params.cwd === 'string' && params.cwd.trim()) {
-        return placeLeaderWorker(scope.homeId, params);
+        return placeLeaderWorker(terminal, scope.homeId, params);
       }
       if (typeof params.parentId === 'string' && params.parentId.trim() && params.parentId.trim() !== scope.homeId) {
         throw new CapabilityError(
@@ -895,6 +1043,17 @@ export function registerTerminalCapabilities(
           `No session id was issued: your terminal "${scope.homeId}" is missing, disposed, or already a split`
         );
       }
+      // A split of a Leader's worker is the same worker: an OMP started in it must find a record and be gated,
+      // even when the Leader that drove the parent is gone. A split that cannot be recorded is closed again.
+      const registry = LeaderRegistry.getInstance();
+      if (registry.workerOf(scope.homeId)) {
+        registry.forget(id);
+        clearRunFilesOf(id);
+        if (!registry.inheritWorker(id, scope.homeId)) {
+          const closed = await closeUnrecordedTerminal(() => terminal.closeSplitSession(id));
+          throw unrecordedWorkerError('The split', id, closed);
+        }
+      }
       return { sessionId: id, ownerBound: true };
     }),
   });
@@ -923,7 +1082,7 @@ export function registerTerminalCapabilities(
       type: 'object',
       properties: {
         sessionId: { type: 'string', description: 'Session ID to close' },
-        isSplit: { type: 'boolean', description: 'Whether target is a split session' },
+        isSplit: { type: 'boolean', description: 'Ignored for an agent: a pane is always closed as a split' },
       },
       required: ['sessionId'],
     },
@@ -943,6 +1102,7 @@ export function registerTerminalCapabilities(
       const closed = isSplit
         ? await terminal.closeSplitSession(params.sessionId)
         : await terminal.closeSession(params.sessionId);
+      if (closed !== false) workerInputGate.forget(params.sessionId);
       return { closed };
     },
   });

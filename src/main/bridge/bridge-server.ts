@@ -3305,6 +3305,9 @@ export class BridgeServer {
         case 'antifan.terminalInput': {
           if (typeof p.text === 'string') {
             const tm = TerminalManager.getInstance();
+            // The manager answers false when the input provably did not reach a shell; an
+            // in-process manager that answers nothing is treated as delivered.
+            let delivered: boolean | void;
             if (p.sessionId) {
               // An agent attachment is scoped to its own session; a companion grant follows the
               // user-plane rule; a master-token socket is unscoped and addresses any session.
@@ -3315,7 +3318,7 @@ export class BridgeServer {
                 respond(false, undefined, 'TERMINAL_FORBIDDEN: caller may not operate this terminal session');
                 break;
               }
-              await this.holdProcessAdmission('terminalInput', () => tm.writeTo(p.sessionId, p.text));
+              delivered = await this.holdProcessAdmission('terminalInput', () => tm.writeTo(p.sessionId, p.text));
             } else if (boundAttachmentId) {
               // Attachment callers must never fall back to the user's active shell.
               // Reject with TERMINAL_FORBIDDEN unless a sessionId is required.
@@ -3328,11 +3331,11 @@ export class BridgeServer {
                 respond(false, undefined, 'TERMINAL_FORBIDDEN: caller may not operate this terminal session');
                 break;
               }
-              await this.holdProcessAdmission('terminalInput', () => tm.write(p.text));
+              delivered = await this.holdProcessAdmission('terminalInput', () => tm.write(p.text));
             } else {
-              await this.holdProcessAdmission('terminalInput', () => tm.write(p.text));
+              delivered = await this.holdProcessAdmission('terminalInput', () => tm.write(p.text));
             }
-            respond(true, { written: true });
+            respond(true, { written: delivered !== false });
           } else {
             respond(false, undefined, 'Missing text in terminalInput');
           }
@@ -3360,6 +3363,7 @@ export class BridgeServer {
           const sequence = keyMap[key] ?? p.sequence;
           if (typeof sequence === 'string') {
             const tm = TerminalManager.getInstance();
+            let delivered: boolean | void;
             if (p.sessionId) {
               // Same plane resolution as terminalInput: an agent attachment and a companion grant
               // are gated, a master-token socket is unscoped.
@@ -3370,7 +3374,7 @@ export class BridgeServer {
                 respond(false, undefined, 'TERMINAL_FORBIDDEN: caller may not operate this terminal session');
                 break;
               }
-              await this.holdProcessAdmission('terminalSendKey', () => tm.writeTo(p.sessionId, sequence));
+              delivered = await this.holdProcessAdmission('terminalSendKey', () => tm.writeTo(p.sessionId, sequence));
             } else if (boundAttachmentId) {
               respond(false, undefined, 'TERMINAL_FORBIDDEN: terminalSessionId is required for attachment key input');
               break;
@@ -3381,11 +3385,11 @@ export class BridgeServer {
                 respond(false, undefined, 'TERMINAL_FORBIDDEN: caller may not operate this terminal session');
                 break;
               }
-              await this.holdProcessAdmission('terminalSendKey', () => tm.write(sequence));
+              delivered = await this.holdProcessAdmission('terminalSendKey', () => tm.write(sequence));
             } else {
-              await this.holdProcessAdmission('terminalSendKey', () => tm.write(sequence));
+              delivered = await this.holdProcessAdmission('terminalSendKey', () => tm.write(sequence));
             }
-            respond(true, { sent: true, key });
+            respond(true, { sent: delivered !== false, key });
           } else {
             respond(false, undefined, `Unknown key: ${p.key}`);
           }

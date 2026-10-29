@@ -26,6 +26,8 @@ export const THEME_PUSH_CODES = {
   PUSH_UNVERIFIED: "REFUSED_THEME_PUSH_UNVERIFIED",
   /** An `eval` cell names the theme CLI: a subprocess there escapes the shell-line checks. */
   VIA_EVAL: "REFUSED_THEME_VIA_EVAL",
+  /** The line names the theme CLI in a shape the rules cannot read: wrapper, subshell, quoted, line-continued. */
+  COMPLEX: "REFUSED_THEME_COMPLEX",
 } as const;
 
 export interface ThemeCommand {
@@ -81,15 +83,51 @@ const KNOWN_ACTIONS: Record<string, true> = {
 const DIR_CHANGE_WORDS: Record<string, true> = {
   cd: true,
   pushd: true,
+  popd: true,
   chdir: true,
   "set-location": true,
+  "push-location": true,
+  "pop-location": true,
   sl: true,
 };
+
+/** `cd`, `cd..`, `cd\`, `cd/d`, and a bare drive switch such as `D:` all move the shell. */
+function isDirChangeToken(token: string): boolean {
+  const lower = token.toLowerCase();
+  return DIR_CHANGE_WORDS[lower] === true || /^(?:cd|chdir|sl)[.\\/]/.test(lower) || /^[a-z]:$/.test(lower);
+}
+
+/** The parser's segments: quotes become spaces, then split on `&&`, `||`, `;`, `|`, line breaks and `&`. */
+function parserSegments(command: string): string[] {
+  return command.replace(/["'`]/g, " ").split(/&&|\|\||[;|\r\n&]/);
+}
+
+/** A segment that starts a script in the current shell (`. x`, `source x`, `.\go.ps1`, `x.bat`): it may `cd`. */
+function isScriptCall(first: string): boolean {
+  if (cliOf(first) !== null) return false;
+  return first === "." || first.toLowerCase() === "source" || /^\.[\\/]/.test(first) || /\.(?:ps1|bat|cmd|sh)$/i.test(first);
+}
+
+/**
+ * True when the line may move the shell's folder: any directory-changing word as a token
+ * anywhere (inside `{ }`, `( )`, quotes, `if`/`for` bodies, `iex '...'`), a bare drive switch,
+ * or a segment that runs a script. Over-detection is intended: the cost is "open a new
+ * terminal in the theme folder", the cost of a miss is a verdict against the wrong binding.
+ */
+export function startsDirChange(text: string): boolean {
+  if (typeof text !== "string" || text.length === 0) return false;
+  const stripped = text.replace(/["'`]/g, " ");
+  if (stripped.split(/[\s{}();|&,]+/).some((token) => token.length > 0 && isDirChangeToken(token))) return true;
+  return parserSegments(text).some((segment) => {
+    const first = segment.split(/\s+/).find(Boolean);
+    return first !== undefined && isScriptCall(first);
+  });
+}
 
 /** `C:\x\hrv.cmd`, `./node_modules/.bin/haravan`, `shopify.exe` → `hrv` | `shopify` | null. */
 function cliOf(token: string): "hrv" | "shopify" | null {
   const base = path.win32.basename(path.posix.basename(token)).toLowerCase().replace(/\.(cmd|exe|ps1|bat|js|mjs|cjs)$/, "");
-  if (base === "hrv" || base === "haravan") return "hrv";
+  if (base === "hrv" || base === "haravan" || base === "haravan-cli") return "hrv";
   if (base === "shopify") return "shopify";
   return null;
 }
@@ -104,12 +142,12 @@ function cliOf(token: string): "hrv" | "shopify" | null {
 export function parseThemeCommands(command: string): ThemeCommand[] {
   if (typeof command !== "string" || command.length === 0) return [];
   const found: ThemeCommand[] = [];
-  const segments = command.replace(/["'`]/g, " ").split(/&&|\|\||[;|\r\n&]/);
+  const segments = parserSegments(command);
   let dirChanged = false;
   for (const segment of segments) {
     const tokens = segment.split(/\s+/).filter(Boolean);
     const first = tokens[0];
-    if (first !== undefined && DIR_CHANGE_WORDS[first.toLowerCase()] === true) dirChanged = true;
+    if (first !== undefined && isDirChangeToken(first)) dirChanged = true;
     for (let i = 0; i < tokens.length; i += 1) {
       const cli = cliOf(tokens[i] ?? "");
       if (cli === null) continue;
@@ -165,14 +203,14 @@ export function planThemeCommand(cmd: ThemeCommand, boundThemeId: string | null)
       reason: `${THEME_PUSH_CODES.REMOTE_OP}: '${cmd.text}' changes a theme on the shop, and a Leader worker may only sync its own bound draft Haravan theme (hrv theme push --only <files> / hrv theme dev). ${ASK}`,
     };
   }
-  if (cmd.flags.includes("-f") || cmd.flags.includes("--force")) {
+  if (cmd.flags.some((flag) => flag === "--force" || flag.startsWith("--force=") || isShortBundleWith(flag, "f"))) {
     return {
       decision: "block",
       code: THEME_PUSH_CODES.PUSH_SCOPE,
       reason: `${THEME_PUSH_CODES.PUSH_SCOPE}: '${cmd.text}' uses --force, which overwrites changes made on the shop. ${ASK}`,
     };
   }
-  if (action === "push" && !cmd.flags.some((flag) => flag === "-o" || flag === "--only" || flag.startsWith("--only="))) {
+  if (action === "push" && !cmd.flags.some((flag) => flag === "--only" || flag.startsWith("--only=") || isShortBundleWith(flag, "o"))) {
     return {
       decision: "block",
       code: THEME_PUSH_CODES.PUSH_SCOPE,
@@ -183,7 +221,7 @@ export function planThemeCommand(cmd: ThemeCommand, boundThemeId: string | null)
     return {
       decision: "block",
       code: THEME_PUSH_CODES.PUSH_UNVERIFIED,
-      reason: `${THEME_PUSH_CODES.PUSH_UNVERIFIED}: '${cmd.text}' runs after a cd in the same command, so the theme it targets cannot be checked. Run it alone with the bash tool's cwd set to the theme folder.`,
+      reason: `${THEME_PUSH_CODES.PUSH_UNVERIFIED}: '${cmd.text}' may not run in the folder that was checked: a cd, pushd, Set-Location or script ran before it in this line or earlier in this terminal, so the theme it targets cannot be verified. Run it alone from a new terminal whose folder is the theme folder.`,
     };
   }
   if (boundThemeId === null) {
@@ -203,8 +241,179 @@ export function planThemeCommand(cmd: ThemeCommand, boundThemeId: string | null)
   return { decision: "verify-draft", themeId: boundThemeId };
 }
 
-/** A theme CLI word followed later by `theme`, across lines, quotes, list and call syntax. */
-const EVAL_THEME_CLI_RE = /(?:^|[^a-z0-9_.-])(?:hrv|haravan|shopify)(?:\.cmd|\.exe)?(?![a-z0-9_-])[\s\S]*?(?:^|[^a-z0-9_-])theme(?![a-z0-9_-])/i;
+/** `-f`, `-nf`, `-fo`: a single-dash flag or a bundle of short flags that includes `letter`. */
+function isShortBundleWith(flag: string, letter: string): boolean {
+  return /^-[a-z]+$/.test(flag) && flag.includes(letter);
+}
+
+const CLI_WORD = String.raw`(?:hrv|haravan-cli|haravan|shopify)(?:\.(?:cmd|exe|ps1|bat|js|mjs|cjs))?`;
+/**
+ * After a CLI word: not part of a longer name (`hrv.liquid`, `hrv-x`) and not a folder
+ * (`shopify/theme`, `Shopify\Rebel`). A backslash that is only a source-code escape
+ * (`'haravan\n theme'`) still ends the word.
+ */
+const CLI_END = String.raw`(?![a-z0-9_-]|\.[a-z0-9]|/|\\(?![nrt](?![a-z0-9_])))`;
+const CLI_START = String.raw`(?:^|[^a-z0-9_.-])`;
+
+/**
+ * A theme CLI word followed later by `theme`, across lines, quotes, list and call syntax.
+ * `hrv.liquid` is a file, not the CLI; `hrv.cmd` / `hrv.js` / `haravan-cli` are. A path is not
+ * a mention: `shopify/theme`, `...\Shopify\Rebel\layout\theme.liquid`, `layout/theme.liquid`.
+ */
+const THEME_CLI_MENTION_RE = new RegExp(
+  String.raw`${CLI_START}${CLI_WORD}${CLI_END}[\s\S]*?(?:^|[^a-z0-9_\\/.-])theme(?![a-z0-9_-]|\.[a-z0-9]|[\\/])`,
+  "i",
+);
+
+/**
+ * Shop writes that do not say `theme`: `hrv api put|post|delete|patch <path>` (the raw
+ * Admin API; `PUT /web/themes/<id>.json {"role":"main"}` is what `hrv theme publish` sends) and
+ * `hrv rollback-last-push` (restores remote files with no draft check). `hrv api get` is a read.
+ */
+const REMOTE_WRITE_RE = new RegExp(
+  String.raw`${CLI_START}${CLI_WORD}${CLI_END}(?:\s+-\S+(?:\s+[^\s-]\S*)?)*\s+(?:api(?:\s+-\S+(?:\s+[^\s-]\S*)?)*\s+(?:put|post|delete|patch)(?![a-z0-9_-])|rollback-last-push(?![a-z0-9_-]))`,
+  "i",
+);
+
+/**
+ * Lines that rename, store or evaluate the CLI word, so that a later line runs it without
+ * spelling it: `Set-Alias h hrv`, `alias h=hrv`, `doskey`, `function h { hrv ... }`, `iex`,
+ * and `$h = 'hrv'` / `set H=hrv` / `cli = "hrv"`.
+ */
+const CLI_ALIAS_RE = new RegExp(
+  String.raw`(?:^|[\s;&|(])(?:set-alias|new-alias|sal|alias|doskey|new-variable|set-variable|function|iex|invoke-expression|eval)(?![a-z0-9_-])[^\r\n;&|]*?(?:^|[\s"'=\\/])${CLI_WORD}(?![a-z0-9_-]|\.[a-z0-9])`,
+  "i",
+);
+const CLI_ASSIGN_RE = new RegExp(
+  String.raw`(?:^|[;&|(]\s*|\bset\s+)(?:(?:const|let|var|export)\s+)?[$%]?[\w:.-]+%?\s*=\s*["']?(?:[^\s;&|"']*[\\/])?${CLI_WORD}["']?(?=[\s;&|)]|$)`,
+  "im",
+);
+
+/** A segment that starts with the CLI and then takes its next word from a variable, call, block or expansion. */
+function hasIndirectCliArgument(text: string): boolean {
+  for (const segment of topLevelSegments(text)) {
+    const tokens = segment.trim().split(/\s+/);
+    if (cliOf(tokens[0] ?? "") === null) continue;
+    const next = tokens.slice(1).find((token) => !token.startsWith("-"));
+    if (next !== undefined && /^[$%@`{(]/.test(next)) return true;
+  }
+  return false;
+}
+
+function unquoted(text: string): string {
+  return text.replace(/["'`^]/g, "");
+}
+
+/** `hrv api put|post|delete|patch ...` or `hrv rollback-last-push`, spelled plainly or with quote-splitting. */
+function namesRemoteWrite(text: string): boolean {
+  return REMOTE_WRITE_RE.test(text) || REMOTE_WRITE_RE.test(unquoted(text));
+}
+
+function namesCliIndirection(text: string): boolean {
+  return (
+    CLI_ALIAS_RE.test(text) ||
+    CLI_ASSIGN_RE.test(text) ||
+    CLI_ALIAS_RE.test(unquoted(text)) ||
+    CLI_ASSIGN_RE.test(unquoted(text)) ||
+    hasIndirectCliArgument(text)
+  );
+}
+
+/**
+ * True when `text` is a use of the theme CLI the gate has to judge: `hrv|haravan|haravan-cli|
+ * shopify ... theme`, a shop write through `hrv api` / `hrv rollback-last-push`, or an alias,
+ * variable or `iex` that hides the CLI word. Tested on the raw text and on a copy with quoting
+ * characters removed, so `h""rv theme push` and `h^rv theme push` are seen. Over-detection is
+ * intended: a false hit costs a question to the user, a miss is a changed shop.
+ */
+export function mentionsThemeCli(text: string): boolean {
+  if (typeof text !== "string" || text.length === 0) return false;
+  return (
+    THEME_CLI_MENTION_RE.test(text) ||
+    THEME_CLI_MENTION_RE.test(unquoted(text)) ||
+    namesRemoteWrite(text) ||
+    namesCliIndirection(text)
+  );
+}
+
+export type ThemeLinePlan =
+  /** No theme-CLI mention: nothing to gate. */
+  | { decision: "none" }
+  | { decision: "commands"; commands: ThemeCommand[] }
+  | { decision: "block"; code: string; reason: string; command: string };
+
+/** Characters and shapes after which the line cannot be read back as plain `hrv theme ...` commands. */
+const COMPLEX_SHAPE_RE = /[({`]|\\[\r\n]|\.haravan-cli_local\.json/i;
+
+/** Top-level shell segments: split on `&&`, `||`, `;`, `|`, line breaks and `&` outside quotes. */
+function topLevelSegments(text: string): string[] {
+  const segments: string[] = [];
+  let current = "";
+  let quote: string | null = null;
+  for (const ch of text) {
+    if (quote !== null) {
+      if (ch === quote) quote = null;
+      current += ch;
+    } else if (ch === '"' || ch === "'" || ch === "`") {
+      quote = ch;
+      current += ch;
+    } else if (ch === ";" || ch === "|" || ch === "&" || ch === "\r" || ch === "\n") {
+      segments.push(current);
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+  segments.push(current);
+  return segments.filter((segment) => segment.trim().length > 0);
+}
+
+/**
+ * What the push rules can say about one shell line. A line that names a theme CLI is only
+ * readable when every segment that names it starts with the CLI itself and parses to a
+ * command; a wrapper (`bash -c`, `cmd /c`, `powershell -c`, `npx`), a subshell, a quoted or
+ * line-continued CLI word, a global option before `theme`, or a write to the binding file
+ * hides what runs, so it is refused as COMPLEX instead of being guessed at.
+ */
+export function classifyThemeLine(text: string, opts: { assumeDirChanged?: boolean } = {}): ThemeLinePlan {
+  if (typeof text !== "string" || !mentionsThemeCli(text)) return { decision: "none" };
+  const command = text.trim().slice(0, 200);
+  const complex = (why: string): ThemeLinePlan => ({
+    decision: "block",
+    code: THEME_PUSH_CODES.COMPLEX,
+    command,
+    reason: `${THEME_PUSH_CODES.COMPLEX}: '${command}' names the theme CLI in a shape the push rules cannot read (${why}). Run each theme command on its own as one plain bash command - hrv theme <action> ... - with the bash tool's cwd set to the theme folder; no wrapper (bash -c, cmd /c, powershell -c, npx), no ( ), $( ), { }, backtick or backslash-newline, no quoted CLI word, no global option before 'theme', and no mention of the CLI inside another command's text (git commit -F <file> instead of -m). ${ASK}`,
+  });
+  if (namesRemoteWrite(text)) {
+    return {
+      decision: "block",
+      code: THEME_PUSH_CODES.REMOTE_OP,
+      command,
+      reason: `${THEME_PUSH_CODES.REMOTE_OP}: '${command}' writes to the shop outside the draft-theme sync (hrv api put/post/delete/patch sends the request as given, hrv rollback-last-push restores remote files without a draft check). A Leader worker may only sync its own bound draft Haravan theme (hrv theme push --only <files> / hrv theme dev). ${ASK}`,
+    };
+  }
+  if (namesCliIndirection(text)) {
+    return complex("an alias, variable, eval or expansion hides which command runs");
+  }
+  if (COMPLEX_SHAPE_RE.test(text)) {
+    return complex("subshell, grouping, backtick, line continuation or .haravan-cli_local.json");
+  }
+  let mentioningSegments = 0;
+  for (const segment of topLevelSegments(text)) {
+    if (!mentionsThemeCli(segment)) continue;
+    mentioningSegments += 1;
+    const first = segment.trim().split(/\s+/)[0] ?? "";
+    if (cliOf(first) === null) return complex("the segment does not start with the CLI");
+    if (parseThemeCommands(segment).length === 0) return complex("no 'theme <action>' directly after the CLI word");
+  }
+  if (mentioningSegments === 0) return complex("the CLI word and 'theme' are not in the same command");
+  const commands = parseThemeCommands(text).map((cmd) => ({
+    ...cmd,
+    dirChanged: cmd.dirChanged || opts.assumeDirChanged === true,
+  }));
+  if (commands.length === 0) return complex("no theme command could be read");
+  return { decision: "commands", commands };
+}
 
 /**
  * An `eval` cell (Python or JS) can start the theme CLI through `subprocess`, `os.system`,
@@ -213,7 +422,7 @@ const EVAL_THEME_CLI_RE = /(?:^|[^a-z0-9_.-])(?:hrv|haravan|shopify)(?:\.cmd|\.e
  * so any eval cell naming the CLI next to `theme` is refused - read actions included.
  */
 export function planEvalThemeCode(code: string): ThemeCommandPlan {
-  if (typeof code !== "string" || !EVAL_THEME_CLI_RE.test(code)) return { decision: "allow" };
+  if (typeof code !== "string" || !mentionsThemeCli(code)) return { decision: "allow" };
   return {
     decision: "block",
     code: THEME_PUSH_CODES.VIA_EVAL,

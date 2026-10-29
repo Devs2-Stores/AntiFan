@@ -35,6 +35,21 @@ export function resolveScriptsDir(): string | undefined {
   return undefined;
 }
 
+const RUN_FILE_ID_PATTERN = /^((?:terminal|split)-\d+)\.(?:brief\.)?json$/;
+
+/**
+ * Terminal ids named by the OMP run-state files in a runs directory (`<id>.json`,
+ * `<id>.brief.json`). Leftover temp files and the control directory never match.
+ */
+export function idsFromRunFileNames(names: Iterable<string>): string[] {
+  const ids: string[] = [];
+  for (const name of names) {
+    const match = RUN_FILE_ID_PATTERN.exec(name);
+    if (match) ids.push(match[1]!);
+  }
+  return ids;
+}
+
 export const BACKPRESSURE_HIGH_WATERMARK_BYTES = 256 * 1024; // 256 KiB
 export const BACKPRESSURE_LOW_WATERMARK_BYTES = 64 * 1024;  // 64 KiB
 export const BACKPRESSURE_MAX_PENDING_BYTES = 1024 * 1024;   // 1 MiB ring buffer
@@ -1042,6 +1057,26 @@ export class TerminalManager extends EventEmitter {
   }
 
   /**
+   * Where the OMP hook's run files live: `<data root>/runtime/runs`, the same directory
+   * `leaderRunsDir()` reads. The config dir is not a reliable anchor for it: `ANTIFAN_CONFIG_DIR`
+   * can point anywhere, independent of the data root, so the runtime dir is only a sibling of the
+   * config dir by default. When the state path has been redirected away from the effective config
+   * dir (an isolated instance or a test), the id space is isolated too, so the runs dir is taken
+   * as the sibling of that redirected config dir instead of reading the live runtime dir.
+   */
+  private runsDirPath(): string {
+    const stateDir = path.resolve(path.dirname(this.statePath()));
+    const effectiveConfigDir = path.resolve(process.env.ANTIFAN_CONFIG_DIR || StorageLocations.getConfigDir());
+    if (stateDir === effectiveConfigDir) return path.join(StorageLocations.getRuntimeDir(), 'runs');
+    return path.join(stateDir, '..', 'runtime', 'runs');
+  }
+
+  /** The Leader registry sits next to the sessions file (same config dir). */
+  private leaderRegistryPath(): string {
+    return path.join(path.dirname(this.statePath()), 'leader-terminals.json');
+  }
+
+  /**
    * Raises the in-memory counters to the highest numeric suffix among `ids`.
    * Returns true when a counter moved, so callers know the sidecar is stale.
    */
@@ -1078,11 +1113,26 @@ export class TerminalManager extends EventEmitter {
         if (typeof n === 'number' && Number.isSafeInteger(n) && n > 0) this.idCounters[prefix] = n;
       }
     } catch {}
+    let raised = false;
     try {
       const saved = JSON.parse(fs.readFileSync(this.statePath(), 'utf8'));
       const rows: unknown[] = Array.isArray(saved) ? saved : Array.isArray(saved?.sessions) ? saved.sessions : [];
-      this.seedIdCountersFromSaved(rows);
+      raised = this.noteSessionIds(rows.map(row => (row as { id?: unknown } | null)?.id)) || raised;
     } catch {}
+    // Ids a past daemon already handed out may live on only in the Leader registry or in the
+    // run files the OMP hook wrote; a fresh mint must stay above them or it would inherit that
+    // terminal's worker gate and run card. A missing directory or file just means no floor.
+    try {
+      raised = this.noteSessionIds(idsFromRunFileNames(fs.readdirSync(this.runsDirPath()))) || raised;
+    } catch {}
+    try {
+      const registry = JSON.parse(fs.readFileSync(this.leaderRegistryPath(), 'utf8')) as { leaders?: unknown; workers?: unknown } | null;
+      const registryIds: unknown[] = [];
+      if (Array.isArray(registry?.leaders)) registryIds.push(...registry.leaders);
+      if (registry?.workers && typeof registry.workers === 'object') registryIds.push(...Object.keys(registry.workers));
+      raised = this.noteSessionIds(registryIds) || raised;
+    } catch {}
+    if (raised) this.persistIdCounters();
   }
 
   /**
@@ -1091,12 +1141,15 @@ export class TerminalManager extends EventEmitter {
    */
   private persistIdCounters(): void {
     const filePath = this.idCountersPath();
-    const tempPath = `${filePath}.tmp`;
+    const tempPath = `${filePath}.tmp-${process.pid}`;
     try {
       fs.mkdirSync(path.dirname(filePath), { recursive: true });
       fs.writeFileSync(tempPath, JSON.stringify(this.idCounters));
       fs.renameSync(tempPath, filePath);
-    } catch {}
+    } catch (err) {
+      console.warn('[terminal-manager] failed to persist terminal id counters:', err);
+      try { fs.rmSync(tempPath, { force: true }); } catch {}
+    }
   }
 
   /** Mints `terminal-N` / `split-N`; an id is never issued twice, even after its session closed. */
@@ -2232,20 +2285,23 @@ export class TerminalManager extends EventEmitter {
     return this.mintSessionId('terminal');
   }
 
-  public write(input: string): void {
+  /** True only once the bytes were handed to the pty; false when no writable session exists. */
+  public write(input: string): boolean {
     const s = this.resolveWritableSession(this.activeSessionId);
-    if (!s || !s.pty) return;
+    if (!s || !s.pty) return false;
     // The keystroke must reach the shell before the detector runs: the detector
     // only observes, it never swallows, reorders, or delays input.
     s.pty.write(input);
     this.trackInputLine(s, input);
+    return true;
   }
 
-  public writeTo(id: string, input: string): void {
+  public writeTo(id: string, input: string): boolean {
     const s = this.resolveWritableSession(id);
-    if (!s || !s.pty) return;
+    if (!s || !s.pty) return false;
     s.pty.write(input);
     this.trackInputLine(s, input);
+    return true;
   }
 
   /**

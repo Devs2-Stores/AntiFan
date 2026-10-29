@@ -276,9 +276,10 @@ function main(): void {
               respond(false, undefined, 'Missing text in terminalInput');
               break;
             }
-            if (typeof p.sessionId === 'string' && p.sessionId) tm.writeTo(p.sessionId, p.text);
-            else tm.write(p.text);
-            respond(true, { written: true });
+            const delivered = typeof p.sessionId === 'string' && p.sessionId
+              ? tm.writeTo(p.sessionId, p.text)
+              : tm.write(p.text);
+            respond(true, { written: delivered });
             break;
           }
 
@@ -288,9 +289,10 @@ function main(): void {
               respond(false, undefined, `Unknown key: ${String(p.key)}`);
               break;
             }
-            if (typeof p.sessionId === 'string' && p.sessionId) tm.writeTo(p.sessionId, sequence);
-            else tm.write(sequence);
-            respond(true, { sent: true, key: String(p.key || '') });
+            const delivered = typeof p.sessionId === 'string' && p.sessionId
+              ? tm.writeTo(p.sessionId, sequence)
+              : tm.write(sequence);
+            respond(true, { sent: delivered, written: delivered, key: String(p.key || '') });
             break;
           }
 

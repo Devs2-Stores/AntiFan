@@ -42,6 +42,11 @@ export interface DaemonHandle {
   port: number;
   token: string;
   version: string;
+  /**
+   * Set on a re-attached host whose version differs from the staged bundle: it keeps running (a
+   * replacement would orphan every shell it holds) but its code is older than the build on disk.
+   */
+  outdated?: boolean;
 }
 
 export interface DaemonSpawnResult {
@@ -98,6 +103,56 @@ export function resolveStagedEntry(): StagedPointer | null {
   } catch {
     return null;
   }
+}
+
+/** The running host's staged-versus-running comparison, for whoever wants to tell the user a restart is due. */
+export interface DaemonVersionStatus {
+  /** Version of the host this process last attached to or spawned; undefined while none has been. */
+  running?: string;
+  /** Version the staged pointer names right now; undefined when nothing is staged. */
+  staged?: string;
+  /** True only when both are known and differ. */
+  outdated: boolean;
+}
+
+/** How long a staged-pointer read is reused: `terminal.list` can be polled, the pointer changes only on a build. */
+const STAGED_VERSION_MEMO_MS = 5_000;
+
+let lastDaemonVersion: string | undefined;
+let stagedVersionMemo: { pointerPath: string; version: string | undefined; at: number } | undefined;
+const reportedVersionMismatches = new Set<string>();
+
+function readStagedVersion(): string | undefined {
+  const pointerPath = path.join(hostRoot(), 'current.json');
+  const now = Date.now();
+  if (stagedVersionMemo && stagedVersionMemo.pointerPath === pointerPath && now - stagedVersionMemo.at < STAGED_VERSION_MEMO_MS) {
+    return stagedVersionMemo.version;
+  }
+  const version = resolveStagedEntry()?.version;
+  stagedVersionMemo = { pointerPath, version, at: now };
+  return version;
+}
+
+/**
+ * Whether the host this process is attached to runs an older bundle than the one staged on disk.
+ * Never kills or replaces anything: it only reports, so the user can pick the moment to restart the
+ * daemon (which ends every live shell).
+ */
+export function daemonVersionStatus(): DaemonVersionStatus {
+  const running = lastDaemonVersion;
+  const staged = readStagedVersion();
+  return {
+    ...(running !== undefined ? { running } : {}),
+    ...(staged !== undefined ? { staged } : {}),
+    outdated: running !== undefined && staged !== undefined && running !== staged,
+  };
+}
+
+/** Test seam: forget the remembered host version, the staged-pointer memo and the once-per-pair log record. */
+export function resetDaemonVersionStateForTesting(): void {
+  lastDaemonVersion = undefined;
+  stagedVersionMemo = undefined;
+  reportedVersionMismatches.clear();
 }
 
 function readLiveRecord(): LiveRecord | null {
@@ -309,7 +364,28 @@ export async function ensureDaemon(opts: { cwd?: string; onlyIfDead?: boolean } 
   const existing = readLiveRecord();
   const existingAlive = Boolean(existing && isProcessAlive(existing.pid));
   if (existing && existingAlive && (await probeHealth(existing.port, existing.token))) {
-    return { mode: 'attached', handle: { mode: 'attached', pid: existing.pid, port: existing.port, token: existing.token, version: existing.version } };
+    // The recorded host keeps running whatever the staged bundle says: replacing it would end every
+    // shell it holds. A version gap is only reported, once per pair, so the user can choose when to restart.
+    lastDaemonVersion = existing.version;
+    stagedVersionMemo = undefined;
+    const stagedNow = resolveStagedEntry();
+    const outdated = Boolean(stagedNow && stagedNow.version !== existing.version);
+    if (outdated && stagedNow) {
+      const pair = `${existing.version}->${stagedNow.version}`;
+      if (!reportedVersionMismatches.has(pair)) {
+        reportedVersionMismatches.add(pair);
+        try {
+          fs.appendFileSync(
+            path.join(hostRoot(), 'daemon.log'),
+            `[${new Date().toISOString()}] spawner: attached to daemon pid ${existing.pid} running ${existing.version} but ${stagedNow.version} is staged; restart the daemon to load it (this ends every live shell)\n`
+          );
+        } catch { /* log is best-effort */ }
+      }
+    }
+    return {
+      mode: 'attached',
+      handle: { mode: 'attached', pid: existing.pid, port: existing.port, token: existing.token, version: existing.version, outdated },
+    };
   }
   if (existing && existingAlive && opts.onlyIfDead) {
     return { mode: 'in-process', reason: `respawn refused: daemon pid ${existing.pid} is alive but not answering` };
@@ -371,6 +447,7 @@ export async function ensureDaemon(opts: { cwd?: string; onlyIfDead?: boolean } 
     }
 
     writeLiveRecord({ pid: rec.pid, port: rec.port, token: rec.token, version: rec.version, handshakePath });
+    lastDaemonVersion = rec.version;
     return {
       mode: mech.mode,
       handle: { mode: mech.mode, pid: rec.pid, port: rec.port, token: rec.token, version: rec.version },

@@ -76,10 +76,38 @@ if (MODE === "install") {
 }
 console.log(`[smoke] hook=${MODE === "install" ? "(discovered)" : HOOK}`);
 
+/**
+ * The real `omp` binary on PATH. The prompt is a multi-line argument: through `shell: true`
+ * the Windows shell cuts it at the first newline, the model then sees a one-line prompt and
+ * makes no tool call. Spawning the executable directly lets libuv quote the argument whole.
+ */
+function resolveOmpExecutable() {
+  const names = process.platform === "win32" ? ["omp.exe"] : ["omp"];
+  for (const dir of String(process.env.PATH ?? process.env.Path ?? "").split(path.delimiter)) {
+    if (!dir) continue;
+    for (const name of names) {
+      const candidate = path.join(dir, name);
+      try {
+        if (fs.statSync(candidate).isFile()) return candidate;
+      } catch {
+        /* not in this PATH entry */
+      }
+    }
+  }
+  return null;
+}
+
+const ompExecutable = resolveOmpExecutable();
+if (!ompExecutable) {
+  console.log(`[smoke] FAIL: no ${process.platform === "win32" ? "omp.exe" : "omp"} found on PATH`);
+  process.exit(1);
+}
+console.log(`[smoke] omp=${ompExecutable}`);
+
 const started = Date.now();
-const run = spawnSync("omp", args, {
+const run = spawnSync(ompExecutable, args, {
   cwd: ws,
-  shell: true,
+  shell: false,
   encoding: "utf8",
   timeout: 900_000,
   env,
