@@ -1334,6 +1334,17 @@ export class BridgeServer {
                     ...(binding?.browserTarget?.url ? { url: binding.browserTarget.url } : {}),
                   }
                 : undefined;
+              // The terminal this proxy runs in, stamped exactly as `createCliSession` stamps it: only when
+              // that terminal provably lives in the project the attachment is minted under. Without it a
+              // pairing-minted attachment has no origin, so it loses its home terminal whenever its tab names
+              // none, and a Leader terminal's agent can never be recognised as the Leader.
+              const originScope = terminalSessionId && typeof this.controlPlaneRuntime?.resolveTerminalScope === 'function'
+                ? this.controlPlaneRuntime.resolveTerminalScope(terminalSessionId)
+                : undefined;
+              const originTerminalSessionId = originScope?.kind === 'measured' &&
+                originScope.projectId === projectId && originScope.workspaceId === workspaceId
+                ? terminalSessionId
+                : undefined;
 
               const { launch } = await this.attachmentRegistry.issueAttachment(
                 runId,
@@ -1350,6 +1361,7 @@ export class BridgeServer {
                   browserEpoch: browserTarget?.browserEpoch,
                   documentGeneration: browserTarget?.documentGeneration,
                   ttlMs: 3_600_000,
+                  ...(originTerminalSessionId ? { originTerminalSessionId } : {}),
                 }
               );
 

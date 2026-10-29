@@ -1025,6 +1025,38 @@ describe('Bridge discovery & pairing queue isolation from the live data root', (
       }
     });
   });
+  it('stamps the pairing terminal as the attachment origin only when that terminal measures in the minted project', async () => {
+    await withIsolatedRoots(async ({ dataRoot }) => {
+      const projectId = makeControlPlaneId('project');
+      const workspaceId = makeControlPlaneId('workspace');
+      const runtime = new ControlPlaneRuntime({
+        projectId, workspaceId, dataRoot,
+        resolveTerminalProjectScope: id => id === 'terminal-live' ? { projectId, workspaceId } : undefined,
+      });
+      await runtime.initialize();
+      const server = new BridgeServer(new MockTabHost() as unknown as NativeTabHost, 0, true,
+        undefined, () => ({ lease: runtime.getLease(), projectId, workspaceId }), runtime.runs.attachments, '127.0.0.1', runtime);
+      const pair = async (terminalSessionId: string) => {
+        const challenge = await server.claimPairingChallenge('mcp');
+        const response = await fetch(`http://127.0.0.1:${port}/api/pairing/exchange`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code: challenge?.code, clientClass: 'mcp', terminalSessionId, requestedGrant: 'read' }),
+        });
+        assert.strictEqual(response.status, 200);
+        const body = await response.json() as { attachmentId: string };
+        return runtime.runs.attachments.getRecord(body.attachmentId);
+      };
+      let port = 0;
+      try {
+        port = await server.start();
+        assert.strictEqual((await pair('terminal-live'))?.originTerminalSessionId, 'terminal-live');
+        // A terminal no project claims names nothing a later scope check could re-measure.
+        assert.strictEqual((await pair('terminal-unknown'))?.originTerminalSessionId, undefined);
+      } finally {
+        server.dispose();
+      }
+    });
+  });
   it('ephemeral instances serve pairing without publishing discovery or touching the shared queue', async () => {
     await withIsolatedRoots(async ({ configDir, dataRoot }) => {
       const mockHost = new MockTabHost() as unknown as NativeTabHost;
