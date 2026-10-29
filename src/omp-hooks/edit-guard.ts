@@ -14,6 +14,13 @@
  * `.haravan-cli_local.json`). A failed fetch refuses the write; a workspace with no
  * bound shop has no remote copy and writes without one.
  *
+ * In a Leader's worker terminal (its id is under `workers` in the Manager's
+ * `leader-terminals.json`), a shell call that would change a theme on the shop is
+ * gated in every mode: only `hrv theme push --only ...` / `hrv theme dev` against
+ * the bound theme pass, and only after `hrv theme info -j` reports that theme is not
+ * the live (`main`) one. Publish, delete, Shopify writes, `--force` and whole-theme
+ * pushes are refused (`theme-push-policy.ts`).
+ *
  * Nothing in here throws: a hook that throws turns a policy into an outage, so
  * every handler catches and every refusal is a returned value. A `tool_call` the
  * wiring could not classify is a refusal while the session is scoped - an
@@ -44,6 +51,7 @@ import {
   WRITE_TOOLS,
 } from "./edit-guard-policy";
 import { resolveShopIdentity, resolveWorkspaceShape, type WorkspaceShape } from "./theme-paths";
+import { draftVerdict, parseThemeCommands, parseThemeInfo, planThemeCommand } from "./theme-push-policy";
 
 export const GUARD_ENTRY_TYPE = "antifan.edit-mode";
 export const LOG_DIR_PARTS = [".antifan", "edit-guard"];
@@ -53,6 +61,11 @@ const SETTINGS_DATA_RE = /(^|[/\\])config[/\\]settings_data\.json$/i;
 const SETTINGS_DATA_FETCH_TIMEOUT_MS = 90_000;
 /** Shell command prefix that runs the Haravan CLI; tests and non-PATH installs override it. */
 export const HRV_COMMAND_ENV = "ANTIFAN_HRV_COMMAND";
+const THEME_INFO_TIMEOUT_MS = 30_000;
+/** Audit code of a worker push/dev the guard let through after `hrv theme info` proved a draft. */
+const THEME_DRAFT_VERIFIED = "THEME_SYNC_DRAFT_VERIFIED";
+/** The Manager's Leader registry under the config dir (`src/main/leader/leader-registry.ts`). */
+const LEADER_REGISTRY_FILE = "leader-terminals.json";
 
 export interface AuditRow {
   ts: string;
@@ -289,41 +302,33 @@ interface FetchOutcome {
   detail: string;
 }
 
+interface HrvRun {
+  /** Combined stdout+stderr (capped), or null when the CLI never ran to completion. */
+  output: string | null;
+  exitCode: number | null;
+  /** Why `output` is null: spawn error or timeout. */
+  failure: string;
+}
+
 /**
- * `hrv theme fetch <themeId> --only config/settings_data.json` in the theme root.
- * The CLI prints its failures and exits 0, so the job message is the only verdict:
- * success is literally "Tải về thành công 1 file." (live-ops-service.ts).
+ * `<hrv> <args>` in `cwd`. One shell line (a `.cmd` shim on Windows needs the shell),
+ * so callers must interpolate only values they validated as plain tokens.
  */
-function runSettingsDataFetch(themeRoot: string, themeId: string): Promise<FetchOutcome> {
-  const { promise, resolve } = Promise.withResolvers<FetchOutcome>();
-  // One shell line (a `.cmd` shim on Windows needs the shell), so the only
-  // interpolated value must be a plain Haravan theme id.
-  if (!/^\d+$/.test(themeId)) {
-    resolve({ ok: false, detail: `theme_id '${themeId}' in .haravan-cli_local.json is not numeric` });
-    return promise;
-  }
+function runHrv(cwd: string, args: string, timeoutMs: number): Promise<HrvRun> {
+  const { promise, resolve } = Promise.withResolvers<HrvRun>();
   const command = (process.env[HRV_COMMAND_ENV] ?? "").trim() || "hrv";
-  const commandLine = `${command} theme fetch ${themeId} --only config/settings_data.json`;
   let output = "";
   let settled = false;
   let timer: NodeJS.Timeout | undefined;
-  const finish = (ok: boolean, detail: string) => {
+  const finish = (run: HrvRun) => {
     if (settled) return;
     settled = true;
     clearTimeout(timer);
-    resolve({ ok, detail });
-  };
-  const lastLine = () => {
-    const lines = output
-      .replace(/\u001b\[[0-9;]*m/g, "")
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0 && !/^\(node:\d+\)|^\(Use `node/.test(line));
-    return lines[lines.length - 1] ?? "(no output)";
+    resolve(run);
   };
   try {
-    const child = spawn(commandLine, {
-      cwd: themeRoot,
+    const child = spawn(`${command} ${args}`, {
+      cwd,
       shell: true,
       windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"],
@@ -333,23 +338,116 @@ function runSettingsDataFetch(themeRoot: string, themeId: string): Promise<Fetch
     };
     child.stdout?.on("data", collect);
     child.stderr?.on("data", collect);
-    child.on("error", (err) => finish(false, describeError(err)));
-    child.on("close", (code) => {
-      if (/Tải về thành công 1 file\./.test(output)) finish(true, "Tải về thành công 1 file.");
-      else finish(false, `${lastLine()} (exit ${code ?? "null"})`);
-    });
+    child.on("error", (err) => finish({ output: null, exitCode: null, failure: describeError(err) }));
+    child.on("close", (code) => finish({ output, exitCode: code, failure: "" }));
     timer = setTimeout(() => {
       try {
         child.kill();
       } catch {
         /* already gone */
       }
-      finish(false, `timed out after ${SETTINGS_DATA_FETCH_TIMEOUT_MS} ms`);
-    }, SETTINGS_DATA_FETCH_TIMEOUT_MS);
+      finish({ output: null, exitCode: null, failure: `timed out after ${timeoutMs} ms` });
+    }, timeoutMs);
   } catch (err) {
-    finish(false, describeError(err));
+    finish({ output: null, exitCode: null, failure: describeError(err) });
   }
   return promise;
+}
+
+function lastOutputLine(output: string): string {
+  const lines = output
+    .replace(/\u001b\[[0-9;]*m/g, "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !/^\(node:\d+\)|^\(Use `node/.test(line));
+  return lines[lines.length - 1] ?? "(no output)";
+}
+
+/**
+ * `hrv theme fetch <themeId> --only config/settings_data.json` in the theme root.
+ * The CLI prints its failures and exits 0, so the job message is the only verdict:
+ * success is literally "Tải về thành công 1 file." (live-ops-service.ts).
+ */
+async function runSettingsDataFetch(themeRoot: string, themeId: string): Promise<FetchOutcome> {
+  if (!/^\d+$/.test(themeId)) {
+    return { ok: false, detail: `theme_id '${themeId}' in .haravan-cli_local.json is not numeric` };
+  }
+  const run = await runHrv(themeRoot, `theme fetch ${themeId} --only config/settings_data.json`, SETTINGS_DATA_FETCH_TIMEOUT_MS);
+  if (run.output === null) return { ok: false, detail: run.failure };
+  if (/Tải về thành công 1 file\./.test(run.output)) return { ok: true, detail: "Tải về thành công 1 file." };
+  return { ok: false, detail: `${lastOutputLine(run.output)} (exit ${run.exitCode ?? "null"})` };
+}
+
+/**
+ * True when the terminal this OMP runs in is a Leader's worker. Read fresh per call:
+ * the Leader can take a worker on or release it at any time, and the registry the
+ * Manager writes is the only record of it.
+ */
+function isLeaderWorker(env: Record<string, string | undefined> = process.env): boolean {
+  const terminalId = env.ANTIFAN_TERMINAL_SESSION_ID?.trim();
+  if (!terminalId) return false;
+  const dataRoot = env.ANTIFAN_DATA_ROOT?.trim();
+  const configDir = env.ANTIFAN_CONFIG_DIR?.trim() || (dataRoot ? path.join(dataRoot, "config") : "");
+  if (!configDir) return false;
+  try {
+    const file = JSON.parse(fs.readFileSync(path.join(configDir, LEADER_REGISTRY_FILE), "utf8")) as {
+      workers?: Record<string, { leaderId?: unknown } | undefined>;
+    };
+    const record = file?.workers?.[terminalId];
+    return typeof record?.leaderId === "string" && record.leaderId.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/** Nearest folder at or above `start` that holds `.haravan-cli_local.json`. */
+function findBindingRoot(start: string): string | null {
+  let current = path.resolve(start);
+  for (let depth = 0; depth < 12; depth += 1) {
+    if (fs.existsSync(path.join(current, ".haravan-cli_local.json"))) return current;
+    const parent = path.dirname(current);
+    if (parent === current) return null;
+    current = parent;
+  }
+  return null;
+}
+
+/**
+ * The refusal for a worker's shell call that would change a theme on the shop, or
+ * null when the call may run. Non-worker sessions and calls with no theme command
+ * pass untouched; a worker may only sync its own bound draft theme.
+ */
+async function gateThemeCommand(session: GuardSession, input: Record<string, unknown>): Promise<string | null> {
+  const commands = parseThemeCommands(typeof input.command === "string" ? input.command : "");
+  if (commands.length === 0 || !isLeaderWorker()) return null;
+  const cwd =
+    typeof input.cwd === "string" && input.cwd.trim().length > 0
+      ? path.resolve(session.shape.cwd, input.cwd.trim())
+      : session.shape.cwd;
+  const bindingRoot = findBindingRoot(cwd);
+  const boundThemeId = bindingRoot === null ? null : (resolveShopIdentity(bindingRoot)?.themeId ?? null);
+  for (const cmd of commands) {
+    const plan = planThemeCommand(cmd, boundThemeId);
+    let verdict: { decision: "allow" } | { decision: "block"; code: string; reason: string };
+    if (plan.decision === "verify-draft" && bindingRoot !== null) {
+      const run = await runHrv(bindingRoot, "theme info -j", THEME_INFO_TIMEOUT_MS);
+      const info = run.output === null ? null : parseThemeInfo(run.output);
+      const detail = run.output === null ? run.failure : lastOutputLine(run.output);
+      verdict = draftVerdict(cmd, plan.themeId, info, detail);
+      if (verdict.decision === "allow") {
+        appendRows(session, [rowFor(session, cmd.text, "", "allow", THEME_DRAFT_VERIFIED)]);
+      }
+    } else if (plan.decision === "verify-draft") {
+      verdict = draftVerdict(cmd, plan.themeId, null, "no binding folder");
+    } else {
+      verdict = plan;
+    }
+    if (verdict.decision === "block") {
+      appendRows(session, [rowFor(session, "bash", cmd.text, "block", verdict.code)]);
+      return verdict.reason;
+    }
+  }
+  return null;
 }
 
 function isSettingsDataPath(rawPath: string, cwd: string): boolean {
@@ -503,6 +601,14 @@ export default function editGuardHook(pi: GuardPi): void {
         // into a guard error (or into a pass-through).
         warnSafely(pi, plan.reason);
         return { block: true, reason: plan.reason };
+      }
+
+      if (normalizedTool === "bash") {
+        const refusal = await gateThemeCommand(session, input);
+        if (refusal !== null) {
+          warnSafely(pi, refusal);
+          return { block: true, reason: refusal };
+        }
       }
 
       const settingsDataReadTarget =

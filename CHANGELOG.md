@@ -23,6 +23,7 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 - `terminal.wait` có điều kiện mới `run-idle` (đọc file run-state của hook OMP), kèm `minRunSeq` và `afterEventAt` (truyền `writtenAt`) để file run cũ hoặc OMP vừa khởi động không bị tính là đã xong.
 - Nút **Bảng Worker** ở Terminal Manager: mỗi Leader một nhóm, worker kèm project, trạng thái run, prompt đang chạy, thời gian cập nhật; bấm một dòng để nhảy tới terminal; lọc "chỉ hiện dòng cần chú ý".
 - Id `terminal-N` / `split-N` không bao giờ được cấp lại sau khi đóng (bộ đếm tăng dần lưu ở `terminal-id-counters.json` cạnh `terminal-sessions.json`), nên terminal mới không thừa hưởng quyền hay run-state của terminal cũ.
+- Hook OMP `antifan-edit-guard` chặn lệnh theme từ xa trong terminal worker của Leader (ở mọi chế độ): chỉ cho `hrv theme push --only <file...>` và `hrv theme dev` vào đúng theme bind trong `.haravan-cli_local.json`, và chỉ sau khi `hrv theme info -j` báo theme đó không phải theme live (`role` khác `main`). `publish`/`delete`/`rename`/`duplicate`, mọi lệnh ghi `shopify theme`, `--force`, push cả theme, push sang theme id khác hoặc sau `cd` bị từ chối với mã `REFUSED_THEME_*` và ghi vào log edit-guard. Phiên OMP ngoài worker không bị ảnh hưởng. Cài lại hook: `node scripts/install-omp-hooks.mjs --install`.
 - Quy trình cho OMP Leader (xử lý feedback F1GENZ, một việc cho nhiều project, chia việc, canh việc dài) nằm trong skill `antifan-leader`.
 
 ### Thêm — Launcher, restart và công cụ kiểm chứng

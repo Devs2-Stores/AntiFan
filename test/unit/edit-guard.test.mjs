@@ -21,9 +21,9 @@ const SRC = path.join(REPO, "src", "omp-hooks");
 // specifiers rewritten - same trick as anti-direct-policy.test.mjs, extended to a
 // multi-file module.
 const TEMP = fs.mkdtempSync(path.join(os.tmpdir(), "edit-guard-"));
-for (const name of ["edit-mode", "theme-paths", "edit-guard-policy", "edit-guard"]) {
+for (const name of ["edit-mode", "theme-paths", "edit-guard-policy", "theme-push-policy", "edit-guard"]) {
   const source = fs.readFileSync(path.join(SRC, `${name}.ts`), "utf8").replace(
-    /from "\.\/(edit-mode|theme-paths|edit-guard-policy)"/g,
+    /from "\.\/(edit-mode|theme-paths|edit-guard-policy|theme-push-policy)"/g,
     'from "./$1.mts"',
   );
   fs.writeFileSync(path.join(TEMP, `${name}.mts`), source);
@@ -1051,5 +1051,157 @@ test("hook allows normal edits like snippets/header.liquid in mode === 'unset'",
     assert.deepEqual(result, [], "normal theme edits must return undefined (allowed) in unset mode");
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Leader worker: remote theme commands
+// ---------------------------------------------------------------------------
+
+/** A stand-in `hrv` answering `theme info -j` for `themeId` with `role` (null = CLI error text). */
+function installInfoStub({ themeId = "1001507144", role }) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "hrv-info-stub-"));
+  const calls = path.join(dir, "calls.jsonl");
+  const script = path.join(dir, "hrv.mjs");
+  const body =
+    role === null
+      ? "Lỗi: refresh_token đã bị từ chối (invalid_grant)"
+      : `- Đang lấy thông tin theme...\n${JSON.stringify({ theme_id: Number(themeId), name: "Stub", role, org_id: "200001" }, null, 2)}`;
+  fs.writeFileSync(
+    script,
+    [
+      'import { appendFileSync } from "node:fs";',
+      `appendFileSync(${JSON.stringify(calls)}, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd() }) + "\\n");`,
+      `console.log(${JSON.stringify(body)});`,
+    ].join("\n"),
+  );
+  process.env[HRV_COMMAND_ENV] = `"${process.execPath}" "${script}"`;
+  const recorded = () =>
+    fs.existsSync(calls)
+      ? fs.readFileSync(calls, "utf8").trim().split("\n").map((row) => JSON.parse(row))
+      : [];
+  return { dir, recorded };
+}
+
+/** Runs `fn` as terminal `terminal-w` whose Leader registry entry is `worker` (true = a Leader's worker). */
+async function asTerminal(worker, fn) {
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), "leader-cfg-"));
+  fs.writeFileSync(
+    path.join(configDir, "leader-terminals.json"),
+    JSON.stringify({
+      schema: 1,
+      leaders: ["terminal-lead"],
+      workers: worker ? { "terminal-w": { leaderId: "terminal-lead", assignedAt: 1 } } : {},
+    }),
+  );
+  const previous = {
+    id: process.env.ANTIFAN_TERMINAL_SESSION_ID,
+    config: process.env.ANTIFAN_CONFIG_DIR,
+  };
+  process.env.ANTIFAN_TERMINAL_SESSION_ID = "terminal-w";
+  process.env.ANTIFAN_CONFIG_DIR = configDir;
+  try {
+    return await fn();
+  } finally {
+    for (const [key, value] of [
+      ["ANTIFAN_TERMINAL_SESSION_ID", previous.id],
+      ["ANTIFAN_CONFIG_DIR", previous.config],
+    ]) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    fs.rmSync(configDir, { recursive: true, force: true });
+  }
+}
+
+async function runBash(root, sessionId, command, extra = {}) {
+  const hook = makeHook();
+  editGuardHook(hook.pi);
+  const ctx = hook.context(root, sessionId);
+  await hook.emit("session_start", {}, ctx);
+  await hook.emit("before_agent_start", { prompt: "làm việc Leader giao" }, ctx);
+  const results = await hook.emit("tool_call", { toolName: "bash", input: { command, ...extra } }, ctx);
+  return results[0] ?? null;
+}
+
+for (const [label, role, expectedCode] of [
+  ["a draft theme", "unpublished", null],
+  ["the live theme", "main", "REFUSED_THEME_PUSH_LIVE"],
+  ["an unreadable theme info", null, "REFUSED_THEME_PUSH_UNVERIFIED"],
+]) {
+  test(`a worker's scoped hrv theme push against ${label} is decided by hrv theme info`, async () => {
+    const root = makeThemeWorkspace();
+    bindShop(root);
+    const stub = installInfoStub({ role });
+    try {
+      await asTerminal(true, async () => {
+        const result = await runBash(root, `sess-push-${role}`, "hrv theme push --only sections/hero.liquid");
+        const calls = stub.recorded();
+        assert.equal(calls.length, 1, "exactly one theme info probe");
+        assert.deepEqual(calls[0].argv, ["theme", "info", "-j"]);
+        assert.equal(path.resolve(calls[0].cwd).toLowerCase(), path.resolve(root).toLowerCase());
+        if (expectedCode === null) {
+          assert.equal(result, null, "a verified draft sync passes");
+          assert.deepEqual(
+            readLog(root, `sess-push-${role}`).map((row) => `${row.decision}:${row.code}:${row.path}`),
+            ["allow:THEME_SYNC_DRAFT_VERIFIED:"],
+            "the pass is audited without counting as a changed file",
+          );
+        } else {
+          assert.equal(result?.block, true);
+          assert.ok(result.reason.startsWith(`${expectedCode}:`), result.reason);
+          assert.equal(readLog(root, `sess-push-${role}`).at(-1).code, expectedCode);
+        }
+      });
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+      fs.rmSync(stub.dir, { recursive: true, force: true });
+    }
+  });
+}
+
+for (const [label, command, extra, expectedCode] of [
+  ["a whole-theme push", "hrv theme push", {}, "REFUSED_THEME_PUSH_SCOPE"],
+  ["a forced push", "hrv theme push -f --only a.liquid", {}, "REFUSED_THEME_PUSH_SCOPE"],
+  ["a publish", "hrv theme publish 1001507144", {}, "REFUSED_THEME_REMOTE_OP"],
+  ["a Shopify push", "shopify theme push --only sections/a.liquid", {}, "REFUSED_THEME_REMOTE_OP"],
+  ["a push to another theme id", "hrv theme push 999 --only a.liquid", {}, "REFUSED_THEME_PUSH_FOREIGN_THEME"],
+  ["a push after cd", "cd ../other && hrv theme push --only a.liquid", {}, "REFUSED_THEME_PUSH_UNVERIFIED"],
+  ["a push wrapped in powershell", 'powershell -Command "& C:\\tools\\hrv.cmd theme push"', {}, "REFUSED_THEME_PUSH_SCOPE"],
+  ["a push from an unbound folder", "hrv theme dev", { cwd: os.tmpdir() }, "REFUSED_THEME_PUSH_UNVERIFIED"],
+]) {
+  test(`a worker's ${label} is refused without touching the shop`, async () => {
+    const root = makeThemeWorkspace();
+    bindShop(root);
+    const stub = installInfoStub({ role: "unpublished" });
+    try {
+      await asTerminal(true, async () => {
+        const result = await runBash(root, `sess-refuse-${label.replace(/\W+/g, "-")}`, command, extra);
+        assert.equal(result?.block, true, `${command} must be refused`);
+        assert.ok(result.reason.startsWith(`${expectedCode}:`), result.reason);
+        assert.equal(stub.recorded().length, 0, "no hrv call reaches the CLI");
+      });
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+      fs.rmSync(stub.dir, { recursive: true, force: true });
+    }
+  });
+}
+
+test("theme reads in a worker and every theme command outside a worker pass without a probe", async () => {
+  const root = makeThemeWorkspace();
+  bindShop(root);
+  const stub = installInfoStub({ role: "main" });
+  try {
+    await asTerminal(true, async () => {
+      assert.equal(await runBash(root, "sess-read", "hrv theme info -j && hrv theme fetch --only config/settings_data.json"), null);
+    });
+    await asTerminal(false, async () => {
+      assert.equal(await runBash(root, "sess-user", "hrv theme push"), null, "the user's own sessions are not gated");
+    });
+    assert.equal(stub.recorded().length, 0);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(stub.dir, { recursive: true, force: true });
   }
 });
