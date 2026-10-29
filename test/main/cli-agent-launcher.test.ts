@@ -599,6 +599,37 @@ describe('CLI Session and Agent Launcher Lifecycle', () => {
     assert.deepStrictEqual(list.map((x) => x.name), ['pinned-env', 'live-instance', 'live-mirror', 'dead-pin']);
   });
 
+  it('A dead pin does not hide a live discovery file that reuses its port', () => {
+    // A restart that keeps the terminal daemon leaves every shell holding the old
+    // instance's pin; the new instance usually binds the same port again.
+    const launcherPath = path.resolve(process.cwd(), 'scripts', 'antifan-agent.cjs');
+    const { resolveBridgeCandidates } = require(launcherPath);
+    const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-stale-pin-'));
+    fs.writeFileSync(path.join(configDir, 'bridge-dev.json'), JSON.stringify({ port: 20555, host: '127.0.0.1', pid: process.pid }));
+    const keys = ['ANTIFAN_BRIDGE_PORT', 'ANTIFAN_BRIDGE_HOST', 'ANTIFAN_BRIDGE_PID', 'ANTIFAN_BRIDGE_TOKEN', 'ANTIFAN_CONFIG_DIR', 'ANTIFAN_DATA_ROOT'];
+    const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
+    try {
+      for (const k of keys) delete process.env[k];
+      process.env.ANTIFAN_BRIDGE_PORT = '20555';
+      process.env.ANTIFAN_BRIDGE_HOST = '127.0.0.1';
+      process.env.ANTIFAN_BRIDGE_PID = '2147483646';
+      process.env.ANTIFAN_CONFIG_DIR = configDir;
+      const candidates = resolveBridgeCandidates() as Array<{ provenance: string; port: number; pidAlive: boolean | null }>;
+      const live = candidates.filter((c) => c.pidAlive !== false);
+      assert.deepStrictEqual(
+        live.map((c) => `${c.provenance}:${c.port}`),
+        ['instance-file:20555'],
+        `the live instance must survive the dead pin: ${JSON.stringify(candidates)}`
+      );
+    } finally {
+      for (const k of keys) {
+        if (saved[k] === undefined) delete process.env[k];
+        else process.env[k] = saved[k];
+      }
+      fs.rmSync(configDir, { recursive: true, force: true });
+    }
+  });
+
   it('Attach verifies which instance answered and fails over instead of accepting a foreign one', async () => {
     const launcherPath = path.resolve(process.cwd(), 'scripts', 'antifan-agent.cjs');
     const { acquireBridgeSession } = require(launcherPath);

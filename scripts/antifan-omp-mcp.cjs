@@ -2418,7 +2418,7 @@ async function autohealPass() {
   lastDefinitiveRefusal = null;
   autohealPassNothingListening = false;
   if (candidates.length === 0) {
-    const noCandidateCause = 'BRIDGE_NOT_RUNNING: no endpoint discovered (no pin and no discovery file)';
+    const noCandidateCause = 'BRIDGE_NOT_RUNNING: no live endpoint discovered (no pin or discovery file names a running process)';
     rememberAutohealFailure(noCandidateCause);
     deferAutohealReport('BRIDGE_NOT_RUNNING', noCandidateCause, 'MCP_BRIDGE_OFFLINE: AntiFan Desktop Bridge is not running (no candidates discovered).\n');
     autohealPassNothingListening = true;

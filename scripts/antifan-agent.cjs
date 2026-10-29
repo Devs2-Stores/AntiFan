@@ -56,7 +56,14 @@ function resolveBridgeCandidates() {
     const pinnedPid = Number.isInteger(rawPinnedPid) && rawPinnedPid > 0 ? rawPinnedPid : null;
     if (!Number.isNaN(port) && port > 0) {
       const targetKey = `${host}:${port}:${token}`;
-      seenTargets.add(targetKey);
+      // A pin without a pid is the owning instance speaking for itself; an
+      // out-of-range pid proves nothing, so it stays "unknown" rather than live.
+      const pidAlive = pinnedPid !== null ? isPidAlive(pinnedPid) : (process.env.ANTIFAN_BRIDGE_PID ? null : true);
+      // A pin whose process is provably dead must not claim its endpoint: a restarted
+      // app (the terminal daemon keeps the shell, and its stale env, alive) often binds
+      // the same port again, and its discovery file would otherwise be deduped away
+      // behind a candidate every consumer drops for its dead pid.
+      if (pidAlive !== false) seenTargets.add(targetKey);
       candidates.push({
         source: 'env',
         file: null,
@@ -64,9 +71,7 @@ function resolveBridgeCandidates() {
         host,
         token,
         pid: pinnedPid,
-        // A pin without a pid is the owning instance speaking for itself; an
-        // out-of-range pid proves nothing, so it stays "unknown" rather than live.
-        pidAlive: pinnedPid !== null ? isPidAlive(pinnedPid) : (process.env.ANTIFAN_BRIDGE_PID ? null : true),
+        pidAlive,
         pinned: true,
         provenance: 'env',
         startedAt: 0,

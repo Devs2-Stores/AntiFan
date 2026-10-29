@@ -23,7 +23,7 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 - `terminal.wait` có điều kiện mới `run-idle` (đọc file run-state của hook OMP), kèm `minRunSeq` và `afterEventAt` (truyền `writtenAt`) để file run cũ hoặc OMP vừa khởi động không bị tính là đã xong.
 - Nút **Bảng Worker** ở Terminal Manager: mỗi Leader một nhóm, worker kèm project, trạng thái run, prompt đang chạy, thời gian cập nhật; bấm một dòng để nhảy tới terminal; lọc "chỉ hiện dòng cần chú ý".
 - Id `terminal-N` / `split-N` không bao giờ được cấp lại sau khi đóng (bộ đếm tăng dần lưu ở `terminal-id-counters.json` cạnh `terminal-sessions.json`), nên terminal mới không thừa hưởng quyền hay run-state của terminal cũ.
-- Hook OMP `antifan-edit-guard` chặn lệnh theme từ xa trong terminal worker của Leader (ở mọi chế độ): chỉ cho `hrv theme push --only <file...>` và `hrv theme dev` vào đúng theme bind trong `.haravan-cli_local.json`, và chỉ sau khi `hrv theme info -j` báo theme đó không phải theme live (`role` khác `main`). `publish`/`delete`/`rename`/`duplicate`, mọi lệnh ghi `shopify theme`, `--force`, push cả theme, push sang theme id khác hoặc sau `cd` bị từ chối với mã `REFUSED_THEME_*` và ghi vào log edit-guard. Phiên OMP ngoài worker không bị ảnh hưởng. Cài lại hook: `node scripts/install-omp-hooks.mjs --install`.
+- Hook OMP `antifan-edit-guard` chặn lệnh theme từ xa trong terminal worker của Leader (ở mọi chế độ): chỉ cho `hrv theme push --only <file...>` và `hrv theme dev` vào đúng theme bind trong `.haravan-cli_local.json`, và chỉ sau khi `hrv theme info -j` báo theme đó không phải theme live (`role` khác `main`). `publish`/`delete`/`rename`/`duplicate`, mọi lệnh ghi `shopify theme`, `--force`, push cả theme, push sang theme id khác hoặc sau `cd` bị từ chối với mã `REFUSED_THEME_*` và ghi vào log edit-guard. Lệnh theme chỉ được chạy qua tool `bash`: ô `eval` (Python/JS) nào gọi CLI `hrv`/`haravan`/`shopify` kèm `theme` đều bị từ chối với `REFUSED_THEME_VIA_EVAL`, vì subprocess trong đó không đọc lại được tham số và thư mục chạy. Phiên OMP ngoài worker không bị ảnh hưởng. Cài lại hook: `node scripts/install-omp-hooks.mjs --install`.
 - Quy trình cho OMP Leader (xử lý feedback F1GENZ, một việc cho nhiều project, chia việc, canh việc dài) nằm trong skill `antifan-leader`.
 
 ### Thêm — Launcher, restart và công cụ kiểm chứng
@@ -57,6 +57,12 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 ### Đổi — Agent cần mở web thì cửa sổ Project tự hiện
 
 - Khi agent làm việc web (`anti.browser.tabs.create` hoặc `anti.browser.navigate` tới URL `http(s)`) cho một project chưa có cửa sổ, cửa sổ project giờ được mở bằng intent mới `agent-visible`: tạo và hiện ở lần paint đầu bằng `showInactive` (không cướp focus), thay vì mở ẩn chờ người dùng bấm mũi tên ↗ ở sidebar. Cửa sổ đã hiện hoặc đang minimize được giữ nguyên; cửa sổ đang ẩn (do intent `agent` cũ) giữ tab của agent thì được hiện lên khi agent mở trang web. Tab trống (`about:blank`, không `url`) và phiên `antifan.cli.startSession` chỉ là sổ sách, không phải việc web: cửa sổ vẫn mở ẩn như trước (`agent`, journal `project-window.reopened-off-screen`). Mở thật thì journal `project-window.opened-for-agent`. Vì cửa sổ nay hiện nên `open-windows.json` ghi nó và lần khởi động sau sẽ mở lại, như mọi cửa sổ người dùng thấy.
+
+### Sửa — Shell cũ sau khi restart app không còn mất kết nối bridge
+
+- **Triệu chứng:** restart app nhưng giữ daemon terminal thì các shell còn sống vẫn mang `ANTIFAN_BRIDGE_PID`/`ANTIFAN_BRIDGE_PORT` của app cũ. Một `omp` hoặc `antifan-agent.cjs mcp` mới mở trong shell đó chờ 40s rồi báo `BRIDGE_NOT_RUNNING: no endpoint discovered (no pin and no discovery file)`, dù app mới đang chạy.
+- **Nguyên nhân:** `resolveBridgeCandidates` (`scripts/antifan-agent.cjs`) gộp ứng viên theo `host:port:token`. App mới thường bind lại đúng cổng cũ, nên file `bridge-dev.json` của nó bị gộp mất sau pin cũ; pin đó có pid đã chết nên proxy bỏ nó, và không còn ứng viên nào.
+- **Sửa:** pin có pid chết chắc chắn không còn chiếm khoá gộp, nên file discovery của app mới vẫn được giữ. Thông báo `BRIDGE_NOT_RUNNING` nay nói đúng: không pin hay file discovery nào trỏ tới process đang chạy.
 
 ### Sửa — Cửa sổ do agent mở không còn đầy tab Google / New Tab
 
