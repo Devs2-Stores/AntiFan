@@ -2563,6 +2563,209 @@ button {
 }
 
 /* ---------------------------------------------------------------------------
+   LEADER / WORKER: row badges and the Worker board dialog (Manager only).
+--------------------------------------------------------------------------- */
+
+.terminal-tab-leader-badge,
+.terminal-tab-worker-badge {
+  flex: 0 0 auto;
+  padding: 0 4px;
+  margin-left: 4px;
+  border-radius: 4px;
+  font-size: 9px;
+  font-weight: 600;
+}
+
+.terminal-tab-leader-badge {
+  color: #fcd34d;
+  background: rgba(245, 158, 11, 0.18);
+}
+
+.terminal-tab-worker-badge {
+  color: #7dd3fc;
+  background: rgba(56, 189, 248, 0.14);
+}
+
+.leader-board-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 99998;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(2, 6, 23, 0.55);
+  backdrop-filter: blur(2px);
+}
+
+.leader-board-modal {
+  width: 860px;
+  max-width: calc(100vw - 40px);
+  max-height: calc(100vh - 60px);
+  overflow-y: auto;
+  background: #0d1522;
+  border: 1px solid rgba(56, 189, 248, 0.28);
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+}
+
+.leader-board-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.leader-board-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #e2e8f0;
+}
+
+.leader-board-filter {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  font-size: 11px;
+  color: #94a3b8;
+  cursor: pointer;
+}
+
+.leader-board-close {
+  padding: 2px 8px;
+  font-size: 11px;
+  font-family: inherit;
+  color: #94a3b8;
+  background: transparent;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.leader-board-close:hover {
+  color: #e2e8f0;
+  border-color: #38bdf8;
+}
+
+.leader-board-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.leader-board-empty,
+.leader-board-none {
+  padding: 10px 2px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: #7c8ba1;
+}
+
+.leader-board-section {
+  border: 1px solid rgba(100, 116, 139, 0.28);
+  border-radius: 8px;
+  background: rgba(30, 41, 59, 0.35);
+  padding: 8px 10px;
+}
+
+.leader-board-section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.leader-board-leader {
+  padding: 0;
+  font-size: 12.5px;
+  font-weight: 700;
+  font-family: inherit;
+  color: #fcd34d;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.leader-board-leader:hover {
+  text-decoration: underline;
+}
+
+.leader-board-summary {
+  font-size: 10.5px;
+  color: #7c8ba1;
+}
+
+.leader-board-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  color: #cbd5e1;
+}
+
+.leader-board-table th {
+  padding: 3px 8px;
+  text-align: left;
+  font-size: 10px;
+  font-weight: 600;
+  color: #64748b;
+  border-bottom: 1px solid rgba(100, 116, 139, 0.25);
+}
+
+.leader-board-table td {
+  max-width: 280px;
+  padding: 4px 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.leader-board-row {
+  cursor: pointer;
+}
+
+.leader-board-row:hover,
+.leader-board-row:focus-visible {
+  background: rgba(148, 163, 184, 0.1);
+  outline: none;
+}
+
+.leader-board-row.is-attention .leader-board-cell-name {
+  color: #fbbf24;
+}
+
+.leader-board-cell-age {
+  color: #64748b;
+}
+
+.leader-board-state {
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: 9.5px;
+  font-weight: 600;
+  color: #94a3b8;
+  background: rgba(100, 116, 139, 0.18);
+}
+
+.leader-board-state.run-running {
+  color: #5eead4;
+  background: rgba(45, 212, 191, 0.15);
+}
+
+.leader-board-state.run-waiting_user {
+  color: #fbbf24;
+  background: rgba(245, 158, 11, 0.15);
+}
+
+.leader-board-state.run-ended,
+.leader-board-state.run-exited {
+  color: #fca5a5;
+  background: rgba(239, 68, 68, 0.14);
+}
+
+/* ---------------------------------------------------------------------------
    Folder-hub chrome: the manager's grouping sections, per-folder mint, the
    triage block for sessions no window owns, and the textual run badge.
    --------------------------------------------------------------------------- */

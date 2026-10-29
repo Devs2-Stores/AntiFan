@@ -21,7 +21,8 @@ import type { DeviceControlPort, DeviceRegistryPort } from '../device/device-con
 import { WorkspaceFilePort } from '../tools/workspace-file-port';
 import { registerFileCapabilities } from '../tools/file-capabilities';
 import { registerArtifactCapabilities } from '../tools/artifact-capabilities';
-import { registerTerminalCapabilities, resolveHomeBaseTerminal, isLiveSplitOf, type TerminalHostAuthority, type TerminalOwnershipPort } from '../tools/terminal-capabilities';
+import { registerTerminalCapabilities, resolveHomeBaseTerminal, isLiveSplitOf, isLiveTerminal, type TerminalHostAuthority, type TerminalOwnershipPort } from '../tools/terminal-capabilities';
+import { LeaderRegistry } from '../leader/leader-registry';
 import { registerCoreCapabilities, createLazyCorePort } from '../tools/core-capabilities';
 import { registerWorkflowCapabilities } from '../workflow/workflow-capabilities';
 import { WorkflowRegistry } from '../workflow/workflow-registry';
@@ -325,6 +326,12 @@ export class ControlPlaneRuntime {
         ]);
       },
       isHomeSplit: (homeId, terminalId) => isLiveSplitOf(this.terminal, homeId, terminalId),
+      // Leader authority is read here, in Main: it belongs to the terminal the attachment was MINTED from,
+      // never to whichever tab the attachment is bound to now (a tab can be re-bound; the origin cannot).
+      originTerminalId: (attachmentId) =>
+        resolveHomeBaseTerminal(this.terminal, [this.runs.attachments.getRecord(attachmentId)?.originTerminalSessionId]),
+      isLeader: (terminalId) => LeaderRegistry.getInstance().isLeader(terminalId),
+      isLiveTerminal: (terminalId) => isLiveTerminal(this.terminal, terminalId),
       tabAffiliation: host.tabAffiliation.bind(host),
     };
   }

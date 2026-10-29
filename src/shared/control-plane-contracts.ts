@@ -484,11 +484,18 @@ export interface BrowserWaitResult {
 
 export interface TerminalWaitInput {
   sessionId: string;
-  condition: 'output-match' | 'exit' | 'silence';
+  condition: 'output-match' | 'exit' | 'silence' | 'run-idle';
   pattern?: string;
   sessionGeneration?: number;
   afterSeq?: number;
   silenceMs?: number;
+  /** `run-idle` only: the run counter the OMP run must have reached before idle counts. */
+  minRunSeq?: number;
+  /**
+   * `run-idle` only: epoch ms (the `writtenAt` a `terminal.write` returned). Idle counts only once the
+   * run's `lastEventAt` is newer than this and the run has completed at least one turn.
+   */
+  afterEventAt?: number;
   timeoutMs?: number;
 }
 
@@ -764,6 +771,7 @@ export type CapabilityErrorCode =
   | 'TRANSACTION_CONFLICT'
   | 'BASELINE_TAMPERED'
   | 'TERMINAL_FORBIDDEN'
+  | 'TERMINAL_BUSY'
   | 'TERMINAL_SCOPE_UNRESOLVED'
   | 'USER_VISIBLE_OPERATION_FORBIDDEN'
   | 'NO_RENDER_SURFACE'

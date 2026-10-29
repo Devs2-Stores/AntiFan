@@ -82,6 +82,8 @@ describe('Webview & Extension IPC Audit Invariants', () => {
       // The ownership handover the tab context menu drives: a session may be moved to
       // another project, and the host is the only side that may re-stamp it.
       TERMINAL_CHANNELS.ASSIGN_PROJECT,
+      // Only the user's own gesture in a chrome surface may make a terminal a Leader.
+      TERMINAL_CHANNELS.LEADER_SET,
     ];
 
     for (const channel of requiredTerminalChannels) {
@@ -221,6 +223,10 @@ describe('Webview & Extension IPC Audit Invariants', () => {
     assert.match(preloadContent, /assignTerminalProject/);
     assert.match(preloadContent, /invoke\(\s*TERMINAL_CHANNELS\.ASSIGN_PROJECT\s*,\s*\{[^}]*sessionId[^}]*projectId/);
     assert.ok(registeredRoutes.has(TERMINAL_CHANNELS.ASSIGN_PROJECT), 'TERMINAL_CHANNELS.ASSIGN_PROJECT must be registered in route table');
+    // A terminal becomes a Leader only through this chrome route; the preload carries the frozen payload keys.
+    assert.match(preloadContent, /setTerminalLeader/);
+    assert.match(preloadContent, /invoke\(\s*TERMINAL_CHANNELS\.LEADER_SET\s*,\s*\{[^}]*sessionId[^}]*leader/);
+    assert.ok(registeredRoutes.has(TERMINAL_CHANNELS.LEADER_SET), 'TERMINAL_CHANNELS.LEADER_SET must be registered in route table');
     // A terminal's own URL clicks join the owning project through Main, never whichever window
     // currently has focus.
     assert.match(preloadContent, /openTerminalLink/);

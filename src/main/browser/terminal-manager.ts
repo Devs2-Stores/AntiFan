@@ -530,6 +530,7 @@ const RESTORE_SEPARATOR_BYTES = Buffer.byteLength(RESTORE_SEPARATOR, 'utf8');
  */
 export const DEFAULT_USE_CONPTY = false;
 const MIN_TERMINAL_ROWS = 8;
+type SessionIdPrefix = 'terminal' | 'split';
 const MIN_SPLIT_TERMINAL_ROWS = 4;
 const SPLIT_TERMINAL_FRACTION = 0.2;
 // Rolling input line cap: enough to hold any real command, small enough that a
@@ -942,6 +943,8 @@ export class TerminalManager extends EventEmitter {
   private writeSequence = 0;
   private lastCols = 120;
   private lastRows = 30;
+  private idCounters: Record<SessionIdPrefix, number> = { terminal: 0, split: 0 };
+  private idCountersLoadedFrom = '';
   private isDisposed = false;
   private benchmarkChunkSeq = 0;
   private benchmarkChunkBytes = 0;
@@ -1032,6 +1035,78 @@ export class TerminalManager extends EventEmitter {
     const dir = process.env.ANTIFAN_CONFIG_DIR || StorageLocations.getConfigDir();
     return path.join(dir, 'terminal-sessions.json');
   }
+
+  /** Sidecar for the id counters; sits next to the sessions file so both follow the same config dir. */
+  private idCountersPath(): string {
+    return path.join(path.dirname(this.statePath()), 'terminal-id-counters.json');
+  }
+
+  /**
+   * Raises the in-memory counters to the highest numeric suffix among `ids`.
+   * Returns true when a counter moved, so callers know the sidecar is stale.
+   */
+  private noteSessionIds(ids: Iterable<unknown>): boolean {
+    let raised = false;
+    for (const id of ids) {
+      if (typeof id !== 'string') continue;
+      const match = /^(terminal|split)-(\d+)$/.exec(id);
+      if (!match) continue;
+      const prefix = match[1] as SessionIdPrefix;
+      const n = Number(match[2]);
+      if (Number.isSafeInteger(n) && n > this.idCounters[prefix]) {
+        this.idCounters[prefix] = n;
+        raised = true;
+      }
+    }
+    return raised;
+  }
+
+  /**
+   * Loads the counters for the current config dir once: the sidecar value, raised by every id
+   * the saved sessions file still names (a legacy install has no sidecar). A different state
+   * path (test redirects) is a different id space and reloads from scratch.
+   */
+  private ensureIdCounters(): void {
+    const sidecarPath = this.idCountersPath();
+    if (this.idCountersLoadedFrom === sidecarPath) return;
+    this.idCountersLoadedFrom = sidecarPath;
+    this.idCounters = { terminal: 0, split: 0 };
+    try {
+      const value = JSON.parse(fs.readFileSync(sidecarPath, 'utf8')) as Partial<Record<SessionIdPrefix, unknown>>;
+      for (const prefix of ['terminal', 'split'] as const) {
+        const n = value?.[prefix];
+        if (typeof n === 'number' && Number.isSafeInteger(n) && n > 0) this.idCounters[prefix] = n;
+      }
+    } catch {}
+    try {
+      const saved = JSON.parse(fs.readFileSync(this.statePath(), 'utf8'));
+      const rows: unknown[] = Array.isArray(saved) ? saved : Array.isArray(saved?.sessions) ? saved.sessions : [];
+      this.seedIdCountersFromSaved(rows);
+    } catch {}
+  }
+
+  /**
+   * Written synchronously on every mint: the sessions file is debounced (5s), so a hard kill
+   * inside that window must not let the next boot hand the same id to a different terminal.
+   */
+  private persistIdCounters(): void {
+    const filePath = this.idCountersPath();
+    const tempPath = `${filePath}.tmp`;
+    try {
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+      fs.writeFileSync(tempPath, JSON.stringify(this.idCounters));
+      fs.renameSync(tempPath, filePath);
+    } catch {}
+  }
+
+  /** Mints `terminal-N` / `split-N`; an id is never issued twice, even after its session closed. */
+  private mintSessionId(prefix: SessionIdPrefix): string {
+    this.ensureIdCounters();
+    this.noteSessionIds(this.sessions.keys());
+    const n = ++this.idCounters[prefix];
+    this.persistIdCounters();
+    return `${prefix}-${n}`;
+  }
   private cleanOrphanedTempFiles(): void {
     try {
       const dir = path.dirname(this.statePath());
@@ -1067,9 +1142,13 @@ export class TerminalManager extends EventEmitter {
 
   private readSavedSessions(): { activeSessionId?: string; lastCols?: number; lastRows?: number; sessions: SavedSession[] } {
     this.cleanOrphanedTempFiles();
+    this.ensureIdCounters();
     try {
       const value = JSON.parse(fs.readFileSync(this.statePath(), 'utf8'));
-      if (Array.isArray(value)) return { sessions: this.sanitizeRestoredOwnerKeys(value) };
+      if (Array.isArray(value)) {
+        this.seedIdCountersFromSaved(value);
+        return { sessions: this.sanitizeRestoredOwnerKeys(value) };
+      }
       if (value && Array.isArray(value.sessions)) {
         if (typeof value.lastCols === 'number' && value.lastCols >= 40) {
           this.lastCols = value.lastCols;
@@ -1077,6 +1156,7 @@ export class TerminalManager extends EventEmitter {
         if (typeof value.lastRows === 'number' && value.lastRows >= MIN_TERMINAL_ROWS) {
           this.lastRows = value.lastRows;
         }
+        this.seedIdCountersFromSaved(value.sessions);
         return {
           activeSessionId: value.activeSessionId,
           lastCols: value.lastCols,
@@ -1088,6 +1168,11 @@ export class TerminalManager extends EventEmitter {
     } catch {
       return { sessions: [] };
     }
+  }
+
+  /** A restored row's id stays spent even if the user closes it before the next mint. */
+  private seedIdCountersFromSaved(rows: unknown[]): void {
+    if (this.noteSessionIds(rows.map(row => (row as { id?: unknown } | null)?.id))) this.persistIdCounters();
   }
 
   /**
@@ -2144,9 +2229,7 @@ export class TerminalManager extends EventEmitter {
   }
 
   private nextTerminalId(): string {
-    let n = 1;
-    while (this.sessions.has(`terminal-${n}`)) n++;
-    return `terminal-${n}`;
+    return this.mintSessionId('terminal');
   }
 
   public write(input: string): void {
@@ -2609,9 +2692,7 @@ export class TerminalManager extends EventEmitter {
       if (existing.state === 'sleeping') this.wakeSession(existing.id);
       return existing.id;
     }
-    let n = 1;
-    while (this.sessions.has(`split-${n}`)) n++;
-    const id = `split-${n}`;
+    const id = this.mintSessionId('split');
     const targetCols = Math.max(40, initialCols || this.lastCols || 120);
     const targetRows = Math.max(MIN_SPLIT_TERMINAL_ROWS, initialRows || this.getInitialSplitRows(parent.pty?.rows));
     const splitSession = this.spawn(id, cwd || parent.cwd, '', targetCols, targetRows, MIN_SPLIT_TERMINAL_ROWS, parentId, parent.sessionGeneration);

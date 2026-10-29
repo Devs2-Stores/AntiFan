@@ -23,6 +23,7 @@ import type {
   SpaceSplitsInfo,
   TerminalTabPrefs,
   ReadFilePreviewResult,
+  TerminalLeaderSetResult,
 } from '../shared/contracts';
 
 const api = {
@@ -125,6 +126,10 @@ const api = {
   // reason when it may not, so the renderer never has to guess an outcome.
   assignTerminalProject: (sessionId: string, projectId: string) =>
     ipcRenderer.invoke(TERMINAL_CHANNELS.ASSIGN_PROJECT, { sessionId, projectId }),
+  // Mark a base terminal as a Leader (or clear it). Only this gesture can make a terminal a Leader:
+  // Main answers with the flag now in force, or a refusal reason.
+  setTerminalLeader: (sessionId: string, leader: boolean): Promise<TerminalLeaderSetResult> =>
+    ipcRenderer.invoke(TERMINAL_CHANNELS.LEADER_SET, { sessionId, leader }),
   // A terminal's URL belongs to the project that owns the session, never to whichever window has
   // focus when the link handler runs.
   openTerminalLink: (sessionId: string, url: string) =>

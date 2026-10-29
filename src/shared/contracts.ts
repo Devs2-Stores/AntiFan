@@ -777,6 +777,11 @@ export const TERMINAL_CHANNELS = {
   RUN_CONTROL: 'antifan:run:control',
   /** The per-window run-card projection, pushed on every run-state change. */
   RUN_STATE: 'antifan:run:state',
+  /**
+   * Mark a base terminal as a Leader (or clear it). Args `[{ sessionId, leader }]`; the answer is
+   * `TerminalLeaderSetResult`. Only the user can flip it, from the Terminal Manager's context menu.
+   */
+  LEADER_SET: 'antifan:terminal:leader-set',
   /** Quick-Look preview of a local file referenced in terminal output. */
   READ_FILE_PREVIEW: 'antifan:terminal:read-file-preview',
 } as const;
@@ -984,6 +989,40 @@ export interface RunCardState {
   viewOnly: boolean;
   controlPlane?: { runId: string; attemptId?: string; backendId: string };
   changes?: { files: string[]; fileCount: number; blockedCount: number };
+}
+
+/**
+ * A terminal's agent run as an agent reads it from the run file, with the stale rule applied
+ * (`state: 'ended'` + `stale: true` when the process died or the heartbeat lapsed).
+ */
+export interface TerminalRunSnapshot {
+  state: RunCardLifecycle;
+  stale: boolean;
+  runSeq: number;
+  ompSessionId?: string;
+  /** First ≤120 chars of the run's prompt. */
+  promptHead?: string;
+  lastEventAt?: number;
+}
+
+/** Why `antifan:terminal:leader-set` refused. */
+export type TerminalLeaderSetReason = 'INVALID_PAYLOAD' | 'SESSION_NOT_VISIBLE' | 'UNKNOWN_SESSION' | 'SPLIT_NOT_ALLOWED' | 'AGENT_OWNED';
+
+/** The answer of `antifan:terminal:leader-set`: `leader` is the session's Leader flag after the call. */
+export interface TerminalLeaderSetResult {
+  ok: boolean;
+  leader: boolean;
+  error?: TerminalLeaderSetReason;
+}
+
+/**
+ * The Leader fields Main stamps on a session row in a window's projection. `leader` marks a
+ * Leader terminal; `workerOf` names the Leader terminal a worker answers to.
+ */
+export interface TerminalLeaderStamp {
+  leader?: true;
+  workerOf?: string;
+  workerTitle?: string;
 }
 
 /**

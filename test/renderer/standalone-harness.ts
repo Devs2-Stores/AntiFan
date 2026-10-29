@@ -668,6 +668,9 @@ export interface StandaloneHarness {
   emitRunCardState: (payload: unknown) => void;
   /** The capsule-brief dialog element (`#capsuleBriefDialog`). */
   capsuleBriefDialog: FakeElement;
+  /** The Worker board header button (`#btnLeaderBoard`) and dialog (`#leaderBoardDialog`). */
+  leaderBoardButton: FakeElement;
+  leaderBoardDialog: FakeElement;
 }
 
 function computedStyle(): Record<string, string> {
@@ -767,6 +770,20 @@ export function loadStandalone(options: {
   capsuleBriefActionsElement.appendChild(elementById('capsuleBriefClear'));
   capsuleBriefActionsElement.appendChild(elementById('capsuleBriefCancel'));
   standaloneElement.appendChild(capsuleBriefDialogElement);
+  // The Worker board: Manager-only header button plus its dialog, as standalone.html declares
+  // them. The renderer reads every node by id when the board opens.
+  const leaderBoardButtonElement = elementById('btnLeaderBoard');
+  leaderBoardButtonElement.style.display = 'none';
+  headerActionsElement.appendChild(leaderBoardButtonElement);
+  const leaderBoardDialogElement = elementById('leaderBoardDialog');
+  const leaderBoardModalElement = new FakeElement('div');
+  leaderBoardModalElement.className = 'leader-board-modal';
+  leaderBoardDialogElement.appendChild(leaderBoardModalElement);
+  leaderBoardModalElement.appendChild(elementById('leaderBoardTitle'));
+  leaderBoardModalElement.appendChild(elementById('leaderBoardAttention'));
+  leaderBoardModalElement.appendChild(elementById('leaderBoardClose'));
+  leaderBoardModalElement.appendChild(elementById('leaderBoardBody'));
+  standaloneElement.appendChild(leaderBoardDialogElement);
   const tabLayoutButtonElement = elementById('btnTerminalTabLayout');
 
   const documentKeydownListeners: Array<(event: KeyEventLike) => boolean | void> = [];
@@ -1108,6 +1125,8 @@ export function loadStandalone(options: {
       for (const listener of [...runCardListeners]) listener(payload);
     },
     capsuleBriefDialog: capsuleBriefDialogElement,
+    leaderBoardButton: leaderBoardButtonElement,
+    leaderBoardDialog: leaderBoardDialogElement,
     localStorage: windowStub.localStorage as StandaloneHarness['localStorage'],
   };
 }

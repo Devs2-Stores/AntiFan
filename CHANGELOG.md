@@ -16,6 +16,15 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 - Lời gọi theo selector / tọa độ / phím không còn lỗi `TARGET_STALE` khi `documentGeneration` đổi: được rebase và báo `documentGenerationRebased`. Ref `@eN` vẫn giữ hàng rào generation; trang xác minh chống bot vẫn bị từ chối.
 - `anti.browser.navigate` có thêm `waitUntil`; các công cụ screenshot có thêm `saveTo` (cần grant ghi); `set_viewport` có thêm `hideScrollbar` và `clientWidth`; `tabs.list` có thêm bộ lọc.
 
+### Thêm — Terminal Leader điều phối các terminal khác
+
+- Chuột phải một terminal gốc → **Đặt làm Leader** (👑). OMP chạy trong terminal đó được `terminal.*` chạm tới mọi terminal còn sống của mọi project (trừ chính shell của nó): `terminal.list` trả thêm `cwd`, `name`, `workerOf` và trạng thái run OMP (`run`); `terminal.create` với `cwd` tuyệt đối và không `parentId` tạo terminal gốc trong project sở hữu thư mục đó và ghi nhận là worker; `terminal.close` đóng được terminal gốc. Quyền Leader tính từ terminal gốc của attachment, không đổi theo `rebind_target`; terminal do agent tạo không đặt làm Leader được.
+- `terminal.write` của Leader vào terminal có OMP đang `running` trả `TERMINAL_BUSY` (trừ `force:true`). Mọi `terminal.write` trả thêm `writtenAt` và trạng thái run trước khi ghi.
+- `terminal.wait` có điều kiện mới `run-idle` (đọc file run-state của hook OMP), kèm `minRunSeq` và `afterEventAt` (truyền `writtenAt`) để file run cũ hoặc OMP vừa khởi động không bị tính là đã xong.
+- Nút **Bảng Worker** ở Terminal Manager: mỗi Leader một nhóm, worker kèm project, trạng thái run, prompt đang chạy, thời gian cập nhật; bấm một dòng để nhảy tới terminal; lọc "chỉ hiện dòng cần chú ý".
+- Id `terminal-N` / `split-N` không bao giờ được cấp lại sau khi đóng (bộ đếm tăng dần lưu ở `terminal-id-counters.json` cạnh `terminal-sessions.json`), nên terminal mới không thừa hưởng quyền hay run-state của terminal cũ.
+- Quy trình cho OMP Leader (xử lý feedback F1GENZ, một việc cho nhiều project, chia việc, canh việc dài) nằm trong skill `antifan-leader`.
+
 ### Thêm — Launcher, restart và công cụ kiểm chứng
 
 - Launcher `antifan` / `antifan-agent` nhận `--project=<id|name>` để mở phiên trong đúng project (không dùng chung với `--tab`). Cờ launcher chỉ đọc trước lệnh được bọc, nên `antifan npx playwright test --project=chromium` giữ nguyên cờ của lệnh.

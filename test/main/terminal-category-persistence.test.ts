@@ -159,10 +159,12 @@ describe('TerminalManager Category Persistence on Startup & Session Operations',
     assert.strictEqual(restarted.category, 'CUSTOMIZES', 'category must survive session restart');
   });
 
+  let createdSplitId = '';
+
   it('assigns parent category to newly created split session', () => {
-    const splitId = tm.createSplitSession('session-1');
-    assert.ok(splitId);
-    const split = tm.getSession(splitId);
+    createdSplitId = tm.createSplitSession('session-1');
+    assert.ok(createdSplitId);
+    const split = tm.getSession(createdSplitId);
     assert.ok(split);
     assert.strictEqual(split.category, 'CUSTOMIZES', 'new split must inherit parent category');
   });
@@ -172,7 +174,7 @@ describe('TerminalManager Category Persistence on Startup & Session Operations',
     const parent = tm.getSession('session-1');
     assert.strictEqual(parent?.category, 'SHOPIFY');
 
-    const split = tm.getSession('split-1');
+    const split = tm.getSession(createdSplitId);
     assert.strictEqual(split?.category, 'SHOPIFY', 'split pane must update category when parent changes');
   });
 });

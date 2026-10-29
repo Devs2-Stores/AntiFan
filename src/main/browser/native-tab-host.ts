@@ -18,10 +18,12 @@ import { StorageLocations } from '../config/storage-locations';
 import { parseOwnerKey } from '../project/project-context';
 import { openSpace, openSpaceSplits, openBuiltinSplits, describeSpaceSplits, createConfirmationStore, type SpaceOpenDeps, type SpaceSplitAnchor, type SpaceSplitDeps } from '../project/space-open';
 import { buildSpaceTemplate, writeSpaceManifestExclusive, antifanDirUnignoredInGit } from '../project/space-manifest';
-import type { SpaceInitResult, SpaceOpenReason, SpaceSplitsInfo, ReadFilePreviewResult, CaptureFullPageResult } from '../../shared/contracts';
+import type { SpaceInitResult, SpaceOpenReason, SpaceSplitsInfo, ReadFilePreviewResult, CaptureFullPageResult, TerminalLeaderSetResult, TerminalLeaderStamp } from '../../shared/contracts';
 import { AntiFanTab, SplitPaneId, AntiFanPickedElement, TOOLBAR_CHANNELS, SIDEBAR_CHANNELS, TERMINAL_CHANNELS, FRAME_BACKDROP_CHANNELS, PROJECT_WINDOW_CHANNELS, TerminalAckPayload, TerminalDataPayload, TerminalNewInFolderResult, SpaceOpenResult, TerminalTabLayout, TerminalTabPrefs, TERMINAL_TAB_LAYOUT_DEFAULT_WIDTH, clampTerminalTabSidebarWidth, TERMINAL_CATEGORY_COLORS_MAX, TERMINAL_CATEGORY_COLOR_PATTERN, ToolbarPhoneStatus, TerminalAgentAffinityInfo, ProjectWindowIdentity, BRIDGE_CHANNELS, RunCardState, RunControlOp, RunControlReason, RunControlResult, CapsuleBrief, CapsuleBriefResult, CapsuleBriefReason } from '../../shared/contracts';
 import { buildBridgeHealthReport, subscribeBridgeHealth } from '../bridge/bridge-health';
 import { RunStateService } from '../run/run-state-service';
+import { LeaderRegistry } from '../leader/leader-registry';
+import { registerLeaderPlacementPort, type LeaderPlacementRequest, type LeaderPlacementResult } from '../leader/leader-runtime';
 import type { ExecutionBackend } from '../agent/execution-backend';
 import type { ExecutionAttachmentRecord } from '../../shared/control-plane-contracts';
 import { SESSION_TAB_LIMIT, shareTabMenuText } from '../../shared/tab-sharing';
@@ -1607,6 +1609,68 @@ export class NativeTabHost extends EventEmitter {
     return affiliation ? `project:${affiliation.projectId}` : this.shellOwnerKeyForSender(senderId);
   }
 
+  /**
+   * The host half of a Leader's `terminal.create`: a BASE terminal minted in the project that owns
+   * `request.cwd`, filed exactly as the Terminal Manager's "new terminal in folder" files it (the
+   * capsule that records the folder, the project owner key of that capsule), so the user can operate
+   * it from the Manager. It never re-points a window's capsule, and it runs under the same
+   * admission as the manager's own mint.
+   */
+  public async placeLeaderTerminal(request: LeaderPlacementRequest): Promise<LeaderPlacementResult> {
+    let realPath = '';
+    try {
+      realPath = fs.realpathSync.native(request.cwd);
+      if (!fs.statSync(realPath).isDirectory()) realPath = '';
+    } catch {
+      realPath = '';
+    }
+    if (!realPath) {
+      return { ok: false, reason: 'FOLDER_INVALID', message: `'${request.cwd}' is not a readable directory` };
+    }
+    // The owner key is settled before admission, as the manager's own mint does, so the admission is
+    // attributed to the project window the terminal will belong to.
+    let mintOwnerKey: string | undefined;
+    try {
+      const activeId = this.capsuleManager.getActive()?.id ?? '';
+      mintOwnerKey = this.managerFolderMintOwnerKey(realPath, findCapsuleByRoot(this.capsuleManager.list(), realPath, activeId), undefined);
+    } catch (err) {
+      return { ok: false, reason: 'CREATE_FAILED', message: String(err instanceof Error ? err.message : err) };
+    }
+    try {
+      return await this.admitThenRun<LeaderPlacementResult>(
+        TERMINAL_CHANNELS.NEW_IN_FOLDER,
+        { ownerKey: mintOwnerKey },
+        async () => {
+          const activeId = this.capsuleManager.getActive()?.id ?? '';
+          const existing = findCapsuleByRoot(this.capsuleManager.list(), realPath, activeId);
+          const capsule = existing ?? this.capsuleManager.create(path.basename(realPath) || 'Workspace', realPath);
+          // A capsule created just now may change the answer; an existing one cannot.
+          if (!existing) mintOwnerKey = this.managerFolderMintOwnerKey(realPath, capsule, undefined);
+          const manager = TerminalManager.getInstance();
+          let sessionId: string;
+          try {
+            sessionId = await manager.createSession(realPath, capsule.id, mintOwnerKey);
+          } catch (err) {
+            return { ok: false, reason: 'CREATE_FAILED', message: String(err instanceof Error ? err.message : err) };
+          }
+          if (typeof sessionId !== 'string' || !sessionId) {
+            return { ok: false, reason: 'CREATE_FAILED', message: 'Terminal minted no session id' };
+          }
+          // Naming is cosmetic: a failed rename must not turn a terminal that exists into a failed mint.
+          if (request.name) {
+            try {
+              await Promise.resolve(manager.renameSession(sessionId, request.name));
+            } catch (err) {
+              console.warn(`[native-tab-host] leader terminal ${sessionId} minted but not renamed:`, err);
+            }
+          }
+          return { ok: true, sessionId, capsuleId: capsule.id, ...(mintOwnerKey ? { ownerKey: mintOwnerKey } : {}) };
+        },
+      );
+    } catch (err) {
+      return { ok: false, reason: 'SENDER_NOT_ADMITTED', message: String(err instanceof Error ? err.message : err) };
+    }
+  }
 
   /**
    * Whether a window currently owns an owner key, as Main's window directory answers it.
@@ -2202,8 +2266,31 @@ export class NativeTabHost extends EventEmitter {
       // notification so subscribers never see close precede its final data.
       this.flushTerminalDataBatch(id);
       this.clearTerminalAgentAffinity(id);
+      this.pruneLeaderRegistry(id);
     };
     subscribe('session-closed', onTerminalSessionClosed);
+
+    // A Leader flag or a worker assignment changed: every window's rows carry those stamps, so each
+    // surface is re-pushed the way a session change re-pushes it.
+    const onLeaderRegistryChange = (): void => {
+      try {
+        this.flushAllTerminalDataBatches();
+        this.sendTerminalProjections(TerminalManager.getInstance().getSessionState());
+      } catch (err) {
+        console.warn('[native-tab-host] failed to push leader state:', err);
+      }
+    };
+    const leaderRegistry = LeaderRegistry.getInstance();
+    leaderRegistry.on('change', onLeaderRegistryChange);
+    this.terminalSubscriptionReleases?.push(() => {
+      try { leaderRegistry.removeListener('change', onLeaderRegistryChange); } catch {}
+    });
+    // The shared Terminal Manager's host places Leader worker terminals; any other host is the fallback.
+    const releasePlacement = registerLeaderPlacementPort(
+      { placeTerminal: (request) => this.placeLeaderTerminal(request) },
+      { sharedManager: this.isSharedTerminalManagerSender() },
+    );
+    this.terminalSubscriptionReleases?.push(releasePlacement);
 
     const onTerminalSessionRestarted = ({ id, generation }: { id: string; generation: number }): void => {
       this.flushTerminalDataBatch(id);
@@ -4542,6 +4629,40 @@ export class NativeTabHost extends EventEmitter {
       } catch (err) {
         return { ok: false, reason: 'SENDER_NOT_ADMITTED', message: String(err instanceof Error ? err.message : err) };
       }
+    },
+  },
+  {
+    channel: TERMINAL_CHANNELS.LEADER_SET,
+    surface: ['sidebar', 'terminalPopout'],
+    sessionArgs: (args) => [(args[0] as { sessionId?: string } | undefined)?.sessionId],
+    run: ({ host }, event, args): TerminalLeaderSetResult => {
+      // Only a chrome surface reaches this route (an MCP agent answers through the terminal
+      // capability surface and never lands here), so the user's own gesture is the only way a
+      // terminal becomes a Leader.
+      const raw = args[0] && typeof args[0] === 'object' ? (args[0] as { sessionId?: unknown; leader?: unknown }) : undefined;
+      const sessionId = typeof raw?.sessionId === 'string' ? raw.sessionId.trim() : '';
+      if (!sessionId || typeof raw?.leader !== 'boolean') return { ok: false, leader: false, error: 'INVALID_PAYLOAD' };
+      const registry = LeaderRegistry.getInstance();
+      if (!host.isSessionVisibleToWindow(sessionId, undefined, event?.sender?.id)) {
+        return { ok: false, leader: registry.isLeader(sessionId), error: 'SESSION_NOT_VISIBLE' };
+      }
+      const session = TerminalManager.getInstance().getSession(sessionId, { includeBuffer: false }) as
+        | { splitOf?: string; state?: string; disposed?: boolean; ownerKey?: string }
+        | undefined;
+      if (!session || session.disposed === true || session.state === 'closed') {
+        return { ok: false, leader: registry.isLeader(sessionId), error: 'UNKNOWN_SESSION' };
+      }
+      // Only a base terminal carries Leader rights: a split is a pane of someone else's shell.
+      if (typeof session.splitOf === 'string' && session.splitOf) {
+        return { ok: false, leader: registry.isLeader(sessionId), error: 'SPLIT_NOT_ALLOWED' };
+      }
+      // An agent minted that shell and drives it; granting it Leader reach would hand every terminal to
+      // an agent the user never chose. Taking the flag away stays allowed.
+      if (raw.leader && typeof session.ownerKey === 'string' && session.ownerKey.startsWith('agent:')) {
+        return { ok: false, leader: registry.isLeader(sessionId), error: 'AGENT_OWNED' };
+      }
+      registry.setLeader(sessionId, raw.leader);
+      return { ok: true, leader: registry.isLeader(sessionId) };
     },
   },
   {
@@ -7199,7 +7320,7 @@ export class NativeTabHost extends EventEmitter {
       .filter((id) => visibleIds.has(id));
     return {
       activeSessionId,
-      sessions: this.stampAgentHold(this.stampFolderProjection(sessions)),
+      sessions: this.stampLeaderState(this.stampAgentHold(this.stampFolderProjection(sessions))),
       ...(splitSessionIds.length > 0 ? { splitSessionIds } : {}),
       snapshot: transcriptKept && typeof projection.snapshot === 'string' ? projection.snapshot : '',
       snapshotThroughSeq: transcriptKept && typeof projection.snapshotThroughSeq === 'number' ? projection.snapshotThroughSeq : 0,
@@ -7277,6 +7398,36 @@ export class NativeTabHost extends EventEmitter {
     return rows.map((row) => (typeof row.ownerKey === 'string' && parseOwnerKey(row.ownerKey).kind === 'agent'
       ? { ...row, agentHeld: typeof hold === 'function' ? hold(row.id) : true }
       : row));
+  }
+
+  /**
+   * Stamp the Leader fields on a window's rows: `leader` on a Leader terminal, `workerOf` /
+   * `workerTitle` on a terminal a Leader drives. Projection-only, like `agentHeld`: the registry
+   * is the record, and every registry change re-pushes the projections.
+   */
+  private stampLeaderState(rows: SessionSummary[]): SessionSummary[] {
+    const registry = LeaderRegistry.getInstance();
+    return rows.map((row) => {
+      const worker = registry.workerOf(row.id);
+      const stamp: TerminalLeaderStamp = {
+        ...(registry.isLeader(row.id) ? { leader: true as const } : {}),
+        ...(worker ? { workerOf: worker.leaderId, ...(worker.title ? { workerTitle: worker.title } : {}) } : {}),
+      };
+      return stamp.leader || stamp.workerOf ? { ...row, ...stamp } : row;
+    });
+  }
+
+  /**
+   * A terminal closed: drop its Leader flag and worker record, and every worker that answered to
+   * it. Forgetting the one closed id (not pruning against the session list) keeps a Leader safe
+   * when the list is a daemon cache that has not yet seen a freshly minted session.
+   */
+  private pruneLeaderRegistry(closedId: string): void {
+    try {
+      LeaderRegistry.getInstance().forget(closedId);
+    } catch (err) {
+      console.warn('[native-tab-host] failed to prune leader registry:', err);
+    }
   }
 
   /**

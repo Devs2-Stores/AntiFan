@@ -1,3 +1,4 @@
+import * as path from 'node:path';
 import { canonicalFolderKey } from '../project/workspace-capsule';
 import { CapabilityCatalogue } from './capability-catalogue';
 import { TerminalManager, agentTerminalOwnerKey, type SessionSummary } from '../browser/terminal-manager';
@@ -9,6 +10,9 @@ import {
   TerminalWaitResult,
   type TargetStaleCause,
 } from '../../shared/control-plane-contracts';
+import type { TerminalRunSnapshot } from '../../shared/contracts';
+import { LeaderRegistry } from '../leader/leader-registry';
+import { getLeaderPlacementPort, leaderRunSnapshot, waitForRunSettled } from '../leader/leader-runtime';
 
 /**
  * Read-only lifecycle view of a terminal record.
@@ -77,7 +81,13 @@ export interface TerminalWaitTimedOutResult extends TerminalWaitResult {
   message: string;
 }
 
-export type TerminalWaitOutcome = TerminalWaitResult | TerminalWaitSleepingResult | TerminalWaitTimedOutResult;
+/** `terminal.wait` with `condition: 'run-idle'`: the OMP run in that terminal has finished its turn. */
+export interface TerminalRunWaitResult extends TerminalWaitResult {
+  satisfied: true;
+  run: TerminalRunSnapshot;
+}
+
+export type TerminalWaitOutcome = TerminalWaitResult | TerminalRunWaitResult | TerminalWaitSleepingResult | TerminalWaitTimedOutResult;
 
 export interface TerminalWriteResult {
   /** Whether the input was handed to a live shell. */
@@ -87,6 +97,10 @@ export interface TerminalWriteResult {
   priorState?: string;
   state?: string;
   sessionGeneration?: number;
+  /** Epoch ms taken right before the input went to the PTY: pass it to `terminal.wait` run-idle as `afterEventAt`. */
+  writtenAt: number;
+  /** The OMP run state the terminal showed just BEFORE this write, when a run file exists. */
+  run?: TerminalRunSnapshot;
   message?: string;
 }
 
@@ -195,6 +209,12 @@ export function isLiveSplitOf(terminal: TerminalManager, homeId: string, termina
   return record !== undefined && record.disposed !== true && record.state !== 'closed' && record.splitOf === homeId;
 }
 
+/** Whether `terminalId` names a terminal that exists and is not closed or disposed. */
+export function isLiveTerminal(terminal: TerminalManager, terminalId: string): boolean {
+  const record = probeTerminalLifecycle(terminal, terminalId);
+  return record !== undefined && record.disposed !== true && record.state !== 'closed';
+}
+
 /**
  * Where terminal scope comes from, joined once per runtime.
  *
@@ -212,6 +232,16 @@ export interface TerminalOwnershipPort {
   isHomeSplit(homeId: string, terminalId: string): boolean;
   /** Probe whether a tab is alive and what capsule it was created under. */
   tabAffiliation(tabId: string): { live: boolean; capsuleId?: string };
+  /**
+   * The live base terminal the attachment was MINTED from (its origin), or undefined when none
+   * resolves. Leader authority belongs to this terminal alone: the bound tab can be re-bound to
+   * another terminal's tab, the origin cannot. Omitted: nobody is a Leader.
+   */
+  originTerminalId?(attachmentId: string): string | undefined;
+  /** Whether `terminalId` is a terminal the user marked Leader. Decided by the host, never by the caller. */
+  isLeader?(terminalId: string): boolean;
+  /** Whether `terminalId` is a live terminal (any base or split, any project). A Leader reaches exactly these. */
+  isLiveTerminal?(terminalId: string): boolean;
 }
 
 /**
@@ -230,7 +260,7 @@ export interface TerminalHostAuthority {
  */
 export type TerminalCallerScope =
   | { bound: false }
-  | { bound: true; attachmentId: string; tabId: string; homeId: string; ownership: TerminalOwnershipPort };
+  | { bound: true; attachmentId: string; tabId: string; homeId: string; ownership: TerminalOwnershipPort; leader: boolean };
 
 function callingAttachmentId(
   context?: CapabilityRequestContext | AuthenticatedCapabilityContext
@@ -275,7 +305,11 @@ export function resolveTerminalCallerScope(
       `Attachment "${attachmentId}" (tab "${tabId}") has no home terminal: it is not rooted in a live AntiFan terminal, so it has no terminal split panes to drive. Start the agent from an AntiFan terminal, then reconnect`
     );
   }
-  return { bound: true, attachmentId, tabId, homeId, ownership };
+  // A Leader is an attachment minted from the Leader terminal AND still rooted in it: a tab re-bound to
+  // the Leader's tab leaves the origin elsewhere, and an origin that is no Leader grants nothing.
+  const originId = ownership.originTerminalId?.(attachmentId);
+  const leader = originId !== undefined && originId === homeId && ownership.isLeader?.(originId) === true;
+  return { bound: true, attachmentId, tabId, homeId, ownership, leader };
 }
 
 /**
@@ -285,9 +319,25 @@ export function resolveTerminalCallerScope(
  * split, a Space pane such as a sync watcher, and a pane the agent created. The home shell itself
  * (where the agent is typing) is refused, so it can never write into its own prompt, and so is every
  * terminal of another base or project.
+ *
+ * A Leader (a home terminal the user marked) reaches every live terminal of every project instead,
+ * still never its own home shell.
  */
 export function assertTerminalOwnership(scope: TerminalCallerScope, terminalId: string): void {
   if (!scope.bound) return;
+  if (scope.leader) {
+    if (terminalId === scope.homeId) {
+      throw new CapabilityError(
+        'TERMINAL_FORBIDDEN',
+        `Terminal "${terminalId}" is the home terminal of attachment "${scope.attachmentId}" (the shell you run in): even a Leader never drives it through terminal.*. terminal.list shows the other terminals you may drive`
+      );
+    }
+    if (scope.ownership.isLiveTerminal?.(terminalId) === true) return;
+    throw new CapabilityError(
+      'TERMINAL_FORBIDDEN',
+      `Terminal "${terminalId}" is not a live terminal: it never existed or has been closed. terminal.list shows the terminals you may drive`
+    );
+  }
   if (scope.ownership.isHomeSplit(scope.homeId, terminalId)) return;
   throw new CapabilityError(
     'TERMINAL_FORBIDDEN',
@@ -295,6 +345,97 @@ export function assertTerminalOwnership(scope: TerminalCallerScope, terminalId: 
       ? `Terminal "${terminalId}" is the home terminal of attachment "${scope.attachmentId}" (the shell you run in): it is never driven through terminal.*. Use terminal.create for a new split pane, or terminal.list for the panes you may drive`
       : `Terminal "${terminalId}" is outside the terminal scope of attachment "${scope.attachmentId}": only the split panes under your own terminal "${scope.homeId}" are reachable (terminal.list shows them, terminal.create adds one)`
   );
+}
+
+/**
+ * Refuse a Leader's write into a terminal whose OMP is mid-turn: the keystrokes would land inside
+ * the running prompt. `waiting_user`, `idle`, an ended or stale run and a terminal with no run file
+ * (a plain shell) all accept input.
+ */
+function assertLeaderTargetNotBusy(sessionId: string): void {
+  const run = leaderRunSnapshot(sessionId);
+  if (run?.state !== 'running') return;
+  throw new CapabilityError(
+    'TERMINAL_BUSY',
+    `Terminal "${sessionId}" is running an OMP turn (run ${run.runSeq}); input typed now would land inside that prompt. ` +
+      `Wait with terminal.wait { "sessionId": "${sessionId}", "condition": "run-idle" } and write again, or pass force:true to write anyway`,
+    { sessionId, run, recovery: 'terminal.wait condition run-idle, then terminal.write; force:true overrides' }
+  );
+}
+
+/**
+ * `terminal.wait` for `condition: 'run-idle'`: poll the terminal's run file until the run settled,
+ * reached `minRunSeq` and, when `afterEventAt` is given, produced an event after that instant with at
+ * least one completed turn. The per-call deadline applies exactly as for the other conditions.
+ */
+async function waitForRunIdle(
+  params: TerminalWaitInput,
+  lifecycle: TerminalLifecycleProbe | undefined,
+  plan: { timeoutMs: number; clamped: boolean },
+  signal: AbortSignal | undefined
+): Promise<TerminalRunWaitResult | TerminalWaitTimedOutResult> {
+  for (const field of ['minRunSeq', 'afterEventAt'] as const) {
+    const value = params[field];
+    if (value !== undefined && (typeof value !== 'number' || !Number.isFinite(value))) {
+      throw new CapabilityError('INVALID_ARGUMENT', `${field} must be a finite number`);
+    }
+  }
+  const sessionGeneration = typeof lifecycle?.sessionGeneration === 'number' ? lifecycle.sessionGeneration : 0;
+  const lastSeq = typeof lifecycle?.lastSeq === 'number' ? lifecycle.lastSeq : 0;
+  try {
+    const run = await waitForRunSettled(params.sessionId, {
+      minRunSeq: params.minRunSeq,
+      afterEventAt: params.afterEventAt,
+      timeoutMs: plan.timeoutMs,
+      signal,
+    });
+    return { satisfied: true, sessionGeneration, lastSeq, run };
+  } catch (err) {
+    if (!(err instanceof CapabilityError) || err.code !== 'WAIT_TIMEOUT') throw err;
+    const details = { ...err.details, sessionGeneration, lastSeq };
+    const timeout = new CapabilityError('WAIT_TIMEOUT', err.message, details);
+    if (!plan.clamped) throw timeout;
+    return {
+      ...clampedWaitTimedOutResult(params.sessionId, params.timeoutMs as number, timeout),
+      message:
+        `terminal.wait runs at most ${TERMINAL_WAIT_MAX_TIMEOUT_MS}ms per call, so the requested ${params.timeoutMs}ms was shortened and the run did not settle in time. ` +
+        `The terminal is unaffected: call terminal.wait again with condition "run-idle" (same minRunSeq / afterEventAt) and repeat until it is satisfied.`,
+    };
+  }
+}
+
+/** A Leader's base terminal for a project folder: minted through the host's placement port and registered as its worker. */
+async function placeLeaderWorker(
+  homeId: string,
+  params: { cwd?: string; name?: string }
+): Promise<{ sessionId: string; cwd: string; workerOf: string; ownerKey?: string; capsuleId?: string }> {
+  const cwd = typeof params.cwd === 'string' ? params.cwd.trim() : '';
+  if (!cwd) {
+    throw new CapabilityError('INVALID_ARGUMENT', 'cwd is required: a Leader mints a terminal in the project folder it names');
+  }
+  if (!path.isAbsolute(cwd)) {
+    throw new CapabilityError('INVALID_ARGUMENT', `cwd "${cwd}" must be an absolute path: a Leader mints a terminal in the project folder it names, and a relative path names no project`);
+  }
+  const name = typeof params.name === 'string' ? params.name.trim().slice(0, 80) : '';
+  const port = getLeaderPlacementPort();
+  if (!port) {
+    throw new CapabilityError(
+      'TERMINAL_SCOPE_UNRESOLVED',
+      'No Terminal Manager host is available to place a terminal in a project folder: open the Terminal Manager window, then retry'
+    );
+  }
+  const placed = await port.placeTerminal({ cwd, ...(name ? { name } : {}) });
+  if (!placed.ok) {
+    throw new CapabilityError('EXECUTION_ERROR', `${placed.reason}: ${placed.message}`, { reason: placed.reason });
+  }
+  LeaderRegistry.getInstance().assignWorker(placed.sessionId, homeId, name || undefined);
+  return {
+    sessionId: placed.sessionId,
+    cwd,
+    workerOf: homeId,
+    ...(placed.ownerKey ? { ownerKey: placed.ownerKey } : {}),
+    ...(placed.capsuleId ? { capsuleId: placed.capsuleId } : {}),
+  };
 }
 
 /**
@@ -330,10 +471,10 @@ export function registerTerminalCapabilities(
   terminal: TerminalManager,
   ownership?: TerminalOwnershipPort
 ): void {
-  catalogue.register<{ sessionId: string; input: string }, TerminalWriteResult>({
+  catalogue.register<{ sessionId: string; input: string; force?: boolean }, TerminalWriteResult>({
     name: 'terminal.write',
     description:
-      'Write raw input text to one of your terminal split panes (the panes under the terminal you run in; never the terminal you run in itself). Writing to a SLEEPING pane wakes it (a fresh shell in the same cwd) and then delivers the input; the result reports woke=true',
+      'Write raw input text to one of your terminal split panes (the panes under the terminal you run in; never the terminal you run in itself). Writing to a SLEEPING pane wakes it (a fresh shell in the same cwd) and then delivers the input; the result reports woke=true. The result also carries writtenAt (epoch ms taken just before the write) and, when the terminal has an OMP run file, its run state from before the write: pass writtenAt to terminal.wait run-idle as afterEventAt to wait for the answer to THIS input. A Leader terminal (marked by the user) may write to any live terminal of any project except its own: a terminal whose OMP run is `running` is refused with TERMINAL_BUSY unless force:true',
     risk: 'write',
     policy: {
       effect: 'interactive-effect',
@@ -355,11 +496,12 @@ export function registerTerminalCapabilities(
       properties: {
         sessionId: { type: 'string', description: 'Target terminal session ID' },
         input: { type: 'string', description: 'Data/commands to write into PTY stdin' },
+        force: { type: 'boolean', description: 'Leader only: write even while the target OMP run is running (the input lands inside the running prompt)' },
       },
       required: ['sessionId', 'input'],
     },
     execute: async (
-      params: { sessionId: string; input: string },
+      params: { sessionId: string; input: string; force?: boolean },
       context?: CapabilityRequestContext | AuthenticatedCapabilityContext
     ) => {
       if (!params.sessionId || typeof params.sessionId !== 'string') {
@@ -368,7 +510,9 @@ export function registerTerminalCapabilities(
       if (typeof params.input !== 'string') {
         throw new CapabilityError('INVALID_ARGUMENT', 'input string is required');
       }
-      assertTerminalOwnership(resolveTerminalCallerScope(ownership, context), params.sessionId);
+      const scope = resolveTerminalCallerScope(ownership, context);
+      assertTerminalOwnership(scope, params.sessionId);
+      if (scope.bound && scope.leader && params.force !== true) assertLeaderTargetNotBusy(params.sessionId);
       const before = probeTerminalLifecycle(terminal, params.sessionId);
       const wasSleeping = before !== undefined && before.disposed !== true && before.state === 'sleeping';
       // Writing IS the wake path. `writeTo` runs the manager's own wake transition
@@ -380,7 +524,11 @@ export function registerTerminalCapabilities(
       // has delivered the input (and completed any wake it triggered). Awaiting keeps the
       // probe honest: `after` — and therefore `woke` — describes the session after the
       // input landed, not mid-RPC while the wake is still in flight.
+      const run = leaderRunSnapshot(params.sessionId);
+      const writtenAt = Date.now();
       await terminal.writeTo(params.sessionId, params.input);
+      // A Leader's first successful write claims the terminal as one of its workers, so the Worker board shows it.
+      if (scope.bound && scope.leader) LeaderRegistry.getInstance().assignWorker(params.sessionId, scope.homeId);
       const after = probeTerminalLifecycle(terminal, params.sessionId) || before;
       const woke = wasSleeping && after !== undefined && after.state !== 'sleeping';
       const result: TerminalWriteResult = {
@@ -393,6 +541,8 @@ export function registerTerminalCapabilities(
         priorState: before?.state,
         state: after?.state,
         sessionGeneration: after?.sessionGeneration,
+        writtenAt,
+        ...(run ? { run } : {}),
       };
       if (wasSleeping && !woke) {
         result.message =
@@ -447,7 +597,7 @@ export function registerTerminalCapabilities(
   catalogue.register<TerminalWaitInput, TerminalWaitOutcome>({
     name: 'terminal.wait',
     description:
-      'Wait for output-match pattern, process exit, or silence on one of your terminal split panes (the panes under the terminal you run in). A SLEEPING session returns immediately with satisfied=false, sleeping=true and code=SESSION_SLEEPING instead of blocking: it is never woken here, write input to wake it',
+      'Wait for output-match pattern, process exit, silence, or run-idle on one of your terminal split panes (the panes under the terminal you run in). run-idle waits until the OMP run in that terminal is idle, waiting for the user, or ended and returns the run snapshot; minRunSeq is the run counter the run must have reached, afterEventAt (pass the writtenAt of your terminal.write) counts only a run whose lastEventAt is newer than it and that completed at least one turn, so a leftover file or a fresh session that has not taken your prompt yet never satisfies it. A SLEEPING session returns immediately with satisfied=false, sleeping=true and code=SESSION_SLEEPING instead of blocking: it is never woken here, write input to wake it',
     risk: 'read',
     policy: {
       effect: 'read',
@@ -468,11 +618,13 @@ export function registerTerminalCapabilities(
       type: 'object',
       properties: {
         sessionId: { type: 'string', description: 'Terminal session ID' },
-        condition: { type: 'string', enum: ['output-match', 'exit', 'silence'] },
+        condition: { type: 'string', enum: ['output-match', 'exit', 'silence', 'run-idle'] },
         pattern: { type: 'string', description: 'Regex pattern for output-match' },
         sessionGeneration: { type: 'number', description: 'Expected session incarnation' },
         afterSeq: { type: 'number', description: 'Sequence cursor' },
         silenceMs: { type: 'number', description: 'Silence duration threshold in milliseconds' },
+        minRunSeq: { type: 'number', description: 'run-idle only: the run counter the OMP run must have reached (runSeq from terminal.list / the run snapshot) before idle counts' },
+        afterEventAt: { type: 'number', description: 'run-idle only: epoch ms (the writtenAt of your terminal.write). Idle counts only once the run lastEventAt is newer than this and the run completed at least one turn' },
         timeoutMs: { type: 'number', description: `Wait deadline in milliseconds (default and maximum ${TERMINAL_WAIT_MAX_TIMEOUT_MS} per call; a longer request is shortened and, when it elapses, answers timedOut=true with lastSeq to continue from through afterSeq)` },
       },
       required: ['sessionId', 'condition'],
@@ -495,6 +647,7 @@ export function registerTerminalCapabilities(
       // the budget is aborted by the platform and reads as an unexplained failure.
       const plan = planTerminalWaitTimeout(params.timeoutMs);
       try {
+        if (params.condition === 'run-idle') return await waitForRunIdle(params, lifecycle, plan, signal);
         return await terminal.waitTerminal({ ...params, timeoutMs: plan.timeoutMs }, signal);
       } catch (err) {
         if (plan.clamped && err instanceof CapabilityError && err.code === 'WAIT_TIMEOUT') {
@@ -511,7 +664,7 @@ export function registerTerminalCapabilities(
   >({
     name: 'terminal.list',
     description:
-      'List the terminal split panes you may drive: the panes under the terminal you run in (the Space panes such as a sync watcher, and panes you created). The terminal you run in, other terminals, and other projects\' terminals are never listed; `omittedOutOfScopeTerminals` counts them. Rows carry bounded wire summary and incarnation metadata',
+      'List the terminal split panes you may drive: the panes under the terminal you run in (the Space panes such as a sync watcher, and panes you created). The terminal you run in, other terminals, and other projects\' terminals are never listed; `omittedOutOfScopeTerminals` counts them. A Leader terminal (marked by the user) instead lists every live terminal of every project except its own, each row adding `workerOf` (when it is one of your workers) and `run` (the OMP run state read from its run file: state, runSeq, ompSessionId, promptHead, lastEventAt, stale). Rows carry bounded wire summary and incarnation metadata',
     risk: 'read',
     policy: {
       effect: 'read',
@@ -545,6 +698,28 @@ export function registerTerminalCapabilities(
       if (!scope.bound) {
         // A caller with no attachment carries no ownership question: every row is its to drive.
         return { sessions: sessions.map((session) => withOwned(session, true)), activeSessionId: terminal.getActiveSessionId() };
+      }
+      if (scope.leader) {
+        // A Leader sees every live terminal of every project except its own home shell, each with the
+        // OMP run state its run file records (when a hook ever wrote one).
+        const registry = LeaderRegistry.getInstance();
+        const reachable = sessions.filter((session) => Boolean(session?.id) && session.id !== scope.homeId && scope.ownership.isLiveTerminal?.(session.id) === true);
+        const rows = reachable.map((session): Record<string, unknown> & { id: string } => {
+          const worker = registry.workerOf(session.id);
+          const run = leaderRunSnapshot(session.id);
+          return {
+            ...(withOwned(session, true) as Record<string, unknown>),
+            id: session.id,
+            ...(worker?.leaderId === scope.homeId ? { workerOf: worker.leaderId } : {}),
+            ...(run ? { run } : {}),
+          };
+        });
+        const activeId = terminal.getActiveSessionId();
+        return {
+          sessions: rows,
+          activeSessionId: rows.some((row) => row.id === activeId) ? activeId : (rows[0]?.id ?? ''),
+          ...(sessions.length - rows.length > 0 ? { omittedOutOfScopeTerminals: sessions.length - rows.length } : {}),
+        };
       }
       // An attachment sees the panes of its own terminal and nothing else: listing is how a caller
       // discovers what to address, so a terminal it may not drive is not advertised to it at all.
@@ -600,11 +775,11 @@ export function registerTerminalCapabilities(
       initialRows?: number;
       reuse?: boolean;
     },
-    { sessionId: string; ownerBound?: boolean; reused?: boolean; cwd?: string }
+    { sessionId: string; ownerBound?: boolean; reused?: boolean; cwd?: string; workerOf?: string; ownerKey?: string; capsuleId?: string }
   >({
     name: 'terminal.create',
     description:
-      'Create a new terminal split pane under the terminal you run in (always a new pane, never the user\'s own split). You can only ever drive the panes under your own terminal, so this is the only way to get a shell. Close panes you no longer need with terminal.close. reuse:true returns your own idle pane for the same folder instead of a new one; use it only when that pane is idle, because a pane still running a command receives the input',
+      'Create a new terminal split pane under the terminal you run in (always a new pane, never the user\'s own split). You can only ever drive the panes under your own terminal, so this is the only way to get a shell. Close panes you no longer need with terminal.close. reuse:true returns your own idle pane for the same folder instead of a new one; use it only when that pane is idle, because a pane still running a command receives the input. A Leader terminal (marked by the user) that passes cwd without parentId instead mints a BASE terminal in the project that owns that folder, named by `name`, and registers it as its worker',
     risk: 'write',
     policy: {
       effect: 'management',
@@ -624,7 +799,8 @@ export function registerTerminalCapabilities(
     inputSchema: {
       type: 'object',
       properties: {
-        cwd: { type: 'string', description: 'Working directory of the new pane (defaults to your terminal\'s)' },
+        cwd: { type: 'string', description: 'Working directory of the new pane (defaults to your terminal\'s). A Leader: the project folder to mint the worker terminal in' },
+        name: { type: 'string', description: 'Leader only: the worker terminal\'s name, shown in the Worker board' },
         capsuleId: { type: 'string', description: 'Ignored for an agent: a pane always inherits the workspace of the terminal it splits' },
         parentId: { type: 'string', description: 'Omit. An agent always splits its own terminal; any other value is refused' },
         initialCols: { type: 'number' },
@@ -633,7 +809,7 @@ export function registerTerminalCapabilities(
       },
     },
     execute: (
-      params: { cwd?: string; capsuleId?: string; parentId?: string; initialCols?: number; initialRows?: number; reuse?: boolean },
+      params: { cwd?: string; name?: string; capsuleId?: string; parentId?: string; initialCols?: number; initialRows?: number; reuse?: boolean },
       context?: CapabilityRequestContext | AuthenticatedCapabilityContext
     ) => serializeReuseCreatePerTab(context, params.reuse === true, async () => {
       // Scope is resolved BEFORE a shell exists: a pane minted for a caller that cannot be attributed
@@ -666,6 +842,9 @@ export function registerTerminalCapabilities(
           );
         }
         return { sessionId: id };
+      }
+      if (scope.leader && !(typeof params.parentId === 'string' && params.parentId.trim()) && typeof params.cwd === 'string' && params.cwd.trim()) {
+        return placeLeaderWorker(scope.homeId, params);
       }
       if (typeof params.parentId === 'string' && params.parentId.trim() && params.parentId.trim() !== scope.homeId) {
         throw new CapabilityError(
@@ -712,7 +891,7 @@ export function registerTerminalCapabilities(
   catalogue.register<{ sessionId: string; isSplit?: boolean }, { closed: boolean }>({
     name: 'terminal.close',
     description:
-      'Close one of YOUR terminal split panes (a pane under the terminal you run in) and safely terminate its process tree. The terminal you run in and every terminal outside it are refused',
+      'Close one of YOUR terminal split panes (a pane under the terminal you run in) and safely terminate its process tree. The terminal you run in and every terminal outside it are refused. A Leader terminal (marked by the user) may close any live terminal of any project except its own',
     risk: 'write',
     policy: {
       effect: 'management',
@@ -747,7 +926,10 @@ export function registerTerminalCapabilities(
       const scope = resolveTerminalCallerScope(ownership, context);
       assertTerminalOwnership(scope, params.sessionId);
       // A bound caller can only reach a split pane, and a split id closes exactly that pane.
-      const closed = params.isSplit || scope.bound
+      const isSplit = scope.bound && scope.leader
+        ? typeof probeTerminalLifecycle(terminal, params.sessionId)?.splitOf === 'string'
+        : params.isSplit || scope.bound;
+      const closed = isSplit
         ? await terminal.closeSplitSession(params.sessionId)
         : await terminal.closeSession(params.sessionId);
       return { closed };

@@ -6,6 +6,7 @@ import {
   type RunCardMode,
   type RunCardState,
   type CapsuleBrief,
+  type TerminalRunSnapshot,
 } from '../../shared/contracts.js';
 import { isPidAlive } from '../bridge/bridge-health.js';
 
@@ -82,6 +83,66 @@ export interface RunStateServiceOptions {
 
 export function safeFileSegment(value: string): string {
   return value.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 96);
+}
+
+/**
+ * The one stale rule: a run that has not ended turns `ended` + `stale` when its process is gone or its
+ * heartbeat is older than `staleMs`. Shared by the card projection and the per-terminal snapshot so the
+ * two can never disagree about whether a run is still alive.
+ */
+export function classifyRunLiveness(
+  rawState: RunCardLifecycle,
+  pid: number,
+  updatedAt: number,
+  now: number,
+  staleMs: number,
+  isProcessAlive: (pid: number) => boolean
+): { state: RunCardLifecycle; stale: boolean } {
+  if (rawState === 'ended') return { state: rawState, stale: false };
+  const isAlive = pid > 0 && isProcessAlive(pid);
+  const isHeartbeatStale = (now - updatedAt) > staleMs;
+  return !isAlive || isHeartbeatStale ? { state: 'ended', stale: true } : { state: rawState, stale: false };
+}
+
+export interface TerminalRunSnapshotOptions {
+  isProcessAlive?: (pid: number) => boolean;
+  clock?: () => number;
+  staleMs?: number;
+}
+
+/**
+ * Read `<runsDir>/<terminalSessionId>.json` and apply the stale rule. Undefined when the terminal has
+ * no run file or the file is not a valid schema-1 run record (the hook has not started there).
+ */
+export function readTerminalRunSnapshot(
+  runsDir: string,
+  terminalSessionId: string,
+  options: TerminalRunSnapshotOptions = {}
+): TerminalRunSnapshot | undefined {
+  let data: Partial<TerminalRunStateFile>;
+  try {
+    data = JSON.parse(fs.readFileSync(path.join(runsDir, `${safeFileSegment(terminalSessionId)}.json`), 'utf8'));
+  } catch {
+    return undefined;
+  }
+  if (!data || typeof data !== 'object' || data.schema !== 1 || !data.terminalSessionId) return undefined;
+  const rawState = (typeof data.state === 'string' ? data.state : 'idle') as RunCardLifecycle;
+  const { state, stale } = classifyRunLiveness(
+    rawState,
+    typeof data.pid === 'number' ? data.pid : 0,
+    typeof data.updatedAt === 'number' ? data.updatedAt : 0,
+    (options.clock ?? Date.now)(),
+    options.staleMs ?? RUN_STALE_MS,
+    options.isProcessAlive ?? isPidAlive
+  );
+  return {
+    state,
+    stale,
+    runSeq: typeof data.runSeq === 'number' ? data.runSeq : 0,
+    ompSessionId: typeof data.ompSessionId === 'string' && data.ompSessionId ? data.ompSessionId : undefined,
+    promptHead: typeof data.promptHead === 'string' ? data.promptHead : undefined,
+    lastEventAt: typeof data.lastEventAt === 'number' ? data.lastEventAt : undefined,
+  };
 }
 
 interface RunLivenessInputs {
@@ -448,17 +509,7 @@ export class RunStateService extends EventEmitter {
       const updatedAt = typeof data.updatedAt === 'number' ? data.updatedAt : 0;
 
       // Stale rule: state !== 'ended' AND (!isProcessAlive(pid) OR updatedAt older than RUN_STALE_MS)
-      let state = rawState;
-      let stale = false;
-
-      if (rawState !== 'ended') {
-        const isAlive = pid > 0 && this.isProcessAliveFn(pid);
-        const isHeartbeatStale = (now - updatedAt) > this.staleMs;
-        if (!isAlive || isHeartbeatStale) {
-          state = 'ended';
-          stale = true;
-        }
-      }
+      const { state, stale } = classifyRunLiveness(rawState, pid, updatedAt, now, this.staleMs, this.isProcessAliveFn);
 
       const session = this.options.lookupSession?.(terminalSessionId);
       const capsuleId = this.options.lookupCapsule?.(terminalSessionId) ?? session?.capsuleId;

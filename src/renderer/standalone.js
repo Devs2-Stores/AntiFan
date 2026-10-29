@@ -6750,6 +6750,32 @@ function moveSessionToCapsuleLocally(sessionId, capsuleId, ownerKey) {
   if (typeof renderTabs === 'function') renderTabs();
 }
 
+/**
+ * Flip one base terminal's Leader mark. Main owns the registry and re-pushes the session
+ * projection, so the row repaints from that push; a refusal surfaces its reason here.
+ */
+async function toggleTerminalLeader(session) {
+  const want = session.leader !== true;
+  const name = session.displayLabel || session.name || session.id;
+  if (typeof api?.setTerminalLeader !== 'function') {
+    showTerminalNotice('Không đổi được Leader: preload thiếu setTerminalLeader');
+    return;
+  }
+  let reply;
+  try {
+    reply = await api.setTerminalLeader(session.id, want);
+  } catch (err) {
+    showTerminalNotice(`Không đổi được Leader của “${name}”: ${bridgeErrorText(err)}`);
+    return;
+  }
+  if (reply && reply.ok === true) {
+    showTerminalNotice(want ? `Đã đặt “${name}” làm Leader` : `Đã bỏ Leader của “${name}”`, 'success');
+    return;
+  }
+  const reason = reply && typeof reply.error === 'string' && reply.error ? reply.error : 'bị từ chối';
+  showTerminalNotice(`Không đổi được Leader của “${name}”: ${reason}`);
+}
+
 function showContextMenu(e, sessionId) {
   e.preventDefault();
   e.stopPropagation();
@@ -6840,6 +6866,23 @@ function showContextMenu(e, sessionId) {
     assignItem.title = agentHeld
       ? 'Terminal do agent sở hữu chỉ được xem, không chuyển được sang dự án khác'
       : 'Mở cửa sổ của dự án đích rồi chuyển Terminal này sang đó';
+  }
+  // Only a base terminal can lead: a split pane has no shell of its own to run an agent in,
+  // and an agent-held shell is the agent's, not the person's, to promote.
+  const leaderItem = contextMenu.querySelector('.context-item[data-action="leader"]');
+  if (leaderItem) {
+    const isLeader = Boolean(targetSession && targetSession.leader === true);
+    const leaderBlocked = isAgentOwnedSession(targetSession);
+    const leaderLabel = leaderItem.querySelector('span:last-child');
+    if (leaderLabel) leaderLabel.textContent = isLeader ? 'Bỏ Leader' : 'Đặt làm Leader';
+    leaderItem.style.display = isTargetItselfSplit ? 'none' : '';
+    leaderItem.classList.toggle('is-disabled', leaderBlocked);
+    leaderItem.setAttribute('aria-disabled', leaderBlocked ? 'true' : 'false');
+    leaderItem.title = leaderBlocked
+      ? 'Terminal do agent sở hữu không thể làm Leader'
+      : (isLeader
+        ? 'Thu hồi quyền điều phối các terminal khác của terminal này'
+        : 'Cho OMP chạy trong terminal này điều khiển mọi terminal khác và tạo worker');
   }
   // A TUI keeps no scrollback to offer (its alternate buffer is not history), so the
   // honest affordance is the retained capture read as text: labelled lossy because the
@@ -6958,6 +7001,10 @@ contextMenu?.querySelectorAll('.context-item').forEach((item) => {
       // The move belongs to the tab that owns the pane: its session id is the one Main owns,
       // and a pane moved on its own would be a window split across two projects.
       showCapsulePicker(findSession(targetId)?.splitOf || targetId, anchor);
+    } else if (action === 'leader') {
+      const target = findSession(targetId);
+      if (!target || target.splitOf || isAgentOwnedSession(target)) return;
+      await toggleTerminalLeader(target);
     } else if (action === 'transcript') {
       if (transcriptPreviewSessionId === targetId) {
         closeTranscriptPreview();
@@ -7194,6 +7241,11 @@ function updateTabActivityUi(sessionId) {
 const runCards = new Map();
 let runCardsUnsubscribe = null;
 
+/** Worker board state: the open dialog's closer, its redraw hook, and the attention filter. */
+let activeLeaderBoardClose = null;
+let leaderBoardRender = null;
+let leaderBoardAttentionOnly = false;
+
 /** Refusal every agent-owned row answers, verbatim from the context-menu gate. */
 const AGENT_ROW_VIEW_TITLE = 'Terminal do agent sở hữu chỉ được xem, không chuyển được';
 
@@ -7253,6 +7305,7 @@ function applyRunCardStates(payload) {
   // the session; the triage rebuild is the repaint its stale button state needs.
   refreshAllFolderHeaderCounts();
   if (triageEl && triageEl.parentNode === tabsEl) ensureTriageSection();
+  refreshLeaderBoard();
 }
 
 /** Create or repaint the run card of one tab wrap from `runCards`. */
@@ -7637,6 +7690,288 @@ function openCapsuleBriefDialog(capsuleId) {
   })();
 }
 
+/** Leader terminal's name as the sidebar and the board show it. */
+function leaderDisplayName(session) {
+  return (session && (session.displayLabel || session.name)) || (session && session.id) || '';
+}
+
+/**
+ * Leader / worker marks on one row, stamped by Main's projection (`leader`, `workerOf`).
+ * A crown marks a Leader; a worker carries the Leader's name in its tooltip. Both are
+ * repainted every render because the Leader's name is live.
+ */
+function applyLeaderBadges(wrap, session) {
+  const btn = wrap.querySelector('.terminal-tab');
+  if (!btn) return;
+  let leaderBadge = wrap.querySelector('.terminal-tab-leader-badge');
+  if (session.leader === true && !session.splitOf) {
+    if (!leaderBadge) {
+      leaderBadge = document.createElement('span');
+      leaderBadge.className = 'terminal-tab-leader-badge';
+      leaderBadge.textContent = '👑';
+      leaderBadge.title = 'Leader';
+      btn.appendChild(leaderBadge);
+    }
+  } else if (leaderBadge) {
+    leaderBadge.remove();
+  }
+  let workerBadge = wrap.querySelector('.terminal-tab-worker-badge');
+  if (typeof session.workerOf === 'string' && session.workerOf && !session.splitOf) {
+    if (!workerBadge) {
+      workerBadge = document.createElement('span');
+      workerBadge.className = 'terminal-tab-worker-badge';
+      workerBadge.textContent = '⇠';
+      btn.appendChild(workerBadge);
+    }
+    const owner = findSession(session.workerOf);
+    const title = `⇠ Leader: ${owner ? leaderDisplayName(owner) : session.workerOf}`;
+    if (workerBadge.title !== title) workerBadge.title = title;
+  } else if (workerBadge) {
+    workerBadge.remove();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Worker board (Manager only): one section per Leader terminal with the workers it
+// drives and each one's OMP run state. It only reads `sessions` and `runCards`, so it
+// repaints from the same pushes that repaint the sidebar.
+// ---------------------------------------------------------------------------
+
+/** How often the open board re-reads "N giây trước", which goes stale between pushes. */
+const LEADER_BOARD_TICK_MS = 20_000;
+
+/**
+ * One row's board status. `bucket` feeds the per-Leader tally; `attention` is what the
+ * "Chỉ hiện dòng cần chú ý" filter keeps: a run waiting on the person, or one that is over.
+ */
+function leaderBoardStatusOf(session) {
+  if (session.state === 'exited') return { key: 'exited', label: 'đã thoát', bucket: 'ended', attention: true };
+  const card = runCards.get(session.id);
+  if (card) {
+    if (card.stale || card.state === 'ended') {
+      return { key: 'ended', label: RUN_CARD_STATE_LABELS.ended, bucket: 'ended', attention: true };
+    }
+    const label = RUN_CARD_STATE_LABELS[card.state] || card.state || '';
+    if (card.state === 'running') return { key: 'running', label, bucket: 'running', attention: false };
+    if (card.state === 'waiting_user') return { key: 'waiting_user', label, bucket: 'waiting_user', attention: true };
+    return { key: 'idle', label, bucket: 'idle', attention: false };
+  }
+  if (session.state === 'sleeping') return { key: 'sleeping', label: 'ngủ', bucket: 'idle', attention: false };
+  return { key: 'shell', label: 'shell', bucket: 'idle', attention: false };
+}
+
+/** `lastEventAt` as "5 giây trước"; empty when the run never reported one. */
+function leaderBoardAgeText(timestamp) {
+  if (typeof timestamp !== 'number' || !Number.isFinite(timestamp) || timestamp <= 0) return '';
+  const seconds = Math.max(0, Math.round((Date.now() - timestamp) / 1000));
+  if (seconds < 10) return 'vừa xong';
+  if (seconds < 60) return `${seconds} giây trước`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} phút trước`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} giờ trước`;
+  return `${Math.floor(hours / 24)} ngày trước`;
+}
+
+/** Project a worker belongs to, by the folder Main stamped, else its capsule's name. */
+function leaderBoardProjectOf(session) {
+  if (session.folderLabel) return session.folderLabel;
+  const capsuleId = capsuleIdOf(session);
+  return capsuleId && capsuleIndex.has(capsuleId) ? capsuleLabelOf(capsuleId) : '';
+}
+
+/** Jump to a terminal from the board: the board covers the pane, so it closes first. */
+function focusTerminalFromBoard(sessionId) {
+  if (!findSession(sessionId)) return;
+  closeLeaderBoard();
+  if (sessionId !== activeId) {
+    activateTabLocally(sessionId);
+    reconcileSplitPanes();
+    fitCurrentTerminal();
+  } else {
+    api?.switchTerminal?.(sessionId);
+  }
+  focusMainPane();
+}
+
+function buildLeaderBoardCell(text, className, title) {
+  const cell = document.createElement('td');
+  if (className) cell.className = className;
+  cell.textContent = text;
+  if (title) cell.title = title;
+  return cell;
+}
+
+function buildLeaderBoardRow(worker) {
+  const status = leaderBoardStatusOf(worker);
+  const card = runCards.get(worker.id);
+  const row = document.createElement('tr');
+  row.className = `leader-board-row${status.attention ? ' is-attention' : ''}`;
+  row.setAttribute('data-session-id', worker.id);
+  row.setAttribute('role', 'link');
+  row.tabIndex = 0;
+  const taskTitle = worker.workerTitle || worker.name || worker.id;
+  const project = leaderBoardProjectOf(worker);
+  const prompt = card && card.promptHead ? card.promptHead : '';
+  const stateCell = document.createElement('td');
+  const chip = document.createElement('span');
+  chip.className = `leader-board-state run-${status.key}`;
+  chip.textContent = status.label;
+  stateCell.appendChild(chip);
+  row.append(
+    buildLeaderBoardCell(taskTitle, 'leader-board-cell-name', worker.name || ''),
+    buildLeaderBoardCell(project, 'leader-board-cell-project', worker.folderPath || worker.cwd || ''),
+    stateCell,
+    buildLeaderBoardCell(prompt, 'leader-board-cell-prompt', prompt),
+    buildLeaderBoardCell(leaderBoardAgeText(card && card.lastEventAt), 'leader-board-cell-age', ''),
+  );
+  row.onclick = () => focusTerminalFromBoard(worker.id);
+  row.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      focusTerminalFromBoard(worker.id);
+    }
+  });
+  return row;
+}
+
+function buildLeaderBoardSection(leader, workers) {
+  const section = document.createElement('section');
+  section.className = 'leader-board-section';
+  section.setAttribute('data-leader-id', leader.id);
+
+  const head = document.createElement('div');
+  head.className = 'leader-board-section-head';
+  const name = document.createElement('button');
+  name.type = 'button';
+  name.className = 'leader-board-leader';
+  name.textContent = `👑 ${leaderDisplayName(leader)}`;
+  name.title = 'Mở terminal Leader';
+  name.onclick = () => focusTerminalFromBoard(leader.id);
+  const tally = { running: 0, waiting_user: 0, idle: 0, ended: 0 };
+  for (const worker of workers) tally[leaderBoardStatusOf(worker).bucket] += 1;
+  const summary = document.createElement('span');
+  summary.className = 'leader-board-summary';
+  summary.textContent = `${workers.length} worker · đang chạy ${tally.running} · chờ bạn ${tally.waiting_user} · nghỉ ${tally.idle} · kết thúc ${tally.ended}`;
+  head.append(name, summary);
+  section.appendChild(head);
+
+  const shown = leaderBoardAttentionOnly
+    ? workers.filter((worker) => leaderBoardStatusOf(worker).attention)
+    : workers;
+  if (shown.length === 0) {
+    const none = document.createElement('div');
+    none.className = 'leader-board-none';
+    none.textContent = workers.length === 0
+      ? 'Chưa có worker nào. Leader tạo worker bằng terminal.create.'
+      : 'Không có dòng nào cần chú ý.';
+    section.appendChild(none);
+    return section;
+  }
+
+  const table = document.createElement('table');
+  table.className = 'leader-board-table';
+  const thead = document.createElement('thead');
+  const headRow = document.createElement('tr');
+  for (const label of ['Tên / việc', 'Project', 'Trạng thái', 'Prompt', 'Cập nhật']) {
+    const th = document.createElement('th');
+    th.textContent = label;
+    headRow.appendChild(th);
+  }
+  thead.appendChild(headRow);
+  const tbody = document.createElement('tbody');
+  for (const worker of shown) tbody.appendChild(buildLeaderBoardRow(worker));
+  table.append(thead, tbody);
+  section.appendChild(table);
+  return section;
+}
+
+/** Rebuild the board body from the live `sessions` and `runCards`. */
+function renderLeaderBoardBody(body) {
+  body.innerHTML = '';
+  while (body.firstChild) body.removeChild(body.firstChild);
+  const list = Array.isArray(sessions) ? sessions : [];
+  const leaders = list.filter((s) => s.leader === true && !s.splitOf);
+  if (leaders.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'leader-board-empty';
+    empty.textContent = 'Chưa có Leader nào. Bấm chuột phải vào một terminal → “Đặt làm Leader”, rồi chạy OMP trong terminal đó để nó điều phối các terminal khác.';
+    body.appendChild(empty);
+    return;
+  }
+  for (const leader of leaders) {
+    const workers = list.filter((s) => s.workerOf === leader.id && !s.splitOf);
+    body.appendChild(buildLeaderBoardSection(leader, workers));
+  }
+}
+
+/** Repaint the board if it is open; called from every session and run-card push. */
+function refreshLeaderBoard() {
+  if (typeof leaderBoardRender === 'function') leaderBoardRender();
+}
+
+/** Close the board if open (also the teardown path). */
+function closeLeaderBoard() {
+  if (typeof activeLeaderBoardClose === 'function') activeLeaderBoardClose();
+}
+
+function openLeaderBoard() {
+  if (activeLeaderBoardClose) {
+    activeLeaderBoardClose();
+    return;
+  }
+  const dialog = document.getElementById('leaderBoardDialog');
+  const body = document.getElementById('leaderBoardBody');
+  if (!dialog || !body) return;
+  const modal = dialog.querySelector('.leader-board-modal') || dialog;
+  const attentionBox = document.getElementById('leaderBoardAttention');
+  const closeBtn = document.getElementById('leaderBoardClose');
+
+  let closed = false;
+  let tick = null;
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    dialog.style.display = 'none';
+    document.removeEventListener('keydown', onDocumentKeydown);
+    document.removeEventListener('click', onDocumentClick);
+    clearInterval(tick);
+    if (leaderBoardRender === render) leaderBoardRender = null;
+    if (activeLeaderBoardClose === close) activeLeaderBoardClose = null;
+  };
+  const onDocumentClick = (e) => {
+    if (!modal.contains(e.target)) close();
+  };
+  const onDocumentKeydown = (e) => {
+    if (e.key === 'Escape') close();
+  };
+  const render = () => renderLeaderBoardBody(body);
+
+  if (attentionBox) {
+    attentionBox.checked = leaderBoardAttentionOnly;
+    attentionBox.onchange = () => {
+      leaderBoardAttentionOnly = Boolean(attentionBox.checked);
+      render();
+    };
+  }
+  if (closeBtn) closeBtn.onclick = (e) => { e.stopPropagation(); close(); };
+
+  leaderBoardRender = render;
+  activeLeaderBoardClose = close;
+  render();
+  dialog.style.display = 'flex';
+  // The click that opened the board is still bubbling: listening for the outside click only
+  // after it has passed keeps the board from closing on the gesture that opened it.
+  setTimeout(() => {
+    if (closed) return;
+    document.addEventListener('click', onDocumentClick);
+    document.addEventListener('keydown', onDocumentKeydown);
+  }, 10);
+  // "5 giây trước" goes stale between pushes, so the ages are re-read while the board is open.
+  tick = setInterval(render, LEADER_BOARD_TICK_MS);
+  try { if (closeBtn) closeBtn.focus(); } catch {}
+}
+
 /**
  * A split row's tooltip names the tab it splits. The parent's name is live, so the
  * lookup happens per render rather than being baked in when the row is created: a
@@ -7760,6 +8095,7 @@ function ensureTerminalTabWrap(s, currentWraps) {
       if (splitGlyph.title !== glyphTitle) splitGlyph.title = glyphTitle;
     }
   }
+  applyLeaderBadges(wrap, s);
   return wrap;
 }
 
@@ -8394,6 +8730,8 @@ function refreshManagerHubButtons() {
   const visible = isSharedManagerShell() && typeof api?.newTerminalInFolder === 'function';
   if (btnNewInFolder) btnNewInFolder.style.display = visible ? 'flex' : 'none';
   if (newMenuBuilt) syncNewMenuToggle();
+  const boardBtn = document.getElementById('btnLeaderBoard');
+  if (boardBtn) boardBtn.style.display = isSharedManagerShell() ? '' : 'none';
   // Every "own window" entry now opens the Terminal Manager; inside it they would only
   // re-focus the window already in front of the user.
   for (const id of ['btnPopoutWindow', 'btnNewTerminalWindow']) {
@@ -9308,6 +9646,7 @@ api?.onTerminalSession((state) => {
   activeId = state.activeSessionId || activeId;
   reconcileSplitPanes();
   renderTabs();
+  refreshLeaderBoard();
   syncTerminalPool(sessions, activeId, state.snapshot, state.snapshotThroughSeq || 0);
   // The pane for a woken session exists only after the pool sync above, so the
   // keystroke that caused the wake is delivered here.
@@ -9528,6 +9867,7 @@ window.addEventListener('beforeunload', () => {
     runCardsUnsubscribe = null;
   }
   closeCapsuleBriefDialog();
+  closeLeaderBoard();
   if (globalResizeObserver) {
     try { globalResizeObserver.disconnect(); } catch {}
   }
@@ -9546,6 +9886,7 @@ window.addEventListener('unload', () => {
     runCardsUnsubscribe = null;
   }
   closeCapsuleBriefDialog();
+  closeLeaderBoard();
 });
 
 window.addEventListener('resize', () => {
@@ -9573,6 +9914,7 @@ const btnFullscreenHeader = document.getElementById('btnFullscreenHeader');
 document.getElementById('btnOpenFolder')?.addEventListener('click', async () => {
   await api?.pickWorkspaceFolder?.(activeId);
 });
+document.getElementById('btnLeaderBoard')?.addEventListener('click', openLeaderBoard);
 const openNewWin = () => {
   api?.openNewTerminalWindow?.(activeId);
 };
