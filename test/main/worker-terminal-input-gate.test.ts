@@ -411,6 +411,21 @@ describe('A Leader worker typing through terminal.write', () => {
     await assert.rejects(() => write('att-w', 'split-w', 'eme publish 1\r'), refusedWith('REFUSED_THEME_REMOTE_OP'));
   });
 
+  it('serialises concurrent writes to one pane through the capability: a slow probe does not let a later write overtake it', async () => {
+    installHrvStub('unpublished', 300);
+    const { write, calls } = build();
+    // Fired without awaiting, as an agent running parallel tool calls would.
+    const settled = await Promise.allSettled([
+      write('att-w', 'split-w', 'hrv theme dev\r'),
+      write('att-w', 'split-w', 'hrv th'),
+      write('att-w', 'split-w', 'eme publish 1\r'),
+    ]);
+    assert.deepStrictEqual(settled.map((r) => r.status), ['fulfilled', 'fulfilled', 'rejected']);
+    assert.deepStrictEqual(calls.writes.map((w) => w.input), ['hrv theme dev\r', 'hrv th', '\x03']);
+    const refusal = settled[2] as PromiseRejectedResult;
+    assert.ok(refusedWith('REFUSED_THEME_REMOTE_OP')(refusal.reason), 'the completed publish is refused as a remote operation');
+  });
+
   it('keeps the stricter reading when the write itself throws: the half line it may have left is not forgotten', async () => {
     installHrvStub('unpublished');
     let throwing = false;
