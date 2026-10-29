@@ -291,6 +291,14 @@ export function resolveTerminalCallerScope(
       `Attachment "${attachmentId}" cannot be authorised for terminal access: this runtime is wired without host tab authority, so terminal scope cannot be verified`
     );
   }
+  // A Leader is decided by the terminal the attachment was MINTED from, and only by it: re-binding a
+  // tab never changes the origin, so it can neither grant nor take away the role. A Leader's home is
+  // that origin, whichever tab (if any) it is bound to now, so a tab rooted elsewhere (or none, for an
+  // agent that never opened a page) cannot turn the Leader off.
+  const originId = ownership.originTerminalId?.(attachmentId);
+  if (originId !== undefined && ownership.isLeader?.(originId) === true) {
+    return { bound: true, attachmentId, tabId: ownership.ownerTabId(attachmentId) ?? '', homeId: originId, ownership, leader: true };
+  }
   const tabId = ownership.ownerTabId(attachmentId);
   if (!tabId) {
     throw new CapabilityError(
@@ -305,11 +313,7 @@ export function resolveTerminalCallerScope(
       `Attachment "${attachmentId}" (tab "${tabId}") has no home terminal: it is not rooted in a live AntiFan terminal, so it has no terminal split panes to drive. Start the agent from an AntiFan terminal, then reconnect`
     );
   }
-  // A Leader is an attachment minted from the Leader terminal AND still rooted in it: a tab re-bound to
-  // the Leader's tab leaves the origin elsewhere, and an origin that is no Leader grants nothing.
-  const originId = ownership.originTerminalId?.(attachmentId);
-  const leader = originId !== undefined && originId === homeId && ownership.isLeader?.(originId) === true;
-  return { bound: true, attachmentId, tabId, homeId, ownership, leader };
+  return { bound: true, attachmentId, tabId, homeId, ownership, leader: false };
 }
 
 /**
@@ -659,12 +663,12 @@ export function registerTerminalCapabilities(
   });
 
   catalogue.register<
-    { paged?: boolean },
+    { paged?: boolean; includeBuffer?: boolean },
     { sessions: unknown[]; activeSessionId: string; omittedOutOfScopeTerminals?: number }
   >({
     name: 'terminal.list',
     description:
-      'List the terminal split panes you may drive: the panes under the terminal you run in (the Space panes such as a sync watcher, and panes you created). The terminal you run in, other terminals, and other projects\' terminals are never listed; `omittedOutOfScopeTerminals` counts them. A Leader terminal (marked by the user) instead lists every live terminal of every project except its own, each row adding `workerOf` (when it is one of your workers) and `run` (the OMP run state read from its run file: state, runSeq, ompSessionId, promptHead, lastEventAt, stale). Rows carry bounded wire summary and incarnation metadata',
+      'List the terminal split panes you may drive: the panes under the terminal you run in (the Space panes such as a sync watcher, and panes you created). The terminal you run in, other terminals, and other projects\' terminals are never listed; `omittedOutOfScopeTerminals` counts them. A Leader terminal (marked by the user) instead lists every live terminal of every project except its own, each row adding `workerOf` (when it is one of your workers) and `run` (the OMP run state read from its run file: state, runSeq, ompSessionId, promptHead, lastEventAt, stale). Rows carry bounded wire summary and incarnation metadata; includeBuffer:false drops the raw output tail (`buffer`) from every row, for polling many terminals',
     risk: 'read',
     policy: {
       effect: 'read',
@@ -685,16 +689,22 @@ export function registerTerminalCapabilities(
       type: 'object',
       properties: {
         paged: { type: 'boolean', description: 'Whether to page buffers according to wire budget' },
+        includeBuffer: { type: 'boolean', description: 'false drops the raw output tail (`buffer`) from every row; default true' },
       },
     },
     execute: (
-      params: { paged?: boolean },
+      params: { paged?: boolean; includeBuffer?: boolean },
       context?: CapabilityRequestContext | AuthenticatedCapabilityContext
     ) => {
       const sessions = terminal.listSessions(params.paged ?? true);
       const scope = resolveTerminalCallerScope(ownership, context);
-      const withOwned = (session: unknown, owned: boolean): unknown =>
-        session !== null && typeof session === 'object' ? { ...(session as Record<string, unknown>), owned } : session;
+      const dropBuffer = params.includeBuffer === false;
+      const withOwned = (session: unknown, owned: boolean): unknown => {
+        if (session === null || typeof session !== 'object') return session;
+        const row: Record<string, unknown> = { ...(session as Record<string, unknown>), owned };
+        if (dropBuffer) delete row.buffer;
+        return row;
+      };
       if (!scope.bound) {
         // A caller with no attachment carries no ownership question: every row is its to drive.
         return { sessions: sessions.map((session) => withOwned(session, true)), activeSessionId: terminal.getActiveSessionId() };
@@ -755,14 +765,15 @@ export function registerTerminalCapabilities(
     if (!enabled) return work();
     const scope = resolveTerminalCallerScope(ownership, context);
     if (!scope.bound) return work();
-    const prior = createQueues.get(scope.tabId);
+    const queueKey = scope.tabId || scope.homeId;
+    const prior = createQueues.get(queueKey);
     const run = prior ? settleWithin(prior, CREATE_POLICY_TIMEOUT_MS).then(work) : work();
     const tail = run.then(() => undefined, () => undefined);
-    createQueues.set(scope.tabId, tail);
+    createQueues.set(queueKey, tail);
     try {
       return await run;
     } finally {
-      if (createQueues.get(scope.tabId) === tail) createQueues.delete(scope.tabId);
+      if (createQueues.get(queueKey) === tail) createQueues.delete(queueKey);
     }
   };
 

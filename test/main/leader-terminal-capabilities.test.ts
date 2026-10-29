@@ -49,6 +49,7 @@ interface FakeRow {
   ownerKey?: string;
   splitOf?: string;
   disposed?: boolean;
+  buffer?: string;
 }
 
 const writeRun = (terminalId: string, state: 'idle' | 'running' | 'waiting_user' | 'ended', runSeq: number, extra: { pid?: number; updatedAt?: number; lastEventAt?: number } = {}): void => {
@@ -120,7 +121,11 @@ describe('Leader scope of the terminal capabilities', () => {
     { id: 'terminal-gone', cwd: 'E:/Work/gone', state: 'closed', ownerKey: 'project:p4' },
   ];
 
-  const build = (rows: FakeRow[] = rowsOf(), homes: Record<string, string> = { 'att-lead': 'terminal-lead', 'att-plain': 'terminal-plain' }) => {
+  const build = (
+    rows: FakeRow[] = rowsOf(),
+    homes: Record<string, string> = { 'att-lead': 'terminal-lead', 'att-plain': 'terminal-plain' },
+    overrides: Partial<TerminalOwnershipPort> = {},
+  ) => {
     const calls = {
       writes: [] as Array<{ sessionId: string; input: string }>,
       closedSplits: [] as string[],
@@ -159,6 +164,7 @@ describe('Leader scope of the terminal capabilities', () => {
       tabAffiliation: () => ({ live: true }),
       isLeader: (homeId) => LeaderRegistry.getInstance().isLeader(homeId),
       isLiveTerminal: (terminalId) => isLiveTerminal(facade, terminalId),
+      ...overrides,
     };
     const catalogue = new CapabilityCatalogue({
       runtime: { mode: 'standalone', lifecycle: 'active' },
@@ -491,6 +497,40 @@ describe('Leader scope of the terminal capabilities', () => {
       registry.prune(new Set(['terminal-w1']));
       const after = (await catalogue.dispatch('terminal.list', {}, ctx())) as { sessions: unknown[] };
       assert.deepStrictEqual(after.sessions, [], 'authority is read per call from the registry, never cached');
+    });
+
+    it('stays a Leader with no bound tab, or a tab rooted in another terminal: the home is the origin', async () => {
+      LeaderRegistry.getInstance().setLeader('terminal-lead', true);
+      for (const overrides of [
+        { ownerTabId: () => undefined, homeTerminalId: () => undefined },
+        { homeTerminalId: () => 'terminal-w1' },
+      ] satisfies Array<Partial<TerminalOwnershipPort>>) {
+        const { catalogue } = build(undefined, undefined, overrides);
+        const listed = (await catalogue.dispatch('terminal.list', {}, ctx())) as { sessions: Array<{ id: string }> };
+        const ids = listed.sessions.map((row) => row.id);
+        assert.ok(ids.includes('terminal-w1'), `expected Leader reach, got ${JSON.stringify(ids)}`);
+        assert.ok(!ids.includes('terminal-lead'), 'the origin shell stays out of reach');
+      }
+    });
+
+    it('is not granted to a caller whose tab is rooted in the Leader terminal but whose origin is elsewhere', async () => {
+      LeaderRegistry.getInstance().setLeader('terminal-lead', true);
+      const { catalogue } = build(undefined, undefined, {
+        homeTerminalId: (attachmentId) => (attachmentId === 'att-plain' ? 'terminal-lead' : undefined),
+      });
+      const listed = (await catalogue.dispatch('terminal.list', {}, attachmentContext('att-plain'))) as { sessions: unknown[] };
+      assert.deepStrictEqual(listed.sessions, []);
+    });
+
+    it('includeBuffer:false drops the raw output tail from every row', async () => {
+      LeaderRegistry.getInstance().setLeader('terminal-lead', true);
+      const rows = rowsOf().map((row) => ({ ...row, buffer: 'raw tail' }));
+      const { catalogue } = build(rows);
+      const full = (await catalogue.dispatch('terminal.list', {}, ctx())) as { sessions: Array<Record<string, unknown>> };
+      assert.ok(full.sessions.every((row) => row.buffer === 'raw tail'));
+      const compact = (await catalogue.dispatch('terminal.list', { includeBuffer: false }, ctx())) as { sessions: Array<Record<string, unknown>> };
+      assert.strictEqual(compact.sessions.length, full.sessions.length);
+      assert.ok(compact.sessions.every((row) => !('buffer' in row)));
     });
   });
 });
