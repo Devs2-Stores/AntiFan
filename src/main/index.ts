@@ -4215,6 +4215,7 @@ async function createWindow(): Promise<void> {
       const wc = hostForTabOrBootstrap(tabId).getTabWebContents(tabId, 'desktop');
       return wc && !wc.isDestroyed() ? wc.debugger : undefined;
     },
+    getRedirectChain: (tabId) => hostForTabOrBootstrap(tabId).getRedirectChain(tabId),
     getDom: (selector, tabId, paneId) => hostForTabOrBootstrap(tabId).getDom(selector, tabId, paneId),
     captureScreenshot: (rect, tabId, paneId, options) => hostForTabOrBootstrap(tabId).captureScreenshot(rect as Electron.Rectangle | undefined, tabId, paneId, options),
     captureVerificationScreenshot: (rect, tabId, paneId, options) => hostForTabOrBootstrap(tabId).captureVerificationScreenshot(rect as Electron.Rectangle | undefined, tabId, paneId, options),

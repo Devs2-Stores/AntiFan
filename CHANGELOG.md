@@ -15,6 +15,7 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 - `anti.sheet.write_cell`: đọc lại sau khi ghi chờ lâu hơn và trả `SAVED_UNCONFIRMED` thay vì báo lỗi khi chưa xác nhận được; giá trị nhiều dòng nhập bằng Alt+Enter.
 - Lời gọi theo selector / tọa độ / phím không còn lỗi `TARGET_STALE` khi `documentGeneration` đổi: được rebase và báo `documentGenerationRebased`. Ref `@eN` vẫn giữ hàng rào generation; trang xác minh chống bot vẫn bị từ chối.
 - `anti.browser.navigate` có thêm `waitUntil`; các công cụ screenshot có thêm `saveTo` (cần grant ghi); `set_viewport` có thêm `hideScrollbar` và `clientWidth`; `tabs.list` có thêm bộ lọc.
+- `anti.browser.navigate` trả `redirectChain` (URL yêu cầu, từng bước redirect của server, URL commit) khi server chuyển hướng. Sửa lỗi composite host không chuyển tiếp `getRedirectChain`, khiến mọi công cụ MCP (route identity của screenshot/QA) luôn thấy `redirects: none`.
 
 ### Thêm — Terminal Leader điều phối các terminal khác
 

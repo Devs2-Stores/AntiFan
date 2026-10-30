@@ -743,7 +743,7 @@ function navigateInputSchema(): Record<string, unknown> {
       url: { type: 'string', description: 'http(s) URL, or about:blank to reset the tab to an empty document; every other about: page, file:, data: and javascript: is refused' },
       tabId: { type: 'string' },
       timeoutMs: { type: 'number', description: 'Navigation budget in milliseconds (default 20000, capped at 60000)' },
-      waitUntil: { type: 'string', enum: [...NAVIGATE_WAIT_UNTIL_VALUES], description: 'When navigate returns: commit (the response committed), domcontentloaded, or load (default). Use commit or domcontentloaded for a page whose load event never fires; the result carries loadState and committedUrl' },
+      waitUntil: { type: 'string', enum: [...NAVIGATE_WAIT_UNTIL_VALUES], description: 'When navigate returns: commit (the response committed), domcontentloaded, or load (default). Use commit or domcontentloaded for a page whose load event never fires; the result carries loadState and committedUrl, plus redirectChain (requested URL, each server redirect, committed URL) when the server redirected' },
     },
     required: ['url'],
   };

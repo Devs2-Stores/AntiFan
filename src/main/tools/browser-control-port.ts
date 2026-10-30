@@ -2903,7 +2903,7 @@ export class BrowserControlPort {
     await this.host.ensureProjectTabHost(projectId, { visible });
   }
 
-  async navigate(target: BrowserTarget, url: string, explicitTabId?: string, options?: { timeoutMs?: number; waitUntil?: NavigationWaitUntil }): Promise<{ navigated: boolean; target: BrowserTarget; loadState?: NavigationLoadState; committedUrl?: string; dialog?: JsDialogDescription }> {
+  async navigate(target: BrowserTarget, url: string, explicitTabId?: string, options?: { timeoutMs?: number; waitUntil?: NavigationWaitUntil }): Promise<{ navigated: boolean; target: BrowserTarget; loadState?: NavigationLoadState; committedUrl?: string; redirectChain?: string[]; dialog?: JsDialogDescription }> {
     const tabId = this.resolveTargetTab(target, explicitTabId, 'read');
     const navigationUrl = typeof url === 'string' ? url.trim() : '';
     // about:blank is the only non-http(s) document a session may navigate to (a clean-slate
@@ -2971,7 +2971,14 @@ export class BrowserControlPort {
     const settledTarget: BrowserTarget = { ...target, tabId, documentGeneration: docGen };
     if (settledUrl) settledTarget.url = settledUrl;
     else delete settledTarget.url;
-    return { navigated: true, target: settledTarget, loadState: NAVIGATION_WAIT_UNTIL_LOAD_STATE[waitUntil ?? 'load'], ...(settledUrl ? { committedUrl: settledUrl } : {}) };
+    const redirectChain = this.getTabRedirectChain(tabId);
+    return {
+      navigated: true,
+      target: settledTarget,
+      loadState: NAVIGATION_WAIT_UNTIL_LOAD_STATE[waitUntil ?? 'load'],
+      ...(settledUrl ? { committedUrl: settledUrl } : {}),
+      ...(redirectChain.length > 1 ? { redirectChain } : {}),
+    };
   }
 
   /**

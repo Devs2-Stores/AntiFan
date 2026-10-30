@@ -133,4 +133,31 @@ describe('browser-control-port navigate error code propagation', () => {
       }
     );
   });
+
+  it('reports the server redirect chain when the navigation was redirected', async () => {
+    const requested = 'https://themes.example.com/submission?token=t';
+    const committed = 'https://partners.example.com/1/themes';
+    const chain = [requested, 'https://accounts.example.com/login?state=s', committed];
+    const host = createMockHost({
+      navigateAndWait: async () => true,
+      getTabUrl: () => committed,
+      getRedirectChain: () => [...chain],
+    });
+    const port = new BrowserControlPort(host);
+
+    const result = await port.navigate(baseTarget, requested);
+    assert.deepStrictEqual(result.redirectChain, chain);
+  });
+
+  it('omits redirectChain when the requested URL committed directly', async () => {
+    const host = createMockHost({
+      navigateAndWait: async () => true,
+      getTabUrl: () => 'https://example.com/direct',
+      getRedirectChain: () => ['https://example.com/direct'],
+    });
+    const port = new BrowserControlPort(host);
+
+    const result = await port.navigate(baseTarget, 'https://example.com/direct');
+    assert.strictEqual(result.redirectChain, undefined);
+  });
 });
