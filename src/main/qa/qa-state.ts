@@ -79,6 +79,7 @@ const RETRY_CODES: Record<string, true> = {
   EVAL_HARD_TIMEOUT: true,
   EXECUTION_ERROR: true,
   CAPABILITY_OVERLOADED: true,
+  QA_BUSY: true,
 };
 
 /** Caller input or environment faults: nothing to recover, report as-is. */

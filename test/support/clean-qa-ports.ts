@@ -29,7 +29,10 @@ export interface CleanPortsOptions {
 export interface CleanPortsRecord {
   ports: ThemeQaWorkflowPorts;
   stateMatrixCalls: Array<Record<string, unknown>>;
+  /** Per-width scripts of the standard sweep. */
   sweepScripts: string[];
+  /** Per-width scripts of the extra header-band sweep (a sweep that names its own breakpoints). */
+  denseSweepScripts: string[];
   evalScripts: string[];
 }
 
@@ -111,7 +114,7 @@ const DOM_SEMANTICS_CLEAN = {
  */
 export function createCleanQaPorts(options: CleanPortsOptions = {}): CleanPortsRecord {
   const activeWidth = options.activeWidth ?? 375;
-  const record: CleanPortsRecord = { ports: undefined as unknown as ThemeQaWorkflowPorts, stateMatrixCalls: [], sweepScripts: [], evalScripts: [] };
+  const record: CleanPortsRecord = { ports: undefined as unknown as ThemeQaWorkflowPorts, stateMatrixCalls: [], sweepScripts: [], denseSweepScripts: [], evalScripts: [] };
   const hsScripts = new Set((['haravan', 'sapo', 'shopify', 'unknown'] as const).map((platform) => HsGateRules.getBrowserEvaluationScript(platform)));
   const overflowScript = LayoutOverflowEngine.getBrowserScanScript('active');
   const integrityScript = LayoutIntegrityEngine.getBrowserScanScript('active');
@@ -144,10 +147,11 @@ export function createCleanQaPorts(options: CleanPortsOptions = {}): CleanPortsR
     getDocumentGeneration: () => currentGen,
     settleCapture: async () =>
       ({ settleComplete: true, gates: { network: true, fonts: true, images: true, dom: true }, timingsMs: { network: 1, fonts: 1, images: 1, dom: 1, total: 4 }, brokenImages: [] }) as VisualSettleReceipt,
-    responsiveCheck: async (params: { perWidthScript?: string }) => {
-      record.sweepScripts.push(params?.perWidthScript ?? '');
+    responsiveCheck: async (params: { perWidthScript?: string; customBreakpoints?: Array<{ id: string; width: number; height: number; mobile: boolean }> }) => {
+      const custom = Array.isArray(params?.customBreakpoints) && params.customBreakpoints.length > 0 ? params.customBreakpoints : undefined;
+      (custom ? record.denseSweepScripts : record.sweepScripts).push(params?.perWidthScript ?? '');
       const breakpoints: Record<string, unknown> = {};
-      for (const width of SWEEP_WIDTHS) {
+      for (const width of custom ? custom.map((b) => b.width) : SWEEP_WIDTHS) {
         breakpoints[`w${width}`] = {
           width,
           height: heightFor(width),

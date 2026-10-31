@@ -148,6 +148,7 @@ function certifiedReceipt(workspaceRoot) {
     execution: "COMPLETED",
     errorCode: null,
     certification: "CERTIFIED",
+    certificationBasis: "greenfield",
   };
 }
 
@@ -2950,3 +2951,65 @@ test("edits outside cwd theme (skills dirs, tilde paths, scripts/test/fixtures) 
   }
 });
 
+
+/** Edit a theme file, land a fresh receipt of the given shape, and say whether the gate still reminds. */
+function gateStaysArmedAfter(receiptExtras) {
+  const { handlers } = loadHook();
+  const root = makeWorkspace();
+  const ctx = { cwd: root };
+  try {
+    writeCall(handlers, ctx, path.join(root, "sections", "hero.liquid"));
+    const receiptsDir = path.join(root, ".antifan", "qa-receipts");
+    const file = path.join(receiptsDir, "z-certified.json");
+    fs.writeFileSync(file, JSON.stringify({ ...certifiedReceipt(root), ...receiptExtras }), "utf8");
+    const future = new Date(Date.now() + 60_000);
+    fs.utimesSync(file, future, future);
+    return count(resText(result(handlers, ctx, "write ok", "write")), GATE_REMINDER_SENTINEL) === 1;
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+const ALL_COMPARE_RECEIPTS = { desktop: "compare-receipt", tablet: "compare-receipt", mobile: "compare-receipt" };
+
+test("a baseline-basis CERTIFIED receipt clears the gate only with compare-receipt provenance at all three viewports", () => {
+  assert.equal(
+    gateStaysArmedAfter({ certificationBasis: "baseline", baselineProvenance: ALL_COMPARE_RECEIPTS }),
+    false,
+    "receipt-backed baseline clears the gate"
+  );
+  assert.equal(gateStaysArmedAfter({ certificationBasis: "baseline" }), true, "no provenance record keeps the gate armed");
+  assert.equal(
+    gateStaysArmedAfter({ certificationBasis: "baseline", baselineProvenance: { ...ALL_COMPARE_RECEIPTS, mobile: "caller-asserted" } }),
+    true,
+    "one caller-asserted viewport keeps the gate armed"
+  );
+  assert.equal(
+    gateStaysArmedAfter({ certificationBasis: "baseline", baselineProvenance: { desktop: "compare-receipt", tablet: "compare-receipt" } }),
+    true,
+    "a missing viewport keeps the gate armed"
+  );
+  assert.equal(gateStaysArmedAfter({ certificationBasis: "baseline", baselineProvenance: "compare-receipt" }), true, "a non-object provenance is not provenance");
+});
+
+test("a greenfield-basis CERTIFIED receipt needs no baseline provenance to clear the gate", () => {
+  assert.equal(gateStaysArmedAfter({ certificationBasis: "greenfield" }), false);
+});
+
+test("a CERTIFIED receipt with a missing or unknown certificationBasis never clears the gate", () => {
+  assert.equal(gateStaysArmedAfter({ certificationBasis: undefined }), true, "no basis recorded keeps the gate armed");
+  assert.equal(gateStaysArmedAfter({ certificationBasis: "manual" }), true, "an unknown basis keeps the gate armed");
+  assert.equal(gateStaysArmedAfter({ certificationBasis: null }), true, "a null basis keeps the gate armed");
+  assert.equal(
+    gateStaysArmedAfter({ certificationBasis: undefined, baselineProvenance: ALL_COMPARE_RECEIPTS }),
+    true,
+    "provenance without a basis is not a certification"
+  );
+});
+
+test("CERTIFIED_SCOPED never clears the gate on its own", () => {
+  assert.equal(
+    gateStaysArmedAfter({ certification: "CERTIFIED_SCOPED", certificationBasis: "baseline", baselineProvenance: ALL_COMPARE_RECEIPTS, certificationScope: "scoped" }),
+    true
+  );
+});

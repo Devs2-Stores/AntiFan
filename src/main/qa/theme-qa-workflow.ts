@@ -19,7 +19,8 @@ import { classifyDiagnostics, extractCorrelatableAssetFailures, extractDocumentH
 import { DomSemanticsScanner, type DomSemanticsScanResult } from './scanners/dom-semantics-scanner';
 import { VisualQualityScanner, visualQualityEvalTimeoutMs, type VisualQualityScanResult, type VisualQualityFinding } from './scanners/visual-quality-scanner';
 import { formatInflightNote } from '../browser/first-party-network-tracker';
-import { DEFAULT_SWEEP_BREAKPOINTS } from '../browser/sweep-viewports';
+import { DEFAULT_SWEEP_BREAKPOINTS, HEADER_DENSE_BREAKPOINTS } from '../browser/sweep-viewports';
+import type { BaselineProvenanceKind, BaselineProvenanceRejection } from './baseline-provenance';
 import type { ThemeTransactionRegistry } from './theme-transaction-registry';
 import type { TerminalSyncCursor, SyncSettleResult } from './haravan-sync-barrier';
 import { DEFAULT_QA_PROFILE, resolveQaThresholds, type QaProfile, type QaThresholds, type QaThresholdsSource } from './qa-thresholds';
@@ -55,11 +56,20 @@ export interface ThemeQaDifferentialAttribution {
   preExistingIssues: ThemeQaIssueItem[];
   resolvedIssues: ThemeQaIssueItem[];
   introducedRegressions: ThemeQaIssueItem[];
-  hasRegressions: boolean;
   /**
-   * Whether a baseline was supplied. Without one, `introducedRegressions` is every current
-   * finding (nothing was compared against), not a set of regressions, and `summary.attribution`
-   * says so with `status: 'unavailable'`.
+   * `null` when no baseline was supplied and no diagnostics regression was seen: nothing was
+   * compared, so "no regressions" is not a claim this run can make.
+   */
+  hasRegressions: boolean | null;
+  /**
+   * Without a baseline, the current findings that had nothing to be compared against. Only the
+   * diagnostics (which have a pre-reload reading of the same page) are classified as
+   * preexisting or introduced; every other finding lands here.
+   */
+  unclassifiedFindings?: ThemeQaIssueItem[];
+  /**
+   * Whether a baseline was supplied. Without one, `introducedRegressions` holds only diagnostics
+   * that appeared after the reload, and `summary.attribution` says so with `status: 'unavailable'`.
    */
   baselineSupplied: boolean;
 }
@@ -180,7 +190,7 @@ export interface ThemeQaSummary {
    * 8-dimension matrix still has unmeasured dimensions or viewports, so PASS is not a visual,
    * interaction or performance certification. CERTIFIED: the matrix itself passed.
    */
-  certification?: 'STRUCTURAL' | 'CERTIFIED';
+  certification?: 'STRUCTURAL' | 'CERTIFIED' | 'CERTIFIED_SCOPED';
   /** The QA matrix verdict mirrored next to the structural verdict so neither is read alone. */
   matrixVerdict?: 'PASS' | 'FAIL' | 'INCONCLUSIVE';
   /** Why `certification` is STRUCTURAL: the unmeasured viewports/dimensions and evidence gaps. Empty when CERTIFIED. */
@@ -197,6 +207,28 @@ export interface ThemeQaSummary {
   criticalCodes?: string[];
   /** Critical findings per rule (the rule ids the receipt lists), so `criticalCount` can be read without opening the findings. */
   byRule?: Record<string, number>;
+  /**
+   * How each baseline viewport's numbers were obtained. `compare-receipt`: read from the host's own
+   * comparison ledger. `caller-asserted`: typed by the caller, never enough for CERTIFIED.
+   * Absent on a greenfield run and on a run that supplied no baseline viewports.
+   */
+  baselineProvenance?: Partial<Record<'desktop' | 'tablet' | 'mobile', BaselineProvenanceKind>>;
+  /** `scoped` only for CERTIFIED_SCOPED; every other result is graded for the whole `page`. */
+  certificationScope?: 'page' | 'scoped';
+  /**
+   * Set when the capture environment (not the storefront) starved this run of rendered frames and
+   * every observed failure depends on rendering: the verdict is INCONCLUSIVE and the findings that
+   * could not be verified are counted in `suspectCriticalCount`.
+   */
+  environment?: ThemeQaEnvironment;
+  /** Critical findings `pageCriticalCount` counts that no listed finding (`byRule`) accounts for; absent when the two agree or the list is longer. */
+  unlistedCriticalCount?: number;
+}
+export interface ThemeQaEnvironment {
+  degraded: true;
+  code: string;
+  message: string;
+  suspectCriticalCount: number;
 }
 export interface QaMatrixDimension {
   score: number | null;
@@ -966,6 +998,23 @@ function isAnonymousSelector(sel: string): boolean {
   return chain.length > 0 && chain.every((seg) => !seg.id && seg.distinctiveClasses.length === 0);
 }
 
+const MAX_DECLARED_SCOPE_SELECTORS = 5;
+const MAX_DECLARED_SCOPE_SELECTOR_CHARS = 300;
+
+/** The caller's `scope.selectors`, trimmed, de-duplicated and bounded; anything that is not a usable selector string is dropped. */
+export function normalizeScopeSelectors(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out = new Set<string>();
+  for (const item of raw) {
+    if (typeof item !== 'string') continue;
+    const trimmed = item.trim();
+    if (!trimmed || trimmed.length > MAX_DECLARED_SCOPE_SELECTOR_CHARS || isUnscopedOrPageLevelSelector(trimmed)) continue;
+    out.add(trimmed);
+    if (out.size >= MAX_DECLARED_SCOPE_SELECTORS) break;
+  }
+  return [...out];
+}
+
 /** Every element selector the scoped count reads, so the live page can be asked about each once. */
 export function collectScopeSelectors(findings: ThemeQaDetailedFindings | undefined, limit = 300): string[] {
   const out = new Set<string>();
@@ -1125,12 +1174,21 @@ export function computeScopedCriticalCount(
         }
       }
     }
-    if (Array.isArray(findings.differential?.introducedRegressions)) {
-      for (const reg of findings.differential.introducedRegressions) {
-        if (!reg || reg.severity !== 'critical') continue;
-        if (reg.signature && countedSignatures.has(reg.signature)) continue;
-        if (reg.signature) countedSignatures.add(reg.signature);
-        count++;
+    // Introduced criticals no scanner family above already counted. Strict-profile findings
+    // (visual quality, overlay state) are counted from `strictFailures` below and skipped here.
+    // Unclassified findings (no baseline to compare against) need no pass of their own: each one
+    // belongs to a family above or to `strictFailures`.
+    const extraCriticals = Array.isArray(findings.differential?.introducedRegressions) ? findings.differential.introducedRegressions : [];
+    for (const reg of extraCriticals) {
+      if (!reg || reg.severity !== 'critical') continue;
+      if (reg.category === 'visual_quality' || reg.category === 'state_matrix') continue;
+      if (reg.signature && countedSignatures.has(reg.signature)) continue;
+      if (reg.signature) countedSignatures.add(reg.signature);
+      count++;
+    }
+    if (Array.isArray(findings.strictFailures)) {
+      for (const sf of findings.strictFailures) {
+        if (sf && inScopeOrPageLevel(sf.selector)) count++;
       }
     }
     return count;
@@ -1175,6 +1233,32 @@ const CAPTURE_EVIDENCE_FAILURE_CODES: Partial<Record<CaptureFailureCode, true>> 
   DOCUMENT_GENERATION_UNSETTLED: true,
   // Route expectation errors are target-selection failures, not raster evidence gaps.
 };
+
+/**
+ * Capture failures that mean the tab itself was not laid out at the requested surface, so the
+ * geometry the detectors read from it is not the storefront's: a tab starved of frames, a 0x0
+ * render surface, or an emulated viewport that did not hold. Raster encoding and scale failures
+ * are not here: the CSS layout the DOM detectors measured is still real, so a failure they
+ * observed stays a FAIL.
+ */
+const ENVIRONMENT_CAPTURE_FAILURE_CODES: Partial<Record<string, true>> = {
+  CAPTURE_FRAME_STARVATION: true,
+  NO_RENDER_SURFACE: true,
+  CAPTURE_VIEWPORT_NOT_RESTORED: true,
+};
+
+/** The critical findings of one sweep-width integrity reading, or null when that width was not measured. */
+function criticalsOfSweepIntegrity(reading: unknown): LayoutIntegrityFinding[] | null {
+  if (!reading || typeof reading !== 'object' || !('measured' in reading) || reading.measured !== true) return null;
+  if (!('findings' in reading) || !Array.isArray(reading.findings)) return null;
+  const criticals: LayoutIntegrityFinding[] = [];
+  for (const finding of reading.findings as unknown[]) {
+    if (finding && typeof finding === 'object' && 'kind' in finding && 'severity' in finding && finding.severity === 'critical') {
+      criticals.push(finding as LayoutIntegrityFinding);
+    }
+  }
+  return criticals;
+}
 
 function captureEvidenceFailure(error: unknown): ThemeQaEvidenceFailure | undefined {
   if (error instanceof CapabilityError && error.code === 'RESOURCE_FAILURE') {
@@ -1419,13 +1503,10 @@ function buildAttribution(differential: ThemeQaDifferentialAttribution): ThemeQa
   };
   const introducedSelectors = new Set<string>();
   for (const item of differential.preExistingIssues) attribution.preexisting[item.severity]++;
+  // Without a supplied baseline only the diagnostics have a before-reload reading to compare
+  // against, and they are the only items classified as introduced; the rest are legacy.
+  for (const item of differential.unclassifiedFindings ?? []) attribution.legacy[item.severity]++;
   for (const item of differential.introducedRegressions) {
-    // Without a supplied baseline only the diagnostics have a before-reload reading to compare
-    // against; every other finding has nothing to be "introduced" relative to.
-    if (!hasBaseline && item.category !== 'diagnostics') {
-      attribution.legacy[item.severity]++;
-      continue;
-    }
     attribution.introduced[item.severity]++;
     const selector = item.details?.selector;
     if (typeof selector === 'string' && selector.length > 0) introducedSelectors.add(selector);
@@ -1523,6 +1604,18 @@ export interface ThemeQaValidateInput {
   settle?: QaSettleOverrides;
   /** HTTP status the contract declares for this route; a document returning exactly it is not a ROUTE_404 defect. */
   expectedDocumentStatus?: number;
+  /** Per-viewport origin of `viewports`: `compare-receipt` or `caller-asserted`. A viewport without an entry is read as caller-asserted. */
+  viewportProvenance?: Partial<Record<string, BaselineProvenanceKind>>;
+  /** Compare receipts the capability layer refused (wrong origin, stale, missing); each is named in `certificationReasons`. */
+  viewportRejections?: BaselineProvenanceRejection[];
+  /**
+   * Declares the part of the page this run is about. `selectors` are resolved on the live page; the
+   * run can then earn CERTIFIED_SCOPED when everything inside them is clean. Ignored when an
+   * annotation binding decides the scope. `files` is a label kept on the receipt, not a selector.
+   */
+  scope?: { selectors?: string[]; files?: string[] };
+  /** Also sweep the widths between the standard breakpoints (700 to 1300) for header geometry. Default: on under build-strict, off under audit. */
+  denseHeaderSweep?: boolean;
   /**
    * Declares a run with no visual baseline to compare because none exists yet (a new theme).
    * Each of the three representative widths is then graded by the absolute gates measured at
@@ -2268,6 +2361,50 @@ export class ThemeQaWorkflow {
       }
     }
 
+    // The standard widths skip the band between tablet and laptop where a header's navigation,
+    // search and cart controls first collide. Build-strict measures that band with one extra pass;
+    // it grades layout integrity only and never feeds the overflow or per-breakpoint readings above.
+    const runDenseHeaderSweep = input.denseHeaderSweep ?? (strictProfile && runMultiBreakpoint);
+    const denseHeaderCriticals = new Map<number, LayoutIntegrityFinding[]>();
+    const denseHeaderUnmeasured: number[] = [];
+    if (runDenseHeaderSweep) {
+      if (typeof this.ports.browser.responsiveCheck === 'function') {
+        try {
+          const dense = await this.ports.browser.responsiveCheck({
+            tabId: activeTarget.tabId,
+            customBreakpoints: [...HEADER_DENSE_BREAKPOINTS],
+            perWidthScript: LayoutIntegrityEngine.getBrowserScanScript('sweep', { skipLayoutShift: true }),
+          });
+          const denseBreakpoints = dense && typeof dense === 'object' ? (dense as Record<string, unknown>).breakpoints : undefined;
+          const denseByWidth = new Map<number, Record<string, unknown>>();
+          if (denseBreakpoints && typeof denseBreakpoints === 'object') {
+            for (const value of Object.values(denseBreakpoints as Record<string, unknown>)) {
+              if (value && typeof value === 'object' && typeof (value as Record<string, unknown>).width === 'number') {
+                denseByWidth.set((value as Record<string, unknown>).width as number, value as Record<string, unknown>);
+              }
+            }
+          }
+          for (const breakpoint of HEADER_DENSE_BREAKPOINTS) {
+            const bp = denseByWidth.get(breakpoint.width);
+            const criticals = bp && bp.emulationApplied !== false ? criticalsOfSweepIntegrity(bp.integrity) : null;
+            if (criticals) denseHeaderCriticals.set(breakpoint.width, criticals);
+            else denseHeaderUnmeasured.push(breakpoint.width);
+          }
+        } catch (error) {
+          rethrowTargetLifecycleError(error);
+          denseHeaderUnmeasured.push(...HEADER_DENSE_BREAKPOINTS.map((b) => b.width));
+          if (sweepGaps) {
+            evidenceGaps.push(`Dense header sweep failed or unsupported: ${error instanceof Error ? error.message : String(error)}`);
+          }
+        }
+      } else {
+        denseHeaderUnmeasured.push(...HEADER_DENSE_BREAKPOINTS.map((b) => b.width));
+        if (sweepGaps) {
+          evidenceGaps.push('Dense header sweep unsupported: responsiveCheck capability missing on browser port');
+        }
+      }
+    }
+
     const integrityFindings: LayoutIntegrityFinding[] = integrityResult && Array.isArray(integrityResult.findings) ? integrityResult.findings : [];
     const integrityCriticals = integrityFindings.filter((f) => f.severity === 'critical');
     const integrityAmbiguities = integrityFindings
@@ -2347,6 +2484,24 @@ export class ThemeQaWorkflow {
         ...(bp && Array.isArray(bp.overflowCulprits) && bp.overflowCulprits.length > 0 ? { overflowCulprits: bp.overflowCulprits as SweepOverflowCulprit[] } : {}),
         ...(bp && typeof bp.layoutWidth === 'number' ? { layoutWidth: bp.layoutWidth } : {}),
       };
+    }
+    // Dense header widths join the same critical list as the standard sweep, and are listed in the
+    // per-width map (as integrity-only entries) so the receipt names what the count is made of.
+    for (const [width, criticals] of denseHeaderCriticals) {
+      for (const finding of criticals) sweepIntegrityCriticals.push({ width, finding });
+      responsiveMap[String(width)] = {
+        documentOverflow: null,
+        criticalOverflow: null,
+        criticalOverlap: countKind(criticals, 'overlap', 'critical'),
+        criticalClipping: countKind(criticals, 'clipping', 'critical'),
+        criticalOcclusion: countKind(criticals, 'occlusion', 'critical'),
+        criticalOffscreen: countKind(criticals, 'offscreen', 'critical') + countKind(criticals, 'zero-size', 'critical'),
+        spacingWarnings: null,
+        ...(criticals.length > 0 ? { findings: criticals } : {}),
+      };
+    }
+    if (denseHeaderUnmeasured.length > 0 && sweepGaps && denseHeaderCriticals.size < HEADER_DENSE_BREAKPOINTS.length && !evidenceGaps.some((gap) => gap.startsWith('Dense header sweep'))) {
+      evidenceGaps.push(`Dense header sweep did not measure width(s) ${denseHeaderUnmeasured.join(', ')}`);
     }
     if (unmeasuredIntegrityWidths.length > 0 && sweepGaps) {
       evidenceGaps.push(`Responsive layout integrity not measured at width(s) ${unmeasuredIntegrityWidths.join(', ')}`);
@@ -2695,7 +2850,8 @@ export class ThemeQaWorkflow {
       } else if (effectiveBaselineFindings.differential?.preExistingIssues) {
         preItems.push(
           ...effectiveBaselineFindings.differential.preExistingIssues,
-          ...effectiveBaselineFindings.differential.introducedRegressions
+          ...effectiveBaselineFindings.differential.introducedRegressions,
+          ...(effectiveBaselineFindings.differential.unclassifiedFindings ?? [])
         );
       } else {
         const bf = effectiveBaselineFindings;
@@ -2905,11 +3061,18 @@ export class ThemeQaWorkflow {
       })),
     ];
 
+    const baselineSupplied = effectiveBaselineFindings !== undefined;
+    const unclassifiedFindings: ThemeQaIssueItem[] = [];
     for (const cur of currentItems) {
       const preEntry = preCounts.get(cur.signature);
       if (preEntry && preEntry.count > 0) {
         preEntry.count--;
         preExistingIssues.push(cur);
+      } else if (!baselineSupplied && cur.category !== 'diagnostics') {
+        // Nothing was compared against: only the diagnostics have a pre-reload reading of the
+        // same page. Calling every other finding "introduced" would claim a regression this run
+        // cannot see.
+        unclassifiedFindings.push(cur);
       } else {
         introducedRegressions.push(cur);
       }
@@ -2925,8 +3088,9 @@ export class ThemeQaWorkflow {
       preExistingIssues,
       resolvedIssues,
       introducedRegressions,
-      hasRegressions: introducedRegressions.length > 0,
-      baselineSupplied: effectiveBaselineFindings !== undefined,
+      hasRegressions: baselineSupplied ? introducedRegressions.length > 0 : introducedRegressions.length > 0 ? true : null,
+      ...(unclassifiedFindings.length > 0 ? { unclassifiedFindings } : {}),
+      baselineSupplied,
     };
     const attribution = buildAttribution(differential);
     const preReloadDiagnosticsObj =
@@ -3072,6 +3236,36 @@ export class ThemeQaWorkflow {
       summaryVerdict = 'INCONCLUSIVE';
     }
 
+    // A tab the capture environment starved of frames reads geometry that is not the storefront's.
+    // When that is the only kind of failure seen, the run says so (INCONCLUSIVE + `environment`)
+    // instead of failing the theme; any failure that does not depend on rendering keeps FAIL.
+    let environment: ThemeQaEnvironment | undefined;
+    if (summaryVerdict === 'FAIL' && hasObservedFailure && evidenceFailure && ENVIRONMENT_CAPTURE_FAILURE_CODES[evidenceFailure.code] === true) {
+      const nonRenderFailure =
+        (checkParticipates('liquidClean') && (liquidResult.hasErrors || checklist.liquidClean === false)) ||
+        (checkParticipates('assetsValid') && (assetResult.hasBrokenAssets || checklist.assetsValid === false)) ||
+        (checkParticipates('hsCompliant') && (hsResult.errorsCount > 0 || checklist.hsCompliant === false)) ||
+        (checkParticipates('diagnostics') && checklist.diagnostics === false) ||
+        (checkParticipates('interactions') && checklist.interactions === false) ||
+        serverCrashResult.hasCrash ||
+        diagnosticIssues.length > 0;
+      if (!nonRenderFailure) {
+        summaryVerdict = 'INCONCLUSIVE';
+        environment = {
+          degraded: true,
+          code: evidenceFailure.code,
+          message: evidenceFailure.message,
+          suspectCriticalCount:
+            integrityCriticals.length +
+            sweepIntegrityCriticals.length +
+            overflowIssueCount +
+            strictVisualFailures.length +
+            strictSpacingFailures.length +
+            stateMatrixFailures.length,
+        };
+      }
+    }
+
     const pageCriticalCount =
       hsResult.errorsCount +
       liquidResult.errors.length +
@@ -3091,6 +3285,32 @@ export class ThemeQaWorkflow {
             ...(input.annotationDomAncestry ? { domAncestry: input.annotationDomAncestry } : {}),
           }
         : resolveAnnotationTargetSelector(input.workspaceRoot, input.annotationId);
+    // Failures that count toward criticalCount under build-strict but sit in no other findings
+    // family: without them the count names criticals the report never lists.
+    const strictFailureEntries: ThemeQaStrictFailure[] = [
+      ...strictVisualFailures.map((f): ThemeQaStrictFailure => ({
+        rule: `visual_quality:${f.ruleId}`,
+        severity: 'critical',
+        selector: f.selector || null,
+        rect: normalizeReceiptRect(f.rect),
+        message: truncateReceiptMessage(f.details),
+      })),
+      ...strictSpacingFailures.map(({ width, finding: f }): ThemeQaStrictFailure => ({
+        rule: width === null ? `layout_integrity:spacing:${f.ruleId}` : `layout_integrity@${width}:spacing:${f.ruleId}`,
+        severity: 'critical',
+        selector: f.selector || null,
+        rect: normalizeReceiptRect(f.rect),
+        message: truncateReceiptMessage(width === null ? f.details : `(${width}px) ${f.details}`),
+        activeKey: width !== null && width === integrityWidth ? `${f.kind}:${f.selector || ''}:${(f.details || '').slice(0, 80)}` : undefined,
+      })),
+      ...stateMatrixFailures.map((f): ThemeQaStrictFailure => ({
+        rule: `state_matrix:${f.code}`,
+        severity: 'critical',
+        selector: null,
+        rect: null,
+        message: truncateReceiptMessage(`Overlay ${f.trigger}: ${f.message}`),
+      })),
+    ];
     const scopeFindings: ThemeQaDetailedFindings = {
       platform: platformResult,
       liquid: liquidResult,
@@ -3100,7 +3320,8 @@ export class ThemeQaWorkflow {
       serverCrash: serverCrashResult,
       diagnosticIssues,
       diagnosticWarnings,
-      ...(effectiveBaselineFindings ? { differential } : {}),
+      ...(strictFailureEntries.length > 0 ? { strictFailures: strictFailureEntries } : {}),
+      differential,
       ...(integrityResult ? { layoutIntegrity: integrityResult } : {}),
       responsive: responsiveMap,
     } as ThemeQaDetailedFindings;
@@ -3136,6 +3357,7 @@ export class ThemeQaWorkflow {
       criticalCount: pageCriticalCount,
       pageCriticalCount,
       ...(scopedCriticalCount !== undefined ? { scopedCriticalCount } : {}),
+      ...(environment ? { environment } : {}),
       ...(settleReceipt?.domUnstable ? { domUnstable: true } : {}),
       ...(checklist.responsive !== undefined ? { responsive: checklist.responsive } : {}),
       ...(documentStatus !== undefined ? { documentStatus } : {}),
@@ -3177,32 +3399,32 @@ export class ThemeQaWorkflow {
       reason: 'Diagnostic viewport capture only; cannot certify visual parity without multi-viewport baseline comparison (anti.visual.compare)',
     };
 
-    // Failures that count toward criticalCount under build-strict but sit in no other findings
-    // family: without them the count names criticals the report never lists.
-    const strictFailureEntries: ThemeQaStrictFailure[] = [
-      ...strictVisualFailures.map((f): ThemeQaStrictFailure => ({
-        rule: `visual_quality:${f.ruleId}`,
-        severity: 'critical',
-        selector: f.selector || null,
-        rect: normalizeReceiptRect(f.rect),
-        message: truncateReceiptMessage(f.details),
-      })),
-      ...strictSpacingFailures.map(({ width, finding: f }): ThemeQaStrictFailure => ({
-        rule: width === null ? `layout_integrity:spacing:${f.ruleId}` : `layout_integrity@${width}:spacing:${f.ruleId}`,
-        severity: 'critical',
-        selector: f.selector || null,
-        rect: normalizeReceiptRect(f.rect),
-        message: truncateReceiptMessage(width === null ? f.details : `(${width}px) ${f.details}`),
-        activeKey: width !== null && width === integrityWidth ? `${f.kind}:${f.selector || ''}:${(f.details || '').slice(0, 80)}` : undefined,
-      })),
-      ...stateMatrixFailures.map((f): ThemeQaStrictFailure => ({
-        rule: `state_matrix:${f.code}`,
-        severity: 'critical',
-        selector: null,
-        rect: null,
-        message: truncateReceiptMessage(`Overlay ${f.trigger}: ${f.message}`),
-      })),
-    ];
+    // A caller-declared scope is read on the live page, and only when no annotation binding already
+    // decides the scope: a caller must not be able to pick the scope that clears its own gate.
+    const declaredScopeSelectors = input.annotationId || resolvedAnnotationTarget ? [] : normalizeScopeSelectors(input.scope?.selectors);
+    let declaredScope: { unresolved: string[]; count: number } | undefined;
+    if (declaredScopeSelectors.length > 0) {
+      const declaredScopeFindings: ThemeQaDetailedFindings = scopeFindings;
+      const selectorsInFindings = collectScopeSelectors(declaredScopeFindings);
+      const unresolved: string[] = [];
+      let count = 0;
+      for (const selector of declaredScopeSelectors) {
+        let reading: unknown = null;
+        try {
+          reading = await this.ports.browser.eval(activeTarget, buildScopeContainmentScript(selector, selectorsInFindings));
+        } catch (error) {
+          rethrowTargetLifecycleError(error);
+        }
+        if (reading && typeof reading === 'object' && !Array.isArray(reading)) {
+          count = Math.max(count, computeScopedCriticalCount(declaredScopeFindings, selector, undefined, undefined, reading as Record<string, boolean>));
+        } else {
+          unresolved.push(selector);
+        }
+      }
+      declaredScope = { unresolved, count };
+      // A selector the page does not resolve cannot show that its scope is clean.
+      summary.scopedCriticalCount = unresolved.length > 0 ? null : count;
+    }
     const findings: ThemeQaDetailedFindings = {
       platform: platformResult,
       liquid: liquidResult,
@@ -3256,15 +3478,34 @@ export class ThemeQaWorkflow {
     summary.certification = qaMatrix.verdict === 'PASS' ? 'CERTIFIED' : 'STRUCTURAL';
     summary.certificationReasons = [];
     const certificationRemedies: ThemeQaCertificationRemedy[] = [];
-    if (greenfieldReason !== undefined) {
+    const isGreenfield = greenfieldReason !== undefined;
+    if (isGreenfield) {
       summary.certificationReasons.push(`greenfield declared: ${greenfieldReason}; no visual baseline compared`);
     }
+    // Numbers a caller typed are not a baseline comparison: only a viewport whose numbers were read
+    // from the host's compare ledger counts as measured by something other than the caller.
+    const baselineProvenance: NonNullable<ThemeQaSummary['baselineProvenance']> = {};
+    if (!isGreenfield && input.viewports) {
+      for (const name of GREENFIELD_VIEWPORT_NAMES) {
+        if (input.viewports[name]) baselineProvenance[name] = input.viewportProvenance?.[name] ?? 'caller-asserted';
+      }
+      if (Object.keys(baselineProvenance).length > 0) summary.baselineProvenance = baselineProvenance;
+    }
+    const allViewportsReceiptBacked = GREENFIELD_VIEWPORT_NAMES.every((name) => baselineProvenance[name] === 'compare-receipt');
+    if (summary.certification === 'CERTIFIED' && !isGreenfield && !allViewportsReceiptBacked) {
+      summary.certification = 'STRUCTURAL';
+    }
     if (summary.certification === 'CERTIFIED') {
-      summary.certificationBasis = greenfieldReason !== undefined ? 'greenfield' : 'baseline';
+      summary.certificationBasis = isGreenfield ? 'greenfield' : 'baseline';
     } else {
       const missingBaselineViewports: string[] = [];
+      if (!isGreenfield) {
+        for (const rejection of input.viewportRejections ?? []) {
+          summary.certificationReasons.push(`visual baseline compare receipt rejected at ${rejection.viewport} (${rejection.code}): ${rejection.detail}`);
+        }
+      }
       for (const [name, vp] of Object.entries(qaMatrix.viewports)) {
-        if (greenfieldReason !== undefined) {
+        if (isGreenfield) {
           const width = GREENFIELD_VIEWPORT_WIDTHS[name as GreenfieldViewportName];
           if (!vp.measured) {
             const reason = `absolute gates not measured at ${name} (${width}px): the responsive sweep did not measure it`;
@@ -3274,11 +3515,18 @@ export class ThemeQaWorkflow {
             summary.certificationReasons.push(`absolute gate failed at ${name} (${width}px)`);
           }
         } else if (!vp.measured) {
-          summary.certificationReasons.push(`visual baseline missing at ${name}: pass baselineViewports.${name} {mismatchPercent, passed} from a baseline comparison`);
+          summary.certificationReasons.push(`visual baseline missing at ${name}: pass baselineViewports.${name} {compareReceiptId} from an anti.visual.compare against the promoted baseline`);
           certificationRemedies.push({ reason: `visual baseline missing at ${name}`, tool: 'anti.visual.compare' });
           missingBaselineViewports.push(name);
-        } else if (vp.verdict === 'FAIL') {
-          summary.certificationReasons.push(`visual baseline at ${name} differs by ${vp.mismatchPercent}%`);
+        } else {
+          if (vp.verdict === 'FAIL') {
+            summary.certificationReasons.push(`visual baseline at ${name} differs by ${vp.mismatchPercent}%`);
+          }
+          if (baselineProvenance[name as GreenfieldViewportName] !== 'compare-receipt') {
+            const reason = `BASELINE_NO_PROVENANCE: ${name} baseline numbers are caller-asserted`;
+            summary.certificationReasons.push(reason);
+            certificationRemedies.push({ reason, tool: 'anti.visual.compare' });
+          }
         }
       }
       if (missingBaselineViewports.length > 0) {
@@ -3292,16 +3540,58 @@ export class ThemeQaWorkflow {
         if (dim.score === null) summary.certificationReasons.push(`${name} unmeasured: ${dim.details}`);
       }
       for (const gap of evidenceGaps) summary.certificationReasons.push(`gap: ${gap}`);
+      if (summary.environment) {
+        summary.certificationReasons.push(
+          `environment degraded (${summary.environment.code}): ${summary.environment.suspectCriticalCount} render-dependent critical finding(s) could not be verified`
+        );
+      }
       if (settleReceipt?.domUnstable === true || summary.domUnstable === true) {
         certificationRemedies.push({ reason: 'DOM mutations remained active during the settle window', tool: 'anti.media.freeze' });
       }
     }
+    // Clean inside a declared scope earns a scoped label, never the page certification: the page
+    // verdict stays FAIL and `pageCriticalCount` keeps counting the whole page.
+    if (declaredScope && declaredScope.unresolved.length > 0) {
+      summary.certificationReasons.push(`scope selector not found on the live page: ${declaredScope.unresolved.join(', ')}`);
+    }
+    if (input.scope?.selectors?.length && declaredScopeSelectors.length === 0) {
+      summary.certificationReasons.push(
+        input.annotationId || resolvedAnnotationTarget
+          ? 'scope.selectors ignored: the annotation binding decides the scope of this run'
+          : 'scope.selectors ignored: none is a usable element selector (page-level selectors such as html or body cannot scope a run)'
+      );
+    }
+    if (
+      summary.certification === 'STRUCTURAL' &&
+      declaredScope &&
+      declaredScope.unresolved.length === 0 &&
+      summary.scopedCriticalCount === 0 &&
+      summaryVerdict === 'FAIL' &&
+      !hasMissingEvidence &&
+      !summary.environment &&
+      Object.values(qaMatrix.viewports).every((vp) => vp.measured && vp.verdict === 'PASS') &&
+      (isGreenfield || allViewportsReceiptBacked)
+    ) {
+      summary.certification = 'CERTIFIED_SCOPED';
+      summary.certificationBasis = isGreenfield ? 'greenfield' : 'baseline';
+      summary.certificationReasons.push(
+        `scoped to ${declaredScopeSelectors.join(', ')}: clean inside the scope; ${pageCriticalCount} critical finding(s) elsewhere keep the page verdict ${summaryVerdict}`
+      );
+    }
+    summary.certificationScope = summary.certification === 'CERTIFIED_SCOPED' ? 'scoped' : 'page';
     summary.certificationRemedies = certificationRemedies;
     summary.attribution = attribution;
     // The index reads the entries the receipt lists, so it names the rules `criticalCount` is made of.
     const reportIndex = buildQaReportIndex(collectReceiptFindings(findings));
     summary.criticalCodes = reportIndex.criticalCodes;
     summary.byRule = reportIndex.byRule;
+    // A count the listed findings cannot account for would leave a reader unable to find the
+    // criticals; say so instead of letting the two disagree silently.
+    const listedCriticalCount = Object.values(reportIndex.byRule).reduce((sum, n) => sum + n, 0);
+    if (pageCriticalCount > listedCriticalCount) {
+      summary.unlistedCriticalCount = pageCriticalCount - listedCriticalCount;
+      summary.certificationReasons.push(`${summary.unlistedCriticalCount} of ${pageCriticalCount} critical finding(s) are counted but not listed by any rule (byRule)`);
+    }
     const viewportsTested = buildViewportsTested(responsiveMap, qaMatrix, greenfieldReason !== undefined);
     // 11. Generate PII-sanitized report JSON (RT-02 mitigation)
     const reportDataRaw = JSON.stringify(

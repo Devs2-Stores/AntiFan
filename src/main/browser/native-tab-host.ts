@@ -107,6 +107,7 @@ import { CapabilityError, CONTROL_PLANE_DEFAULT_PROJECT_ID, type CapabilityError
 import { PROJECT_WINDOWS_SAVED_TABS_VERSION } from './saved-tabs-migration';
 import { isBenchmarkEnabled, recordBenchmark } from '../benchmark/telemetry';
 import { AsyncThemeQaQueue } from '../qa/async-qa-job-queue';
+import { acquireQaRunLock, type QaRunLockHandle } from '../qa/qa-run-lock';
 import { confineWorkspaceRoot, confineWorkspaceRootStrict } from '../qa/diagnostics-filter';
 import { assessWorkspaceRoot } from '../qa/workspace-markers';
 import { buildSweepOverflowCulpritScript, type SweepOverflowCulprit } from '../qa/sweep-overflow-culprits';
@@ -15832,7 +15833,22 @@ export class NativeTabHost extends EventEmitter {
       return { ok: false, error };
     }
     const workspaceRoot = guarded.root;
-    this.setThemeQaState(requestedTabId, { status: 'running', issueCount: 0, updatedAt: Date.now() });
+    // One QA run per tab: the scan reloads, emulates and scrolls the page, so a second run (toolbar,
+    // cockpit scan or theme.qa_validate) measuring the same tab would corrupt both.
+    let runLock: QaRunLockHandle;
+    try {
+      runLock = acquireQaRunLock(requestedTabId);
+    } catch (error) {
+      const code = (error as { code?: unknown } | null)?.code === 'QA_BUSY' ? 'QA_BUSY' : 'QA_ERROR';
+      const message = error instanceof Error ? error.message : String(error);
+      const detail = `${code}: ${message}`;
+      // A scan this host already runs keeps its truthful "running" row; any other holder's refusal is recorded.
+      if (this.getThemeQaState(requestedTabId).status !== 'running') {
+        this.setThemeQaState(requestedTabId, { status: 'error', issueCount: null, reasonCode: code, error: detail, updatedAt: Date.now() });
+      }
+      return { ok: false, error: detail };
+    }
+    this.setThemeQaState(requestedTabId, { status: 'running', issueCount: null, reasonCode: 'QA_RUNNING', updatedAt: Date.now() });
     const { promise, resolve } = Promise.withResolvers<{ ok: boolean; report?: unknown; error?: string }>();
     const gen = this.getDocumentGeneration(requestedTabId);
     this.asyncQaQueue.enqueue(requestedTabId, gen, async (signal: AbortSignal) => {
@@ -15842,6 +15858,8 @@ export class NativeTabHost extends EventEmitter {
             profile: options?.profile,
             thresholds: options?.thresholds,
             viewports: options?.viewports,
+            viewportProvenance: options?.viewportProvenance,
+            viewportRejections: options?.viewportRejections,
             multiBreakpoint: options?.multiBreakpoint,
             waivers: options?.waivers,
             signal,
@@ -15857,6 +15875,9 @@ export class NativeTabHost extends EventEmitter {
           const code = (error as { code?: unknown } | null)?.code;
           this.setThemeQaState(requestedTabId, { status: 'error', issueCount: null, reasonCode: typeof code === 'string' && code ? code : 'QA_ERROR', error: message, updatedAt: Date.now() });
           resolve({ ok: false, error: message });
+        } finally {
+          // Released only once the run has really stopped, never on abort alone.
+          runLock.release();
         }
     });
     return promise;

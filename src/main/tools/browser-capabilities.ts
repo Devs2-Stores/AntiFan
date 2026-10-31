@@ -29,6 +29,9 @@ import {
 } from '../qa/theme-qa-workflow';
 import { dispositionFor, isRebindableStale, type RefusalDisposition } from '../qa/qa-state';
 import { boundQaReportResponse } from '../qa/qa-response-bounds';
+import { acquireQaRunLock } from '../qa/qa-run-lock';
+import { parseBaselineViewportsInput, resolveBaselineViewports, viewportNameForWidth, type BaselineViewportsInput, type ResolvedBaselineViewports } from '../qa/baseline-provenance';
+import { COMPARE_DEFAULT_TOLERANCE_PERCENT, mintCompareReceipt, type CompareReceiptRecord } from '../qa/compare-receipt-store';
 import { ThemeQaRepairCoordinator } from '../qa/theme-qa-repair-coordinator';
 import type { CockpitPort } from './cockpit-port';
 import { registerCockpitCapabilities } from './cockpit-capabilities';
@@ -45,11 +48,14 @@ import { ProofTemplateRegistry, ClaimCategory } from '../verification/proof-temp
 import { ThemeSourceMapper, isAuthoritativeSourceCandidate } from '../browser/theme-source-mapper';
 import { CssCascadeAnalyzer } from '../browser/css-cascade-analyzer';
 import { createThemeEvidenceEnvelope } from './theme-evidence-envelope';
-import { checkRouteIdentity } from '../verification/visual-capture';
+import { checkRouteIdentity, normalizeRoutePath } from '../verification/visual-capture';
 import { ReceiptStore } from '../session/receipt-store';
 import { VerificationCircuitBreaker } from '../verification/circuit-breaker';
 import { DEADLINES } from '../../shared/deadline-chain';
 import { DEFAULT_SWEEP_BREAKPOINTS } from '../browser/sweep-viewports';
+
+/** Time the platform grants a cancelled QA run to tear down after its policy timeout; the run lock outlives the policy by this much. */
+const QA_RUN_LOCK_GRACE_MS = 30_000;
 
 const SWEEP_WIDTHS_LABEL = DEFAULT_SWEEP_BREAKPOINTS.map((bp) => bp.width).join(', ');
 
@@ -328,6 +334,11 @@ export interface QaValidateOptions {
   expectedStatus?: number;
   /** Declared greenfield run: the caller states why no visual baseline exists. */
   greenfield?: { reason: string };
+  /** Visual-compare evidence per standard size: receipt ids the host resolves, or legacy caller-asserted numbers. */
+  baselineViewports?: BaselineViewportsInput;
+  /** The part of the page this run is about; only `selectors` are resolved on the live page, `files` is a label. */
+  scope?: { selectors?: string[]; files?: string[] };
+  denseHeaderSweep?: boolean;
 }
 
 function invalidQaArgument(message: string): CapabilityError {
@@ -336,7 +347,46 @@ function invalidQaArgument(message: string): CapabilityError {
 
 /** The one description of the baseline object, shared by theme.qa_validate and its alias. */
 const BASELINE_VIEWPORTS_DESCRIPTION =
-  'Caller-supplied visual-compare results per standard size ({desktop,tablet,mobile}: {mismatchPercent, passed}) from an anti.visual.compare against a promoted baseline; the QA matrix ANDs them with its own verdict, so they can only downgrade. Not the multi-breakpoint sweep (that is multiBreakpoint)';
+  'Visual-compare evidence per standard size (desktop 1100+, tablet 768-1100, mobile below 768). Pass {compareReceiptId} from an anti.visual.compare result: the host reads the numbers from its own comparison ledger, so a receipt-backed run can be CERTIFIED. Legacy {mismatchPercent, passed} is still accepted but is caller-asserted and caps the run at STRUCTURAL. The QA matrix ANDs the numbers with its own verdict, so they can only downgrade. Not the multi-breakpoint sweep (that is multiBreakpoint)';
+
+/** Per-size entry of baselineViewports: a ledger receipt id, or the legacy caller-asserted numbers. */
+function baselineViewportEntrySchema(): Record<string, unknown> {
+  return {
+    type: 'object',
+    properties: {
+      compareReceiptId: { type: 'string', description: 'compareReceiptId returned by anti.visual.compare for this size' },
+      mismatchPercent: { type: 'number' },
+      passed: { type: 'boolean' },
+    },
+  };
+}
+
+function baselineViewportsSchema(): Record<string, unknown> {
+  return {
+    type: 'object',
+    description: BASELINE_VIEWPORTS_DESCRIPTION,
+    properties: {
+      desktop: baselineViewportEntrySchema(),
+      tablet: baselineViewportEntrySchema(),
+      mobile: baselineViewportEntrySchema(),
+    },
+  };
+}
+
+/** Scope and header-sweep inputs shared by theme.qa_validate and its alias. */
+function qaScopeProperties(): Record<string, unknown> {
+  return {
+    scope: {
+      type: 'object',
+      description: 'The part of the page this run is about. selectors are resolved on the live page; when everything inside them is clean the run can earn CERTIFIED_SCOPED while the page verdict stays as measured. files is a label recorded on the receipt, not a selector. Ignored when annotationId decides the scope; a scoped result never unlocks the QA gate',
+      properties: {
+        selectors: { type: 'array', items: { type: 'string' } },
+        files: { type: 'array', items: { type: 'string' } },
+      },
+    },
+    denseHeaderSweep: { type: 'boolean', description: 'Also sweep the widths between the standard breakpoints (700-1300) for header geometry. Default: on under build-strict, off under audit' },
+  };
+}
 
 const TITLE_LEVELS = ['h1', 'h2', 'h3', 'h4'] as const;
 
@@ -482,6 +532,24 @@ export function parseQaValidateOptions(params: Record<string, unknown>): QaValid
     if (typeof raw.reason !== 'string' || !raw.reason.trim()) throw invalidQaArgument('greenfield.reason must be a non-empty string naming why no visual baseline exists');
     out.greenfield = { reason: raw.reason.trim().slice(0, 500) };
   }
+
+  const baselineViewports = parseBaselineViewportsInput(params.baselineViewports, 'theme.qa_validate');
+  if (baselineViewports) out.baselineViewports = baselineViewports;
+
+  if (params.scope !== undefined) {
+    const raw = params.scope as Record<string, unknown> | null;
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw invalidQaArgument('scope must be an object {selectors, files}');
+    const scope: { selectors?: string[]; files?: string[] } = {};
+    if (raw.selectors !== undefined) scope.selectors = readSelectorList(raw.selectors, 'scope.selectors');
+    if (raw.files !== undefined) scope.files = readSelectorList(raw.files, 'scope.files');
+    if (!scope.selectors?.length && !scope.files?.length) throw invalidQaArgument('scope needs at least one selector in selectors or one path in files');
+    out.scope = scope;
+  }
+
+  if (params.denseHeaderSweep !== undefined) {
+    if (typeof params.denseHeaderSweep !== 'boolean') throw invalidQaArgument('denseHeaderSweep must be a boolean');
+    out.denseHeaderSweep = params.denseHeaderSweep;
+  }
   return out;
 }
 
@@ -494,6 +562,16 @@ export function originOfUrl(url: string | undefined | null): string | null {
   try {
     const origin = new URL(url).origin;
     return origin === 'null' ? null : origin;
+  } catch {
+    return null;
+  }
+}
+
+/** Route path of a live tab URL without trailing slashes (`/` for the home page); null when the URL is unusable. */
+export function pathnameOfUrl(url: string | undefined | null): string | null {
+  if (!url) return null;
+  try {
+    return normalizeRoutePath(new URL(url).pathname);
   } catch {
     return null;
   }
@@ -1025,6 +1103,111 @@ function parseBindFlag(bind: unknown): boolean | undefined {
   return bind;
 }
 
+/** Arguments of the visual compare capability and its alias. */
+interface VisualCompareCallParams {
+  baselineScreenshotRef?: string;
+  baselineRef?: string;
+  comparisonTabId?: string;
+  tolerance?: number;
+  selector?: string;
+  clipRect?: { x: number; y: number; width: number; height: number };
+  maskSelectors?: string[];
+  maskOptionalSelectors?: string[];
+  normalizeScroll?: boolean;
+  tabId?: string;
+  paneId?: 'desktop' | 'mobile';
+  fullPage?: boolean;
+  useDefaultWidgetMasks?: boolean;
+  leaseToken?: string;
+  trackedSelectors?: string[];
+  heightTolerance?: number;
+  allowHeightDrift?: boolean;
+  maxGeometryDeltaPx?: number;
+  expectedUrl?: string;
+  expectedTargetUrl?: string;
+  expectedBaselineUrl?: string;
+}
+
+/**
+ * Runs the pixel comparison and, when it produced a verdict (PASS or FAIL with a measured mismatch),
+ * records the measurement in the host's compare ledger and returns its id as `compareReceiptId`.
+ * theme.qa_validate resolves that id back to the numbers, so a baseline result can be certified on
+ * what the host measured rather than on figures a caller typed in. The record binds what the compare
+ * itself captured (viewport, route, scope, masks, tolerance); nothing is read from the tab afterwards,
+ * because the tab may have moved or been resized by then. An inconclusive comparison mints nothing; a
+ * ledger failure never changes the comparison's own result, it is reported beside it.
+ */
+async function compareAndMintReceipt(
+  browser: BrowserControlPort,
+  params: VisualCompareCallParams,
+  context: CapabilityRequestContext | AuthenticatedCapabilityContext
+): Promise<Record<string, unknown>> {
+  const target = context.browserTarget as BrowserTarget;
+  const result = await browser.visualCompare(target, context.runId || 'run-default', context.attemptId || 'att-default', params, params?.tabId, params?.paneId, context.signal);
+  const evidence = result.receipt as { settleComplete?: unknown; mismatchPercentage?: unknown } | undefined;
+  const mismatch = result.mismatchPercentage;
+  const verdictBearing = (result.status === 'PASS' || result.status === 'FAIL')
+    && typeof result.match === 'boolean'
+    && typeof mismatch === 'number' && Number.isFinite(mismatch) && mismatch >= 0
+    && (evidence === undefined || typeof evidence.mismatchPercentage === 'number');
+  if (!verdictBearing) return result;
+  const workspaceId = context.workspaceId ?? target.workspaceId;
+  if (!workspaceId) return { ...result, compareReceiptId: null, compareReceiptError: 'no workspace is bound to this call, so the comparison cannot be recorded' };
+  try {
+    const tabId = params?.tabId ?? target.tabId;
+    const captured = (result.captureReceipts as { target?: { cssViewport?: { width?: unknown; height?: unknown }; captureMode?: unknown } } | undefined)?.target;
+    const cssViewport = captured?.cssViewport;
+    const viewport = typeof cssViewport?.width === 'number' && typeof cssViewport?.height === 'number' && cssViewport.width > 0 && cssViewport.height > 0
+      ? { width: cssViewport.width, height: cssViewport.height }
+      : null;
+    const captureMode = captured?.captureMode;
+    const observedUrl = (result.routeAssertions as { target?: { observedUrl?: unknown } } | undefined)?.target?.observedUrl;
+    const url = typeof observedUrl === 'string' && observedUrl ? observedUrl : await browser.getLiveTabUrl(tabId).catch(() => '');
+    const maskedAreaRatio = (result.maskResolution as { maskedAreaRatio?: unknown } | undefined)?.maskedAreaRatio;
+    const record: CompareReceiptRecord = mintCompareReceipt({
+      workspaceId,
+      projectId: context.projectId ?? target.projectId ?? null,
+      origin: originOfUrl(url),
+      url: url || null,
+      pathname: pathnameOfUrl(url),
+      tabId,
+      paneId: params?.paneId ?? 'desktop',
+      comparisonKind: params?.comparisonTabId ? 'live-tab' : 'baseline',
+      baselineRef: params?.baselineRef ?? null,
+      viewport,
+      fullPage: params?.fullPage === true || captureMode === 'full-page',
+      clipped: captureMode === 'clip' || params?.clipRect !== undefined,
+      selector: typeof params?.selector === 'string' && params.selector.length > 0 ? params.selector : null,
+      maskedAreaRatio: typeof maskedAreaRatio === 'number' && Number.isFinite(maskedAreaRatio) ? Math.min(1, Math.max(0, maskedAreaRatio)) : null,
+      mismatchPercentage: mismatch,
+      match: result.match as boolean,
+      tolerancePercent: typeof params?.tolerance === 'number' ? params.tolerance : COMPARE_DEFAULT_TOLERANCE_PERCENT,
+      settleComplete: typeof evidence?.settleComplete === 'boolean' ? evidence.settleComplete : null,
+    });
+    return { ...result, compareReceiptId: record.id, compareViewport: viewport };
+  } catch (err) {
+    return { ...result, compareReceiptId: null, compareReceiptError: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * Runs an in-page expression and returns its value unchanged unless the host had to cut it down
+ * (depth cap, element HTML cap): then the value travels inside `{ value, truncated: true,
+ * truncatedReasons }`, so a caller never mistakes a clipped result for the whole one.
+ */
+async function evaluateForCaller(
+  browser: BrowserControlPort,
+  target: BrowserTarget,
+  expression: string,
+  tabId: string | undefined,
+  paneId: 'desktop' | 'mobile' | undefined,
+  options: { requireRenderSurface?: boolean; allowDegradedSurface?: boolean; timeoutMs?: number }
+): Promise<unknown> {
+  const checked = await browser.evalChecked(target, expression, tabId, paneId, options);
+  if (!checked.truncated) return checked.value;
+  return { value: checked.value, truncated: true, truncatedReasons: checked.truncatedReasons };
+}
+
 /** Schema fragment of the `cookieJar` argument, shared by every tab-open registration. */
 const COOKIE_JAR_SCHEMA_PROPERTY = {
   type: 'string',
@@ -1436,7 +1619,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'eval', requiresBrowserTarget: true, lane: 'viewport-gate', timeoutMs: BROWSER_EVAL_INVOCATION_BUDGET_MS }),
     inputSchema: { type: 'object', properties: { expression: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] }, timeoutMs: { type: 'number', description: `In-page execution budget in milliseconds (default 15000, max ${BROWSER_EVAL_MAX_TIMEOUT_MS})` } }, required: ['expression'] },
-    execute: (params: { expression: string; tabId?: string; paneId?: 'desktop' | 'mobile'; timeoutMs?: number }, context) => browser.eval(context.browserTarget as BrowserTarget, params.expression, params.tabId, params.paneId, { timeoutMs: params.timeoutMs }),
+    execute: (params: { expression: string; tabId?: string; paneId?: 'desktop' | 'mobile'; timeoutMs?: number }, context) => evaluateForCaller(browser, context.browserTarget as BrowserTarget, params.expression, params.tabId, params.paneId, { timeoutMs: params.timeoutMs }),
   });
 
   catalogue.register({
@@ -1860,7 +2043,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       oneOf: [{ required: ['expression'] }, { required: ['expressionFile'] }],
     },
     execute: (params: { expression?: string; expressionFile?: string; tabId?: string; paneId?: 'desktop' | 'mobile'; allowDegradedSurface?: boolean; timeoutMs?: number }, context) =>
-      browser.eval(context.browserTarget as BrowserTarget, resolveExpressionInput('anti.browser.evaluate', params, context), params.tabId, params.paneId, {
+      evaluateForCaller(browser, context.browserTarget as BrowserTarget, resolveExpressionInput('anti.browser.evaluate', params, context), params.tabId, params.paneId, {
         requireRenderSurface: true,
         allowDegradedSurface: params.allowDegradedSurface === true,
         timeoutMs: params.timeoutMs,
@@ -1915,7 +2098,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       params: { expression?: string; expressionFile?: string; tabId?: string; paneId?: 'desktop' | 'mobile'; requireRenderSurface?: boolean; allowDegradedSurface?: boolean; timeoutMs?: number },
       context
     ) =>
-      browser.eval(context.browserTarget as BrowserTarget, resolveExpressionInput('anti.inspect.eval', params, context), params.tabId, params.paneId, {
+      evaluateForCaller(browser, context.browserTarget as BrowserTarget, resolveExpressionInput('anti.inspect.eval', params, context), params.tabId, params.paneId, {
         requireRenderSurface: params.requireRenderSurface === true,
         allowDegradedSurface: params.allowDegradedSurface === true,
         timeoutMs: params.timeoutMs,
@@ -2509,15 +2692,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         expectedStatus: { type: 'number', description: 'HTTP status the contract screen declares for this route (for example 404 on a not-found screen). A document returning exactly that status is not reported as ROUTE_404; echoed on the receipt' },
         allowNonTheme: { type: 'boolean', description: 'Accept a workspace root without theme markers (layout/theme.liquid, config/settings_schema.json, config/settings.html) for a plain-folder run. Otherwise such a root is refused with WORKSPACE_NOT_THEME and no receipt is written' },
         greenfield: { type: 'object', description: 'Declare that no visual baseline exists yet for this storefront (a new build). The run records the reason and the observed baseline state on the receipt; it is refused when baselines already exist for the route', properties: { reason: { type: 'string', description: 'Why the run has no baseline to compare against' } }, required: ['reason'] },
-        baselineViewports: {
-          type: 'object',
-          description: BASELINE_VIEWPORTS_DESCRIPTION,
-          properties: {
-            desktop: { type: 'object', properties: { mismatchPercent: { type: 'number' }, passed: { type: 'boolean' } } },
-            tablet: { type: 'object', properties: { mismatchPercent: { type: 'number' }, passed: { type: 'boolean' } } },
-            mobile: { type: 'object', properties: { mismatchPercent: { type: 'number' }, passed: { type: 'boolean' } } },
-          },
-        },
+        baselineViewports: baselineViewportsSchema(),
+        ...qaScopeProperties(),
       },
     },
     execute: async (
@@ -2536,12 +2712,10 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         settle?: QaSettleOverrides;
         allowNonTheme?: boolean;
         greenfield?: { reason: string };
-        baselineViewports?: {
-          // `passed` is the caller structural verdict; the QA matrix ANDs it with the pixel threshold, so only downgrades are possible.
-          desktop?: { mismatchPercent: number; passed: boolean };
-          tablet?: { mismatchPercent: number; passed: boolean };
-          mobile?: { mismatchPercent: number; passed: boolean };
-        };
+        // Raw caller value: parseQaValidateOptions validates it, resolveBaselineViewports turns receipt ids into numbers.
+        baselineViewports?: unknown;
+        scope?: unknown;
+        denseHeaderSweep?: boolean;
       },
       context
     ) => {
@@ -2593,12 +2767,18 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       const waiverClassification = classifyQaWaivers(qaOptions.waivers);
       // Set once the promoted baseline store has been consulted for a declared greenfield run.
       let greenfieldInput: { reason: string; baselineExists: boolean } | undefined;
+      // Set once caller-supplied baselineViewports were resolved against the host's compare ledger.
+      let baselineResolution: ResolvedBaselineViewports | undefined;
       const runValidate = async (t: BrowserTarget) => themeQaWorkflow!.validate({
+        signal: context.signal,
         runId,
         attemptId,
         workspaceRoot: confinedRoot,
         multiBreakpoint: params.multiBreakpoint,
-        viewports: params.baselineViewports,
+        viewports: baselineResolution?.viewports,
+        ...(baselineResolution ? { viewportProvenance: baselineResolution.provenance, viewportRejections: baselineResolution.rejections } : {}),
+        ...(qaOptions.scope ? { scope: qaOptions.scope } : {}),
+        ...(qaOptions.denseHeaderSweep !== undefined ? { denseHeaderSweep: qaOptions.denseHeaderSweep } : {}),
         target: t,
         annotationId: params.annotationId,
         profile: qaOptions.profile ?? DEFAULT_QA_VALIDATE_PROFILE,
@@ -2612,12 +2792,28 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         recovery: receiptRecovery,
         ...(greenfieldInput ? { greenfield: greenfieldInput } : {}),
       });
+      // One QA run per tab: a run reloads, emulates and scrolls the tab, so a second concurrent run would corrupt
+      // both. The lock is taken before the try so a busy tab throws QA_BUSY without writing a receipt for a run
+      // that never started. It is released only in the finally below, once the workflow has stopped: an aborted
+      // request stops the workflow through the signal handed to validate, it does not free the tab early. An
+      // expired lease frees a tab whose run hung.
+      const runLock = target?.tabId
+        ? acquireQaRunLock(target.tabId, { leaseMs: DEADLINES.toolPolicyMs + QA_RUN_LOCK_GRACE_MS })
+        : undefined;
       try {
         if (!target?.tabId) {
           throw new CapabilityError('TARGET_MISMATCH', 'No valid browser target bound to context');
         }
         if (!themeQaWorkflow) {
           throw new CapabilityError('CAPABILITY_NOT_FOUND', 'Theme QA workflow is not available');
+        }
+        if (qaOptions.baselineViewports) {
+          const baselineUrl = await browser.getLiveTabUrl(target.tabId).catch(() => '');
+          baselineResolution = resolveBaselineViewports(qaOptions.baselineViewports, {
+            workspaceId: context.workspaceId ?? target.workspaceId,
+            origin: originOfUrl(baselineUrl),
+            pathname: pathnameOfUrl(baselineUrl),
+          });
         }
         if (qaOptions.greenfield) {
           const greenfieldOrigin = originOfUrl(await browser.getLiveTabUrl(target.tabId).catch(() => ''));
@@ -2713,10 +2909,13 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         // is INCONCLUSIVE, not FAILED. The QA gate keeps itself armed on
         // QA_FAILED only, so collapsing INCONCLUSIVE into FAILED would pin the
         // gate on every degraded capture and loop the agent on re-validation.
-        // A critical finding still fails regardless of the verdict axis.
+        // A critical finding still fails regardless of the verdict axis, except when the capture environment
+        // starved the run of rendered frames: those criticals are suspect, so the run is inconclusive, not failed.
+        const environmentDegraded = summary?.environment?.degraded === true;
         receiptVerdict = summary?.passed === true && (summary?.criticalCount ?? 0) === 0
           ? 'QA_PASSED'
-          : (summary?.verdict === 'INCONCLUSIVE' && (summary?.criticalCount ?? 0) === 0 ? 'QA_INCONCLUSIVE' : 'QA_FAILED');
+          : (summary?.verdict === 'INCONCLUSIVE' && ((summary?.criticalCount ?? 0) === 0 || environmentDegraded) ? 'QA_INCONCLUSIVE' : 'QA_FAILED');
+        if (environmentDegraded && receiptExecution === 'COMPLETED') receiptExecution = 'DEGRADED';
         if (authLandingNote) {
           if (report.findings) {
             const gaps = report.findings.evidenceGaps ?? (report.findings.evidenceGaps = []);
@@ -2729,7 +2928,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
           if (report.summary) {
             report.summary.passed = false;
             report.summary.verdict = 'INCONCLUSIVE';
-            if (report.summary.certification === 'CERTIFIED') report.summary.certification = 'STRUCTURAL';
+            if (report.summary.certification === 'CERTIFIED' || report.summary.certification === 'CERTIFIED_SCOPED') report.summary.certification = 'STRUCTURAL';
           }
           errorCode = 'AUTH_REDIRECT';
           errorReason = 'auth-redirect';
@@ -2928,9 +3127,10 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
           const settleFailure = settleFailureOf(report, undefined);
           const gaps = [...(report.settleReceipt?.evidenceGaps ?? []), ...(report.findings?.evidenceGaps ?? [])]
             .filter((gap, index, all) => all.indexOf(gap) === index);
-          errorCode = settleFailure ? settleFailure.code : 'EVIDENCE_INCOMPLETE';
-          errorReason = settleFailure ? settleFailure.reason : (gaps[0] ? String(gaps[0]).slice(0, QA_RECEIPT_ERROR_MESSAGE_MAX) : 'evidence');
-          errorMessage = gaps.length > 0 ? gaps.join('; ').slice(0, QA_RECEIPT_ERROR_MESSAGE_MAX) : null;
+          const environment = report.summary?.environment;
+          errorCode = settleFailure ? settleFailure.code : environment?.degraded ? environment.code : 'EVIDENCE_INCOMPLETE';
+          errorReason = settleFailure ? settleFailure.reason : environment?.degraded ? String(environment.message).slice(0, QA_RECEIPT_ERROR_MESSAGE_MAX) : (gaps[0] ? String(gaps[0]).slice(0, QA_RECEIPT_ERROR_MESSAGE_MAX) : 'evidence');
+          errorMessage = environment?.degraded ? String(environment.message).slice(0, QA_RECEIPT_ERROR_MESSAGE_MAX) : gaps.length > 0 ? gaps.join('; ').slice(0, QA_RECEIPT_ERROR_MESSAGE_MAX) : null;
         }
         reportToReturn = report;
       } catch (err) {
@@ -2957,6 +3157,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         }
         throw err;
       } finally {
+        // Nothing below measures the tab any more; free it for the next run before the receipt is written.
+        runLock?.release();
         // Workspace-side QA receipt: consuming runtimes (OMP post-hooks) gate fix
         // handoffs on this file, not on agent prose. It is emitted on EVERY terminal
         // branch — success and every throw — because a gate that only sees passing runs
@@ -2968,7 +3170,9 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
             const observedUrl = tabId ? await browser.getLiveTabUrl(tabId).catch(() => '') : '';
             const settleSource = finalReport?.settleReceipt;
             const summaryExtras = (finalReport?.summary ?? {}) as { certificationReasons?: unknown; thresholdsSource?: unknown; viewport?: { width?: number; requestedWidth?: number | null; observedWidth?: number } };
-            const certification: 'CERTIFIED' | 'STRUCTURAL' = finalReport?.summary?.certification === 'CERTIFIED' ? 'CERTIFIED' : 'STRUCTURAL';
+            const reportCertification = finalReport?.summary?.certification;
+            const certification: 'CERTIFIED' | 'CERTIFIED_SCOPED' | 'STRUCTURAL' =
+              reportCertification === 'CERTIFIED' || reportCertification === 'CERTIFIED_SCOPED' ? reportCertification : 'STRUCTURAL';
             const certificationReasons = Array.isArray(summaryExtras.certificationReasons) ? summaryExtras.certificationReasons.map(String) : [];
             const reportThresholdsSource = (finalReport as { thresholdsSource?: unknown } | undefined)?.thresholdsSource ?? summaryExtras.thresholdsSource;
             const thresholdsSource = typeof reportThresholdsSource === 'string' ? reportThresholdsSource : null;
@@ -2996,6 +3200,15 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
               certificationReasons,
               thresholdsSource,
               scope: params.annotationId ? 'annotation' : certification === 'CERTIFIED' ? 'certified' : 'structural',
+              // What backed a CERTIFIED verdict and where each baseline number came from: the QA gate only
+              // accepts a baseline-backed certification whose three sizes are all compare-receipt backed.
+              ...(finalReport?.summary?.certificationBasis ? { certificationBasis: finalReport.summary.certificationBasis } : {}),
+              ...(finalReport?.summary?.baselineProvenance ? { baselineProvenance: finalReport.summary.baselineProvenance } : {}),
+              ...(baselineResolution && baselineResolution.rejections.length > 0 ? { baselineRejections: baselineResolution.rejections } : {}),
+              certificationScope: finalReport?.summary?.certificationScope ?? 'page',
+              ...(qaOptions.scope ? { declaredScope: qaOptions.scope } : {}),
+              ...(finalReport?.summary?.environment ? { environment: finalReport.summary.environment } : {}),
+              ...(typeof finalReport?.summary?.unlistedCriticalCount === 'number' ? { unlistedCriticalCount: finalReport.summary.unlistedCriticalCount } : {}),
               measuredRules: finalReport?.measuredRules ?? [],
               coverage: finalReport?.coverage ?? null,
               coverageFloor: finalReport?.coverageFloor ?? null,
@@ -3045,7 +3258,16 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
           if (finalReport) {
             finalReport.receipt = { written: false, code: 'RECEIPT_WRITE_FAILED' };
             // A run whose evidence file could not be persisted cannot be certified: the consuming gate would find nothing.
-            if (finalReport.summary && finalReport.summary.certification === 'CERTIFIED') finalReport.summary.certification = 'STRUCTURAL';
+            if (finalReport.summary && (finalReport.summary.certification === 'CERTIFIED' || finalReport.summary.certification === 'CERTIFIED_SCOPED')) finalReport.summary.certification = 'STRUCTURAL';
+          }
+        }
+        // The toolbar row mirrors what this call returns (certification included, so after the receipt step).
+        // Publishing is advisory: a host that cannot take it never changes the QA call's outcome.
+        if (finalReport && target?.tabId && cockpit) {
+          try {
+            cockpit.publishThemeQaState(target.tabId, finalReport);
+          } catch {
+            // The row stays as it was.
           }
         }
       }
@@ -3262,15 +3484,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         workspaceRoot: { type: 'string' },
         greenfield: { type: 'object', description: 'Declare that no visual baseline exists yet for this storefront (a new build)', properties: { reason: { type: 'string' } }, required: ['reason'] },
         multiBreakpoint: { type: 'boolean' },
-        baselineViewports: {
-          type: 'object',
-          description: BASELINE_VIEWPORTS_DESCRIPTION,
-          properties: {
-            desktop: { type: 'object', properties: { mismatchPercent: { type: 'number' }, passed: { type: 'boolean' } } },
-            tablet: { type: 'object', properties: { mismatchPercent: { type: 'number' }, passed: { type: 'boolean' } } },
-            mobile: { type: 'object', properties: { mismatchPercent: { type: 'number' }, passed: { type: 'boolean' } } },
-          },
-        },
+        baselineViewports: baselineViewportsSchema(),
+        ...qaScopeProperties(),
       },
     },
     execute: (params: Record<string, unknown>, context) => catalogue.get('theme.qa_validate')!.execute(params, context),
@@ -4343,8 +4558,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         expectedBaselineUrl: { type: 'string', description: 'Expected route URL for baseline side. Load-bearing for a verdict when comparing against a live comparison tab: the route gate is fail-closed, so omitting it settles the compare INCONCLUSIVE (URL_EXPECTATION_MISSING) instead of returning PASS/FAIL' },
       },
     },
-    execute: (params: { baselineScreenshotRef?: string; baselineRef?: string; comparisonTabId?: string; tolerance?: number; selector?: string; clipRect?: { x: number; y: number; width: number; height: number }; maskSelectors?: string[]; maskOptionalSelectors?: string[]; normalizeScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile'; fullPage?: boolean; useDefaultWidgetMasks?: boolean; leaseToken?: string; trackedSelectors?: string[]; heightTolerance?: number; allowHeightDrift?: boolean; maxGeometryDeltaPx?: number; expectedUrl?: string; expectedTargetUrl?: string; expectedBaselineUrl?: string }, context) =>
-      browser.visualCompare(context.browserTarget as BrowserTarget, context.runId || 'run-default', context.attemptId || 'att-default', params, params?.tabId, params?.paneId, context.signal),
+    execute: (params: VisualCompareCallParams, context) => compareAndMintReceipt(browser, params, context),
   });
 
   catalogue.register({
@@ -4405,8 +4619,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         expectedBaselineUrl: { type: 'string', description: 'Expected route URL for baseline side. Load-bearing for a verdict when comparing against a live comparison tab: the route gate is fail-closed, so omitting it settles the compare INCONCLUSIVE (URL_EXPECTATION_MISSING) instead of returning PASS/FAIL' },
       },
     },
-    execute: (params: { baselineScreenshotRef?: string; baselineRef?: string; comparisonTabId?: string; tolerance?: number; selector?: string; clipRect?: { x: number; y: number; width: number; height: number }; maskSelectors?: string[]; maskOptionalSelectors?: string[]; normalizeScroll?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile'; fullPage?: boolean; useDefaultWidgetMasks?: boolean; leaseToken?: string; trackedSelectors?: string[]; heightTolerance?: number; allowHeightDrift?: boolean; maxGeometryDeltaPx?: number; expectedUrl?: string; expectedTargetUrl?: string; expectedBaselineUrl?: string }, context) =>
-      browser.visualCompare(context.browserTarget as BrowserTarget, context.runId || 'run-default', context.attemptId || 'att-default', params, params?.tabId, params?.paneId, context.signal),
+    execute: (params: VisualCompareCallParams, context) => compareAndMintReceipt(browser, params, context),
   });
   catalogue.register({
     name: 'browser.promote-baseline',

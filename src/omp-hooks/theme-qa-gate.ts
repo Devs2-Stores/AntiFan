@@ -173,7 +173,7 @@ const MCP_FIRST_TEXT =
   `\n\n${MCP_FIRST_MARKER} Live theme workspace. Visual claims need AntiFan MCP this turn — do not wait to be asked.\n` +
   `1. anti.browser.tabs.list; bind the storefront tab (anti.browser.rebind_target on TARGET_MISMATCH) and navigate to the page in the user's screenshot or URL.\n` +
   `2. anti.inspect.dom on the named selector, then anti.screenshot.viewport. Write JSON straight to the xd://mcp__antifan_browser_* path; skip the docs.\n` +
-  `3. After a theme file edit: inspect + screenshot again, then theme.qa_validate with that tabId. Thresholds default automatically; pass baselineViewports for per-width baselines (CERTIFIED needs them). Never call it against Google or a blank tab.\n` +
+  `3. After a theme file edit: inspect + screenshot again, then theme.qa_validate with that tabId. Thresholds default automatically. CERTIFIED needs a baseline comparison per width: run anti.visual.compare against the promoted baseline at desktop/tablet/mobile and pass baselineViewports.<width>.compareReceiptId from each result (typed mismatchPercent numbers stay STRUCTURAL). Never call it against Google or a blank tab.\n` +
   `Liquid/grep is not proof the storefront changed.`;
 
 /** Soft churn advisory threshold: a full rewrite of an already-large file. */
@@ -1009,7 +1009,7 @@ function passingReceiptAfter(root: string, since: number, mode: "scoped" | "cert
       const receipt = raw as Record<string, unknown>;
       const settles =
         mode === "certified"
-          ? receipt.certification === "CERTIFIED" && isCompletePassReceipt(receipt, root, root)
+          ? receipt.certification === "CERTIFIED" && baselineProvenanceHolds(receipt) && isCompletePassReceipt(receipt, root, root)
           : receiptClearsGate(receipt, root, {
               workspaceDir: root,
               // Debt has no arm snapshot: the annotation must not have been written after `since`.
@@ -1164,9 +1164,27 @@ function debtReminder(): string {
 }
 
 /**
+ * A CERTIFIED receipt must name what backed it. A `greenfield` basis is graded by absolute gates
+ * and has no baseline to prove. A `baseline` basis rests on three per-viewport comparisons that
+ * count only when the host read each one from its own compare ledger (`compare-receipt`); numbers
+ * a caller typed into the run are not a comparison. A receipt with a missing or unknown basis is
+ * an older or hand-written shape that cannot prove anything, so it never clears.
+ */
+function baselineProvenanceHolds(receipt: Record<string, unknown>): boolean {
+  if (receipt.certificationBasis === "greenfield") return true;
+  if (receipt.certificationBasis !== "baseline") return false;
+  const provenance = receipt.baselineProvenance;
+  if (!provenance || typeof provenance !== "object") return false;
+  const kinds = provenance as Record<string, unknown>;
+  return ["desktop", "tablet", "mobile"].every((name) => kinds[name] === "compare-receipt");
+}
+
+/**
  * The one rule that clears a pending edit or a debt: a complete, root-matching passing receipt
- * that is CERTIFIED, or a pass scoped to an annotation that predates the edit. A STRUCTURAL
- * pass, a receipt without `certification`, and a receipt without a verdict never clear.
+ * that is CERTIFIED (with provenance for any baseline it rests on), or a pass scoped to an
+ * annotation that predates the edit. A STRUCTURAL pass, a CERTIFIED_SCOPED label (the page
+ * verdict is still FAIL), a receipt without `certification`, and a receipt without a verdict
+ * never clear.
  */
 function receiptClearsGate(
   receipt: Record<string, unknown>,
@@ -1174,7 +1192,7 @@ function receiptClearsGate(
   ctx: { workspaceDir?: string; annotationPredates: (annotationId: unknown) => boolean },
 ): boolean {
   if (!isCompletePassReceipt(receipt, root, ctx.workspaceDir)) return false;
-  if (receipt.certification === "CERTIFIED") return true;
+  if (receipt.certification === "CERTIFIED") return baselineProvenanceHolds(receipt);
   if (receipt.scope !== "annotation") return false;
   return (
     receipt.authRedirect !== true &&
@@ -1665,7 +1683,7 @@ function reminderText(): string {
     `\n\n${GATE_MARKER} QA GATE PENDING — theme file(s) under ${roots} edited without a CERTIFIED AntiFan QA receipt. ` +
     structuralLine +
     `Run theme.qa_validate (tabId + workspaceRoot; expectedUrl, annotationId optional). Thresholds default automatically; ` +
-    `pass baselineViewports for per-width baselines and ignoreSelectors for live countdowns. ` +
+    `pass baselineViewports.<width>.compareReceiptId from anti.visual.compare for per-width baselines and ignoreSelectors for live countdowns. ` +
     `If impossible, declare one SELF_QA_DIRECTIVE status in your own message with the original error code: ` +
     `QA_UNAVAILABLE (capability missing or auth failed), ` +
     `QA_INCONCLUSIVE (environment failure such as CAPTURE_FRAME_STARVATION or TARGET_STALE, after one retry), ` +

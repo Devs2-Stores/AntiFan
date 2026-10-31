@@ -115,6 +115,7 @@ const passingReceipt = (root: string): Record<string, unknown> => ({
   execution: 'COMPLETED',
   errorCode: null,
   certification: 'CERTIFIED',
+  certificationBasis: 'greenfield',
 });
 
 function seedDebt(root: string, since: number, files: string[]): void {

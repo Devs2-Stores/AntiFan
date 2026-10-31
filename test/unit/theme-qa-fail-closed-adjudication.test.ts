@@ -113,6 +113,7 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
         tablet: { mismatchPercent: 1.0, passed: true },
         mobile: { mismatchPercent: 1.5, passed: true },
       },
+      viewportProvenance: { desktop: 'compare-receipt', tablet: 'compare-receipt', mobile: 'compare-receipt' },
     });
 
     assert.strictEqual(report.summary.passed, true);
@@ -180,6 +181,24 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
       const report = await run(portsWithVisual(visualResult([contrastFinding])), 'build-strict');
       assert.strictEqual(report.summary.verdict, 'FAIL');
       assert.strictEqual(report.summary.criticalCount, 1);
+    });
+
+    it('an annotation-scoped build-strict run counts a strict failure inside the annotated element and ignores one outside it', async () => {
+      const scoped = (finding: Record<string, unknown>) => new ThemeQaWorkflow(portsWithVisual(visualResult([finding]))).validate({
+        profile: 'build-strict',
+        runId: 'run-vq-scope',
+        attemptId: 'att-vq-scope',
+        workspaceRoot: 'E:/Work/test-theme',
+        target: makeTarget(1),
+        annotationTargetSelector: 'section.hero',
+      });
+      const inside = await scoped({ ...contrastFinding, selector: 'section.hero p.note' });
+      assert.strictEqual(inside.summary.verdict, 'FAIL');
+      assert.strictEqual(inside.summary.scopedCriticalCount, 1, 'the strict failure is in no other findings family, so only strictFailures can count it');
+      const outside = await scoped({ ...contrastFinding, selector: 'footer.site-footer p.note' });
+      assert.strictEqual(outside.summary.verdict, 'FAIL');
+      assert.strictEqual(outside.summary.scopedCriticalCount, 0);
+      assert.strictEqual(outside.summary.pageCriticalCount, 1);
     });
 
     it('build-strict grades tap targets from a mobile-width scan: clean passes, under 24px fails', async () => {
@@ -1185,8 +1204,10 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
     const report = await validateWithIntegrityScan({ ...cleanIntegrityScan, findings: [textOverlapCritical] }, 'critical');
     assert.strictEqual(report.summary.criticalCount, clean.summary.criticalCount + 1);
     assert.strictEqual(report.summary.totalIssues, clean.summary.totalIssues + 1);
-    assert.ok(report.findings?.differential?.introducedRegressions.some((i) => i.category === 'layout_integrity' && i.details?.kind === 'overlap'),
-      `expected a layout_integrity regression, got ${JSON.stringify(report.findings?.differential?.introducedRegressions)}`);
+    assert.ok(report.findings?.differential?.unclassifiedFindings?.some((i) => i.category === 'layout_integrity' && i.details?.kind === 'overlap'),
+      `without a baseline the layout finding is unclassified, got ${JSON.stringify(report.findings?.differential)}`);
+    assert.strictEqual(report.findings?.differential?.introducedRegressions.some((i) => i.category === 'layout_integrity'), false, 'nothing was compared, so nothing is introduced');
+    assert.strictEqual(report.findings?.differential?.hasRegressions, null);
     assert.strictEqual(report.findings?.layoutIntegrity?.findings.length, 1);
     assert.strictEqual(report.findings?.responsive?.['1440']?.criticalOverlap, 1);
     assert.strictEqual(report.findings?.responsive?.['1440']?.criticalOcclusion, 0);
@@ -1494,7 +1515,10 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
       assert.strictEqual(report.findings?.overflow.culprits.length, 0, `${entry.label}: must not attribute culprits`);
       assert.strictEqual(report.checklist.overflow, true, `${entry.label}: overflow checklist must stay unfailed`);
       assert.ok(
-        !report.findings?.differential?.introducedRegressions.some((issue) => issue.category === 'overflow'),
+        ![
+          ...(report.findings?.differential?.introducedRegressions ?? []),
+          ...(report.findings?.differential?.unclassifiedFindings ?? []),
+        ].some((issue) => issue.category === 'overflow'),
         `${entry.label}: no overflow issue item may be emitted`
       );
       assert.ok(
@@ -1638,7 +1662,7 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
     assert.strictEqual(report.summary.verdict, 'FAIL', 'observed critical defect at 375px takes precedence over unmeasured 1440px gap');
     assert.ok(report.summary.criticalCount >= 1, 'per-width critical finding is counted in summary.criticalCount');
     assert.ok(
-      report.findings?.differential?.introducedRegressions.some((i) => i.signature.startsWith('layout_integrity@375:overlap:div.a:')),
+      report.findings?.differential?.unclassifiedFindings?.some((i) => i.signature.startsWith('layout_integrity@375:overlap:div.a:')),
       'per-width critical finding carries width-scoped layout_integrity@375 signature in differential items'
     );
   });
@@ -1700,7 +1724,7 @@ describe('Phase 01 — Fail-Closed Adjudication & Lifecycle Attestation', () => 
       multiBreakpoint: true,
     });
 
-    const layoutItems = report.findings?.differential?.introducedRegressions.filter((i) => i.category === 'layout_integrity') ?? [];
+    const layoutItems = report.findings?.differential?.unclassifiedFindings?.filter((i) => i.category === 'layout_integrity') ?? [];
     assert.strictEqual(layoutItems.length, 1, 'same-width critical finding from active scan and sweep must not be double-counted');
     assert.ok(
       report.findings?.evidenceGaps?.some((g) => g.includes('Responsive layout integrity truncated or detector failed at width(s) 375')),

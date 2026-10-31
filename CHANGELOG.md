@@ -19,6 +19,13 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 
 ### Sửa — Theme QA không còn cho verdict sai (có thay đổi phá vỡ)
 
+- **BREAKING:** `theme.qa_validate` và `theme.cockpit_scan` chỉ cấp `CERTIFIED` khi baseline của từng viewport lấy từ `compareReceiptId` do `anti.visual.compare` trả về. Receipt nằm trong sổ do host ghi, có kiểm hash, và phải cùng workspace, cùng origin, cùng pathname, cùng pane, so toàn trang (không clip/selector), mask ≤ 10 %, tolerance ≤ 5 %, đúng dải width, chưa quá 24 giờ. Không đạt thì trả mã từ chối (`PATH_MISMATCH`, `PARTIAL_COMPARE`, `MASK_RATIO_TOO_HIGH`, `TOLERANCE_TOO_LOOSE`, `PANE_MISMATCH`, …). Số `{mismatchPercent, passed}` tự gõ vẫn được nhận nhưng chỉ cho `STRUCTURAL` kèm lý do `BASELINE_NO_PROVENANCE`; `summary.baselineProvenance` ghi nguồn của từng viewport. Hook gate chỉ mở khóa receipt `CERTIFIED` khi `certificationBasis` là `greenfield`, hoặc `baseline` với cả ba viewport là `compare-receipt`; receipt thiếu basis không còn mở gate. Script chỉ đọc `node scripts/audit-qa-receipts.mjs` liệt kê các receipt `CERTIFIED` cũ thiếu provenance.
+- `anti.visual.compare` trả thêm `compareReceiptId` và `compareViewport` khi so sánh có verdict; receipt ghi phạm vi đã so (route, pane, toàn trang/clip/selector, tỉ lệ mask, tolerance) lấy từ chính lần chụp của compare.
+- Tab bị đói frame (`CAPTURE_FRAME_STARVATION`): nếu mọi lỗi quan sát được đều phụ thuộc việc dựng hình thì verdict là `INCONCLUSIVE` kèm `summary.environment` và receipt `QA_INCONCLUSIVE`; có lỗi liquid, hs, asset, server hoặc diagnostics thì vẫn `FAIL`.
+- Không có baseline: finding không phải diagnostics nằm trong `differential.unclassifiedFindings` thay vì `introducedRegressions`, và `hasRegressions` là `null` (chỉ `true` khi diagnostics mới xuất hiện).
+- Mức mới `CERTIFIED_SCOPED` qua `scope.selectors`: selector phải có trên trang, không còn critical trong phạm vi, run không `DEGRADED`, baseline có provenance hoặc greenfield. Verdict cả trang và `pageCriticalCount` giữ nguyên, và mức này không mở khóa hook gate.
+- Mỗi tab chỉ chạy một Theme QA cùng lúc (`qa_validate`, `cockpit_scan` và nút Scan trên toolbar dùng chung khóa): lần gọi thứ hai trả `QA_BUSY` (thử lại được, kèm `retryAfterMs`) và không ghi receipt. Khóa chỉ nhả khi run thật sự dừng (hoặc hết lease), không nhả lúc lời gọi bị timeout/hủy.
+- `summary.unlistedCriticalCount` khi số critical của trang lớn hơn tổng `byRule`.
 - `issueCount` trong trạng thái Theme QA (`theme.cockpit_findings`) là `null` kèm `reasonCode` khi chưa có báo cáo hoàn tất (`QA_NOT_RUN`, `QA_RUNNING`, `QA_BUSY`, `QA_INCONCLUSIVE`); toolbar không còn hiện "0 Issues" cho run INCONCLUSIVE. `qa_validate` qua MCP giờ cũng ghi trạng thái này.
 
 ### Sửa — Tab, cửa sổ và thao tác

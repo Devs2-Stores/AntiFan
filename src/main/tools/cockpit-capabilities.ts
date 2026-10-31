@@ -51,6 +51,7 @@ import { runPageStructure } from '../qa/probes/page-structure';
 import { runMenuDepth } from '../qa/probes/menu-depth';
 import { runVariantImageProbe } from '../qa/probes/variant-image-probe';
 import { runPdpContract } from '../qa/probes/pdp-contract';
+import { parseBaselineViewportsInput, resolveBaselineViewports, type BaselineViewportsInput } from '../qa/baseline-provenance';
 import { DEADLINES } from '../../shared/deadline-chain';
 // Circular edge (browser-capabilities ↔ this module): the namespace is resolved
 // lazily inside the registration body, so neither module may reference it at
@@ -357,34 +358,14 @@ function parsePickStrategy(value: unknown): PickProductStrategy | undefined {
   return value as PickProductStrategy;
 }
 
-const BASELINE_VIEWPORT_KEYS = ['desktop', 'tablet', 'mobile'] as const;
-
-/** Validates the `baselineViewports` object (visual-compare results) the QA matrix grades CERTIFIED against. */
-function parseBaselineViewports(value: unknown): CockpitThemeQaOptions['viewports'] {
-  if (value === undefined) return undefined;
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new CapabilityError('INVALID_ARGUMENT', 'theme.cockpit_scan baselineViewports must be an object keyed by desktop, tablet and mobile');
-  }
-  const raw = value as Record<string, unknown>;
-  const out: NonNullable<CockpitThemeQaOptions['viewports']> = {};
-  for (const key of Object.keys(raw)) {
-    if (!(BASELINE_VIEWPORT_KEYS as readonly string[]).includes(key)) {
-      throw new CapabilityError('INVALID_ARGUMENT', `theme.cockpit_scan baselineViewports.${key} is not a baseline viewport; expected ${BASELINE_VIEWPORT_KEYS.join(', ')}`);
-    }
-    const entry = raw[key] as { mismatchPercent?: unknown; passed?: unknown } | null;
-    if (!entry || typeof entry !== 'object' || typeof entry.mismatchPercent !== 'number' || !Number.isFinite(entry.mismatchPercent) || typeof entry.passed !== 'boolean') {
-      throw new CapabilityError('INVALID_ARGUMENT', `theme.cockpit_scan baselineViewports.${key} needs a numeric mismatchPercent and a boolean passed`);
-    }
-    out[key as (typeof BASELINE_VIEWPORT_KEYS)[number]] = { mismatchPercent: entry.mismatchPercent, passed: entry.passed };
-  }
-  return out;
-}
+/** The grading inputs of a cockpit scan; baselineViewports is still the caller's evidence until it is resolved against the ledger. */
+type ScanQaOptions = Omit<CockpitThemeQaOptions, 'viewports' | 'viewportProvenance' | 'viewportRejections' | 'workspaceRoot'> & { baselineViewports?: BaselineViewportsInput };
 
 /** A route that has not loaded within this bound is a navigation failure; the rest of the policy budget belongs to the QA run. */
 const COCKPIT_NAVIGATION_MS = 60_000;
 
 /** The QA grading inputs a cockpit scan forwards to the workflow; anything malformed is refused, never defaulted. */
-function parseScanQaOptions(params: { profile?: unknown; thresholds?: unknown; viewports?: unknown; baselineViewports?: unknown; multiBreakpoint?: unknown; waivers?: unknown }): CockpitThemeQaOptions {
+function parseScanQaOptions(params: { profile?: unknown; thresholds?: unknown; viewports?: unknown; baselineViewports?: unknown; multiBreakpoint?: unknown; waivers?: unknown }): ScanQaOptions {
   if (params.viewports !== undefined) {
     throw new CapabilityError('INVALID_ARGUMENT', 'theme.cockpit_scan viewports was renamed to baselineViewports ({desktop,tablet,mobile} visual-compare results)', {
       capability: 'theme.cockpit_scan',
@@ -399,11 +380,11 @@ function parseScanQaOptions(params: { profile?: unknown; thresholds?: unknown; v
   if (params.multiBreakpoint !== undefined && typeof params.multiBreakpoint !== 'boolean') {
     throw new CapabilityError('INVALID_ARGUMENT', 'theme.cockpit_scan multiBreakpoint must be a boolean');
   }
-  const viewports = parseBaselineViewports(params.baselineViewports);
+  const baselineViewports = parseBaselineViewportsInput(params.baselineViewports, 'theme.cockpit_scan baselineViewports');
   return {
     ...(parsed.profile ? { profile: parsed.profile } : {}),
     ...(parsed.thresholds ? { thresholds: parsed.thresholds } : {}),
-    ...(viewports ? { viewports } : {}),
+    ...(baselineViewports ? { baselineViewports } : {}),
     ...(params.multiBreakpoint !== undefined ? { multiBreakpoint: params.multiBreakpoint } : {}),
     ...(parsed.waivers.length > 0 ? { waivers: parsed.waivers } : {}),
   };
@@ -686,7 +667,7 @@ export function registerCockpitCapabilities(
 
   catalogue.register({
     name: 'theme.cockpit_scan',
-    description: 'Navigate the bound tab to a checklist page route, run the authoritative Theme QA scan on it, then run the page probes for that route (home: page_structure + menu_depth; product: variant_image_probe + pdp_contract; collection: menu_depth) and tick the checklist items those measurements decide. profile/thresholds/baselineViewports/multiBreakpoint are forwarded to the QA run unchanged; pick chooses the product page (max-variants, long-title, sold-out, no-image) instead of the first product link. The report carries certification: STRUCTURAL unless the baseline viewports are supplied.',
+    description: 'Navigate the bound tab to a checklist page route, run the authoritative Theme QA scan on it, then run the page probes for that route (home: page_structure + menu_depth; product: variant_image_probe + pdp_contract; cart: cart_contract, passive, it reads the quantity, remove and checkout controls and the checkout target but never clicks or changes the cart, and an empty cart is reported as not exercised; collection: menu_depth) and tick the checklist items those measurements decide. profile/thresholds/baselineViewports/multiBreakpoint are forwarded to the QA run; pick chooses the product page (max-variants, long-title, sold-out, no-image) instead of the first product link. The report carries certification: STRUCTURAL unless every baseline viewport is receipt-backed.',
     risk: 'read',
     requiresBrowserTarget: true,
     // Navigating the tab is a real interactive effect: the run is not replay-safe
@@ -702,7 +683,7 @@ export function registerCockpitCapabilities(
         tabId: { type: 'string' },
         profile: { type: 'string', enum: ['audit', 'build-strict'], description: 'QA grading profile (default build-strict)' },
         thresholds: { type: 'object', description: 'Contract thresholds (minTextPx, minTapHitPx, optional titleScale, inputHeightBandPx). Omitted: workspace contract typeScale, else the built-in defaults' },
-        baselineViewports: { type: 'object', description: 'Baseline comparison results per viewport ({desktop|tablet|mobile: {mismatchPercent, passed}}); all three are required for certification CERTIFIED' },
+        baselineViewports: { type: 'object', description: 'Visual-compare evidence per size (desktop, tablet, mobile). Pass {compareReceiptId} from an anti.visual.compare result: the host reads the numbers from its own ledger, so a receipt-backed run can be CERTIFIED. Legacy {mismatchPercent, passed} is caller-asserted and caps the run at STRUCTURAL' },
         multiBreakpoint: { type: 'boolean', description: 'Run the responsive breakpoint sweep (default true)' },
         waivers: { type: 'array', items: { type: 'object', properties: { rule: { type: 'string' }, reason: { type: 'string' } }, required: ['rule', 'reason'] }, description: 'Same as theme.qa_validate waivers: {rule, reason} pairs echoed on the report and receipt' },
         pick: { type: 'string', enum: [...PICK_STRATEGIES], description: 'For page=product without an explicit url: crawl /collections/all and scan the product that best matches this strategy' },
@@ -805,7 +786,23 @@ export function registerCockpitCapabilities(
       }
       const checklistInput = { scope: identity.scope, workspaceRoot: identity.workspaceRoot };
       const checklistBefore = identity.workspaceRoot ? loadChecklistItems(cockpit, identity.tabId, checklistInput) : undefined;
-      const result = await cockpit.runThemeQa(identity.tabId, { ...qaOptions, workspaceRoot: confinedRoot });
+      const { baselineViewports, ...gradingOptions } = qaOptions;
+      // Receipt ids are read from the host's own comparison ledger, so a cockpit scan grades
+      // baselines under the same rules and provenance as theme.qa_validate.
+      const baselineUrl = baselineViewports ? await browser.getLiveTabUrl(identity.tabId).catch(() => '') : '';
+      const baselineResolution = baselineViewports
+        ? resolveBaselineViewports(baselineViewports, {
+            workspaceId: context.workspaceId ?? (context.browserTarget as BrowserTarget | undefined)?.workspaceId ?? '',
+            origin: browserCaps.originOfUrl(baselineUrl),
+            pathname: browserCaps.pathnameOfUrl(baselineUrl),
+          })
+        : undefined;
+      const result = await cockpit.runThemeQa(identity.tabId, {
+        ...gradingOptions,
+        ...(baselineResolution?.viewports ? { viewports: baselineResolution.viewports } : {}),
+        ...(baselineResolution ? { viewportProvenance: baselineResolution.provenance, viewportRejections: baselineResolution.rejections } : {}),
+        workspaceRoot: confinedRoot,
+      });
       const scanned = await finishScan({
         cockpit,
         browser,
@@ -823,7 +820,7 @@ export function registerCockpitCapabilities(
 
   catalogue.register({
     name: 'theme.cockpit_findings',
-    description: 'Read the latest Theme QA state row (status, issueCount, report) for the bound tab',
+    description: 'Read the latest Theme QA state row for the bound tab: status (idle, running, pass, fail, error), issueCount and report. issueCount is a number only when a finished run produced it (pass or fail). An idle, running or errored row returns issueCount: null and a reasonCode (QA_NOT_RUN, QA_RUNNING, or the failure code), so null never means that nothing was found',
     risk: 'read',
     requiresBrowserTarget: true,
     policy: readPolicy(),

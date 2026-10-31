@@ -84,7 +84,12 @@ const base = (root: string): Record<string, unknown> => ({
   execution: 'COMPLETED',
   errorCode: null,
 });
-const certified = (root: string): Record<string, unknown> => ({ ...base(root), certification: 'CERTIFIED', scope: 'certified' });
+const certified = (root: string): Record<string, unknown> => ({
+  ...base(root),
+  certification: 'CERTIFIED',
+  certificationBasis: 'greenfield',
+  scope: 'certified',
+});
 const structural = (root: string): Record<string, unknown> => ({
   ...base(root),
   certification: 'STRUCTURAL',

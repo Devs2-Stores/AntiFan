@@ -446,10 +446,48 @@ describe('theme.cockpit_scan grading inputs, root guard and checklist ticks', ()
         profile: 'audit',
         thresholds: FULL_THRESHOLDS,
         viewports,
+        viewportProvenance: { desktop: 'caller-asserted', mobile: 'caller-asserted' },
+        viewportRejections: [],
         multiBreakpoint: false,
         waivers,
         workspaceRoot: root,
       });
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('turns a compare receipt id the ledger does not know into a rejection and sends no numbers for it', async () => {
+    const { catalogue, root, qaCalls } = makeScanFixture();
+    try {
+      await catalogue.dispatch('theme.cockpit_scan', { baselineViewports: { desktop: { compareReceiptId: 'cmp_does_not_exist' } } }, makeBoundContext());
+      const options = qaCalls[0]?.options;
+      assert.strictEqual(options?.viewports, undefined, 'an unresolved receipt contributes no baseline numbers');
+      assert.deepStrictEqual(options?.viewportProvenance, {});
+      assert.deepStrictEqual(options?.viewportRejections?.map((r) => [r.viewport, r.code]), [['desktop', 'RECEIPT_NOT_FOUND']]);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('runs the passive cart probe on the cart page and ticks the checkout item it measured', async () => {
+    const cartState = {
+      ok: true,
+      isCartPage: true,
+      cart: { itemCount: 1, items: [{ key: 'k1', variantId: 1, quantity: 1, properties: null }] },
+      controls: {
+        plus: [], minus: [], remove: [{ tag: 'remove-0', label: 'button.remove' }], quantityInput: 1,
+        checkout: [{ selector: 'button.checkout', kind: 'form-action', target: '/cart', valid: true }],
+      },
+    };
+    const { catalogue, root, scope, navigations } = makeScanFixture({ evalResult: (expression) => (expression.includes('isCartPage') ? cartState : undefined) });
+    try {
+      const result = (await catalogue.dispatch('theme.cockpit_scan', { page: 'cart' }, makeBoundContext())) as ScanResult;
+      assert.deepStrictEqual(navigations, [{ tabId: 'tab-1', url: 'https://shop.example.com/cart' }]);
+      assert.ok(result.probes && 'cart_contract' in result.probes, 'the cart page runs cart_contract');
+      assert.ok(result.checklist?.applied.some((a) => a.itemId === 'crt-04' && a.done === true), JSON.stringify(result.checklist));
+      assert.ok(!result.checklist?.applied.some((a) => a.itemId === 'crt-02'), 'a passive run never ticks the quantity controls');
+      assert.strictEqual(itemOf(root, scope, 'crt-04')?.done, true);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }

@@ -458,6 +458,8 @@ export class ControlPlaneRuntime {
       profile: options.profile,
       thresholds: options.thresholds,
       viewports: options.viewports,
+      viewportProvenance: options.viewportProvenance,
+      viewportRejections: options.viewportRejections,
       waivers: options.waivers,
       signal: options.signal,
       target,

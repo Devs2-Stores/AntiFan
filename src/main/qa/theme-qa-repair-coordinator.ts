@@ -216,6 +216,8 @@ export class ThemeQaRepairCoordinator {
       session.lifecycle = transition.lifecycle;
 
       const differential = report.findings?.differential;
+      // `null` means nothing was compared. A repair session always verifies against its R0
+      // baseline, so the value is a real boolean here; anything else reads as "no regression seen".
       const hasRegressions = differential?.hasRegressions ?? false;
 
       if (hasRegressions) {
