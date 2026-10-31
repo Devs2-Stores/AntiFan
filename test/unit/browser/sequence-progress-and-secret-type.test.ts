@@ -156,9 +156,12 @@ describe('secret typing', () => {
     assert.equal(isolatedScripts.length, 2, 'the mark runs once, before the insert');
   });
 
-  it('an ordinary type does not mark the field', async () => {
-    const { isolatedScripts } = await typeWith(undefined);
-    assert.deepEqual(isolatedScripts, ['FOCUS_SCRIPT']);
+  it('an ordinary type does not mark the field, and reads it back after the insert', async () => {
+    const { isolatedScripts, cdp } = await typeWith(undefined);
+    assert.equal(isolatedScripts[0], 'FOCUS_SCRIPT');
+    assert.equal(isolatedScripts.some((s) => s.includes(SECRET_FIELD_ATTRIBUTE)), false);
+    assert.ok(cdp.some((c) => c.method === 'Input.insertText'));
+    assert.equal(isolatedScripts.length, 2, 'focus, then one read-back');
   });
 
   it('the secret text is never part of the result or of any script sent to the page', async () => {

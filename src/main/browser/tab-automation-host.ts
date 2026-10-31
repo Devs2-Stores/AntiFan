@@ -16,6 +16,13 @@ import { buildSecretFieldMarkScript } from './screenshot-guard-css';
 import { sequenceProgress } from './sequence-progress';
 import {
   buildIsolatedExecutorScript,
+  buildFieldReadBackScript,
+  parseFieldReadBack,
+  buildLocatorResolveScript,
+  parseLocatorResolution,
+  parseElementLocator,
+  type ElementLocator,
+  type LocatorResolution,
   buildIsolatedCollectorScript,
   ISOLATED_AGENT_WORLD_ID,
   validateActionResponse,
@@ -46,7 +53,46 @@ import { buildCdpKeyEvents } from './keyboard-normalizer';
  * consult this gate, so a trajectory step can still be delivered through an
  * overlay; do not read a fail-closed guarantee into that path.
  */
-const BLOCKING_PREFLIGHT_CODES: Record<string, true> = { TARGET_OBSCURED: true };
+const BLOCKING_PREFLIGHT_CODES: Record<string, true> = { TARGET_OBSCURED: true, TARGET_ZERO_SIZE: true };
+
+/** The reason reported when the WebContents is gone after an action dispatched. */
+const NAVIGATED_DURING_ACTION = 'Document navigated during action execution';
+/** How long `expectNavigation` waits for a navigation to start when the caller names no window. */
+const EXPECT_NAVIGATION_DEFAULT_WAIT_MS = 3_000;
+const EXPECT_NAVIGATION_MIN_WAIT_MS = 100;
+const EXPECT_NAVIGATION_MAX_WAIT_MS = 15_000;
+/** Longest wait for a navigation that has started to commit before it is reported as pending. */
+const NAVIGATION_COMMIT_WAIT_MS = 5_000;
+/** Longest wait for a navigated sequence step's new document to finish loading before the next step. */
+const NAVIGATED_STEP_LOAD_WAIT_MS = 5_000;
+/** Read-back polls after a control click, for frameworks that apply the new state a frame later. */
+const CONTROL_READBACK_ATTEMPTS = 4;
+const CONTROL_READBACK_INTERVAL_MS = 120;
+
+/** Why the document an action was aimed at is no longer the live one; `undefined` while it still is. */
+type DocumentDrift = () => string | undefined;
+
+/** The document an action starts from: read immediately before the gesture is delivered. */
+interface DocumentBaseline {
+  generation: number;
+  url: string;
+}
+
+interface NavigationExpectation {
+  expected: boolean;
+  waitMs: number;
+}
+
+/** `navigationTimeoutMs` clamped to 100-15000 ms, defaulting to 3000. */
+function navigationExpectation(params: { expectNavigation?: boolean; navigationTimeoutMs?: unknown }): NavigationExpectation {
+  const requested = typeof params.navigationTimeoutMs === 'number' && Number.isFinite(params.navigationTimeoutMs)
+    ? params.navigationTimeoutMs
+    : EXPECT_NAVIGATION_DEFAULT_WAIT_MS;
+  return {
+    expected: params.expectNavigation === true,
+    waitMs: Math.min(EXPECT_NAVIGATION_MAX_WAIT_MS, Math.max(EXPECT_NAVIGATION_MIN_WAIT_MS, Math.floor(requested))),
+  };
+}
 
 /** Actions the isolated renderer executor implements; everything else is refused. */
 const ISOLATED_ACTION_NAMES: Record<string, true> = {
@@ -115,6 +161,12 @@ export interface SequenceActionItem {
   url?: string;
   ref?: string;
   selector?: string;
+  /** Text / role locator resolved in the page instead of a ref or selector; see `ElementLocator`. */
+  locator?: unknown;
+  /** `click` and `type`: wait for a navigation and report `navigated:false` with a hint when none starts (the action itself still counts as done). */
+  expectNavigation?: boolean;
+  /** `click` and `type` with `expectNavigation`: how long to wait for the navigation to start, 100-15000 ms (default 3000). */
+  navigationTimeoutMs?: number;
   x?: number;
   y?: number;
   text?: string;
@@ -576,7 +628,8 @@ export class TabAutomationHost {
     focusScript: string,
     text: string,
     clear?: boolean,
-    secret?: boolean
+    secret?: boolean,
+    driftGuard?: DocumentDrift
   ): Promise<{ success: boolean; data?: unknown; reason?: string; executionTier?: 'cdp_trusted' | 'isolated_synthetic' }> {
     // 1. Focus element and select in isolated world
     const rawRes = await this.executeInIsolatedWorld(wc, focusScript);
@@ -589,6 +642,10 @@ export class TabAutomationHost {
         data: { ok: false, error: res.error, code: res.code, metadata: res.metadata, executionTier: 'isolated_synthetic' },
       };
     }
+    // The field was focused in the document the caller targeted. A navigation since then would
+    // send the text to a different page, so nothing is typed.
+    const drifted = driftGuard?.();
+    if (drifted) return { success: false, reason: drifted };
     // A secret is marked before any text lands, so no frame of it is ever on screen unmasked.
     if (secret) {
       try {
@@ -663,7 +720,8 @@ export class TabAutomationHost {
         })()`).catch(() => {});
       }
       await this.sendCdpInputCommand(wc, 'Input.insertText', { text });
-      return { success: true, executionTier: 'cdp_trusted', data: { ok: true, executed: true, tier: 'cdp_trusted', executionTier: 'cdp_trusted', rect: res.rect } };
+      const readBack = await this.readBackTypedText(wc, text, clear === true, secret === true);
+      return { success: true, executionTier: 'cdp_trusted', data: { ok: true, executed: true, tier: 'cdp_trusted', executionTier: 'cdp_trusted', rect: res.rect, ...readBack } };
     } catch (cdpErr) {
       const dialog = dialogOfError(cdpErr);
       if (dialog) {
@@ -674,6 +732,32 @@ export class TabAutomationHost {
         success: false,
         reason: `CDP Input.insertText failed: ${cdpErr instanceof Error ? cdpErr.message : String(cdpErr)}`,
       };
+    }
+  }
+
+  /**
+   * Reads the focused field after text entry and reports whether the text is actually there: a
+   * framework that reverts a value it does not own leaves the insert reporting success against an
+   * empty field. A secret is never read back nor compared: the comparison would have to send the
+   * secret to the page inside a script, so it answers `verified: null`. `null` means the field
+   * could not be (or was not) read, never a pass.
+   */
+  private async readBackTypedText(
+    wc: Electron.WebContents,
+    text: string,
+    clear: boolean,
+    secret: boolean
+  ): Promise<{ verified: boolean | null; readBack?: string; readBackTruncated?: boolean }> {
+    if (secret) return { verified: null };
+    try {
+      const parsed = parseFieldReadBack(await this.executeInIsolatedWorld(wc, buildFieldReadBackScript(text, clear)));
+      return {
+        verified: parsed.verified,
+        ...(parsed.readBack !== undefined ? { readBack: parsed.readBack } : {}),
+        ...(parsed.readBackTruncated ? { readBackTruncated: true } : {}),
+      };
+    } catch {
+      return { verified: null };
     }
   }
 
@@ -694,7 +778,8 @@ export class TabAutomationHost {
     focusScript?: string,
     x?: number,
     y?: number,
-    presetId?: string
+    presetId?: string,
+    driftGuard?: DocumentDrift
   ): Promise<{ success: boolean; data?: unknown; reason?: string; fallbackNeeded?: boolean; executionTier?: 'cdp_trusted' | 'isolated_synthetic' }> {
     let clickX = x;
     let clickY = y;
@@ -758,6 +843,10 @@ export class TabAutomationHost {
       }
     }
     const dispatch = async (): Promise<{ success: boolean; data?: unknown; reason?: string; fallbackNeeded?: boolean; executionTier?: 'cdp_trusted' | 'isolated_synthetic' }> => {
+      // The pre-flight resolved the target in the document the caller aimed at. When that document
+      // has been replaced since, the coordinates belong to a different page: dispatch nothing.
+      const drifted = driftGuard?.();
+      if (drifted) return { success: false, fallbackNeeded: false, reason: drifted };
       let focusEmulationEnabled = false;
       try {
         // Focus emulation only — never wc.focus(): a real DOM focus move would
@@ -889,7 +978,8 @@ export class TabAutomationHost {
     focusScript?: string,
     x?: number,
     y?: number,
-    targetSelector?: string
+    targetSelector?: string,
+    driftGuard?: DocumentDrift
   ): Promise<{ success: boolean; data?: unknown; reason?: string; fallbackNeeded?: boolean; executionTier?: 'cdp_trusted' | 'isolated_synthetic' }> {
     let hoverX = x;
     let hoverY = y;
@@ -938,6 +1028,8 @@ export class TabAutomationHost {
     const pointY: number = hoverY;
 
     const dispatch = async (): Promise<{ success: boolean; data?: unknown; reason?: string; fallbackNeeded?: boolean; executionTier?: 'cdp_trusted' | 'isolated_synthetic' }> => {
+      const drifted = driftGuard?.();
+      if (drifted) return { success: false, fallbackNeeded: false, reason: drifted };
       let focusEmulationEnabled = false;
       try {
         // Focus emulation only — never wc.focus(): a real DOM focus move would
@@ -1079,6 +1171,12 @@ export class TabAutomationHost {
       presetId?: string;
       speed?: 'fast' | 'natural' | 'slow';
       smoothScroll?: boolean;
+      /** When true, a click or type that starts no navigation reports `navigated:false` with a hint after waiting; the dispatched action still counts as done. */
+      expectNavigation?: boolean;
+      /** With `expectNavigation`: how long to wait for the navigation to start, 100-15000 ms (default 3000). */
+      navigationTimeoutMs?: number;
+      /** Text / role locator, used when neither `ref` nor `selector` is given. */
+      locator?: unknown;
     }
   ): Promise<{ success: boolean; data?: unknown; reason?: string }> {
     const targetId = this.resolveAutomationTargetId(params.tabId, 'dispatchAgentAction');
@@ -1089,6 +1187,34 @@ export class TabAutomationHost {
 
     const splitHasLiveMobile = Boolean(target.state.splitMode && target.mobileView && !target.mobileView.webContents.isDestroyed());
     const effectivePane: SplitPaneId = params.paneId || (splitHasLiveMobile ? (target.focusedPane || target.state.splitFocusedPane || 'desktop') : 'desktop');
+    const navExpect = navigationExpectation(params);
+
+    // A locator stands in for a ref or selector: resolve it against the live page first, then run
+    // the action on the element it names. Resolution is its own target operation, so it must
+    // finish before the action queues its own.
+    const hasRef = typeof params.ref === 'string' && params.ref.trim().length > 0;
+    if (params.locator !== undefined && !hasRef && !params.selector && action !== 'clear' && action !== 'trajectory') {
+      let located: LocatorResolution;
+      try {
+        located = await this.resolveLocator(params.locator, { tabId: targetId, paneId: effectivePane });
+      } catch (err: unknown) {
+        const code = err && typeof err === 'object' && 'code' in err && typeof err.code === 'string' ? err.code : undefined;
+        return { success: false, reason: err instanceof Error ? err.message : String(err), data: code ? { code } : undefined };
+      }
+      if (!located.ok) {
+        return {
+          success: false,
+          reason: located.error,
+          data: { ok: false, code: located.code, error: located.error, matchCount: located.matchCount, candidates: located.candidates, ...(located.truncated ? { truncated: true } : {}) },
+        };
+      }
+      const acted = await this.dispatchAgentAction(action, { ...params, locator: undefined, selector: located.selector });
+      const prior = acted.data && typeof acted.data === 'object' ? (acted.data as Record<string, unknown>) : {};
+      return {
+        ...acted,
+        data: { ...prior, locator: { selector: located.selector, matchCount: located.matchCount, index: located.index, candidate: located.candidate } },
+      };
+    }
 
     // 1. Ref Mode — Strict Fail-Closed Main Resolution & Synchronous World-1004 Execution
     if (typeof params.ref === 'string' && params.ref.trim().length > 0) {
@@ -1105,6 +1231,8 @@ export class TabAutomationHost {
           const curGen = this.ctx.getSemanticDocumentGeneration(targetId, effectivePane);
           const curDocGen = this.documentGenerationOf(targetId, effectivePane);
           const curUrl = wc.getURL();
+          const baseline: DocumentBaseline = { generation: curDocGen, url: curUrl };
+          const drift = this.documentDriftGuard(wc, targetId, effectivePane, baseline.generation);
 
           let descriptor: SemanticElementDescriptor;
           try {
@@ -1143,12 +1271,9 @@ export class TabAutomationHost {
                 documentUrl: curUrl,
                 nonce: descriptor.nonce,
               });
-              const trustedRes = await this.executeTrustedClick(wc, focusScript, params.x, params.y, params.presetId);
+              const trustedRes = await this.executeTrustedClick(wc, focusScript, params.x, params.y, params.presetId, drift);
               if (trustedRes.success) {
-                if (this.documentGenerationOf(targetId, effectivePane) !== curDocGen || wc.isDestroyed()) {
-                  return { success: false, reason: 'Document navigated during action execution' };
-                }
-                return trustedRes;
+                return await this.reconcileNavigation(wc, targetId, effectivePane, baseline, trustedRes, navExpect);
               }
               if (!trustedRes.fallbackNeeded) {
                 return trustedRes;
@@ -1169,12 +1294,9 @@ export class TabAutomationHost {
                 noAutoDismiss: params.noAutoDismiss || this.isNoAutoDismiss(targetId),
                 presetId: params.presetId,
               });
-              const trustedRes = await this.executeTrustedHover(wc, focusScript, params.x, params.y, params.selector);
+              const trustedRes = await this.executeTrustedHover(wc, focusScript, params.x, params.y, params.selector, drift);
               if (trustedRes.success) {
-                if (this.documentGenerationOf(targetId, effectivePane) !== curDocGen || wc.isDestroyed()) {
-                  return { success: false, reason: 'Document navigated during action execution' };
-                }
-                return trustedRes;
+                return await this.reconcileNavigation(wc, targetId, effectivePane, baseline, trustedRes, navExpect);
               }
               if (!trustedRes.fallbackNeeded) {
                 return trustedRes;
@@ -1188,14 +1310,12 @@ export class TabAutomationHost {
                 descriptor,
                 clear: params.clear,
                 force: params.force,
+                forTyping: true,
                 documentUrl: curUrl,
                 nonce: descriptor.nonce,
               });
-              const trustedRes = await this.executeTrustedType(wc, focusScript, params.text, params.clear, params.secret === true);
-              if (this.documentGenerationOf(targetId, effectivePane) !== curDocGen || wc.isDestroyed()) {
-                return { success: false, reason: 'Document navigated during action execution' };
-              }
-              return trustedRes;
+              const trustedRes = await this.executeTrustedType(wc, focusScript, params.text, params.clear, params.secret === true, drift);
+              return await this.reconcileNavigation(wc, targetId, effectivePane, baseline, trustedRes, navExpect);
             }
 
             if (!isIsolatedAction(action)) {
@@ -1216,15 +1336,22 @@ export class TabAutomationHost {
               label: params.label,
             });
 
+            const drifted = drift();
+            if (drifted) return { success: false, reason: drifted };
             const rawRes = await this.executeInIsolatedWorld(wc, script);
             const res = validateActionResponse(rawRes);
 
-            if (this.documentGenerationOf(targetId, effectivePane) !== curDocGen || wc.isDestroyed()) {
-              return { success: false, reason: 'Document navigated during action execution' };
+            if (wc.isDestroyed()) {
+              return { success: false, reason: NAVIGATED_DURING_ACTION };
             }
-
             if (!res.ok) {
               return { success: false, reason: res.error, data: { ...res, executionTier: 'isolated_synthetic' } };
+            }
+            if (res.executed && (action === 'click' || action === 'type')) {
+              return await this.reconcileNavigation(wc, targetId, effectivePane, baseline, { success: true, data: { ...res, executionTier: 'isolated_synthetic' } }, navExpect);
+            }
+            if (this.documentGenerationOf(targetId, effectivePane) !== curDocGen) {
+              return await this.reconcileNavigation(wc, targetId, effectivePane, baseline, { success: res.executed, data: { ...res, executionTier: 'isolated_synthetic' } });
             }
             if (action === 'hover' || action === 'move') {
               const hoverActive = Boolean('hoverActive' in res && res.hoverActive);
@@ -1309,13 +1436,11 @@ export class TabAutomationHost {
               documentUrl: wc.getURL(),
               nonce: generateCollectionNonce(),
             }) : undefined;
-            const curGen = this.documentGenerationOf(targetId, effectivePane);
-            const trustedRes = await this.executeTrustedClick(wc, focusScript, params.x, params.y, params.presetId);
+            const baseline = this.documentBaseline(wc, targetId, effectivePane);
+            const drift = this.documentDriftGuard(wc, targetId, effectivePane, baseline.generation);
+            const trustedRes = await this.executeTrustedClick(wc, focusScript, params.x, params.y, params.presetId, drift);
             if (trustedRes.success) {
-              if (this.documentGenerationOf(targetId, effectivePane) !== curGen || wc.isDestroyed()) {
-                return { success: false, reason: 'Document navigated during action execution' };
-              }
-              return trustedRes;
+              return await this.reconcileNavigation(wc, targetId, effectivePane, baseline, trustedRes, navExpect);
             }
             if (!trustedRes.fallbackNeeded) {
               return trustedRes;
@@ -1336,13 +1461,11 @@ export class TabAutomationHost {
               presetId: params.presetId,
               nonce: generateCollectionNonce(),
             }) : undefined;
-            const curGen = this.documentGenerationOf(targetId, effectivePane);
-            const trustedRes = await this.executeTrustedHover(wc, focusScript, params.x, params.y, params.selector);
+            const baseline = this.documentBaseline(wc, targetId, effectivePane);
+            const drift = this.documentDriftGuard(wc, targetId, effectivePane, baseline.generation);
+            const trustedRes = await this.executeTrustedHover(wc, focusScript, params.x, params.y, params.selector, drift);
             if (trustedRes.success) {
-              if (this.documentGenerationOf(targetId, effectivePane) !== curGen || wc.isDestroyed()) {
-                return { success: false, reason: 'Document navigated during action execution' };
-              }
-              return trustedRes;
+              return await this.reconcileNavigation(wc, targetId, effectivePane, baseline, trustedRes, navExpect);
             }
             if (!trustedRes.fallbackNeeded) {
               return trustedRes;
@@ -1357,17 +1480,16 @@ export class TabAutomationHost {
               y: params.y,
               clear: params.clear,
               force: params.force,
+              forTyping: true,
               noAutoDismiss: params.noAutoDismiss || this.isNoAutoDismiss(targetId),
               presetId: params.presetId,
               documentUrl: wc.getURL(),
               nonce: generateCollectionNonce(),
             });
-            const curGen = this.documentGenerationOf(targetId, effectivePane);
-            const trustedRes = await this.executeTrustedType(wc, focusScript, params.text, params.clear, params.secret === true);
-            if (this.documentGenerationOf(targetId, effectivePane) !== curGen || wc.isDestroyed()) {
-              return { success: false, reason: 'Document navigated during action execution' };
-            }
-            return trustedRes;
+            const baseline = this.documentBaseline(wc, targetId, effectivePane);
+            const drift = this.documentDriftGuard(wc, targetId, effectivePane, baseline.generation);
+            const trustedRes = await this.executeTrustedType(wc, focusScript, params.text, params.clear, params.secret === true, drift);
+            return await this.reconcileNavigation(wc, targetId, effectivePane, baseline, trustedRes, navExpect);
           }
 
           if (!isIsolatedAction(action)) {
@@ -1380,6 +1502,7 @@ export class TabAutomationHost {
             y: params.y,
             text: params.text,
             clear: params.clear,
+            trusted: params.trusted,
             force: params.force,
             deltaY: params.deltaY,
             noAutoDismiss: params.noAutoDismiss || this.isNoAutoDismiss(targetId),
@@ -1387,8 +1510,12 @@ export class TabAutomationHost {
             documentUrl: wc.getURL(),
             nonce: generateCollectionNonce(),
           });
+          const baseline = this.documentBaseline(wc, targetId, effectivePane);
           const rawRes = await this.executeInIsolatedWorld(wc, script);
           const res = validateActionResponse(rawRes);
+          if (res.ok && res.executed && (action === 'click' || action === 'type')) {
+            return await this.reconcileNavigation(wc, targetId, effectivePane, baseline, { success: true, data: { ...res, executionTier: 'isolated_synthetic' } }, navExpect);
+          }
           if (!res.ok) {
             return { success: false, reason: res.error, data: { ...res, executionTier: 'isolated_synthetic' } };
           }
@@ -1436,6 +1563,258 @@ export class TabAutomationHost {
   public async agentScroll(params: { deltaY?: number; selector?: string; ref?: string; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
     const res = await this.dispatchAgentAction('scroll', params);
     return res.success;
+  }
+
+  private async waitForDocumentLoad(wc: Electron.WebContents, maxMs: number): Promise<void> {
+    const deadline = Date.now() + maxMs;
+    while (!wc.isDestroyed() && typeof wc.isLoading === 'function' && wc.isLoading() && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  }
+
+  private documentBaseline(wc: Electron.WebContents, tabId: string, paneId: SplitPaneId): DocumentBaseline {
+    return { generation: this.documentGenerationOf(tabId, paneId), url: wc.isDestroyed() ? '' : wc.getURL() };
+  }
+
+  private documentDriftGuard(wc: Electron.WebContents, tabId: string, paneId: SplitPaneId, baselineGeneration: number): DocumentDrift {
+    return () => (wc.isDestroyed() || this.documentGenerationOf(tabId, paneId) !== baselineGeneration ? NAVIGATED_DURING_ACTION : undefined);
+  }
+
+  /**
+   * Waits until a navigation that has started has committed, so the URL read afterwards belongs to
+   * the new document. The generation moves when the navigation starts, and `getURL()` still names
+   * the old document until commit. Committed means the URL changed, or the tab stopped loading
+   * (a navigation to the same URL never changes it) on two readings in a row, so a navigation
+   * that has not yet raised the loading flag is not mistaken for a finished one.
+   */
+  private async waitForNavigationCommit(wc: Electron.WebContents, urlBefore: string, maxMs: number): Promise<boolean> {
+    const deadline = Date.now() + maxMs;
+    let idleReadings = 0;
+    for (;;) {
+      if (wc.isDestroyed()) return false;
+      if (wc.getURL() !== urlBefore) return true;
+      const loading = typeof wc.isLoading === 'function' && wc.isLoading();
+      idleReadings = loading ? 0 : idleReadings + 1;
+      if (idleReadings >= 2) return true;
+      if (Date.now() >= deadline) return false;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+  }
+
+  /**
+   * Settles what an action that already dispatched did to the document. A navigation the action
+   * itself caused is the expected outcome of a click on a link or a submit, so it reports
+   * success with `navigated`, the URL of the committed document and the new generation; reading
+   * it as a failure made callers repeat a click that had worked. A navigation still pending at the
+   * commit deadline is reported as `navigationPending` without a URL. A destroyed WebContents is
+   * still a failure: the outcome of the action is unknowable.
+   *
+   * `expectNavigation` never turns a dispatched action into a failure: the click happened and its
+   * side effects stand, so a caller that retried on `success:false` would repeat them. When no
+   * navigation started within the window the action stays successful and reports
+   * `navigated:false` with a hint.
+   */
+  private async reconcileNavigation<T extends { success: boolean; data?: unknown; reason?: string }>(
+    wc: Electron.WebContents,
+    targetId: string,
+    paneId: SplitPaneId,
+    baseline: DocumentBaseline,
+    result: T,
+    expectation?: NavigationExpectation
+  ): Promise<T | { success: false; reason: string; data?: unknown }> {
+    if (wc.isDestroyed()) return { success: false, reason: NAVIGATED_DURING_ACTION };
+    let changed = this.documentGenerationOf(targetId, paneId) !== baseline.generation;
+    if (!changed && expectation?.expected === true && result.success) {
+      const deadline = Date.now() + expectation.waitMs;
+      while (!changed && Date.now() < deadline && !wc.isDestroyed()) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        if (wc.isDestroyed()) break;
+        changed = this.documentGenerationOf(targetId, paneId) !== baseline.generation;
+      }
+      if (wc.isDestroyed()) return { success: false, reason: NAVIGATED_DURING_ACTION };
+    }
+    if (!result.success) return result;
+    const prior = result.data && typeof result.data === 'object' ? (result.data as Record<string, unknown>) : {};
+    if (changed) {
+      const committed = await this.waitForNavigationCommit(wc, baseline.url, NAVIGATION_COMMIT_WAIT_MS);
+      if (wc.isDestroyed()) return { success: false, reason: NAVIGATED_DURING_ACTION };
+      const documentGeneration = this.documentGenerationOf(targetId, paneId);
+      return {
+        ...result,
+        data: { ...prior, navigated: true, ...(committed ? { committedUrl: wc.getURL() } : { navigationPending: true }), documentGeneration },
+      };
+    }
+    if (expectation?.expected === true) {
+      return {
+        ...result,
+        data: {
+          ...prior,
+          navigated: false,
+          committedUrl: wc.getURL(),
+          documentGeneration: this.documentGenerationOf(targetId, paneId),
+          hint: `expectNavigation: the action dispatched but no navigation started within ${expectation.waitMs}ms; the document is still ${wc.getURL()}. The action's own effect stands, so do not repeat it blindly.`,
+        },
+      };
+    }
+    return result;
+  }
+
+  /**
+   * Resolves a text / role locator to one element of the live page, in the isolated world. The
+   * answer is a selector that addresses that element, or the candidates that make the locator
+   * unusable (none, several, an `nth` out of range). Serialized with the tab's other operations.
+   */
+  public async resolveLocator(
+    locatorInput: unknown,
+    options: { tabId?: string; paneId?: SplitPaneId; waitMs?: number } = {}
+  ): Promise<LocatorResolution> {
+    const locator: ElementLocator = parseElementLocator(locatorInput);
+    const targetId = this.resolveAutomationTargetId(options.tabId, 'resolveLocator');
+    const target = this.ctx.getTabRecord(targetId);
+    if (!target) throw new CapabilityError('TARGET_STALE', `Tab '${targetId}' not found`);
+    const splitHasLiveMobile = Boolean(target.state.splitMode && target.mobileView && !target.mobileView.webContents.isDestroyed());
+    const pane: SplitPaneId = options.paneId || (splitHasLiveMobile ? (target.focusedPane || target.state.splitFocusedPane || 'desktop') : 'desktop');
+    return await this.ctx.runTargetOperation(targetId, pane, async () => {
+      const wc = this.ctx.getTabWebContents(targetId, pane);
+      if (!wc || wc.isDestroyed()) throw new CapabilityError('TARGET_STALE', 'WebContents destroyed');
+      return parseLocatorResolution(await this.executeInIsolatedWorld(wc, buildLocatorResolveScript(locator, options.waitMs)));
+    });
+  }
+
+  /** Reads the checked / pressed / selected state of the target, without scrolling or clicking. */
+  private async readControlState(
+    targetId: string,
+    pane: SplitPaneId,
+    endpoint: { ref?: string; selector?: string }
+  ): Promise<{ ok: true; state: Record<string, unknown> } | { ok: false; reason: string; code?: string }> {
+    return await this.ctx.runTargetOperation(targetId, pane, async () => {
+      const wc = this.ctx.getTabWebContents(targetId, pane);
+      if (!wc || wc.isDestroyed()) return { ok: false as const, reason: 'WebContents destroyed', code: 'TARGET_STALE' };
+      try {
+        const script = this.buildDragEndpointScript(endpoint, targetId, pane, wc.getURL(), 'probe', undefined, true);
+        const res = validateActionResponse(await this.executeInIsolatedWorld(wc, script));
+        if (!res.ok) return { ok: false as const, reason: res.error, code: res.code };
+        const state = res.metadata && typeof res.metadata.controlState === 'object' && res.metadata.controlState
+          ? (res.metadata.controlState as Record<string, unknown>)
+          : undefined;
+        if (!state) return { ok: false as const, reason: 'The page returned no control state' };
+        return { ok: true as const, state };
+      } catch (err: unknown) {
+        const code = err && typeof err === 'object' && 'code' in err && typeof err.code === 'string' ? err.code : undefined;
+        return { ok: false as const, reason: err instanceof Error ? err.message : String(err), code };
+      }
+    });
+  }
+
+  /**
+   * Puts a checkbox, radio, switch or toggle into the requested state. The state is read first
+   * and the control is clicked only when it differs, so the call is idempotent where a bare click
+   * would flip a control that was already right. The state is read back after the click (a
+   * framework may apply it a frame later), and `applied` is true only when the read-back matches.
+   */
+  public async setControl(params: {
+    ref?: string;
+    selector?: string;
+    locator?: unknown;
+    state: boolean;
+    trusted?: boolean;
+    force?: boolean;
+    tabId?: string;
+    paneId?: SplitPaneId;
+  }): Promise<{ success: boolean; data?: Record<string, unknown>; reason?: string; code?: string }> {
+    const targetId = this.resolveAutomationTargetId(params.tabId, 'setControl');
+    const target = this.ctx.getTabRecord(targetId);
+    if (!target) return { success: false, reason: `Tab '${targetId}' not found`, code: 'TARGET_STALE' };
+    const splitHasLiveMobile = Boolean(target.state.splitMode && target.mobileView && !target.mobileView.webContents.isDestroyed());
+    const pane: SplitPaneId = params.paneId || (splitHasLiveMobile ? (target.focusedPane || target.state.splitFocusedPane || 'desktop') : 'desktop');
+
+    const ref = typeof params.ref === 'string' ? params.ref.trim() : '';
+    let selector = typeof params.selector === 'string' ? params.selector.trim() : '';
+    let locatorInfo: Record<string, unknown> | undefined;
+    if (!ref && !selector && params.locator !== undefined) {
+      const located = await this.resolveLocator(params.locator, { tabId: targetId, paneId: pane });
+      if (!located.ok) {
+        return {
+          success: false,
+          reason: located.error,
+          code: located.code,
+          data: { matchCount: located.matchCount, candidates: located.candidates, ...(located.truncated ? { truncated: true } : {}) },
+        };
+      }
+      selector = located.selector;
+      locatorInfo = { selector: located.selector, matchCount: located.matchCount, index: located.index, candidate: located.candidate };
+    }
+    if (!ref && !selector) {
+      return { success: false, reason: 'set_control needs a ref, a selector or a locator', code: 'INVALID_ARGUMENT' };
+    }
+    const endpoint = ref ? { ref } : { selector };
+    const withLocator = (data: Record<string, unknown>): Record<string, unknown> => (locatorInfo ? { ...data, locator: locatorInfo } : data);
+
+    const before = await this.readControlState(targetId, pane, endpoint);
+    if (!before.ok) return { success: false, reason: before.reason, code: before.code };
+    const previous = before.state;
+    if (typeof previous.checked !== 'boolean' && previous.mixed !== true) {
+      return {
+        success: false,
+        reason: `The target exposes no checked, pressed or selected state (${String(previous.reason || 'not a stateful control')}); use click for a plain button`,
+        code: 'ELEMENT_NOT_ACTIONABLE',
+        data: withLocator({ requested: params.state, previous }),
+      };
+    }
+    if (previous.disabled === true) {
+      return { success: false, reason: 'The control is disabled', code: 'ELEMENT_DISABLED', data: withLocator({ requested: params.state, previous }) };
+    }
+    if (previous.checked === params.state) {
+      return { success: true, data: withLocator({ applied: true, changed: false, requested: params.state, previous, observed: previous }) };
+    }
+    if (params.state === false && previous.kind === 'radio') {
+      return {
+        success: false,
+        reason: 'A radio button cannot be unchecked; check another radio of the group instead',
+        code: 'ELEMENT_NOT_ACTIONABLE',
+        data: withLocator({ requested: params.state, previous }),
+      };
+    }
+
+    const click = await this.dispatchAgentAction('click', {
+      ...(ref ? { ref } : { selector }),
+      trusted: params.trusted,
+      force: params.force,
+      tabId: targetId,
+      paneId: pane,
+    });
+    if (!click.success) {
+      const clickData = click.data && typeof click.data === 'object' ? (click.data as Record<string, unknown>) : {};
+      return {
+        success: false,
+        reason: click.reason || 'Click on the control failed',
+        code: typeof clickData.code === 'string' ? clickData.code : undefined,
+        data: withLocator({ requested: params.state, previous, changed: false }),
+      };
+    }
+
+    let observed: Record<string, unknown> = previous;
+    for (let attempt = 0; attempt < CONTROL_READBACK_ATTEMPTS; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, CONTROL_READBACK_INTERVAL_MS));
+      const after = await this.readControlState(targetId, pane, endpoint);
+      if (!after.ok) {
+        // The control may have been replaced by the click (a framework re-render, a navigation).
+        return {
+          success: false,
+          reason: `Clicked, but the control state could not be read back: ${after.reason}`,
+          code: after.code,
+          data: withLocator({ requested: params.state, previous, changed: true, applied: false }),
+        };
+      }
+      observed = after.state;
+      if (observed.checked === params.state) break;
+    }
+    const applied = observed.checked === params.state;
+    return {
+      success: applied,
+      ...(applied ? {} : { reason: `The control reads ${String(observed.checked)} after the click, not the requested ${String(params.state)}`, code: 'ELEMENT_NOT_ACTIONABLE' }),
+      data: withLocator({ applied, changed: true, requested: params.state, previous, observed }),
+    };
   }
 
   public async agentHover(params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; force?: boolean; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
@@ -1576,8 +1955,11 @@ export class TabAutomationHost {
             const res = await this.dispatchAgentAction('click', {
               selector: action.selector,
               ref: action.ref,
+              locator: action.locator,
               x: action.x,
               y: action.y,
+              expectNavigation: action.expectNavigation,
+              navigationTimeoutMs: action.navigationTimeoutMs,
               tabId: targetId,
               paneId: effectivePane,
             });
@@ -1590,8 +1972,11 @@ export class TabAutomationHost {
             const res = await this.dispatchAgentAction('type', {
               selector: action.selector,
               ref: action.ref,
+              locator: action.locator,
               text: action.text || '',
               clear: action.clear,
+              expectNavigation: action.expectNavigation,
+              navigationTimeoutMs: action.navigationTimeoutMs,
               tabId: targetId,
               paneId: effectivePane,
             });
@@ -1605,6 +1990,7 @@ export class TabAutomationHost {
               deltaY: action.deltaY,
               selector: action.selector,
               ref: action.ref,
+              locator: action.locator,
               tabId: targetId,
               paneId: effectivePane,
             });
@@ -1617,6 +2003,7 @@ export class TabAutomationHost {
             const res = await this.dispatchAgentAction('hover', {
               selector: action.selector,
               ref: action.ref,
+              locator: action.locator,
               x: action.x,
               y: action.y,
               tabId: targetId,
@@ -1747,6 +2134,16 @@ export class TabAutomationHost {
         data: stepData,
         error: stepError,
       });
+
+      // A step that navigated the document on purpose moves the sequence onto the new document:
+      // the break-on-navigate guard exists for navigations nobody asked for, and a step that
+      // reported `navigated` was one the caller made. Refs from the previous document stay stale
+      // (the registry refuses them); selector and locator steps carry on against the new page.
+      if (stepSuccess && stepData && typeof stepData === 'object' && (stepData as Record<string, unknown>).navigated === true && !wc.isDestroyed()) {
+        await this.waitForDocumentLoad(wc, NAVIGATED_STEP_LOAD_WAIT_MS);
+        initialUrl = wc.isDestroyed() ? initialUrl : wc.getURL();
+        initialGen = this.ctx.getSemanticDocumentGeneration(targetId, effectivePane);
+      }
 
       // Safety 2: Auto-Wait Settle Time
       const settleMs = typeof action.settleMs === 'number' ? action.settleMs : (action.type === 'click' || action.type === 'type' || action.type === 'pressKey' ? 50 : 0);
@@ -2395,7 +2792,8 @@ export class TabAutomationHost {
     paneId: SplitPaneId,
     documentUrl: string,
     action: 'probe' | 'focus',
-    force?: boolean
+    force?: boolean,
+    controlState?: boolean
   ): string {
     const scrolling = action === 'focus' ? {} : { scrollIntoView: false };
     const rawRef = typeof endpoint.ref === 'string' ? endpoint.ref.trim() : '';
@@ -2421,6 +2819,7 @@ export class TabAutomationHost {
         descriptor,
         force,
         ...scrolling,
+        ...(controlState ? { controlState: true } : {}),
         documentUrl,
         nonce: descriptor.nonce,
       });
@@ -2433,6 +2832,7 @@ export class TabAutomationHost {
         selector,
         force,
         ...scrolling,
+        ...(controlState ? { controlState: true } : {}),
         documentUrl,
         nonce: generateCollectionNonce(),
       });

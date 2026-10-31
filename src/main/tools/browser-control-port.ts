@@ -232,6 +232,61 @@ function resolveTypedText(args: { text?: string; secret?: boolean; fromEnv?: str
 /** Reported on a call whose generation fence was rebased onto the live document. */
 type DocumentGenerationRebase = { documentGenerationRebased?: { from: number; to: number } };
 
+/** What a click, hover or type reports about the document it acted on. */
+interface ActionOutcomeFields {
+  /** The action itself navigated the document; the click or text entry did what the caller asked. */
+  navigated?: boolean;
+  committedUrl?: string;
+  documentGeneration?: number;
+  /** The element a locator resolved to, with the selector that addresses it. */
+  locator?: unknown;
+}
+
+/** Lifts the navigation facts and the resolved locator out of a host action result. */
+function actionOutcomeFields(data: unknown): ActionOutcomeFields {
+  if (!data || typeof data !== 'object') return {};
+  const record = data as Record<string, unknown>;
+  return {
+    ...(typeof record.navigated === 'boolean' ? { navigated: record.navigated } : {}),
+    ...(typeof record.committedUrl === 'string' ? { committedUrl: record.committedUrl } : {}),
+    ...(typeof record.documentGeneration === 'number' ? { documentGeneration: record.documentGeneration } : {}),
+    ...(record.locator && typeof record.locator === 'object' ? { locator: record.locator } : {}),
+  };
+}
+
+/**
+ * Whether typed text is actually in the field. `verified: false` means the insert reported success
+ * but the page no longer holds the text (an editor that reverts changes it does not own), so the
+ * field's content is returned to show what is there instead. A secret never echoes anything:
+ * only the boolean comparison leaves the page.
+ */
+function typedReadBackFields(data: unknown, secret: boolean): { verified?: boolean | null; readBack?: string; readBackTruncated?: boolean; hint?: string } {
+  if (!data || typeof data !== 'object') return {};
+  const record = data as Record<string, unknown>;
+  if (record.verified !== null && typeof record.verified !== 'boolean') return {};
+  if (secret) return { verified: record.verified };
+  if (record.verified === false) {
+    return {
+      verified: false,
+      ...(typeof record.readBack === 'string' ? { readBack: record.readBack } : {}),
+      ...(record.readBackTruncated === true ? { readBackTruncated: true } : {}),
+      hint: 'The text was inserted but the field does not hold it now: the page reverted or rewrote the edit. readBack is the field content.',
+    };
+  }
+  return { verified: record.verified };
+}
+
+/** A locator replaces the ref / selector, so naming both is ambiguous; a malformed locator fails before the page is touched. */
+function assertLocatorArguments(args: { ref?: string; selector?: string; locator?: unknown }): void {
+  if (args.locator === undefined) return;
+  parseElementLocator(args.locator);
+  const hasRef = typeof args.ref === 'string' && args.ref.trim().length > 0;
+  const hasSelector = typeof args.selector === 'string' && args.selector.trim().length > 0;
+  if (hasRef || hasSelector) {
+    throw new CapabilityError('INVALID_ARGUMENT', 'Pass either locator or ref/selector, not both', { hasRef, hasSelector });
+  }
+}
+
 function isTabRecord(item: unknown): item is AntiFanTab {
   if (typeof item !== 'object' || item === null || !('id' in item)) return false;
   return typeof item.id === 'string';
@@ -414,6 +469,14 @@ export interface BrowserHostPort {
   /** Apply or release ephemeral third-party tracker isolation on a target. */
   setTrackerIsolation?(tabId: string, paneId: 'desktop' | 'mobile' | undefined, active: boolean): Promise<{ active: boolean; reason?: string }>;
   executeActionSequence?(params: { actions: unknown[]; tabId?: string; paneId?: 'desktop' | 'mobile'; stopOnError?: boolean }): Promise<unknown>;
+  /** Puts a checkbox / radio / switch into a state: read, click only if different, read back. */
+  setControl?(params: { ref?: string; selector?: string; locator?: unknown; state: boolean; trusted?: boolean; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<{ success: boolean; data?: Record<string, unknown>; reason?: string; code?: string }>;
+  /** The tab's recorded network requests (per-tab ring, survives navigation); starts recording on demand. */
+  getNetworkLog?(tabId: string, filters?: NetworkLogFilters & { paneId?: 'desktop' | 'mobile' }): Promise<NetworkLogResult>;
+  /** The host window's presentation state; undefined when the tab's window is unknown. */
+  getHostWindowPresentation?(tabId?: string): HostWindowPresentation | undefined;
+  /** Presents a hidden or minimized host window without taking focus. */
+  restoreHostWindowUnfocused?(tabId?: string): { restored: boolean; presentation?: HostWindowPresentation };
   inspectStyles?(params: { selector?: string; ref?: string; properties?: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<Record<string, unknown>>;
   inspectRegion?(params: { x?: number; y?: number; width?: number; height?: number; selector?: string; ref?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<Record<string, unknown>>;
   inspectFont?(params: { selector?: string; ref?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<Record<string, unknown>>;
@@ -4350,6 +4413,23 @@ export class BrowserControlPort {
     });
   }
 
+  /**
+   * `eval` plus a statement of whether the value is whole. The in-page serializer stops at a fixed
+   * depth and keeps a prefix of a DOM element's markup; a value carrying either trace is reported
+   * with `truncated: true` and the reasons, so a caller never mistakes a cut answer for a full one.
+   */
+  async evalChecked(
+    target: BrowserTarget,
+    expression: string,
+    explicitTabId?: string,
+    paneId?: 'desktop' | 'mobile',
+    options?: { requireRenderSurface?: boolean; allowDegradedSurface?: boolean; timeoutMs?: number }
+  ): Promise<{ value: unknown; truncated: boolean; truncatedReasons: EvalTruncationReason[] }> {
+    const value = await this.eval(target, expression, explicitTabId, paneId, options);
+    const truncatedReasons = findEvalTruncation(value);
+    return { value, truncated: truncatedReasons.length > 0, truncatedReasons };
+  }
+
   async evalInFrame(target: BrowserTarget, expression: string, frame: ChildFrameSelector, explicitTabId?: string, paneId?: 'desktop' | 'mobile'): Promise<unknown> {
     const tabId = this.resolveTargetTab(target, explicitTabId);
     if (!expression.trim()) throw new CapabilityError('INVALID_ARGUMENT', 'JavaScript expression is required');
@@ -5537,29 +5617,35 @@ export class BrowserControlPort {
         : undefined;
     const code = dataCode ?? topCode;
     const metadata = data && data.metadata && typeof data.metadata === 'object' ? (data.metadata as Record<string, unknown>) : {};
+    // A locator that matched nothing, or several elements, names the elements it did find.
+    const candidates = data && Array.isArray(data.candidates)
+      ? { matchCount: data.matchCount, candidates: data.candidates, ...(data.truncated === true ? { truncated: true } : {}) }
+      : {};
     if (code === 'TARGET_OBSCURED') {
       throw new CapabilityError('TARGET_OBSCURED', res?.reason || 'Action target is covered by another element', { ...metadata, tabId });
     }
     if (code) {
       const capabilityCode = code as CapabilityError['code'];
-      throw new CapabilityError(capabilityCode, res?.reason || `Agent action '${action}' failed`, { ...metadata, tabId });
+      throw new CapabilityError(capabilityCode, res?.reason || `Agent action '${action}' failed`, { ...metadata, ...candidates, tabId });
     }
     return { success: false, data: res?.data, executionTier, hoverActive, reason: res?.reason };
   }
 
-  async agentMove(args: { selector?: string; ref?: string; x?: number; y?: number; label?: string; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ moved: boolean } & DocumentGenerationRebase> {
+  async agentMove(args: { selector?: string; ref?: string; locator?: Record<string, unknown>; x?: number; y?: number; label?: string; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ moved: boolean } & ActionOutcomeFields & DocumentGenerationRebase> {
     if (!this.host.agentMove && !this.host.dispatchAgentAction) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentMove is not supported by host');
+    assertLocatorArguments(args);
     const fenced = this.rebaseUnlessSemanticRef(target, args);
     const tabId = this.resolveTargetTab(fenced.target, args.tabId, 'write', args as Record<string, unknown>);
     return this.viewportGate.withLock(async () => {
       this.revalidateTargetInsideLock(fenced.target, tabId);
       const outcome = await this.runAgentAction('hover', { ...args, tabId }, tabId, () => this.host.agentMove!({ ...args, tabId }));
-      return this.withRebase({ moved: outcome.success }, fenced);
+      return this.withRebase({ moved: outcome.success, ...actionOutcomeFields(outcome.data) }, fenced);
     }, { tabId, signal });
   }
 
-  async agentClick(args: { selector?: string; ref?: string; x?: number; y?: number; label?: string; trusted?: boolean; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ clicked: boolean; reason?: string; dialog?: JsDialogDescription; documentGenerationRebased?: { from: number; to: number } }> {
+  async agentClick(args: { selector?: string; ref?: string; locator?: Record<string, unknown>; x?: number; y?: number; label?: string; trusted?: boolean; force?: boolean; expectNavigation?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ clicked: boolean; reason?: string; dialog?: JsDialogDescription; documentGenerationRebased?: { from: number; to: number } } & ActionOutcomeFields> {
     if (!this.host.agentClick && !this.host.dispatchAgentAction) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentClick is not supported by host');
+    assertLocatorArguments(args);
     const fenced = this.rebaseUnlessSemanticRef(target, args);
     const tabId = this.resolveTargetTab(fenced.target, args.tabId, 'write', args as Record<string, unknown>);
     return this.viewportGate.withLock(async () => {
@@ -5569,17 +5655,19 @@ export class BrowserControlPort {
         this.bumpMutationRevision(tabId);
       }
       const base = outcome.success || !outcome.reason ? { clicked: outcome.success } : { clicked: false, reason: outcome.reason };
-      const result = this.withRebase(base, fenced);
+      const navigation = actionOutcomeFields(outcome.data);
+      const result = this.withRebase({ ...base, ...navigation }, fenced);
       // A click that opened `alert`/`confirm`/`prompt` returns the dialog it is waiting on.
       const dialog = this.host.getOpenJsDialog?.(tabId, args.paneId);
       return dialog ? { ...result, dialog } : result;
     }, { tabId, signal });
   }
 
-  async agentType(args: { selector?: string; ref?: string; text?: string; secret?: boolean; fromEnv?: string; clear?: boolean; trusted?: boolean; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ typed: boolean; dialog?: JsDialogDescription } & DocumentGenerationRebase> {
+  async agentType(args: { selector?: string; ref?: string; locator?: Record<string, unknown>; text?: string; secret?: boolean; fromEnv?: string; clear?: boolean; trusted?: boolean; force?: boolean; expectNavigation?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ typed: boolean; verified?: boolean | null; readBack?: string; readBackTruncated?: boolean; hint?: string; dialog?: JsDialogDescription } & ActionOutcomeFields & DocumentGenerationRebase> {
     if (!this.host.agentType && !this.host.dispatchAgentAction) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentType is not supported by host');
     // Resolved before any admission so a bad or missing secret fails without touching the page.
     const { text, secret } = resolveTypedText(args);
+    assertLocatorArguments(args);
     const fenced = this.rebaseUnlessSemanticRef(target, args);
     const tabId = this.resolveTargetTab(fenced.target, args.tabId, 'write', args as Record<string, unknown>);
     return this.viewportGate.withLock(async () => {
@@ -5592,8 +5680,90 @@ export class BrowserControlPort {
         this.bumpMutationRevision(tabId);
       }
       const dialog = this.host.getOpenJsDialog?.(tabId, args.paneId);
-      return this.withRebase(dialog ? { typed: outcome.success, dialog } : { typed: outcome.success }, fenced);
+      return this.withRebase({
+        typed: outcome.success,
+        ...typedReadBackFields(outcome.data, secret),
+        ...actionOutcomeFields(outcome.data),
+        ...(dialog ? { dialog } : {}),
+      }, fenced);
     }, { tabId, signal });
+  }
+
+  /**
+   * Puts a checkbox, radio, switch or toggle into a desired state: reads it, clicks only when it
+   * differs and reads it back. A state that does not take after the click is returned with
+   * `applied: false` and the observed state rather than thrown, so the caller sees what the page
+   * actually holds.
+   */
+  async setControl(
+    args: { ref?: string; selector?: string; locator?: Record<string, unknown>; state?: boolean | string; trusted?: boolean; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' },
+    target?: BrowserTarget,
+    signal?: AbortSignal
+  ): Promise<{ applied: boolean; changed: boolean; desired: boolean; before?: unknown; observed?: unknown; reason?: string; locator?: unknown } & DocumentGenerationRebase> {
+    if (!this.host.setControl) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'setControl is not supported by host');
+    if (!args || args.state === undefined) {
+      throw new CapabilityError('INVALID_ARGUMENT', 'state is required: true or false (or on / off, checked / unchecked)');
+    }
+    const desired = parseControlStateInput(args.state);
+    const named = [args.ref, args.selector, args.locator].filter((value) => value !== undefined && value !== '').length;
+    if (named !== 1) {
+      throw new CapabilityError('INVALID_ARGUMENT', 'Pass exactly one of ref, selector or locator to name the control');
+    }
+    assertLocatorArguments(args);
+    const fenced = this.rebaseUnlessSemanticRef(target, args);
+    const tabId = this.resolveTargetTab(fenced.target, args.tabId, 'write', args as Record<string, unknown>);
+    return this.viewportGate.withLock(async () => {
+      this.revalidateTargetInsideLock(fenced.target, tabId);
+      const res = await this.host.setControl!({
+        ...(args.ref ? { ref: args.ref } : {}),
+        ...(args.selector ? { selector: args.selector } : {}),
+        ...(args.locator ? { locator: args.locator } : {}),
+        state: desired,
+        ...(args.trusted !== undefined ? { trusted: args.trusted } : {}),
+        ...(args.force !== undefined ? { force: args.force } : {}),
+        tabId,
+        ...(args.paneId ? { paneId: args.paneId } : {}),
+      });
+      const data = res.data && typeof res.data === 'object' ? res.data : {};
+      const readBackMismatch = !res.success && data.applied === false && data.observed !== undefined;
+      if (!res.success && !readBackMismatch) {
+        throw new CapabilityError((res.code as CapabilityError['code'] | undefined) ?? 'ELEMENT_NOT_ACTIONABLE', res.reason || 'set_control failed', { ...data, tabId });
+      }
+      if (data.changed === true) this.bumpMutationRevision(tabId);
+      return this.withRebase({
+        applied: data.applied === true,
+        changed: data.changed === true,
+        desired,
+        before: data.previous,
+        observed: data.observed,
+        ...(readBackMismatch && res.reason ? { reason: res.reason } : {}),
+        ...(data.locator !== undefined ? { locator: data.locator } : {}),
+      }, fenced);
+    }, { tabId, signal });
+  }
+
+  /**
+   * The tab's recorded network requests. The log is kept per tab by the host, outlives navigations
+   * and never holds bodies; headers are the allowlisted few. `attachedAt` states how far back the
+   * log reaches, because a request made before the host started recording is simply absent.
+   */
+  async inspectNetwork(
+    args: { tabId?: string; paneId?: 'desktop' | 'mobile'; urlPattern?: string; method?: string; status?: number | string; resourceType?: string; sinceSeq?: number; limit?: number; includeHeaders?: boolean; includeBodies?: boolean } = {},
+    target?: BrowserTarget
+  ): Promise<NetworkLogResult & { tabId: string; paneId: 'desktop' | 'mobile'; note?: string }> {
+    if (!this.host.getNetworkLog) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'getNetworkLog is not supported by host');
+    const tabId = this.resolveTargetTab(target, args.tabId, 'read', args as Record<string, unknown>);
+    const paneId = args.paneId === 'mobile' ? 'mobile' : 'desktop';
+    const { tabId: _tabId, paneId: _paneId, ...filters } = args;
+    const result = await this.host.getNetworkLog(tabId, { ...filters, paneId });
+    return {
+      tabId,
+      paneId,
+      ...result,
+      ...(result.attachedAt === undefined
+        ? { note: 'No requests have been recorded for this tab yet; recording starts when the tab is first inspected, so earlier requests are not available.' }
+        : {}),
+    };
   }
 
   /**
@@ -5659,10 +5829,10 @@ export class BrowserControlPort {
     }, { tabId, signal });
   }
   async agentHover(
-    args: { selector?: string; ref?: string; x?: number; y?: number; label?: string; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' },
+    args: { selector?: string; ref?: string; locator?: Record<string, unknown>; x?: number; y?: number; label?: string; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' },
     target?: BrowserTarget,
     signal?: AbortSignal
-  ): Promise<DocumentGenerationRebase & {
+  ): Promise<DocumentGenerationRebase & ActionOutcomeFields & {
     hovered: boolean;
     success: boolean;
     executionTier: 'cdp_trusted' | 'isolated_synthetic';
@@ -5670,6 +5840,7 @@ export class BrowserControlPort {
     hint?: string;
   }> {
     if (!this.host.agentHover && !this.host.dispatchAgentAction) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentHover is not supported by host');
+    assertLocatorArguments(args);
     const fenced = this.rebaseUnlessSemanticRef(target, args);
     const tabId = this.resolveTargetTab(fenced.target, args.tabId, 'write', args as Record<string, unknown>);
     return this.viewportGate.withLock(async () => {
@@ -5691,6 +5862,7 @@ export class BrowserControlPort {
         ...(isSyntheticInactive
           ? { hint: 'Synthetic hover dispatched events but CSS :hover is inactive. Use anti.trace.interaction for trusted CDP hover.' }
           : {}),
+        ...actionOutcomeFields(outcome.data),
       }, fenced);
     }, { tabId, signal });
   }

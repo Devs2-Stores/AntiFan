@@ -4264,6 +4264,8 @@ async function createWindow(): Promise<void> {
       const host = hostForTabOrBootstrap(tabId);
       return host.dispatchAgentAction(action, params as unknown as Parameters<NativeTabHost['dispatchAgentAction']>[1]);
     },
+    setControl: (params) => hostForTabOrBootstrap(params.tabId).setControl(params),
+    getNetworkLog: (tabId, filters) => hostForTabOrBootstrap(tabId).getNetworkLog(tabId, filters),
     agentMove: (args) => {
       const host = hostForTabOrBootstrap(args.tabId);
       return host.agentMove(args);

@@ -583,6 +583,8 @@ function agentTypeInputSchema(): Record<string, unknown> {
     properties: {
       selector: { type: 'string' },
       ref: { type: 'string' },
+      locator: locatorSchema(),
+      ...expectNavigationProperties(),
       text: { type: 'string' },
       fromEnv: { type: 'string', description: 'Name of a main-process environment variable (ANTIFAN_SECRET_ prefix only) whose value is typed instead of `text`, so a password or token never passes through tool arguments, receipts or logs. Mutually exclusive with `text`; implies secret' },
       secret: { type: 'boolean', description: 'Mark the typed text as sensitive: the field is masked in screenshots and snapshots and the value is kept out of receipts' },
@@ -594,6 +596,172 @@ function agentTypeInputSchema(): Record<string, unknown> {
     },
     oneOf: [{ required: ['text'] }, { required: ['fromEnv'] }],
   };
+}
+
+const FORCE_PROPERTY = { type: 'boolean', description: 'Skip the occlusion and animation-stability gates for a knowingly covered or endlessly animating target' };
+
+/** Input schema of the agent move capability and its aliases. */
+function agentMoveInputSchema(): Record<string, unknown> {
+  return {
+    type: 'object',
+    properties: {
+      selector: { type: 'string' }, ref: { type: 'string' }, locator: locatorSchema(),
+      x: { type: 'number' }, y: { type: 'number' }, label: { type: 'string' },
+      force: FORCE_PROPERTY,
+      tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+    },
+  };
+}
+
+/** Input schema of the agent click capability and its aliases. */
+function agentClickInputSchema(): Record<string, unknown> {
+  return {
+    type: 'object',
+    properties: {
+      selector: { type: 'string' }, ref: { type: 'string' }, locator: locatorSchema(),
+      x: { type: 'number' }, y: { type: 'number' }, label: { type: 'string' },
+      trusted: { type: 'boolean' },
+      force: FORCE_PROPERTY,
+      ...expectNavigationProperties(),
+      tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+    },
+  };
+}
+
+/** Input schema of the agent hover capability and its aliases. */
+function agentHoverInputSchema(): Record<string, unknown> {
+  return {
+    type: 'object',
+    properties: {
+      selector: { type: 'string' }, ref: { type: 'string' }, locator: locatorSchema(),
+      x: { type: 'number' }, y: { type: 'number' }, label: { type: 'string' },
+      force: FORCE_PROPERTY,
+      ...expectNavigationProperties(),
+      tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+    },
+  };
+}
+
+const NETWORK_INSPECT_DESCRIPTION = 'Read the tab\'s recorded network requests (method, URL, status, timing, failure, redirect chain, allowlisted headers) filtered by URL pattern, method, status class, resource type or sequence. Response and request bodies are never captured. Use sinceSeq with the returned highestSeq to read only new entries.';
+
+/** Arguments of the network inspection capability and its alias. */
+interface InspectNetworkParams {
+  tabId?: string;
+  paneId?: 'desktop' | 'mobile';
+  urlPattern?: string;
+  method?: string;
+  status?: number | string;
+  resourceType?: string;
+  sinceSeq?: number;
+  limit?: number;
+  includeHeaders?: boolean;
+  includeBodies?: boolean;
+}
+
+function inspectNetworkInputSchema(): Record<string, unknown> {
+  return {
+    type: 'object',
+    properties: {
+      tabId: { type: 'string' },
+      paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+      urlPattern: { type: 'string', description: 'Case-insensitive URL substring, or /regex/flags' },
+      method: { type: 'string', description: 'HTTP method, for example POST' },
+      status: { description: 'Exact status code (number), "failed" / "error", or a class: "2xx", "3xx", "4xx", "5xx"', anyOf: [{ type: 'number' }, { type: 'string' }] },
+      resourceType: { type: 'string', description: 'xhr, fetch, document, script, stylesheet, image, font, ...' },
+      sinceSeq: { type: 'number', description: 'Return only entries recorded after this sequence number' },
+      limit: { type: 'number', description: 'Entries to return (1-500, default 100)' },
+      includeHeaders: { type: 'boolean', description: 'Include allowlisted request/response headers (default true); false drops all headers' },
+      includeBodies: { type: 'boolean', description: 'Bodies are never captured; true is refused' },
+    },
+  };
+}
+
+/** Refuses malformed filters up front; the port re-validates the values it interprets. */
+function parseInspectNetworkParams(capability: string, params: InspectNetworkParams): InspectNetworkParams {
+  const input = params ?? {};
+  if (input.status !== undefined && typeof input.status !== 'number' && typeof input.status !== 'string') {
+    throw new CapabilityError('INVALID_ARGUMENT', `${capability}: status must be a number or a string such as "failed" or "4xx"`);
+  }
+  if (input.limit !== undefined && (typeof input.limit !== 'number' || !Number.isInteger(input.limit) || input.limit < 1 || input.limit > 500)) {
+    throw new CapabilityError('INVALID_ARGUMENT', `${capability}: limit must be an integer from 1 to 500`);
+  }
+  if (input.sinceSeq !== undefined && (typeof input.sinceSeq !== 'number' || !Number.isInteger(input.sinceSeq) || input.sinceSeq < 0)) {
+    throw new CapabilityError('INVALID_ARGUMENT', `${capability}: sinceSeq must be a non-negative integer`);
+  }
+  for (const key of ['urlPattern', 'method', 'resourceType'] as const) {
+    if (input[key] !== undefined && (typeof input[key] !== 'string' || !input[key])) {
+      throw new CapabilityError('INVALID_ARGUMENT', `${capability}: ${key} must be a non-empty string`);
+    }
+  }
+  return input;
+}
+
+const SET_CONTROL_DESCRIPTION = 'Set a checkbox, radio, switch, toggle or aria-checked/pressed control to a desired state and read it back: clicks only when the observed state differs, so repeating the call never flips it twice. Returns applied, changed, desired and the before/observed control state.';
+
+/** Arguments of the set-control capability and its alias. */
+interface SetControlParams {
+  ref?: string;
+  selector?: string;
+  locator?: Record<string, unknown>;
+  state?: boolean | string;
+  trusted?: boolean;
+  force?: boolean;
+  tabId?: string;
+  paneId?: 'desktop' | 'mobile';
+}
+
+function setControlInputSchema(): Record<string, unknown> {
+  return {
+    type: 'object',
+    properties: {
+      ref: { type: 'string', description: 'Semantic reference token (@e1) of the control' },
+      selector: { type: 'string', description: 'CSS selector of the control' },
+      locator: locatorSchema(),
+      state: { description: 'Desired state: true/false or "on"/"off", "true"/"false", "checked"/"unchecked", "yes"/"no", "1"/"0", "selected", "pressed"', anyOf: [{ type: 'boolean' }, { type: 'string' }] },
+      trusted: { type: 'boolean' },
+      force: FORCE_PROPERTY,
+      tabId: { type: 'string' },
+      paneId: { type: 'string', enum: ['desktop', 'mobile'] },
+    },
+    required: ['state'],
+    oneOf: [{ required: ['ref'] }, { required: ['selector'] }, { required: ['locator'] }],
+  };
+}
+
+/** Arguments of the switch-tab capability and its aliases. */
+interface SwitchTabParams {
+  tabId?: string;
+  restoreWindow?: boolean;
+}
+
+function switchTabInputSchema(): Record<string, unknown> {
+  return {
+    type: 'object',
+    properties: {
+      tabId: { type: 'string' },
+      restoreWindow: { type: 'boolean', description: 'Restore the tab\'s host window when it is minimized or hidden, without taking focus. Without it a hidden window stays hidden and the result reports rendered:false with hostWindowHidden:true' },
+    },
+    required: ['tabId'],
+  };
+}
+
+function switchTabFromParams(
+  browser: BrowserControlPort,
+  params: SwitchTabParams,
+  context: CapabilityRequestContext | AuthenticatedCapabilityContext
+): unknown {
+  if (params?.restoreWindow !== undefined && typeof params.restoreWindow !== 'boolean') {
+    throw new CapabilityError('INVALID_ARGUMENT', 'restoreWindow must be a boolean');
+  }
+  const authCtx = context as Partial<AuthenticatedCapabilityContext>;
+  return browser.switchTab(String(params?.tabId || ''), {
+    target: context.browserTarget as BrowserTarget,
+    attachmentId: authCtx.attachmentId,
+    runId: authCtx.runId,
+    attemptId: authCtx.attemptId,
+    isAgent: Boolean(authCtx.attachmentId),
+    ...(params?.restoreWindow === true ? { restoreWindow: true } : {}),
+  });
 }
 
 /** Arguments of the file upload capability and its aliases. */
@@ -666,6 +834,30 @@ export function resolveFrameSelector(params: FrameSelectorParams): string | { fr
 
 const SEQUENCE_ACTION_TYPES = ['navigate', 'click', 'type', 'scroll', 'hover', 'pressKey', 'wait', 'screenshot', 'snapshot'];
 
+/** Semantic element locator accepted wherever a ref or selector is: at least one of role, name or text is required. */
+function locatorSchema(): Record<string, unknown> {
+  return {
+    type: 'object',
+    description: 'Semantic element locator used instead of ref/selector: at least one of role, name or text. Zero matches fails with LOCATOR_NOT_FOUND, several with LOCATOR_AMBIGUOUS (candidates listed; narrow with within or pick one with nth)',
+    properties: {
+      role: { type: 'string', description: 'ARIA role or implicit role of the element (button, link, textbox, checkbox, ...)' },
+      name: { type: 'string', description: 'Accessible name of the element' },
+      text: { type: 'string', description: 'Visible text the element contains' },
+      nth: { type: 'number', description: 'Zero-based index among several matches' },
+      within: { type: 'string', description: 'CSS selector of the container to search inside' },
+    },
+    anyOf: [{ required: ['role'] }, { required: ['name'] }, { required: ['text'] }],
+  };
+}
+
+/** Navigation-outcome gate accepted by click, type and hover. */
+function expectNavigationProperties(): Record<string, unknown> {
+  return {
+    expectNavigation: { type: 'boolean', description: 'Fail with a reason when the action did not start a navigation within navigationTimeoutMs (default off)' },
+    navigationTimeoutMs: { type: 'number', description: 'Window to observe a navigation in milliseconds (100-15000, default 3000)' },
+  };
+}
+
 /** One sequence step; shared by the `actions` argument and its `steps` alias. */
 function sequenceStepsSchema(description?: string): Record<string, unknown> {
   return {
@@ -677,6 +869,8 @@ function sequenceStepsSchema(description?: string): Record<string, unknown> {
         url: { type: 'string' },
         ref: { type: 'string' },
         selector: { type: 'string' },
+        locator: locatorSchema(),
+        ...expectNavigationProperties(),
         x: { type: 'number' },
         y: { type: 'number' },
         text: { type: 'string' },
@@ -1063,17 +1257,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'write',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: true, lane: 'unbounded' }),
-    inputSchema: { type: 'object', properties: { tabId: { type: 'string' } }, required: ['tabId'] },
-    execute: (params: { tabId: string }, context) => {
-      const authCtx = context as Partial<AuthenticatedCapabilityContext>;
-      return browser.switchTab(params.tabId, {
-        target: context.browserTarget as BrowserTarget,
-        attachmentId: authCtx.attachmentId,
-        runId: authCtx.runId,
-        attemptId: authCtx.attemptId,
-        isAgent: Boolean(authCtx.attachmentId),
-      });
-    },
+    inputSchema: switchTabInputSchema(),
+    execute: (params: SwitchTabParams, context) => switchTabFromParams(browser, params, context),
   });
 
   catalogue.register({
@@ -1264,6 +1449,26 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
   });
 
   catalogue.register({
+    name: 'browser.inspect-network',
+    description: NETWORK_INSPECT_DESCRIPTION,
+    risk: 'read',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive' }),
+    inputSchema: inspectNetworkInputSchema(),
+    execute: (params: InspectNetworkParams, context) => browser.inspectNetwork(parseInspectNetworkParams('browser.inspect-network', params), context.browserTarget),
+  });
+
+  catalogue.register({
+    name: 'browser.agent-set-control',
+    description: SET_CONTROL_DESCRIPTION,
+    risk: 'write',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
+    inputSchema: setControlInputSchema(),
+    execute: (params: SetControlParams, context) => browser.setControl(params, context.browserTarget, context.signal),
+  });
+
+  catalogue.register({
     name: 'browser.responsive-check',
     description: 'Run responsive layout verification on a tab',
     risk: 'read',
@@ -1278,7 +1483,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'write',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
-    inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, label: { type: 'string' }, force: { type: 'boolean', description: 'Skip the occlusion and animation-stability gates for a knowingly covered or endlessly animating target' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
+    inputSchema: agentMoveInputSchema(),
     execute: (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentMove(params, context.browserTarget, context.signal),
   });
 
@@ -1288,7 +1493,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'write',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
-    inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, label: { type: 'string' }, trusted: { type: 'boolean' }, force: { type: 'boolean', description: 'Skip the occlusion and animation-stability gates for a knowingly covered or endlessly animating target' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
+    inputSchema: agentClickInputSchema(),
     execute: (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; trusted?: boolean; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentClick(params, context.browserTarget, context.signal),
   });
 
@@ -1406,7 +1611,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'write',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
-    inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, label: { type: 'string' }, force: { type: 'boolean', description: 'Skip the occlusion and animation-stability gates for a knowingly covered or endlessly animating target' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
+    inputSchema: agentHoverInputSchema(),
     execute: (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentHover(params, context.browserTarget, context.signal),
   });
 
@@ -1964,17 +2169,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'write',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: true, lane: 'unbounded' }),
-    inputSchema: { type: 'object', properties: { tabId: { type: 'string' } }, required: ['tabId'] },
-    execute: (params: { tabId: string }, context) => {
-      const authCtx = context as Partial<AuthenticatedCapabilityContext>;
-      return browser.switchTab(params.tabId, {
-        target: context.browserTarget as BrowserTarget,
-        attachmentId: authCtx.attachmentId,
-        runId: authCtx.runId,
-        attemptId: authCtx.attemptId,
-        isAgent: Boolean(authCtx.attachmentId),
-      });
-    },
+    inputSchema: switchTabInputSchema(),
+    execute: (params: SwitchTabParams, context) => switchTabFromParams(browser, params, context),
   });
 
   catalogue.register({
@@ -2078,7 +2274,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'write',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
-    inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, label: { type: 'string' }, trusted: { type: 'boolean' }, force: { type: 'boolean', description: 'Skip the occlusion and animation-stability gates for a knowingly covered or endlessly animating target' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
+    inputSchema: agentClickInputSchema(),
     execute: (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; trusted?: boolean; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentClick(params, context.browserTarget, context.signal),
   });
 
@@ -2138,7 +2334,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'write',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
-    inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, label: { type: 'string' }, force: { type: 'boolean', description: 'Skip the occlusion and animation-stability gates for a knowingly covered or endlessly animating target' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
+    inputSchema: agentHoverInputSchema(),
     execute: (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentHover(params, context.browserTarget, context.signal),
   });
 
@@ -2188,6 +2384,26 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: false, lane: 'unbounded' }),
     inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, level: { type: 'number' } } },
     execute: (params: { tabId?: string; level?: number | string }) => browser.diagnostics(params.tabId, params.level),
+  });
+
+  catalogue.register({
+    name: 'anti.inspect.network',
+    description: 'Alias for browser.inspect-network',
+    risk: 'read',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'read', risk: 'read', requiresBrowserTarget: true, lane: 'short-passive' }),
+    inputSchema: inspectNetworkInputSchema(),
+    execute: (params: InspectNetworkParams, context) => browser.inspectNetwork(parseInspectNetworkParams('anti.inspect.network', params), context.browserTarget),
+  });
+
+  catalogue.register({
+    name: 'anti.agent.set_control',
+    description: 'Alias for browser.agent-set-control',
+    risk: 'write',
+    requiresBrowserTarget: true,
+    policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
+    inputSchema: setControlInputSchema(),
+    execute: (params: SetControlParams, context) => browser.setControl(params, context.browserTarget, context.signal),
   });
 
   catalogue.register({
@@ -3267,17 +3483,8 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'write',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: true, lane: 'unbounded' }),
-    inputSchema: { type: 'object', properties: { tabId: { type: 'string' } }, required: ['tabId'] },
-    execute: (params: { tabId?: string }, context) => {
-      const authCtx = context as Partial<AuthenticatedCapabilityContext>;
-      return browser.switchTab(String(params?.tabId || ''), {
-        target: context.browserTarget as BrowserTarget,
-        attachmentId: authCtx.attachmentId,
-        runId: authCtx.runId,
-        attemptId: authCtx.attemptId,
-        isAgent: Boolean(authCtx.attachmentId),
-      });
-    },
+    inputSchema: switchTabInputSchema(),
+    execute: (params: SwitchTabParams, context) => switchTabFromParams(browser, params, context),
   });
   catalogue.register({
     name: 'anti.browser.tabs.close',
@@ -3427,7 +3634,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'write',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
-    inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, label: { type: 'string' }, trusted: { type: 'boolean' }, force: { type: 'boolean', description: 'Skip the occlusion and animation-stability gates for a knowingly covered or endlessly animating target' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
+    inputSchema: agentClickInputSchema(),
     execute: (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; trusted?: boolean; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentClick(params, context.browserTarget, context.signal),
   });
 
@@ -3447,7 +3654,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'write',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
-    inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, label: { type: 'string' }, force: { type: 'boolean', description: 'Skip the occlusion and animation-stability gates for a knowingly covered or endlessly animating target' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
+    inputSchema: agentMoveInputSchema(),
     execute: (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentMove(params, context.browserTarget, context.signal),
   });
 
@@ -3457,7 +3664,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'write',
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
-    inputSchema: { type: 'object', properties: { selector: { type: 'string' }, ref: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, label: { type: 'string' }, force: { type: 'boolean', description: 'Skip the occlusion and animation-stability gates for a knowingly covered or endlessly animating target' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } } },
+    inputSchema: agentHoverInputSchema(),
     execute: (params: { selector?: string; ref?: string; x?: number; y?: number; label?: string; force?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => browser.agentHover(params, context.browserTarget, context.signal),
   });
 

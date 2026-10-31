@@ -472,8 +472,10 @@ describe('Phase 03: Pure CSS-Pixel CDP Input & Actionability Gate', () => {
 
     navigateOnRelease = 'cross-document';
     const crossDoc = await host.dispatchAgentAction('click', { selector: '#add-to-cart-button', trusted: true });
-    assert.strictEqual(crossDoc.success, false);
-    assert.match(crossDoc.reason || '', /navigated/i);
+    // A click whose own effect was a navigation succeeded: the outcome carries where it landed.
+    assert.strictEqual(crossDoc.success, true, crossDoc.reason);
+    assert.strictEqual((crossDoc.data as Record<string, unknown>).navigated, true);
+    assert.strictEqual((crossDoc.data as Record<string, unknown>).documentGeneration, 2);
   });
 
   it('5b. Dispatches focused CDP mouse events and preserves touch inputType on touch-capable viewports', async () => {

@@ -1,5 +1,6 @@
 import { computeOrigin, THEME_ASSET_HOSTS } from '../qa/diagnostics-filter';
 import { CapabilityError } from '../../shared/control-plane-contracts';
+import { NetworkLogManager } from './network-log-manager';
 
 export interface NetworkTrackerOptions {
   idleWindowMs?: number; // default 500ms
@@ -52,6 +53,20 @@ export class FirstPartyNetworkTracker {
   private inflightByTarget = new Map<string, Map<number | string, { type: string; url: string; startedAt: number }>>();
   private listenersByTarget = new Map<string, Set<() => void>>();
   private attachedTargets = new Map<string, AttachedTargetState>();
+  private readonly networkLog: NetworkLogManager;
+
+  /**
+   * The request log is fed from the same CDP listener that counts inflight requests, so it sees
+   * every request of an attached target (not just the first-party critical ones the settle gate
+   * cares about) and outlives navigations: only closing the target drops it.
+   */
+  constructor(networkLog: NetworkLogManager = new NetworkLogManager()) {
+    this.networkLog = networkLog;
+  }
+
+  public getNetworkLog(): NetworkLogManager {
+    return this.networkLog;
+  }
 
   public makeKey(tabId: string, paneId: string = 'desktop'): string {
     return `${tabId}:${paneId}`;
@@ -218,6 +233,7 @@ export class FirstPartyNetworkTracker {
    * Full teardown of target state and debugger listeners upon tab close / WebContents destruction.
    */
   public detachTarget(tabId: string, paneId: string = 'desktop'): void {
+    this.networkLog.onTargetDetached(tabId, paneId);
     const key = this.makeKey(tabId, paneId);
     this.inflightByTarget.delete(key);
     this.listenersByTarget.delete(key);
@@ -378,6 +394,8 @@ export class FirstPartyNetworkTracker {
 
       try {
         await wc.debugger.sendCommand('Network.enable');
+        this.networkLog.ensureTab(tabId, paneId);
+        this.networkLog.markAttached(tabId, paneId);
       } catch (err) {
         throw new CapabilityError(
           'TARGET_STALE',
@@ -387,6 +405,9 @@ export class FirstPartyNetworkTracker {
     })();
 
     const onMessage = (_event: unknown, method: string, params: any) => {
+      if (typeof method === 'string' && method.startsWith('Network.')) {
+        try { this.networkLog.onCdpEvent(tabId, paneId, method, params); } catch {}
+      }
       if (method === 'Network.requestWillBeSent' && params) {
         const reqId = params.requestId;
         const url = params.request?.url || '';
@@ -411,8 +432,22 @@ export class FirstPartyNetworkTracker {
         wc.debugger.removeListener('message', onMessage);
       } catch {}
       try {
+        wc.debugger.removeListener('detach', onDebuggerDetach);
+      } catch {}
+      try {
         wc.removeListener('destroyed', onWebContentsDestroyed);
       } catch {}
+    };
+
+    // Something else detached the debugger (an expired drain, a reset, a dispose): recording has
+    // stopped. The log says so, and the target is forgotten so the next ensureAttached enables
+    // Network again instead of returning the stale attachment.
+    const onDebuggerDetach = (_event: unknown, reason?: unknown) => {
+      if (this.attachedTargets.get(key)?.ready !== readyPromise) return;
+      this.networkLog.markDetached(tabId, paneId, typeof reason === 'string' && reason ? reason : 'debugger detached');
+      this.attachedTargets.delete(key);
+      detach();
+      this.resetInflight(tabId, paneId);
     };
 
     const onWebContentsDestroyed = () => {
@@ -420,6 +455,7 @@ export class FirstPartyNetworkTracker {
     };
 
     wc.once('destroyed', onWebContentsDestroyed);
+    wc.debugger.on('detach', onDebuggerDetach);
 
     this.attachedTargets.set(key, {
       ready: readyPromise,

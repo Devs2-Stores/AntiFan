@@ -3,6 +3,7 @@
  * Pure isolated-world script builder for fail-closed, synchronous DOM action execution.
  */
 
+import { CapabilityError } from '../../shared/control-plane-contracts';
 import {
   ISOLATED_AGENT_WORLD_ID,
   RendererActionRequest,
@@ -12,7 +13,157 @@ import {
 
 export { ISOLATED_AGENT_WORLD_ID, validateActionResponse };
 
-export function buildIsolatedExecutorScript(request: RendererActionRequest): string {
+/**
+ * The renderer request plus two flags only this executor reads. `forTyping` marks a focus
+ * pre-flight that precedes text entry (a zero-size field can still take typed text, so it must not
+ * be refused as an unclickable target); `controlState` turns a probe into a pure read of a
+ * checkbox / radio / switch state that skips the visibility pre-flight.
+ */
+export type IsolatedExecutorRequest = RendererActionRequest & {
+  forTyping?: boolean;
+  controlState?: boolean;
+};
+
+/** Longest field value echoed back after typing; the tail is kept because typed text lands last. */
+export const FIELD_READBACK_MAX_CHARS = 500;
+
+/**
+ * Page-side field read-back shared by the synthetic type path and the trusted type verification
+ * script. One definition so both paths agree on what "the text is in the field" means. A password
+ * input is compared but never echoed.
+ */
+const FIELD_READBACK_SOURCE = `function activeEditable() {
+  let active = document.activeElement;
+  for (let depth = 0; active && depth < 8; depth++) {
+    if (active.shadowRoot && active.shadowRoot.activeElement) { active = active.shadowRoot.activeElement; continue; }
+    if (active.tagName === 'IFRAME') {
+      try {
+        const inner = active.contentDocument && active.contentDocument.activeElement;
+        if (inner && inner !== active.contentDocument.body) { active = inner; continue; }
+      } catch {}
+    }
+    break;
+  }
+  return active && active !== document.body && active !== document.documentElement ? active : null;
+}
+function fieldReadBack(el, expected, clear) {
+  if (!el) return { verified: null };
+  const tag = el.tagName ? el.tagName.toLowerCase() : '';
+  const editable = el.isContentEditable === true;
+  let current;
+  if (tag === 'input' || tag === 'textarea') current = String(el.value == null ? '' : el.value);
+  else if (editable) current = typeof el.innerText === 'string' ? el.innerText : String(el.textContent || '');
+  else return { verified: null };
+  const fold = (s) => (editable ? String(s).replace(/\\s+/g, ' ').trim() : String(s).replace(/\\u00a0/g, ' ').replace(/\\r\\n/g, '\\n'));
+  const cur = fold(current);
+  const exp = fold(expected);
+  const verified = clear ? cur === exp : cur.includes(exp);
+  if (tag === 'input' && String(el.type || '').toLowerCase() === 'password') return { verified };
+  if (cur.length > ${FIELD_READBACK_MAX_CHARS}) return { verified, readBack: cur.slice(-${FIELD_READBACK_MAX_CHARS}), readBackTruncated: true };
+  return { verified, readBack: cur };
+}`;
+
+/** Result of the page-side field read-back. `verified: null` means the field could not be read. */
+export interface FieldReadBack {
+  verified: boolean | null;
+  readBack?: string;
+  readBackTruncated?: boolean;
+}
+
+/** Script that reads the focused field once the page has had a moment to revert the edit. */
+export function buildFieldReadBackScript(expectedText: string, clear: boolean): string {
+  return `(async () => {
+    try {
+      ${FIELD_READBACK_SOURCE}
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      const result = fieldReadBack(activeEditable(), ${JSON.stringify(expectedText)}, ${clear ? 'true' : 'false'});
+      return { ok: true, verified: result.verified, readBack: result.readBack, readBackTruncated: result.readBackTruncated };
+    } catch (err) {
+      return { ok: false, verified: null };
+    }
+  })()`;
+}
+
+/** Narrows a raw isolated-world answer to a read-back; anything unexpected reads as "could not verify". */
+export function parseFieldReadBack(raw: unknown): FieldReadBack {
+  if (!raw || typeof raw !== 'object') return { verified: null };
+  const obj = raw as Record<string, unknown>;
+  if (obj.ok !== true || (typeof obj.verified !== 'boolean' && obj.verified !== null)) return { verified: null };
+  return {
+    verified: obj.verified as boolean | null,
+    ...(typeof obj.readBack === 'string' ? { readBack: obj.readBack } : {}),
+    ...(obj.readBackTruncated === true ? { readBackTruncated: true } : {}),
+  };
+}
+
+/** A text / role locator for one element, resolved in the page instead of from a prior snapshot. */
+export interface ElementLocator {
+  /** ARIA role, explicit (`role` attribute) or implicit (`button`, `link`, `textbox`, ...). */
+  role?: string;
+  /** Accessible name; an exact (case-insensitive) match wins over a substring match. */
+  name?: string;
+  /** Visible text; resolves to the smallest element that contains it. */
+  text?: string;
+  /** Zero-based pick among several matches; without it more than one match is ambiguous. */
+  nth?: number;
+  /** CSS selector confining the search to its subtree(s). */
+  within?: string;
+}
+
+const LOCATOR_KEYS: readonly string[] = ['role', 'name', 'text', 'nth', 'within'];
+const LOCATOR_STRING_MAX = 300;
+
+/** Validates an untrusted `locator` argument; the error names what is allowed. */
+export function parseElementLocator(value: unknown): ElementLocator {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new CapabilityError('INVALID_ARGUMENT', `locator must be an object with ${LOCATOR_KEYS.join(', ')} (at least one of role, name, text)`, { validKeys: [...LOCATOR_KEYS] });
+  }
+  const raw = value as Record<string, unknown>;
+  const unknown = Object.keys(raw).filter((key) => !LOCATOR_KEYS.includes(key));
+  if (unknown.length > 0) {
+    throw new CapabilityError('INVALID_ARGUMENT', `locator has unknown key(s) ${unknown.map((k) => JSON.stringify(k)).join(', ')}; valid keys are ${LOCATOR_KEYS.join(', ')}`, { unknownKeys: unknown, validKeys: [...LOCATOR_KEYS] });
+  }
+  const out: ElementLocator = {};
+  for (const key of ['role', 'name', 'text', 'within'] as const) {
+    const entry = raw[key];
+    if (entry === undefined) continue;
+    if (typeof entry !== 'string' || !entry.trim() || entry.length > LOCATOR_STRING_MAX) {
+      throw new CapabilityError('INVALID_ARGUMENT', `locator.${key} must be a non-empty string of at most ${LOCATOR_STRING_MAX} characters`, { key });
+    }
+    out[key] = key === 'role' ? entry.trim().toLowerCase() : entry.trim();
+  }
+  if (raw.nth !== undefined) {
+    if (typeof raw.nth !== 'number' || !Number.isInteger(raw.nth) || raw.nth < 0 || raw.nth > 10_000) {
+      throw new CapabilityError('INVALID_ARGUMENT', 'locator.nth must be a zero-based non-negative integer', { key: 'nth' });
+    }
+    out.nth = raw.nth;
+  }
+  if (out.role === undefined && out.name === undefined && out.text === undefined) {
+    throw new CapabilityError('INVALID_ARGUMENT', 'locator needs at least one of role, name or text; nth and within only narrow a match', { validKeys: [...LOCATOR_KEYS] });
+  }
+  return out;
+}
+
+const CONTROL_STATE_ON = ['true', 'on', 'checked', 'yes', '1', 'selected', 'pressed', 'enabled'];
+const CONTROL_STATE_OFF = ['false', 'off', 'unchecked', 'no', '0', 'unselected', 'unpressed', 'disabled'];
+
+/** Reads the desired state of `set_control`: a boolean, 1/0, or a word such as "on" / "unchecked". */
+export function parseControlStateInput(value: unknown): boolean {
+  if (typeof value === 'boolean') return value;
+  if (value === 1 || value === 0) return value === 1;
+  if (typeof value === 'string') {
+    const word = value.trim().toLowerCase();
+    if (CONTROL_STATE_ON.includes(word)) return true;
+    if (CONTROL_STATE_OFF.includes(word)) return false;
+  }
+  throw new CapabilityError(
+    'INVALID_ARGUMENT',
+    `state must be true or false (or one of ${[...CONTROL_STATE_ON, ...CONTROL_STATE_OFF].join(', ')}); got ${JSON.stringify(value)}`,
+    { validStates: { on: CONTROL_STATE_ON, off: CONTROL_STATE_OFF } }
+  );
+}
+
+export function buildIsolatedExecutorScript(request: IsolatedExecutorRequest): string {
   const reqJson = JSON.stringify(request);
 
   // The body below is a template literal, so a bare backtick anywhere inside it - including inside a
@@ -379,6 +530,74 @@ export function buildIsolatedExecutorScript(request: RendererActionRequest): str
         return signature;
       }
 
+      // The state a checkbox / radio / switch / toggle exposes, read from the element itself or
+      // from the stateful control it wraps or is labelled for. Pure observation: no scroll, no
+      // visibility gate, so a visually hidden native input still reports its real state.
+      function statefulControl(el) {
+        const roleOf = (n) => String((n.getAttribute && n.getAttribute('role')) || '').trim().toLowerCase();
+        const isStateful = (n) => Boolean(n && n.nodeType === 1 && (
+          (n.tagName === 'INPUT' && (n.type === 'checkbox' || n.type === 'radio')) ||
+          n.hasAttribute('aria-checked') || n.hasAttribute('aria-pressed') || n.hasAttribute('aria-selected')
+        ));
+        if (isStateful(el)) return el;
+        try {
+          if (el.tagName === 'LABEL' && el.control && isStateful(el.control)) return el.control;
+        } catch {}
+        const inner = el.querySelector ? el.querySelector('input[type="checkbox"], input[type="radio"], [aria-checked], [aria-pressed], [aria-selected]') : null;
+        if (inner && isStateful(inner)) return inner;
+        return roleOf(el) === 'switch' ? el : null;
+      }
+
+      function readControlState(el) {
+        const control = statefulControl(el);
+        if (!control) {
+          return { checked: null, kind: 'unknown', tag: String(el.tagName || '').toLowerCase(), reason: 'no checked, pressed or selected state on the target or inside it' };
+        }
+        const role = String(control.getAttribute('role') || '').trim().toLowerCase();
+        const aria = (name) => {
+          const raw = control.getAttribute(name);
+          if (raw === 'true') return { checked: true };
+          if (raw === 'false') return { checked: false };
+          if (raw === 'mixed') return { checked: null, mixed: true };
+          return null;
+        };
+        let state = null;
+        let source = '';
+        let kind = role || 'control';
+        if (control.tagName === 'INPUT') {
+          state = { checked: control.checked === true };
+          source = 'checked';
+          kind = role === 'switch' ? 'switch' : control.type;
+          if (control.indeterminate === true) state = { checked: null, mixed: true };
+        } else if (aria('aria-checked')) {
+          state = aria('aria-checked');
+          source = 'aria-checked';
+        } else if (aria('aria-pressed')) {
+          state = aria('aria-pressed');
+          source = 'aria-pressed';
+          kind = role || 'toggle';
+        } else if (aria('aria-selected')) {
+          state = aria('aria-selected');
+          source = 'aria-selected';
+          kind = role || 'selectable';
+        }
+        if (!state) {
+          return { checked: null, kind: 'unknown', tag: String(control.tagName || '').toLowerCase(), reason: 'the control has no checked, pressed or selected value' };
+        }
+        return {
+          checked: state.checked,
+          ...(state.mixed ? { mixed: true } : {}),
+          kind,
+          source,
+          tag: String(control.tagName || '').toLowerCase(),
+          ...(role ? { role } : {}),
+          disabled: control.disabled === true || control.getAttribute('aria-disabled') === 'true',
+          ...(control !== el ? { controlTarget: describeNode(control) } : {}),
+        };
+      }
+
+      ${FIELD_READBACK_SOURCE}
+
       // 3. Resolve target node with MutationObserver / rAF auto-wait (up to 1500ms for element to become connected AND actionable)
       const needsTarget = Boolean(req.descriptor || req.selector);
       let targetElement = null;
@@ -481,6 +700,13 @@ export function buildIsolatedExecutorScript(request: RendererActionRequest): str
           error: 'Document URL mutated immediately before event dispatch: expected "' + req.documentUrl + '", current "' + window.location.href + '"',
           code: 'REF_DOCUMENT_MUTATED'
         };
+      }
+
+      if (req.action === 'probe' && req.controlState === true) {
+        if (!targetElement) {
+          return { ok: false, error: 'Target element required for control state read', code: 'REF_NOT_FOUND' };
+        }
+        return { ok: true, executed: false, metadata: { controlState: readControlState(targetElement) } };
       }
 
       // 5. Actionability, Visibility Pre-flight, and Post-Scroll Rect Calculation
@@ -626,12 +852,36 @@ export function buildIsolatedExecutorScript(request: RendererActionRequest): str
           centerY: rect.y + rect.height / 2,
         };
 
+        // A trusted pointer gesture needs a box to land in. After the label redirect above, a box
+        // with no area cannot be clicked or hovered by a pointer, and sampling its single center
+        // point would misreport that as another element covering it. Typing is exempt: a zero-size
+        // field still takes focus and text. So are force (the caller waived the actionability
+        // checks) and a synthetic click or hover (trusted:false), which is dispatched on the
+        // element itself and needs no pointer target.
+        const emptyBox = !(computedRect.width > 0 && computedRect.height > 0);
+        const syntheticDispatch = req.trusted === false && (req.action === 'click' || req.action === 'hover' || req.action === 'move');
+        const pointerGesture = req.action === 'click' || req.action === 'hover' || req.action === 'move' || (req.action === 'focus' && req.forTyping !== true);
+        if (pointerGesture && emptyBox && !req.force && !syntheticDispatch) {
+          return {
+            ok: false,
+            error: 'Target ' + describeNode(targetElement) + ' has a zero-size box (' + Math.round(computedRect.width) + 'x' + Math.round(computedRect.height) + ' px), so no pointer gesture can reach it. Target a visible element that wraps or labels it, or use set_control for a checkbox / radio / switch.',
+            code: 'TARGET_ZERO_SIZE',
+            metadata: {
+              width: computedRect.width,
+              height: computedRect.height,
+              target: describeNode(targetElement),
+              recovery: 'Locate the visible label or wrapper (locator with role/name/text), or use set_control for a toggle',
+            },
+          };
+        }
+
         // Occlusion gate: only requests that hand input to the page (or that
         // pre-flight such a hand-off, which is what 'focus' is used for) can be
         // stolen by a covering element. highlight/scroll/probe are observations
         // and must never be refused because a newsletter modal sits on top.
         const inputBearing = req.action === 'focus' || req.action === 'click' || req.action === 'type' || req.action === 'hover' || req.action === 'move';
-        if (inputBearing && !req.force) {
+        // A synthetic gesture on an empty box is not covered by anything a hit-test could find.
+        if (inputBearing && !req.force && !(emptyBox && syntheticDispatch)) {
           const deliveredAt = { x: computedRect.centerX, y: computedRect.centerY };
           if (samplePoints(computedRect).length === 0) {
             return {
@@ -1078,7 +1328,12 @@ export function buildIsolatedExecutorScript(request: RendererActionRequest): str
         }
 
         targetElement.dispatchEvent(new Event('change', { bubbles: true, cancelable: false, composed: true }));
-        return { ok: true, executed: true, executionTier: 'isolated_synthetic', rect: computedRect };
+        // The page gets one frame to revert the edit (a rich-text editor undoes DOM writes it did
+        // not make, from a mutation observer or the next task) before the field is read back. A
+        // longer fixed wait would land on every synthetic type and push it past its latency budget.
+        await new Promise((resolve) => setTimeout(resolve, 16));
+        const readBack = fieldReadBack(targetElement, textToInsert, Boolean(req.clear));
+        return { ok: true, executed: true, executionTier: 'isolated_synthetic', rect: computedRect, verified: readBack.verified, ...(readBack.readBack !== undefined ? { readBack: readBack.readBack } : {}), ...(readBack.readBackTruncated ? { readBackTruncated: true } : {}) };
       } else if (req.action === 'hover' || req.action === 'move') {
         if (targetElement) {
           targetElement.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true, view: window }));
@@ -1208,6 +1463,314 @@ export function buildIsolatedExecutorScript(request: RendererActionRequest): str
       return { ok: false, error: err instanceof Error ? err.message : String(err), code: 'EXECUTION_ERROR' };
     }
   })()`;
+}
+
+/** One element a locator matched (or nearly matched), with a selector that addresses it. */
+export interface LocatorCandidate {
+  index: number;
+  tag: string;
+  role: string;
+  name: string;
+  text: string;
+  selector: string | null;
+  rect: { x: number; y: number; width: number; height: number };
+}
+
+export type LocatorResolution =
+  | { ok: true; selector: string; matchCount: number; index: number; candidate: LocatorCandidate }
+  | { ok: false; code: 'LOCATOR_NOT_FOUND' | 'LOCATOR_AMBIGUOUS' | 'INVALID_SELECTOR'; error: string; matchCount: number; candidates: LocatorCandidate[]; truncated?: boolean };
+
+/** Longest wait for a locator to match: matches the executor's own element auto-wait. */
+export const LOCATOR_DEFAULT_WAIT_MS = 1_500;
+
+/**
+ * Resolves a locator against the live page (isolated world) and answers one element's selector, or
+ * the candidates that make the locator unusable. Search covers the light DOM and open shadow
+ * roots; elements without a rendered box are ignored, except native checkbox / radio inputs whose
+ * box a theme commonly collapses behind a visible label.
+ */
+export function buildLocatorResolveScript(locator: ElementLocator, waitMs: number = LOCATOR_DEFAULT_WAIT_MS): string {
+  const budget = Math.max(0, Math.min(10_000, Math.floor(waitMs)));
+  return `(async () => {
+    try {
+      const loc = ${JSON.stringify(locator)};
+      const budgetMs = ${budget};
+      const MAX_NODES = 30000;
+      const MAX_CANDIDATES = 8;
+      const norm = (s) => String(s == null ? '' : s).replace(/\\s+/g, ' ').trim();
+      const lower = (s) => norm(s).toLowerCase();
+      const clip = (s, n) => { const t = norm(s); return t.length > n ? t.slice(0, n) + '...' : t; };
+      const SKIP = { SCRIPT: 1, STYLE: 1, NOSCRIPT: 1, TEMPLATE: 1, HEAD: 1, META: 1, LINK: 1, TITLE: 1, BASE: 1 };
+
+      function implicitRole(el) {
+        const explicit = String(el.getAttribute('role') || '').trim().toLowerCase().split(/\\s+/)[0];
+        if (explicit) return explicit;
+        const tag = el.tagName.toLowerCase();
+        if (tag === 'a' || tag === 'area') return el.hasAttribute('href') ? 'link' : '';
+        if (tag === 'button' || tag === 'summary') return 'button';
+        if (tag === 'select') return (el.multiple || el.size > 1) ? 'listbox' : 'combobox';
+        if (tag === 'textarea') return 'textbox';
+        if (tag === 'option') return 'option';
+        if (tag === 'img') return el.getAttribute('alt') === '' ? 'presentation' : 'img';
+        if (/^h[1-6]$/.test(tag)) return 'heading';
+        if (tag === 'nav') return 'navigation';
+        if (tag === 'main') return 'main';
+        if (tag === 'form') return 'form';
+        if (tag === 'ul' || tag === 'ol') return 'list';
+        if (tag === 'li') return 'listitem';
+        if (tag === 'table') return 'table';
+        if (tag === 'dialog') return 'dialog';
+        if (tag === 'progress') return 'progressbar';
+        if (tag === 'input') {
+          const type = String(el.getAttribute('type') || 'text').toLowerCase();
+          if (type === 'button' || type === 'submit' || type === 'reset' || type === 'image') return 'button';
+          if (type === 'checkbox') return 'checkbox';
+          if (type === 'radio') return 'radio';
+          if (type === 'range') return 'slider';
+          if (type === 'number') return 'spinbutton';
+          if (type === 'search') return 'searchbox';
+          if (type === 'hidden' || type === 'file' || type === 'color') return '';
+          return 'textbox';
+        }
+        return '';
+      }
+
+      function nameOf(el) {
+        const labelledBy = el.getAttribute('aria-labelledby');
+        if (labelledBy) {
+          const root = el.getRootNode();
+          const parts = labelledBy.split(/\\s+/).map((id) => {
+            const node = root && typeof root.getElementById === 'function' ? root.getElementById(id) : document.getElementById(id);
+            return node ? norm(node.textContent) : '';
+          }).filter(Boolean);
+          if (parts.length > 0) return parts.join(' ');
+        }
+        const ariaLabel = el.getAttribute('aria-label');
+        if (ariaLabel && norm(ariaLabel)) return norm(ariaLabel);
+        const tag = el.tagName.toLowerCase();
+        if (tag === 'input' || tag === 'select' || tag === 'textarea') {
+          try {
+            if (el.labels && el.labels.length > 0) {
+              const fromLabels = Array.from(el.labels).map((l) => norm(l.innerText || l.textContent)).filter(Boolean).join(' ');
+              if (fromLabels) return fromLabels;
+            }
+          } catch {}
+          const type = String(el.getAttribute('type') || '').toLowerCase();
+          if (tag === 'input' && (type === 'button' || type === 'submit' || type === 'reset') && el.value) return norm(el.value);
+          if (tag === 'input' && type === 'image' && el.getAttribute('alt')) return norm(el.getAttribute('alt'));
+          const placeholder = el.getAttribute('placeholder');
+          if (placeholder && norm(placeholder)) return norm(placeholder);
+        }
+        if (tag === 'img' && el.getAttribute('alt')) return norm(el.getAttribute('alt'));
+        const content = norm(el.innerText || el.textContent);
+        if (content) return content.length > 200 ? content.slice(0, 200) : content;
+        const title = el.getAttribute('title');
+        return title ? norm(title) : '';
+      }
+
+      function isCheckable(el) {
+        return el.tagName === 'INPUT' && (el.type === 'checkbox' || el.type === 'radio');
+      }
+
+      function isRendered(el) {
+        let style = null;
+        try { style = window.getComputedStyle(el); } catch {}
+        if (style && (style.display === 'none' || style.visibility === 'hidden')) return isCheckable(el);
+        if (isCheckable(el)) return true;
+        return typeof el.getClientRects === 'function' && el.getClientRects().length > 0;
+      }
+
+      function cssPath(el) {
+        const root = el.getRootNode();
+        const scope = root && root.nodeType === 11 ? root : document;
+        const esc = (v) => (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') ? CSS.escape(String(v)) : String(v).replace(/[^a-zA-Z0-9_-]/g, '\\\\$&');
+        const addresses = (sel) => {
+          try {
+            const found = scope.querySelectorAll(sel);
+            if (found.length !== 1 || found[0] !== el) return false;
+            const lightFirst = document.querySelector(sel);
+            return !lightFirst || lightFirst === el;
+          } catch { return false; }
+        };
+        const tag = el.tagName.toLowerCase();
+        if (el.id) {
+          const byId = '#' + esc(el.id);
+          if (addresses(byId)) return byId;
+        }
+        const attrs = ['data-testid', 'data-test', 'data-qa', 'name', 'aria-label'];
+        for (let i = 0; i < attrs.length; i++) {
+          const value = el.getAttribute(attrs[i]);
+          if (value && value.length < 120) {
+            const sel = tag + '[' + attrs[i] + '="' + value.replace(/["\\\\]/g, '\\\\$&') + '"]';
+            if (addresses(sel)) return sel;
+          }
+        }
+        const parts = [];
+        let node = el;
+        while (node && node.nodeType === 1) {
+          let part = node.tagName.toLowerCase();
+          const parent = node.parentElement;
+          if (parent) {
+            const same = Array.from(parent.children).filter((c) => c.tagName === node.tagName);
+            if (same.length > 1) part += ':nth-of-type(' + (same.indexOf(node) + 1) + ')';
+          }
+          parts.unshift(part);
+          if (node === document.documentElement) break;
+          node = parent;
+        }
+        const full = parts.join(' > ');
+        return addresses(full) ? full : null;
+      }
+
+      function describe(el, index) {
+        const rect = el.getBoundingClientRect();
+        return {
+          index: index,
+          tag: el.tagName.toLowerCase(),
+          role: implicitRole(el),
+          name: clip(nameOf(el), 80),
+          text: clip(el.innerText || el.textContent, 80),
+          selector: cssPath(el),
+          rect: { x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height) },
+        };
+      }
+
+      function scopeRoots() {
+        if (!loc.within) return { roots: [document], error: null };
+        let nodes;
+        try { nodes = Array.from(document.querySelectorAll(loc.within)); }
+        catch (e) { return { roots: [], error: 'Invalid within selector: ' + (e && e.message ? e.message : String(e)) }; }
+        return { roots: nodes, error: nodes.length === 0 ? 'within selector matched nothing: ' + loc.within : null, empty: nodes.length === 0 };
+      }
+
+      function collect(roots) {
+        const out = [];
+        let visited = 0;
+        let truncated = false;
+        const stack = [];
+        for (let i = roots.length - 1; i >= 0; i--) stack.push(roots[i]);
+        while (stack.length > 0) {
+          const node = stack.pop();
+          if (!node) continue;
+          if (node.nodeType === 1) {
+            if (SKIP[node.tagName]) continue;
+            visited++;
+            if (visited > MAX_NODES) { truncated = true; break; }
+            out.push(node);
+          }
+          const kids = [];
+          if (node.nodeType === 1 && node.shadowRoot) kids.push(node.shadowRoot);
+          const children = node.children || [];
+          for (let i = 0; i < children.length; i++) kids.push(children[i]);
+          for (let i = kids.length - 1; i >= 0; i--) stack.push(kids[i]);
+        }
+        return { elements: out, truncated: truncated };
+      }
+
+      function matchAll() {
+        const scope = scopeRoots();
+        if (scope.error && scope.empty !== true) return { error: scope.error, invalid: true };
+        if (scope.empty) return { matches: [], pool: [], all: [], truncated: false, scopeEmpty: scope.error };
+        const gathered = collect(scope.roots);
+        const rendered = gathered.elements.filter(isRendered);
+        let pool = rendered;
+        if (loc.role) {
+          pool = pool.filter((el) => implicitRole(el) === loc.role && el.getAttribute('aria-hidden') !== 'true');
+        }
+        const rolePool = pool;
+        if (loc.name) {
+          const q = lower(loc.name);
+          const named = pool.map((el) => ({ el: el, n: lower(nameOf(el)) }));
+          const exact = named.filter((x) => x.n === q);
+          const partial = named.filter((x) => x.n.includes(q));
+          pool = (exact.length > 0 ? exact : partial).map((x) => x.el);
+        }
+        if (loc.text) {
+          const q = lower(loc.text);
+          const hits = pool.filter((el) => lower(el.innerText || el.textContent).includes(q));
+          const hasHitInside = new Set();
+          hits.forEach((el) => {
+            let up = el.parentNode;
+            while (up) {
+              if (up.nodeType === 11 && up.host) { up = up.host; continue; }
+              hasHitInside.add(up);
+              up = up.parentNode;
+            }
+          });
+          const smallest = hits.filter((el) => !hasHitInside.has(el));
+          const exact = smallest.filter((el) => lower(el.innerText || el.textContent) === q);
+          pool = exact.length > 0 ? exact : smallest;
+        }
+        return { matches: pool, pool: rolePool, all: rendered, truncated: gathered.truncated };
+      }
+
+      const deadline = Date.now() + budgetMs;
+      let result = matchAll();
+      while (!result.invalid && result.matches.length === 0 && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        result = matchAll();
+      }
+      if (result.invalid) {
+        return { ok: false, code: 'INVALID_SELECTOR', error: result.error, matchCount: 0, candidates: [] };
+      }
+      const count = result.matches.length;
+      const wantsNth = typeof loc.nth === 'number';
+      if (count === 0 || (wantsNth && loc.nth >= count)) {
+        const nearMisses = () => {
+          if (count > 0) return result.matches;
+          const base = loc.role ? result.pool : result.all.filter((el) => implicitRole(el) !== '');
+          const words = lower(loc.name || loc.text || '').split(' ').filter((w) => w.length >= 3);
+          let picked = words.length > 0 ? base.filter((el) => { const n = lower(nameOf(el)); return words.some((w) => n.includes(w)); }) : [];
+          if (picked.length === 0 && loc.role) picked = base;
+          return picked;
+        };
+        const sample = nearMisses().slice(0, MAX_CANDIDATES).map((el, i) => describe(el, i));
+        const what = count === 0
+          ? 'No element matches the locator ' + JSON.stringify(loc) + (result.scopeEmpty ? ' (' + result.scopeEmpty + ')' : '')
+          : 'locator.nth=' + loc.nth + ' is out of range: only ' + count + ' element(s) match';
+        return { ok: false, code: 'LOCATOR_NOT_FOUND', error: what, matchCount: count, candidates: sample, truncated: result.truncated === true };
+      }
+      if (!wantsNth && count > 1) {
+        const sample = result.matches.slice(0, MAX_CANDIDATES).map((el, i) => describe(el, i));
+        return { ok: false, code: 'LOCATOR_AMBIGUOUS', error: count + ' elements match the locator ' + JSON.stringify(loc) + '; add locator.nth (zero-based) or narrow it with role, name or within', matchCount: count, candidates: sample, truncated: result.truncated === true };
+      }
+      const index = wantsNth ? loc.nth : 0;
+      const chosen = result.matches[index];
+      const candidate = describe(chosen, index);
+      if (!candidate.selector) {
+        return { ok: false, code: 'LOCATOR_NOT_FOUND', error: 'The matched element cannot be addressed by a unique selector (' + candidate.tag + ' "' + candidate.name + '")', matchCount: count, candidates: [candidate] };
+      }
+      return { ok: true, selector: candidate.selector, matchCount: count, index: index, candidate: candidate };
+    } catch (err) {
+      return { ok: false, code: 'LOCATOR_NOT_FOUND', error: 'Locator resolution failed: ' + (err instanceof Error ? err.message : String(err)), matchCount: 0, candidates: [] };
+    }
+  })()`;
+}
+
+/** Narrows a raw isolated-world answer to a locator resolution; a malformed answer is a failed resolution. */
+export function parseLocatorResolution(raw: unknown): LocatorResolution {
+  const malformed: LocatorResolution = { ok: false, code: 'LOCATOR_NOT_FOUND', error: 'Locator resolution returned no usable answer', matchCount: 0, candidates: [] };
+  if (!raw || typeof raw !== 'object') return malformed;
+  const obj = raw as Record<string, unknown>;
+  const candidates = Array.isArray(obj.candidates) ? (obj.candidates as LocatorCandidate[]) : [];
+  if (obj.ok === true && typeof obj.selector === 'string' && obj.selector) {
+    return {
+      ok: true,
+      selector: obj.selector,
+      matchCount: typeof obj.matchCount === 'number' ? obj.matchCount : 1,
+      index: typeof obj.index === 'number' ? obj.index : 0,
+      candidate: obj.candidate as LocatorCandidate,
+    };
+  }
+  const code = obj.code === 'LOCATOR_AMBIGUOUS' || obj.code === 'INVALID_SELECTOR' ? obj.code : 'LOCATOR_NOT_FOUND';
+  return {
+    ok: false,
+    code,
+    error: typeof obj.error === 'string' ? obj.error : malformed.error,
+    matchCount: typeof obj.matchCount === 'number' ? obj.matchCount : 0,
+    candidates,
+    ...(obj.truncated === true ? { truncated: true } : {}),
+  };
 }
 export function buildIsolatedCollectorScript(nonce: string, expectedUrl: string, rootSelector?: string, viewportOnly?: boolean): string {
   const nonceJson = JSON.stringify(nonce);

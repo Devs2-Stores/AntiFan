@@ -50,6 +50,7 @@ import { describeClosedTab, recordClosedTab, type ClosedTabInfo, type ClosedTabR
 import type { CaptureViewportTransaction, RenderSurfaceSnapshot, VerificationCaptureEnvelope } from '../verification/visual-capture';
 import { buildKeyboardInputEvents } from './keyboard-normalizer';
 import { FirstPartyNetworkTracker, type NetworkTrackerStats } from './first-party-network-tracker';
+import type { NetworkLogFilters, NetworkLogResult } from './network-log-manager';
 import { WorkspaceCapsuleManager, canonicalFolderKey, findCapsuleByRoot, findReusableCapsule, workspaceDialogDefaultPath, type WorkspaceCapsule, type CapsuleAffiliation } from '../project/workspace-capsule';
 import { findSyncDuplicate, syncIdentity, platformSyncIdentity, themeSyncPlatformOfSpecId } from '../project/sync-identity';
 import { planThemeSyncAutostart, specsWithoutRunningWatcher } from '../project/theme-sync-autostart';
@@ -10764,6 +10765,22 @@ export class NativeTabHost extends EventEmitter {
     return this.networkTracker;
   }
 
+  /**
+   * The redacted request log kept for one tab pane. Attaching is idempotent, so a tab whose
+   * listeners were never needed before starts recording from this call on.
+   */
+  public async getNetworkLog(tabId: string, filters?: NetworkLogFilters & { paneId?: 'desktop' | 'mobile' }): Promise<NetworkLogResult> {
+    const pane: 'desktop' | 'mobile' = filters?.paneId ?? 'desktop';
+    const targetId = this.resolveTargetTabId(tabId) || tabId;
+    const wc = this.getTabWebContents(targetId, pane);
+    if (!wc || wc.isDestroyed()) {
+      throw new CapabilityError('TARGET_STALE', `Tab '${tabId}' pane '${pane}' has no live page to read a network log from`, { tabId, paneId: pane });
+    }
+    await this.networkTracker.ensureAttached(targetId, pane, wc, () => wc.getURL());
+    const { paneId: _paneId, ...queryFilters } = filters ?? {};
+    return this.networkTracker.getNetworkLog().query(targetId, pane, queryFilters);
+  }
+
   private createLoadCompletionWaiter(wc: Electron.WebContents, timeoutMs: number = 20000, onTimeout?: () => void): { promise: Promise<boolean>; cancel: () => void } {
     let cancelFn: () => void = () => {};
     const promise = new Promise<boolean>((resolve) => {
@@ -12031,10 +12048,22 @@ export class NativeTabHost extends EventEmitter {
   public async ensureAgentBrowserInjected(tabId?: string, paneId?: SplitPaneId): Promise<boolean> {
     return this.getAutomationHost().ensureAgentBrowserInjected(tabId, paneId);
   }
-  public async dispatchAgentAction(action: 'click' | 'type' | 'move' | 'hover' | 'scroll' | 'highlight' | 'clear' | 'trajectory', params: { selector?: string; ref?: string; x?: number; y?: number; text?: string; clear?: boolean; trusted?: boolean; deltaY?: number; label?: string; tabId?: string; paneId?: SplitPaneId; steps?: Array<Record<string, unknown>>; speed?: 'fast' | 'natural' | 'slow'; smoothScroll?: boolean }): Promise<{ success: boolean; data?: unknown; reason?: string }> {
+  public async dispatchAgentAction(action: 'click' | 'type' | 'move' | 'hover' | 'scroll' | 'highlight' | 'clear' | 'trajectory', params: { selector?: string; ref?: string; locator?: unknown; x?: number; y?: number; text?: string; clear?: boolean; trusted?: boolean; deltaY?: number; label?: string; tabId?: string; paneId?: SplitPaneId; steps?: Array<Record<string, unknown>>; speed?: 'fast' | 'natural' | 'slow'; smoothScroll?: boolean; expectNavigation?: boolean; secret?: boolean }): Promise<{ success: boolean; data?: unknown; reason?: string }> {
     const release = this.admitAgentAction(`dispatchAgentAction(${action})`, params.tabId);
     try {
       return await this.getAutomationHost().dispatchAgentAction(action, params);
+    } finally {
+      release();
+    }
+  }
+  /**
+   * Sets a checkbox, radio or switch to the requested state. The automation host queues its own
+   * target operation, so this wrapper only admits the call and must not nest another queue entry.
+   */
+  public async setControl(params: { ref?: string; selector?: string; locator?: unknown; state: boolean; trusted?: boolean; force?: boolean; tabId?: string; paneId?: SplitPaneId }): Promise<{ success: boolean; data?: Record<string, unknown>; reason?: string; code?: string }> {
+    const release = this.admitAgentAction('setControl', params.tabId);
+    try {
+      return await this.getAutomationHost().setControl(params);
     } finally {
       release();
     }

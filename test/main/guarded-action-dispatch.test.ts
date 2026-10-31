@@ -361,7 +361,7 @@ describe('Phase 3: Unified Guarded Agent Action Routing (World 1004 Isolated Exe
     assert.match(res.reason || '', /destroyed/i);
   });
 
-  it('9. Document navigation during action execution fails closed with safe reason', async () => {
+  it('9. A click that navigates the document reports success with the committed navigation', async () => {
     const { host, desktopWc } = createGuardedTestHost();
     const curGen = host.getSemanticDocumentGeneration('tab-1', 'desktop');
 
@@ -384,8 +384,48 @@ describe('Phase 3: Unified Guarded Agent Action Routing (World 1004 Isolated Exe
     });
     const ref = snap.refs[0]!;
 
+    // The isolated-world call here is the action itself (trusted:false skips the focus probe), so
+    // the navigation it simulates starts after dispatch, not before it.
     desktopWc.mainFrame.executeJavaScriptInIsolatedWorld = async (): Promise<any> => {
-      // Simulate a cross-document navigation mid-action
+      host.setSemanticDocumentGeneration('tab-1', 'desktop', curGen + 1);
+      host.setCrossDocumentGeneration('tab-1', 'desktop', host.getCrossDocumentGeneration('tab-1', 'desktop') + 1);
+      return { ok: true, executed: true, rect: { x: 10, y: 10, width: 100, height: 30, centerX: 60, centerY: 25 } };
+    };
+
+    const res = await host.dispatchAgentAction('click', { ref, tabId: 'tab-1', paneId: 'desktop', trusted: false });
+    assert.strictEqual(res.success, true, res.reason);
+    const data = res.data as Record<string, unknown>;
+    assert.strictEqual(data.navigated, true);
+    assert.strictEqual(data.documentGeneration, host.getCrossDocumentGeneration('tab-1', 'desktop'));
+  });
+
+  it('9b. A navigation that lands before the action dispatches fails closed', async () => {
+    const { host, desktopWc } = createGuardedTestHost();
+    const curGen = host.getSemanticDocumentGeneration('tab-1', 'desktop');
+    const coll = host.semanticRefRegistry.beginCollection({
+      tabId: 'tab-1',
+      paneId: 'desktop',
+      browserEpoch: host.getBrowserEpoch(),
+      documentGeneration: curGen,
+      documentUrl: 'https://example.com/shop',
+    });
+    const snap = host.semanticRefRegistry.publishSnapshot({
+      tabId: 'tab-1',
+      paneId: 'desktop',
+      nonce: coll.nonce,
+      sequence: coll.sequence,
+      browserEpoch: host.getBrowserEpoch(),
+      documentGeneration: curGen,
+      documentUrl: 'https://example.com/shop',
+      rawDescriptors: [sampleDescriptor('btn-1')],
+    });
+    const ref = snap.refs[0]!;
+
+    // The trusted path runs a focus probe first; the page leaving during that probe means the
+    // click never reached the element the ref named, so the synthetic fallback must not fire.
+    let isolatedCalls = 0;
+    desktopWc.mainFrame.executeJavaScriptInIsolatedWorld = async (): Promise<any> => {
+      isolatedCalls += 1;
       host.setSemanticDocumentGeneration('tab-1', 'desktop', curGen + 1);
       host.setCrossDocumentGeneration('tab-1', 'desktop', host.getCrossDocumentGeneration('tab-1', 'desktop') + 1);
       return { ok: true, executed: true, rect: { x: 10, y: 10, width: 100, height: 30, centerX: 60, centerY: 25 } };
@@ -393,7 +433,8 @@ describe('Phase 3: Unified Guarded Agent Action Routing (World 1004 Isolated Exe
 
     const res = await host.dispatchAgentAction('click', { ref, tabId: 'tab-1', paneId: 'desktop' });
     assert.strictEqual(res.success, false);
-    assert.match(res.reason || '', /navigated/i);
+    assert.strictEqual(res.reason, 'Document navigated during action execution');
+    assert.strictEqual(isolatedCalls, 1, 'the synthetic click script never ran');
   });
 
   it('10. Trajectory executes sequential steps with expected return format', async () => {

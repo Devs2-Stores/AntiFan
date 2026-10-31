@@ -1,3 +1,4 @@
+import { EVAL_ELEMENT_HTML_MAX_CHARS, EVAL_MAX_DEPTH_MARKER } from './eval-result-truncation';
 /**
  * AntiFan Browser Desktop — Tab DevTools Host Sub-Controller
  * Encapsulates In-Page Developer Utilities: Font Finder, GPU Lens, Screen Ruler,
@@ -385,7 +386,7 @@ const SERIALIZE_CIRCULAR_SAFE_SOURCE = `function serializeCircularSafe(val, seen
     if (typeof val === 'symbol') return val.toString();
     return val;
   }
-  if (depth > 10) return '[MaxDepth]';
+  if (depth > 10) return '${EVAL_MAX_DEPTH_MARKER}';
   if (seen.has(val)) return '[Circular]';
   seen.add(val);
   if (Array.isArray(val)) {
@@ -396,7 +397,7 @@ const SERIALIZE_CIRCULAR_SAFE_SOURCE = `function serializeCircularSafe(val, seen
       tagName: val.tagName,
       id: val.id || undefined,
       className: val.className || undefined,
-      outerHTML: val.outerHTML ? val.outerHTML.slice(0, 1000) : undefined,
+      outerHTML: val.outerHTML ? val.outerHTML.slice(0, ${EVAL_ELEMENT_HTML_MAX_CHARS}) : undefined,
     };
   }
   const out = {};

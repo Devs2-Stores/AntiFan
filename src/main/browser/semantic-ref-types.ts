@@ -121,6 +121,11 @@ export type RendererActionResponse =
       executionTier?: 'cdp_trusted' | 'isolated_synthetic';
       hoverActive?: boolean;
       metadata?: Record<string, unknown>;
+      /** Text entry only: whether the field holds the typed text after the page had a moment to revert it. `null` = not readable. */
+      verified?: boolean | null;
+      /** The field's content after typing (never set for a password input). */
+      readBack?: string;
+      readBackTruncated?: boolean;
     }
   | {
       ok: false;
@@ -482,6 +487,9 @@ export function validateActionResponse(response: unknown): RendererActionRespons
       executionTier: res.executionTier === 'cdp_trusted' || res.executionTier === 'isolated_synthetic' ? res.executionTier : undefined,
       hoverActive: typeof res.hoverActive === 'boolean' ? res.hoverActive : undefined,
       metadata: res.metadata && typeof res.metadata === 'object' ? (res.metadata as Record<string, unknown>) : undefined,
+      ...(typeof res.verified === 'boolean' || res.verified === null ? { verified: res.verified } : {}),
+      ...(typeof res.readBack === 'string' ? { readBack: res.readBack } : {}),
+      ...(res.readBackTruncated === true ? { readBackTruncated: true } : {}),
     };
   }
 

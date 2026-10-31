@@ -295,7 +295,7 @@ describe('Phase 02: Controlled Inputs & Dual-Tier Synthetic/CDP Interaction Engi
       const inserted = cdpCommands.some((c) => c.command === 'Input.insertText');
       assert.equal(inserted, false, 'Must NOT proceed to Input.insertText if clear fails');
     });
-    it('fails closed and detects navigation when document generation increments during trusted type execution', async () => {
+    it('reports success with navigated:true when the document generation changes during trusted type execution', async () => {
       let generation = 1;
       const mockWebContents = {
         isDestroyed: () => false,
@@ -339,10 +339,15 @@ describe('Phase 02: Controlled Inputs & Dual-Tier Synthetic/CDP Interaction Engi
         tabId: 'tab-1',
       });
 
-      assert.equal(actionRes.success, false);
-      assert.equal(actionRes.reason, 'Document navigated during action execution');
+      // A navigation caused by the action itself is its outcome, not a failure: the action
+      // dispatched and the caller learns where it landed.
+      assert.equal(actionRes.success, true);
+      const navData = actionRes.data as Record<string, unknown>;
+      assert.equal(navData.navigated, true);
+      assert.equal(navData.committedUrl, 'https://example.com/checkout');
+      assert.equal(navData.documentGeneration, 2);
 
-      // Also test host.agentType direct method returns false
+      // The text went in and the page then moved on: the host method reports the action as done.
       generation = 1;
       const typeResult = await host.agentType({
         selector: '#nav-field',
@@ -351,7 +356,7 @@ describe('Phase 02: Controlled Inputs & Dual-Tier Synthetic/CDP Interaction Engi
         trusted: true,
         tabId: 'tab-1',
       });
-      assert.equal(typeResult, false, 'agentType must return false when document generation increments');
+      assert.equal(typeResult, true, 'agentType reports success when the document navigated after the text was typed');
     });
 
     it('fails closed when webContents is destroyed during trusted type execution', async () => {
