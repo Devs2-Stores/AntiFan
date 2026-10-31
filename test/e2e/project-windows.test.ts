@@ -55,6 +55,12 @@
  *                                              user-open-presents-and-restores-the-windows-own-tabs
  *     - close-keeps-hub-and-tabs            -> close-terminal-manager-keeps-project-windows,
  *                                              close-project-window-keeps-the-others
+ *     - project-inactivity-closer (a project's window closes when it stops running)
+ *                                           -> project-window-closes-when-its-last-running-terminal-sleeps,
+ *                                              last-visible-project-window-stays-when-its-last-terminal-sleeps,
+ *                                              project-window-closes-when-only-a-sync-watcher-keeps-running,
+ *                                              project-window-whose-only-terminals-are-sync-watchers-stays-open,
+ *                                              terminal-manager-close-closes-windows-of-projects-with-only-sleeping-terminals
  *     - survivor-toolbar-and-accelerator-after-sibling-close
  *                                           -> survivor-toolbar-and-accelerator-after-sibling-close,
  *                                              terminal-manager-menu-reopens-it-beside-project-windows
@@ -114,6 +120,11 @@ const LIFECYCLE_ROWS: readonly string[] = [
   'window.user-open-starts-theme-watchers-and-agent-open-does-not',
   'window.user-created-window-starts-theme-watchers-after-its-first-terminal',
   'window.user-open-skips-a-watcher-already-running-in-a-plain-shell',
+  'window.project-window-closes-when-its-last-running-terminal-sleeps',
+  'window.last-visible-project-window-stays-when-its-last-terminal-sleeps',
+  'window.project-window-closes-when-only-a-sync-watcher-keeps-running',
+  'window.project-window-whose-only-terminals-are-sync-watchers-stays-open',
+  'window.terminal-manager-close-closes-windows-of-projects-with-only-sleeping-terminals',
   'window.close-terminal-manager-keeps-project-windows',
   'window.survivor-toolbar-and-accelerator-after-sibling-close',
   'window.terminal-manager-menu-reopens-it-beside-project-windows',
@@ -1823,6 +1834,285 @@ async function runLifecycle() {
       expect(ids.length === 1 && ids[0] === 'theme-sync-sapo', 'the watchers minted were ' + JSON.stringify(ids));
     } finally {
       await manager.closeSession(handId);
+    }
+  });
+
+  // ---- (18f) a project's window closes when the project stops running: terminal-lifecycle rows
+  // Each row owns one project (EPSILON, GAMMA, BETA) and its cleanup hands the project back the way
+  // the rows after it expect: a window and a running terminal. A window is closed and its terminals
+  // are closed BEFORE a row builds its own state, so the closer sees no window while the row sets
+  // up: only the edge the row names can close anything.
+  const inactivityManager = function () {
+    const { TerminalManager } = require(compiledModule('browser/terminal-manager.js'));
+    return TerminalManager.getInstance();
+  };
+  const sessionRowsOf = function (project) {
+    return inactivityManager().listSessions().filter(function (row) { return row.ownerKey === keyOf(project); });
+  };
+  const isWatcherRow = function (row) { return row.role === 'sync' || row.idlePolicy === 'never'; };
+  const plainRowsOf = function (project) {
+    return sessionRowsOf(project).filter(function (row) { return !row.splitOf && !isWatcherRow(row); });
+  };
+  const watcherMeta = { role: 'sync', idlePolicy: 'never' };
+  const hiddenForLastWindow = [];
+  // The close the closer decided on, as the lifecycle journal recorded it: the proof that a window
+  // went because of the rule and not for an unrelated reason.
+  const inactivityEvents = function () {
+    const file = path.join(process.env.ANTIFAN_RUNTIME_DIR || path.join(tempRoot, 'runtime'), 'logs', 'main.log');
+    let text = '';
+    try {
+      text = fs.readFileSync(file, 'utf8');
+    } catch (err) {
+      return [];
+    }
+    const events = [];
+    for (const line of text.split(String.fromCharCode(10))) {
+      if (line.indexOf('project-window.close-on-inactive') === -1) continue;
+      try {
+        const record = JSON.parse(line);
+        if (record.event === 'project-window.close-on-inactive') events.push(record);
+      } catch (err) {
+        // a line cut by the size rotation is not an event
+      }
+    }
+    return events;
+  };
+  const closeEventFor = function (project, reason) {
+    return inactivityEvents().find(function (record) { return record.projectId === project.projectId && record.reason === reason; });
+  };
+  // The closer settles terminal bursts for 600 ms before it reads them.
+  const settleInactivity = function () { return sleep(1200); };
+  const waitForSessionState = function (id, state) {
+    return waitFor(function () {
+      const row = inactivityManager().listSessions().find(function (item) { return item.id === id; });
+      return row && row.state === state ? row : false;
+    }, 'terminal ' + id + ' to be ' + state, 30000);
+  };
+  async function clearProjectTerminals(project) {
+    const manager = inactivityManager();
+    if (entryFor(project)) await closeWindowAndWait(keyOf(project));
+    for (const row of sessionRowsOf(project).filter(function (item) { return !item.splitOf; })) {
+      await manager.closeSession(row.id);
+    }
+    expect(sessionRowsOf(project).length === 0, project.name + ' still owned terminals: ' + JSON.stringify(sessionRowsOf(project)));
+    await settleInactivity();
+  }
+  // The window a user opens, once its own sidebar has finished starting (or not starting) terminals.
+  async function openWindowAndSettle(project) {
+    const opened = await openProjectFromSidebar(project);
+    expect(opened.result && opened.result.status === 'OPENED', 'the user open of ' + project.name + ' returned ' + JSON.stringify(opened.result));
+    await chromeOf(keyOf(project), 'sidebar');
+    await sleep(2500);
+    return opened;
+  }
+  // Back to what the later rows expect: a window, and a terminal that runs in it.
+  async function restoreProjectWindow(project) {
+    await clearProjectTerminals(project);
+    await openWindowAndSettle(project);
+    if (plainRowsOf(project).filter(function (row) { return row.state === 'running'; }).length === 0) {
+      const id = await inactivityManager().createSession(project.path, undefined, keyOf(project));
+      await waitForSessionState(id, 'running');
+      await settleInactivity();
+    }
+    expect(entryFor(project), project.name + ' has no window after the restore');
+  }
+  // A terminal that exists and runs BEFORE the project's window does, then that window opens.
+  async function startTerminalThenOpenWindow(project, withWatcher) {
+    const manager = inactivityManager();
+    await clearProjectTerminals(project);
+    const id = await manager.createSession(project.path, undefined, keyOf(project));
+    await waitForSessionState(id, 'running');
+    let watcherId = null;
+    if (withWatcher) {
+      watcherId = await manager.createSession(project.path, undefined, keyOf(project), watcherMeta);
+      await waitForSessionState(watcherId, 'running');
+    }
+    await settleInactivity();
+    expect(!entryFor(project), project.name + ' already had a window before its terminal ran');
+    await openWindowAndSettle(project);
+    const watcherRow = watcherId ? sessionRowsOf(project).find(function (row) { return row.id === watcherId; }) : null;
+    if (watcherId) expect(watcherRow && watcherRow.role === 'sync' && watcherRow.idlePolicy === 'never', 'the watcher row was ' + JSON.stringify(watcherRow));
+    return { id: id, watcherId: watcherId };
+  }
+  // Every OTHER plain terminal the window's own sidebar may have started sleeps first: the project
+  // must still count as running until the terminal the row names is the last one.
+  async function sleepOtherPlainTerminals(project, keepId) {
+    const manager = inactivityManager();
+    const others = plainRowsOf(project).filter(function (row) { return row.id !== keepId && row.state === 'running'; });
+    for (const row of others) {
+      const result = manager.sleepSession(row.id);
+      expect(result.ok === true, 'sleeping the sidebar terminal ' + row.id + ' returned ' + JSON.stringify(result));
+    }
+    if (others.length > 0) {
+      await settleInactivity();
+      expect(entryFor(project), project.name + ' closed while its terminal ' + keepId + ' still ran');
+    }
+    return others.length;
+  }
+
+  await check('window.project-window-closes-when-its-last-running-terminal-sleeps', async function () {
+    const manager = inactivityManager();
+    const started = await startTerminalThenOpenWindow(EPSILON, false);
+    // The window was opened after the terminal ran. Another window stays on screen, so this one is
+    // not the last visible window and nothing but the terminal's state can close it.
+    expect(entryFor(EPSILON).visible === true, 'the window of ' + EPSILON.name + ' is not on screen');
+    expect(entryFor(ALPHA) && entryFor(ALPHA).visible === true, 'no other project window is on screen');
+    const extra = await sleepOtherPlainTerminals(EPSILON, started.id);
+    const keysBeforeSleep = authority.snapshot().map(function (entry) { return entry.ownerKey; });
+    const slept = manager.sleepSession(started.id);
+    expect(slept && slept.ok === true, 'sleeping the last running terminal returned ' + JSON.stringify(slept));
+    await waitFor(function () { return !entryFor(EPSILON) && authority.hostForOwner(keyOf(EPSILON)) === null ? true : false; }, 'the window of ' + EPSILON.name + ' to close after its last terminal slept', 5000);
+    await waitFor(function () { return closeEventFor(EPSILON, 'terminals-stopped') ? true : false; }, 'the journal to record why ' + EPSILON.name + ' closed', 5000);
+    const survivors = authority.snapshot().map(function (entry) { return entry.ownerKey; });
+    observations.inactivityClose = { sidebarTerminalsSleptFirst: extra, remaining: survivors };
+    expect(entryFor(ALPHA) && entryFor(ALPHA).visible === true, 'the other window did not survive');
+    for (const key of keysBeforeSleep) {
+      if (key !== keyOf(EPSILON)) expect(survivors.indexOf(key) !== -1, key + ' closed with ' + EPSILON.name + ': ' + JSON.stringify(survivors));
+    }
+    expect(survivors.indexOf('unassigned') !== -1, 'the Terminal Manager closed');
+    const row = manager.listSessions().find(function (item) { return item.id === started.id; });
+    expect(row && row.state === 'sleeping', 'the terminal that slept is ' + JSON.stringify(row && row.state));
+  }, async function () { await restoreProjectWindow(EPSILON); });
+
+  await check('window.last-visible-project-window-stays-when-its-last-terminal-sleeps', async function () {
+    const manager = inactivityManager();
+    const started = await startTerminalThenOpenWindow(EPSILON, false);
+    await sleepOtherPlainTerminals(EPSILON, started.id);
+    // Every other window leaves the screen (hidden, never closed): this one is the only window a
+    // user can see, and ending it would end the application.
+    for (const entry of authority.snapshot()) {
+      if (entry.ownerKey === keyOf(EPSILON)) continue;
+      const win = authority.windowFor(entry.ownerKey);
+      expect(win && !win.isMinimized(), entry.ownerKey + ' is minimized, which still counts as on screen');
+      hiddenForLastWindow.push(win);
+      win.hide();
+    }
+    const onScreen = authority.snapshot().filter(function (entry) { return entry.visible === true; }).map(function (entry) { return entry.ownerKey; });
+    expect(JSON.stringify(onScreen) === JSON.stringify([keyOf(EPSILON)]), 'the windows still on screen were ' + JSON.stringify(onScreen));
+    const slept = manager.sleepSession(started.id);
+    expect(slept && slept.ok === true, 'sleeping the last running terminal returned ' + JSON.stringify(slept));
+    // The check runs 600 ms after the burst: an absence needs a real wait that outlasts it.
+    await sleep(2500);
+    expect(entryFor(EPSILON) && authority.windowFor(keyOf(EPSILON)) && !authority.windowFor(keyOf(EPSILON)).isDestroyed(), 'the last visible window closed with its terminal');
+    expect(authority.windowFor(keyOf(EPSILON)).isVisible() === true, 'the last visible window left the screen');
+    const row = manager.listSessions().find(function (item) { return item.id === started.id; });
+    expect(row && row.state === 'sleeping', 'the terminal that slept is ' + JSON.stringify(row && row.state));
+  }, async function () {
+    for (const win of hiddenForLastWindow.splice(0)) {
+      if (!win.isDestroyed()) win.showInactive();
+    }
+    await restoreProjectWindow(EPSILON);
+  });
+
+  await check('window.project-window-closes-when-only-a-sync-watcher-keeps-running', async function () {
+    const manager = inactivityManager();
+    const started = await startTerminalThenOpenWindow(GAMMA, true);
+    expect(entryFor(ALPHA) && entryFor(ALPHA).visible === true, 'no other project window is on screen');
+    // The watcher refuses to sleep: it is infrastructure the app keeps alive, not work.
+    const refused = manager.sleepSession(started.watcherId);
+    expect(refused && refused.ok === false && refused.reason === 'SLEEP_REFUSED_WATCHER', 'sleeping the watcher returned ' + JSON.stringify(refused));
+    await sleepOtherPlainTerminals(GAMMA, started.id);
+    const slept = manager.sleepSession(started.id);
+    expect(slept && slept.ok === true, 'sleeping the plain terminal returned ' + JSON.stringify(slept));
+    await waitFor(function () { return !entryFor(GAMMA) && authority.hostForOwner(keyOf(GAMMA)) === null ? true : false; }, 'the window of ' + GAMMA.name + ' to close while only its watcher runs', 5000);
+    const watcher = sessionRowsOf(GAMMA).find(function (row) { return row.id === started.watcherId; });
+    expect(watcher && watcher.state === 'running', 'the watcher is ' + JSON.stringify(watcher && watcher.state) + ': closing the window must leave it running');
+    expect(entryFor(ALPHA) && entryFor(BETA), 'another window closed with it');
+  }, async function () { await restoreProjectWindow(GAMMA); });
+
+  await check('window.project-window-whose-only-terminals-are-sync-watchers-stays-open', async function () {
+    const manager = inactivityManager();
+    await clearProjectTerminals(BETA);
+    const watcherId = await manager.createSession(BETA.path, undefined, keyOf(BETA), watcherMeta);
+    await waitForSessionState(watcherId, 'running');
+    await settleInactivity();
+    await openWindowAndSettle(BETA);
+    const plain = plainRowsOf(BETA);
+    expect(plain.length === 0, 'the window started a plain terminal of its own, so it is not watcher-only: ' + JSON.stringify(plain));
+    // A real wait: the claim is that nothing happens, and an event that never comes cannot be awaited.
+    await sleep(2500);
+    expect(entryFor(BETA), 'the window with only a watcher closed');
+    const watcher = sessionRowsOf(BETA).find(function (row) { return row.id === watcherId; });
+    expect(watcher && watcher.state === 'running', 'the watcher is ' + JSON.stringify(watcher && watcher.state));
+  }, async function () { await restoreProjectWindow(BETA); });
+
+  await check('window.terminal-manager-close-closes-windows-of-projects-with-only-sleeping-terminals', async function () {
+    const manager = inactivityManager();
+    const restoreManager = async function () {
+      if (!entryOf(authority.snapshot(), 'unassigned')) {
+        const item = findMenuItem(Menu.getApplicationMenu(), 'Cửa sổ Terminal chung (Shared Terminal Manager)');
+        expect(item && item.enabled === true, 'the Terminal menu cannot reopen the manager');
+        item.click(item, authority.windowFor(keyOf(ALPHA)), {});
+        await waitFor(function () {
+          const entry = entryOf(authority.snapshot(), 'unassigned');
+          return entry && entry.visible === true ? entry : false;
+        }, 'the Terminal Manager to come back');
+      }
+    };
+    try {
+      // Y (BETA): terminals that only sleep. They slept while the window did not exist, so no
+      // running -> not running edge was ever seen with a window to close.
+      await clearProjectTerminals(BETA);
+      const sleeperId = await manager.createSession(BETA.path, undefined, keyOf(BETA));
+      await waitForSessionState(sleeperId, 'running');
+      const parked = manager.sleepSession(sleeperId);
+      expect(parked && parked.ok === true, 'sleeping the terminal of ' + BETA.name + ' returned ' + JSON.stringify(parked));
+      await waitForSessionState(sleeperId, 'sleeping');
+      await settleInactivity();
+      await openWindowAndSettle(BETA);
+      // The never-seen-running rule: the window outlives the debounce and the sidebar's start.
+      expect(entryFor(BETA), 'the window of a project that never ran closed on open');
+      const runningPlain = plainRowsOf(BETA).filter(function (row) { return row.state === 'running'; });
+      expect(runningPlain.length === 0, 'the window started a running terminal, so ' + BETA.name + ' is not sleeping-only: ' + JSON.stringify(runningPlain));
+
+      // Z (GAMMA): a window whose only terminal is a sync watcher is not a project with terminals.
+      await clearProjectTerminals(GAMMA);
+      const watcherId = await manager.createSession(GAMMA.path, undefined, keyOf(GAMMA), watcherMeta);
+      await waitForSessionState(watcherId, 'running');
+      await settleInactivity();
+      await openWindowAndSettle(GAMMA);
+      expect(entryFor(GAMMA), 'the watcher-only window closed on open');
+      expect(plainRowsOf(GAMMA).length === 0, 'the window of ' + GAMMA.name + ' started a plain terminal: ' + JSON.stringify(plainRowsOf(GAMMA)));
+
+      // R (ALPHA): a project that runs, so a live window must outlast the manager.
+      if (plainRowsOf(ALPHA).filter(function (row) { return row.state === 'running'; }).length === 0) {
+        const runningId = await manager.createSession(ALPHA.path, undefined, keyOf(ALPHA));
+        await waitForSessionState(runningId, 'running');
+        await settleInactivity();
+      }
+      const keysBefore = authority.snapshot().map(function (entry) { return entry.ownerKey; });
+
+      const managerHost = authority.hostForOwner('unassigned');
+      if (managerHost) managerHost.setAutomationTabId(undefined);
+      await closeWindowAndWait('unassigned');
+
+      await waitFor(function () { return !entryFor(BETA) && authority.hostForOwner(keyOf(BETA)) === null ? true : false; }, 'the window of ' + BETA.name + ' (sleeping terminals only) to close with the Terminal Manager', 8000);
+      await settleInactivity();
+      observations.inactivityManagerClose = {
+        before: keysBefore,
+        after: authority.snapshot().map(function (entry) { return entry.ownerKey; }),
+      };
+      expect(entryFor(GAMMA), 'the window with only a watcher closed with the Terminal Manager');
+      expect(entryFor(ALPHA), 'the window of the running project closed with the Terminal Manager');
+      expect(app.isReady() === true, 'the app is no longer ready');
+      const row = manager.listSessions().find(function (item) { return item.id === sleeperId; });
+      expect(row && row.state === 'sleeping', 'closing the window changed the sleeping terminal to ' + JSON.stringify(row && row.state));
+      await waitFor(function () { return closeEventFor(BETA, 'terminal-manager-closed') ? true : false; }, 'the journal to record why ' + BETA.name + ' closed', 5000);
+      expect(!closeEventFor(GAMMA, 'terminal-manager-closed') && !closeEventFor(ALPHA, 'terminal-manager-closed'), 'the closer reported closing a window that must stay: ' + JSON.stringify(inactivityEvents()));
+    } finally {
+      await restoreManager();
+    }
+  }, async function () {
+    observations.inactivityJournal = inactivityEvents().map(function (record) { return { iso: record.iso, projectId: record.projectId, reason: record.reason }; });
+    // The manager is back (the row's own finally), now every project gets its window and a
+    // running terminal again: the Terminal Manager close that follows expects all five.
+    for (const project of PROJECTS) {
+      if (project === ALPHA) continue;
+      if (project === DELTA) {
+        if (!entryFor(DELTA)) await openProjectFromSidebar(DELTA);
+        continue;
+      }
+      await restoreProjectWindow(project);
     }
   });
 
