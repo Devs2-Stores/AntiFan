@@ -4200,6 +4200,12 @@ async function createWindow(): Promise<void> {
         (await ensureProjectWindow({ kind: 'project', projectId }, visible ? 'agent-visible' : 'agent')).created,
       journal: recordLifecycleEvent,
     }),
+    // Real web work (a tab on a real URL, a navigation) shows the window that holds the tab
+    // without taking focus; a window already on screen is left exactly as it is.
+    surfaceTabWindow: (tabId) => {
+      const shell = tabAuthorities.shellForTab(tabId);
+      if (shell && !shellIsOnScreen(shell)) presentShellUnfocused(shell);
+    },
     closeTab: (tabId, source) => hostForTabOrBootstrap(tabId).closeTab(tabId, source),
     switchTab: (tabId, opts) => hostForTabOrBootstrap(tabId).switchTab(tabId, opts),
     trySwitchTab: (tabId, opts) => hostForTabOrBootstrap(tabId).trySwitchTab(tabId, opts),
@@ -4209,13 +4215,13 @@ async function createWindow(): Promise<void> {
     // a genuine NAVIGATION_* miss serializes as TARGET_STALE (the retired blanket
     // code) because the composite itself keeps no record map.
     getLastNavigationFailure: (tabId) => hostForTabOrBootstrap(tabId).getLastNavigationFailure(tabId),
+    getRedirectChain: (tabId) => hostForTabOrBootstrap(tabId).getRedirectChain(tabId),
     reload: (tabId: string, options?: { ownedReloadToken?: string }) => hostForTabOrBootstrap(tabId).reloadAndWait(tabId, undefined, options),
     reloadAndWait: (tabId: string, timeoutMs?: number, options?: { ownedReloadToken?: string }) => hostForTabOrBootstrap(tabId).reloadAndWait(tabId, timeoutMs, options),
     getTabDebugger: (tabId: string) => {
       const wc = hostForTabOrBootstrap(tabId).getTabWebContents(tabId, 'desktop');
       return wc && !wc.isDestroyed() ? wc.debugger : undefined;
     },
-    getRedirectChain: (tabId) => hostForTabOrBootstrap(tabId).getRedirectChain(tabId),
     getDom: (selector, tabId, paneId) => hostForTabOrBootstrap(tabId).getDom(selector, tabId, paneId),
     captureScreenshot: (rect, tabId, paneId, options) => hostForTabOrBootstrap(tabId).captureScreenshot(rect as Electron.Rectangle | undefined, tabId, paneId, options),
     captureVerificationScreenshot: (rect, tabId, paneId, options) => hostForTabOrBootstrap(tabId).captureVerificationScreenshot(rect as Electron.Rectangle | undefined, tabId, paneId, options),
@@ -4284,12 +4290,6 @@ async function createWindow(): Promise<void> {
       : hostForTabOrBootstrap(tabId).endTrackerIsolation(tabId, paneId).then((receipt) => (receipt.released
         ? { active: false, reason: receipt.reason }
         : { active: true, reason: receipt.reason }))),
-    // Real web work (a tab on a real URL, a navigation) shows the window that holds the tab
-    // without taking focus; a window already on screen is left exactly as it is.
-    surfaceTabWindow: (tabId) => {
-      const shell = tabAuthorities.shellForTab(tabId);
-      if (shell && !shellIsOnScreen(shell)) presentShellUnfocused(shell);
-    },
     // Forward every filter the port contract declares: dropping selector/viewportOnly here
     // silently turned a scoped snapshot into a whole-document one.
     agentSnapshot: (tabId, paneId, selector, viewportOnly) => hostForTabOrBootstrap(tabId).agentSnapshot(tabId, paneId, selector, viewportOnly),
