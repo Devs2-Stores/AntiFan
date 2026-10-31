@@ -45,6 +45,16 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 - `evaluate` có cờ `truncated` khi kết quả bị cắt.
 - Giảm lag terminal: gói `terminal:activity` được gộp theo cửa sổ 100 ms (đầu và cuối) cho mỗi bề mặt và phiên, giữ `fromSeq` của gói đầu; thanh công cụ bỏ qua khung trạng thái giống hệt khung đã giao (khung mang `stateSeq`, renderer bỏ khung cũ hơn trạng thái ban đầu).
 
+### Sửa — Google Sheet
+
+- **BREAKING:** `anti.sheet.write_cell` trả `success:false` khi `SAVED_UNCONFIRMED` (công thức được editor xác nhận vẫn `success:true` với `FORMULA_EDITOR_CONFIRMED`). Tab ẩn thêm `tabHidden` và gợi ý `tabs.activate {restoreWindow:true}`.
+- Đọc GViz bỏ qua cache (`no-store` + nonce). Vùng được bảo vệ trả `SHEET_PROTECTED_RANGE`.
+- Capability mới `anti.sheet.write_range` (ghi tuần tự từng ô, dừng ở ô đầu tiên chưa xác nhận) và `anti.sheet.find_rows` (tìm hàng theo nội dung, trả số hàng).
+
+### Đổi — Ma sát schema
+
+- `tabs.list` nhận `tabId` trong `fields` và thông báo lỗi liệt kê field hợp lệ; `browser.wait` tự suy `condition` từ `selector`/`ref`/`url`/`urlPattern`/`minGeneration`; bước sequence nhận `action` thay cho `type`; `anti.browser.dialog` mặc định `action: get`; `await_cdn_sync` nhận `asset`; `theme.settings_check` trả `scanned` và `ok:false` khi không quét được file nào.
+
 ### Thêm — Leader và cầu nối Core
 
 - `terminal.close {removeMintedProject:true}` dọn project scratch do chính lần đặt terminal của Leader tạo ra (chỉ trong thư mục scratch của Leader); `terminal.create` trả `minted`. Từ chối nếu project có cửa sổ đang mở, có tab đã lưu, đã được user tùy biến, gắn thư mục ngoài scratch hoặc dùng chung (`PROJECT_WINDOW_OPEN`, `PROJECT_HAS_SAVED_TABS`, `PROJECT_CUSTOMIZED`, `PROJECT_ATTACHES_NON_SCRATCH_FOLDER`, `PROJECT_NOT_EXCLUSIVE`); đọc lỗi thì cũng từ chối.

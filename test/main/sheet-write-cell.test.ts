@@ -1,215 +1,14 @@
 // anti.sheet.write_cell drives Google Sheets through trusted input. These tests run the real capability
-// against a DOM fixture of the editor (Name Box input + formula bar) whose fake host behaves like the
-// sheet: Enter in the Name Box selects a cell, Enter in the formula bar commits the typed value.
-import { describe, it, mock } from 'node:test';
-import { setImmediate as nextTurn } from 'node:timers/promises';
+// against the DOM fixture of the editor in sheet-fixture.ts (Name Box input + formula bar) whose fake host
+// behaves like the sheet: Enter in the Name Box selects a cell, Enter in the formula bar commits the typed value.
+import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
 import * as path from 'node:path';
 import { createRequire } from 'node:module';
-import { CapabilityCatalogue } from '../../src/main/tools/capability-catalogue';
-import { registerBrowserCapabilities } from '../../src/main/tools/browser-capabilities';
-import { BrowserControlPort, BrowserHostPort } from '../../src/main/tools/browser-control-port';
-// @ts-ignore jsdom ships no type declarations (same as mcp-agent-surface-fidelity.test.ts)
-import { JSDOM } from 'jsdom';
-import { BrowserTarget, CapabilityError, issueRuntimeLease, makeControlPlaneId } from '../../src/shared/control-plane-contracts';
 import { committedValueMatches } from '../../src/main/tools/sheet-capabilities';
+import { makeSheet, refusal, withFakeTime } from './sheet-fixture';
 
 const requireFromHere = createRequire(__filename);
-
-const SHEET_URL = 'https://docs.google.com/spreadsheets/d/1AbCdEfGhIjKlMnOp/edit#gid=0';
-
-interface SheetOptions {
-  url?: string;
-  grid?: Record<string, string>;
-  /** The Name Box shows this instead of the typed cell after Enter (a selection that did not take). */
-  nameBoxShowsAfterEnter?: string;
-  /** What the sheet stores when the typed value is committed. */
-  commitTransform?: (typed: string) => string;
-  nameBoxDisabled?: boolean;
-  withoutFormulaBar?: boolean;
-  /** Enter in the formula bar leaves the draft in the editor and never stores it (the commit did not take). */
-  draftSticksInFormulaBar?: boolean;
-  /** GViz answers with this HTTP status instead of CSV. */
-  gvizStatus?: number;
-  /** GViz serves the pre-commit grid for this many reads (autosave lag). */
-  gvizLagReads?: number;
-  /** GViz always serves exactly this grid (another writer's value, or a stale snapshot that never moves). */
-  gvizAlways?: Record<string, string>;
-  /** GViz serves the stored grid until the formula bar commits, then exactly this grid (another writer saved a different value meanwhile). */
-  gvizAfterCommit?: Record<string, string>;
-  /** Alt+Enter in the formula bar inserts nothing: the editor swallowed the line break. */
-  altEnterIgnored?: boolean;
-  /** Runs while a value is being typed into the formula bar. */
-  onFormulaBarType?: () => void;
-}
-
-function makeSheet(options: SheetOptions = {}) {
-  const html = `<!doctype html><html><body>
-    <input id="t-name-box" value="A1"${options.nameBoxDisabled ? ' disabled' : ''}>
-    ${options.withoutFormulaBar ? '' : '<div id="t-formula-bar-input" contenteditable="true"></div>'}
-  </body></html>`;
-  const dom = new JSDOM(html, { url: options.url ?? SHEET_URL, runScripts: 'outside-only' });
-  const doc = dom.window.document;
-  const grid: Record<string, string> = { ...(options.grid ?? {}) };
-  const draft: Record<string, string> = {};
-  let preCommitGrid: Record<string, string> = { ...grid };
-  let gvizReadsAfterCommit = 0;
-  let commitPressed = false;
-  let selected = 'A1';
-  let focusedSelector = '';
-  const calls: Array<{ kind: 'click' | 'type' | 'key' | 'fetch'; selector?: string; text?: string; key?: string; modifiers?: string[]; clear?: boolean }> = [];
-
-  const setText = (selector: string, text: string): void => {
-    const el = doc.querySelector(selector) as (HTMLInputElement & HTMLElement) | null;
-    if (!el) return;
-    if (el.tagName === 'INPUT') el.value = text;
-    else el.textContent = text;
-  };
-  const showSelection = (): void => {
-    setText('#t-name-box', selected);
-    setText('#t-formula-bar-input', draft[selected] ?? grid[selected] ?? '');
-  };
-  showSelection();
-
-  const csvOf = (cells: Record<string, string>): string => {
-    const parsed = Object.entries(cells).map(([address, text]) => {
-      const m = /^([A-Z]+)([0-9]+)$/.exec(address)!;
-      let col = 0;
-      for (const ch of m[1] ?? '') col = col * 26 + (ch.charCodeAt(0) - 64);
-      return { row: Number(m[2]), col, text };
-    });
-    const maxRow = Math.max(1, ...parsed.map((p) => p.row));
-    const maxCol = Math.max(1, ...parsed.map((p) => p.col));
-    const quote = (text: string): string => (/[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text);
-    const lines: string[] = [];
-    for (let r = 1; r <= maxRow; r += 1) {
-      const fields: string[] = [];
-      for (let c = 1; c <= maxCol; c += 1) fields.push(quote(parsed.find((p) => p.row === r && p.col === c)?.text ?? ''));
-      lines.push(fields.join(','));
-    }
-    return lines.join('\n');
-  };
-  (dom.window as unknown as { fetch: unknown }).fetch = async (url: string) => {
-    calls.push({ kind: 'fetch', text: String(url) });
-    if (commitPressed) gvizReadsAfterCommit += 1;
-    if (options.gvizStatus !== undefined) return { ok: false, status: options.gvizStatus, text: async () => '' };
-    const served = options.gvizAlways ?? (commitPressed && options.gvizAfterCommit ? options.gvizAfterCommit : gvizReadsAfterCommit <= (options.gvizLagReads ?? 0) && commitPressed ? preCommitGrid : grid);
-    return { ok: true, status: 200, text: async () => csvOf(served) };
-  };
-
-  const host = {
-    navigate: () => true,
-    reload: () => true,
-    getDom: async () => '<html></html>',
-    captureScreenshot: async () => 'data:image/png;base64,mock',
-    getTabList: () => [{ id: 'tab-sheet' }],
-    hasTab: (id: string) => id === 'tab-sheet',
-    evalJs: async (expr: string) => JSON.parse(JSON.stringify(await dom.window.eval(expr))),
-    agentClick: async ({ selector }: { selector?: string }) => {
-      calls.push({ kind: 'click', selector });
-      focusedSelector = selector ?? '';
-      return true;
-    },
-    agentType: async ({ selector, text, clear }: { selector?: string; text: string; clear?: boolean }) => {
-      calls.push({ kind: 'type', selector, text, clear });
-      const el = doc.querySelector(selector ?? '') as (HTMLInputElement & HTMLElement) | null;
-      const current = el ? (el.tagName === 'INPUT' ? el.value : (el.textContent ?? '')) : '';
-      setText(selector ?? '', clear === false ? current + text : text);
-      if (selector === '#t-formula-bar-input') options.onFormulaBarType?.();
-      return true;
-    },
-    sendKeyboardPress: async ({ key, modifiers }: { key: string; modifiers?: string[] }) => {
-      calls.push({ kind: 'key', key, modifiers });
-      if (key === 'Enter' && focusedSelector === '#t-name-box') {
-        selected = (doc.querySelector('#t-name-box') as HTMLInputElement).value.toUpperCase();
-        showSelection();
-        if (options.nameBoxShowsAfterEnter !== undefined) setText('#t-name-box', options.nameBoxShowsAfterEnter);
-      } else if (key === 'Enter' && modifiers?.includes('Alt') && focusedSelector === '#t-formula-bar-input') {
-        if (!options.altEnterIgnored) setText('#t-formula-bar-input', `${doc.querySelector('#t-formula-bar-input')!.textContent ?? ''}\n`);
-      } else if (key === 'Enter' && focusedSelector === '#t-formula-bar-input') {
-        const typed = doc.querySelector('#t-formula-bar-input')!.textContent ?? '';
-        commitPressed = true;
-        if (options.draftSticksInFormulaBar) {
-          draft[selected] = typed;
-        } else {
-          preCommitGrid = { ...grid };
-          grid[selected] = options.commitTransform ? options.commitTransform(typed) : typed;
-        }
-      } else if (key === 'Escape' && focusedSelector === '#t-formula-bar-input') {
-        setText('#t-formula-bar-input', draft[selected] ?? grid[selected] ?? '');
-      }
-      return { success: true, key, modifiers: modifiers ?? [] };
-    },
-  } as unknown as BrowserHostPort;
-
-  const projectId = makeControlPlaneId('project');
-  const workspaceId = makeControlPlaneId('workspace');
-  const lease = issueRuntimeLease(projectId, workspaceId, 30_000, 1);
-  const target: BrowserTarget = { tabId: 'tab-sheet', browserEpoch: 1, documentGeneration: 1, runtimeId: lease.runtimeId, projectId, workspaceId };
-  const catalogue = new CapabilityCatalogue({
-    runtime: { mode: 'standalone', lifecycle: 'active' },
-    projectId,
-    workspaceId,
-    runtimeId: lease.runtimeId,
-    hostEpoch: 1,
-    resolveTabId: (id) => (id === 'tab-sheet' ? 'tab-sheet' : undefined),
-    isTabAllowed: () => true,
-    getDocumentGeneration: () => 1,
-  });
-  const port = new BrowserControlPort(host);
-  const keyPresses: Array<{ key: string; modifiers: string[]; signalAborted: boolean | undefined }> = [];
-  const pressKey = port.keyboardPress.bind(port);
-  port.keyboardPress = (args, keyTarget, keySignal) => {
-    keyPresses.push({ key: args.key, modifiers: args.modifiers ?? [], signalAborted: keySignal?.aborted });
-    return pressKey(args, keyTarget, keySignal);
-  };
-  registerBrowserCapabilities(catalogue, port);
-  const write = (params: Record<string, unknown>, context: { signal?: AbortSignal } = {}) =>
-    catalogue.dispatch('anti.sheet.write_cell', { tabId: 'tab-sheet', ...params }, { lease, leaseToken: lease.token, projectId, workspaceId, browserTarget: target, grant: 'write', ...context }) as Promise<Record<string, unknown>>;
-  const typedIntoFormulaBar = () => calls.filter((c) => c.kind === 'type' && c.selector === '#t-formula-bar-input');
-  const fetchedUrls = () => calls.filter((c) => c.kind === 'fetch').map((c) => c.text as string);
-  /** What reached the formula bar from the first click on it: the typed segments and the keys pressed. */
-  const formulaBarSteps = (): string[] => {
-    const from = calls.findIndex((c) => c.kind === 'click' && c.selector === '#t-formula-bar-input');
-    return calls
-      .slice(from + 1)
-      .filter((c) => (c.kind === 'type' && c.selector === '#t-formula-bar-input') || c.kind === 'key')
-      .map((c) => (c.kind === 'type' ? `type:${c.text}` : `${c.modifiers?.length ? `${c.modifiers.join('+')}+` : ''}${c.key}`));
-  };
-  return { catalogue, grid, calls, keyPresses, write, typedIntoFormulaBar, fetchedUrls, formulaBarSteps };
-}
-
-async function refusal(promise: Promise<unknown>): Promise<CapabilityError> {
-  try {
-    await promise;
-  } catch (err) {
-    assert.ok(err instanceof CapabilityError, `expected a CapabilityError, got ${String(err)}`);
-    return err;
-  }
-  assert.fail('the call was expected to be refused');
-}
-
-/**
- * Runs `run` with fake timers and a fake clock, advancing both as the capability sleeps between GViz reads,
- * so a read-back window of many seconds costs no wall time.
- */
-async function withFakeTime<T>(run: () => Promise<T>): Promise<T> {
-  mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.now() });
-  try {
-    let done = false;
-    const result = run().finally(() => {
-      done = true;
-    });
-    result.catch(() => undefined);
-    while (!done) {
-      await nextTurn();
-      mock.timers.tick(250);
-    }
-    return await result;
-  } finally {
-    mock.timers.reset();
-  }
-}
 
 describe('anti.sheet.write_cell', () => {
   it('writes the cell, confirms the selection first and returns the previous and read-back value', async () => {
@@ -341,7 +140,7 @@ describe('anti.sheet.write_cell', () => {
   it('returns SAVED_UNCONFIRMED, not an error, when the sheet still shows the previous value after the confirm window', async () => {
     const sheet = makeSheet({ grid: { G53: 'old' }, draftSticksInFormulaBar: true });
     const res = await sheet.write({ cell: 'G53', value: 'new', confirmTimeoutMs: 100 });
-    assert.strictEqual(res.success, true);
+    assert.strictEqual(res.success, false, 'an unconfirmed write must not read as a success');
     assert.strictEqual(res.verified, false);
     assert.strictEqual(res.status, 'SAVED_UNCONFIRMED');
     assert.strictEqual(res.committed, 'unknown');
@@ -356,6 +155,7 @@ describe('anti.sheet.write_cell', () => {
   it('polls the spreadsheet for the whole confirm window, with a growing delay, before giving up', async () => {
     const sheet = makeSheet({ grid: { G53: 'old' }, draftSticksInFormulaBar: true });
     const res = await withFakeTime(() => sheet.write({ cell: 'G53', value: 'new', confirmTimeoutMs: 4_000 }));
+    assert.strictEqual(res.success, false);
     assert.strictEqual(res.status, 'SAVED_UNCONFIRMED');
     assert.ok((res.attempts as number) >= 4, `attempts ${String(res.attempts)}`);
     assert.ok((res.waitedMs as number) >= 4_000, `waitedMs ${String(res.waitedMs)}`);
@@ -375,6 +175,7 @@ describe('anti.sheet.write_cell', () => {
   it('treats an empty read-back of an empty previous cell as not yet saved, not as a failure', async () => {
     const sheet = makeSheet({ draftSticksInFormulaBar: true });
     const res = await sheet.write({ cell: 'C3', value: 'x', confirmTimeoutMs: 0 });
+    assert.strictEqual(res.success, false);
     assert.strictEqual(res.status, 'SAVED_UNCONFIRMED');
     assert.strictEqual(res.observed, '');
     assert.strictEqual(res.attempts, 1);
@@ -394,6 +195,7 @@ describe('anti.sheet.write_cell', () => {
     // The formula bar holds "=SUM(A1:A2)" (the previous value) while GViz serves the evaluated "3" before and after.
     const sheet = makeSheet({ grid: { B2: '=SUM(A1:A2)' }, draftSticksInFormulaBar: true, gvizAlways: { B2: '3' } });
     const res = await sheet.write({ cell: 'B2', value: 'new', confirmTimeoutMs: 0 });
+    assert.strictEqual(res.success, false);
     assert.strictEqual(res.status, 'SAVED_UNCONFIRMED');
     assert.strictEqual(res.verified, false);
     assert.strictEqual(res.observed, '3');
@@ -403,6 +205,7 @@ describe('anti.sheet.write_cell', () => {
   it('returns SAVED_UNCONFIRMED when a formatted number still shows its display text, and still refuses once GViz moves to a different value', async () => {
     const stale = makeSheet({ grid: { C3: '1234.5' }, draftSticksInFormulaBar: true, gvizAlways: { C3: '$1,234.50' } });
     const res = await stale.write({ cell: 'C3', value: 'new', confirmTimeoutMs: 0 });
+    assert.strictEqual(res.success, false);
     assert.strictEqual(res.status, 'SAVED_UNCONFIRMED');
     assert.strictEqual(res.observed, '$1,234.50');
     const moved = makeSheet({ grid: { C3: '1234.5' }, draftSticksInFormulaBar: true, gvizAfterCommit: { C3: '$9.99' } });
@@ -414,6 +217,7 @@ describe('anti.sheet.write_cell', () => {
   it('returns SAVED_UNCONFIRMED when GViz is unreachable, with the HTTP status and no observed value', async () => {
     const sheet = makeSheet({ gvizStatus: 403 });
     const res = await sheet.write({ cell: 'B2', value: 'new', confirmTimeoutMs: 0 });
+    assert.strictEqual(res.success, false);
     assert.strictEqual(res.status, 'SAVED_UNCONFIRMED');
     assert.strictEqual(res.reason, 'gviz-unreadable');
     assert.strictEqual(res.observed, null);
@@ -512,9 +316,65 @@ describe('anti.sheet.write_cell', () => {
   it('does not claim a formula was verified: its GViz value is the evaluated result', async () => {
     const sheet = makeSheet({ grid: { B2: '1' } });
     const res = await sheet.write({ cell: 'B2', value: '=SUM(A2:A3)' });
-    assert.strictEqual(res.success, true);
+    assert.strictEqual(res.success, true, 'the editor confirmed the formula text');
     assert.strictEqual(res.verified, false);
+    assert.strictEqual(res.status, 'FORMULA_EDITOR_CONFIRMED');
     assert.strictEqual(res.reason, 'formula-not-comparable');
+  });
+
+  it('reads GViz with the HTTP cache bypassed and a different nonce on every read', async () => {
+    const sheet = makeSheet({ grid: { B2: 'old' }, gvizLagReads: 1 });
+    const res = await sheet.write({ cell: 'B2', value: 'new' });
+    assert.strictEqual(res.verified, true);
+    const fetches = sheet.calls.filter((c) => c.kind === 'fetch');
+    assert.ok(fetches.length >= 3);
+    for (const fetched of fetches) {
+      // The object was built inside the jsdom realm, so compare its JSON rather than its prototype.
+      assert.strictEqual(JSON.stringify(fetched.init), JSON.stringify({ credentials: 'include', cache: 'no-store' }));
+    }
+    const nonces = fetches.map((c) => /[?&]_=([a-z0-9]+)$/.exec(c.text as string)?.[1]);
+    assert.ok(nonces.every((n) => typeof n === 'string' && n.length >= 8), `nonces ${nonces.join()}`);
+    assert.strictEqual(new Set(nonces).size, nonces.length, 'a nonce is never reused, so no cached copy can answer a later read');
+  });
+
+  it('flags a hidden tab on an unconfirmed write and points at tabs.activate with restoreWindow', async () => {
+    const hidden = makeSheet({ grid: { G53: 'old' }, draftSticksInFormulaBar: true, visibilityState: 'hidden' });
+    const res = await hidden.write({ cell: 'G53', value: 'new', confirmTimeoutMs: 0 });
+    assert.strictEqual(res.success, false);
+    assert.strictEqual(res.status, 'SAVED_UNCONFIRMED');
+    assert.strictEqual(res.tabHidden, true);
+    assert.match(String(res.recovery), /tabs\.activate/);
+    assert.match(String(res.recovery), /restoreWindow/);
+
+    const visible = makeSheet({ grid: { G53: 'old' }, draftSticksInFormulaBar: true, visibilityState: 'visible' });
+    const shown = await visible.write({ cell: 'G53', value: 'new', confirmTimeoutMs: 0 });
+    assert.strictEqual(shown.tabHidden, false);
+    assert.strictEqual(shown.recovery, undefined);
+  });
+
+  it('reports SHEET_PROTECTED_RANGE when Sheets raises its protected-cell dialog, dismisses it and stores nothing', async () => {
+    const sheet = makeSheet({ grid: { B2: 'locked' }, protectedCells: ['B2'] });
+    const err = await refusal(sheet.write({ cell: 'B2', value: 'new' }));
+    assert.strictEqual(err.code, 'SHEET_PROTECTED_RANGE');
+    assert.strictEqual(err.details?.cell, 'B2');
+    assert.strictEqual(err.details?.previous, 'locked');
+    assert.match(String(err.details?.dialogText), /protected cell/);
+    assert.strictEqual(sheet.grid.B2, 'locked');
+    assert.ok(sheet.keyPresses.some((k) => k.key === 'Escape'), 'the dialog is dismissed with Escape');
+    const again = await sheet.write({ cell: 'C3', value: 'free' });
+    assert.strictEqual(again.verified, true, 'the editor is usable after the dismissed dialog');
+  });
+
+  it('recognises the Vietnamese protected-range dialog', async () => {
+    const sheet = makeSheet({ grid: { B2: 'khoa' }, protectedCells: ['B2'], protectedDialogText: 'Bạn đang cố chỉnh sửa một ô hoặc đối tượng được bảo vệ.' });
+    const err = await refusal(sheet.write({ cell: 'B2', value: 'moi' }));
+    assert.strictEqual(err.code, 'SHEET_PROTECTED_RANGE');
+  });
+
+  it('does not mistake an unrelated dialog for a protected range', async () => {
+    const sheet = makeSheet({ grid: { B2: 'old' }, unrelatedDialogText: 'Share this document with collaborators' });
+    const res = await sheet.write({ cell: 'B2', value: 'new' });
+    assert.strictEqual(res.verified, true);
   });
 });
 

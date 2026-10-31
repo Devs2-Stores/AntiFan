@@ -4,7 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { BrowserTarget, CapabilityRequestContext, AuthenticatedCapabilityContext, CapabilityError, CapabilityEffectPolicyInput, CapabilityRisk, ReceiptBinding, digestText } from '../../shared/control-plane-contracts';
 import { parseCookieJarParam } from '../browser/cookie-jar';
-import { BrowserControlPort, BrowserWaitParams, buildRefLookupExpression, ResponsiveBreakpointOption, VISUAL_COMPARE_EXECUTION_BUDGET_MS, VISUAL_COMPARE_CANCELLATION_ACK_MS, FULL_PAGE_CAPTURE_EXECUTION_BUDGET_MS, FULL_PAGE_CAPTURE_CANCELLATION_ACK_MS, VIEWPORT_CAPTURE_EXECUTION_BUDGET_MS, VIEWPORT_CAPTURE_CANCELLATION_ACK_MS, REFERENCE_CAPTURE_EXECUTION_BUDGET_MS, REFERENCE_CAPTURE_CANCELLATION_ACK_MS, BROWSER_WAIT_INVOCATION_BUDGET_MS, BROWSER_WAIT_MAX_TIMEOUT_MS, BROWSER_EVAL_INVOCATION_BUDGET_MS, BROWSER_EVAL_MAX_TIMEOUT_MS } from './browser-control-port';
+import { BrowserControlPort, BrowserWaitCondition, BrowserWaitParams, buildRefLookupExpression, ResponsiveBreakpointOption, VISUAL_COMPARE_EXECUTION_BUDGET_MS, VISUAL_COMPARE_CANCELLATION_ACK_MS, FULL_PAGE_CAPTURE_EXECUTION_BUDGET_MS, FULL_PAGE_CAPTURE_CANCELLATION_ACK_MS, VIEWPORT_CAPTURE_EXECUTION_BUDGET_MS, VIEWPORT_CAPTURE_CANCELLATION_ACK_MS, REFERENCE_CAPTURE_EXECUTION_BUDGET_MS, REFERENCE_CAPTURE_CANCELLATION_ACK_MS, BROWSER_WAIT_INVOCATION_BUDGET_MS, BROWSER_WAIT_MAX_TIMEOUT_MS, BROWSER_EVAL_INVOCATION_BUDGET_MS, BROWSER_EVAL_MAX_TIMEOUT_MS } from './browser-control-port';
 import { CapabilityCatalogue } from './capability-catalogue';
 import { resolveCallerWorkspaceRoot } from './file-capabilities';
 import { PlatformDetector } from '../qa/scanners/platform-detector';
@@ -944,6 +944,7 @@ function sequenceStepsSchema(description?: string): Record<string, unknown> {
       type: 'object',
       properties: {
         type: { type: 'string', enum: SEQUENCE_ACTION_TYPES },
+        action: { type: 'string', enum: SEQUENCE_ACTION_TYPES, description: 'Alias of type' },
         url: { type: 'string' },
         ref: { type: 'string' },
         selector: { type: 'string' },
@@ -962,7 +963,7 @@ function sequenceStepsSchema(description?: string): Record<string, unknown> {
         format: { type: 'string', enum: ['jpeg', 'png'] },
         quality: { type: 'number' },
       },
-      required: ['type'],
+      anyOf: [{ required: ['type'] }, { required: ['action'] }],
     },
     ...(description ? { description } : {}),
   };
@@ -991,7 +992,10 @@ type SequenceParams = {
   stopOnError?: boolean;
 };
 
-/** Folds the `steps` alias into `actions`; supplying both forms is ambiguous and refused. */
+/**
+ * Folds the `steps` alias into `actions` and each step's `action` alias into `type`. Supplying both
+ * spellings of the same field is ambiguous and refused.
+ */
 function normalizeSequenceParams(capability: string, params: SequenceParams): {
   actions: Array<Record<string, unknown>>;
   tabId?: string;
@@ -1002,7 +1006,48 @@ function normalizeSequenceParams(capability: string, params: SequenceParams): {
     throw new CapabilityError('INVALID_ARGUMENT', `${capability}: pass the steps as 'actions' or as its alias 'steps', not both`);
   }
   const { steps, actions, ...rest } = params;
-  return { ...rest, actions: (actions ?? steps) as Array<Record<string, unknown>> };
+  const list = actions ?? steps;
+  if (!Array.isArray(list)) return { ...rest, actions: list as unknown as Array<Record<string, unknown>> };
+  const normalized = list.map((step, index) => {
+    if (!step || typeof step !== 'object' || Array.isArray(step)) return step;
+    const { action, ...stepRest } = step as Record<string, unknown>;
+    if (action === undefined) return step;
+    if (stepRest.type !== undefined && stepRest.type !== action) {
+      throw new CapabilityError('INVALID_ARGUMENT', `${capability}: step ${index} sets type '${String(stepRest.type)}' and action '${String(action)}'; pass one of them (action is an alias of type)`);
+    }
+    return { ...stepRest, type: action };
+  });
+  return { ...rest, actions: normalized };
+}
+
+/** At least one argument that names what to wait for: the condition itself, its alias, or the target the condition is inferred from. */
+const WAIT_PRESENCE_FORMS = [
+  { required: ['condition'] },
+  { required: ['type'] },
+  { required: ['selector'] },
+  { required: ['ref'] },
+  { required: ['urlPattern'] },
+  { required: ['url'] },
+  { required: ['minGeneration'] },
+];
+
+/**
+ * Fills in the wait condition when the caller named only its target: a selector waits for that
+ * selector, a ref for that ref, a URL for the URL match, a minimum generation for the generation.
+ * An explicit `condition` or `type` is never overridden.
+ */
+function withInferredWaitCondition(params: BrowserWaitParams): BrowserWaitParams {
+  if (params.condition || params.type) return params;
+  const inferred: BrowserWaitCondition | undefined =
+    typeof params.selector === 'string' && params.selector ? 'selector'
+      : typeof params.ref === 'string' && params.ref ? 'ref'
+        : (typeof params.urlPattern === 'string' && params.urlPattern) || (typeof params.url === 'string' && params.url) ? 'url'
+          : typeof params.minGeneration === 'number' ? 'generation'
+            : undefined;
+  if (!inferred) {
+    throw new CapabilityError('INVALID_ARGUMENT', 'browser.wait needs a condition (or type), or one of selector, ref, urlPattern/url or minGeneration to infer it from');
+  }
+  return { ...params, condition: inferred };
 }
 
 const NAVIGATE_WAIT_UNTIL_VALUES = ['commit', 'domcontentloaded', 'load'] as const;
@@ -1066,7 +1111,7 @@ interface OpenTabParams {
 /** Row filters shared by every tab-list registration. */
 function tabListFilterProperties(): Record<string, unknown> {
   return {
-    fields: { type: 'array', items: { type: 'string' }, description: 'Return only these keys on each tab row' },
+    fields: { type: 'array', items: { type: 'string' }, description: 'Return only these keys on each tab row (`id` is always kept; `tabId` is accepted as an alias of `id`)' },
     limit: { type: 'number', description: 'Return at most this many tab rows' },
     urlContains: { type: 'string', description: 'Return only tabs whose URL contains this text' },
   };
@@ -1079,7 +1124,8 @@ function parseTabListFilters(params: TabListParams): { fields?: string[]; limit?
     if (!Array.isArray(params.fields) || params.fields.length === 0 || params.fields.some((field) => typeof field !== 'string' || !field.trim())) {
       throw new CapabilityError('INVALID_ARGUMENT', 'anti.browser.tabs.list: fields must be a non-empty array of row key names');
     }
-    out.fields = (params.fields as string[]).map((field) => field.trim());
+    // Rows key their identifier as `id`; `tabId` is the name every other capability uses for it, so it is accepted as the same column.
+    out.fields = [...new Set((params.fields as string[]).map((field) => (field.trim() === 'tabId' ? 'id' : field.trim())))];
   }
   if (params.limit !== undefined) {
     if (typeof params.limit !== 'number' || !Number.isInteger(params.limit) || params.limit < 1) {
@@ -1605,11 +1651,13 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         tabId: { type: 'string' },
         paneId: { type: 'string', enum: ['desktop', 'mobile'] },
       },
-      // `type` is an alias of `condition`: either or both may be sent.
-      anyOf: [{ required: ['condition'] }, { required: ['type'] }],
+      // `type` is an alias of `condition`, and the condition is inferred from the target argument when neither is sent.
+      anyOf: WAIT_PRESENCE_FORMS,
     },
-    execute: (params: BrowserWaitParams, context) =>
-      browser.wait(context.browserTarget as BrowserTarget, params, params.tabId, params.paneId, context.signal),
+    execute: (params: BrowserWaitParams, context) => {
+      const resolved = withInferredWaitCondition(params);
+      return browser.wait(context.browserTarget as BrowserTarget, resolved, resolved.tabId, resolved.paneId, context.signal);
+    },
   });
 
   catalogue.register({
@@ -2016,11 +2064,13 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         tabId: { type: 'string' },
         paneId: { type: 'string', enum: ['desktop', 'mobile'] },
       },
-      // `type` is an alias of `condition`: either or both may be sent.
-      anyOf: [{ required: ['condition'] }, { required: ['type'] }],
+      // `type` is an alias of `condition`, and the condition is inferred from the target argument when neither is sent.
+      anyOf: WAIT_PRESENCE_FORMS,
     },
-    execute: (params: BrowserWaitParams, context) =>
-      browser.wait(context.browserTarget as BrowserTarget, params, params.tabId, params.paneId, context.signal),
+    execute: (params: BrowserWaitParams, context) => {
+      const resolved = withInferredWaitCondition(params);
+      return browser.wait(context.browserTarget as BrowserTarget, resolved, resolved.tabId, resolved.paneId, context.signal);
+    },
   });
 
 
@@ -3922,14 +3972,13 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     inputSchema: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['get', 'read', 'accept', 'dismiss'] },
+        action: { type: 'string', enum: ['get', 'read', 'accept', 'dismiss'], description: "Defaults to 'get' (read the open dialog without answering it)" },
         tabId: { type: 'string' },
         paneId: { type: 'string', enum: ['desktop', 'mobile'] },
       },
-      required: ['action'],
     },
-    execute: (params: { action: 'get' | 'read' | 'accept' | 'dismiss'; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
-      browser.jsDialog({ ...params, action: params.action === 'read' ? 'get' : params.action }, context.browserTarget as BrowserTarget),
+    execute: (params: { action?: 'get' | 'read' | 'accept' | 'dismiss'; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) =>
+      browser.jsDialog({ ...params, action: params.action === undefined || params.action === 'read' ? 'get' : params.action }, context.browserTarget as BrowserTarget),
   });
 
   catalogue.register({
@@ -5870,6 +5919,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       type: 'object',
       properties: {
         assetPath: { type: 'string', description: 'Workspace-relative or filename asset path (e.g. assets/theme.css or theme.css)' },
+        asset: { type: 'string', description: 'Alias of assetPath' },
         workspaceRoot: { type: 'string' },
         allowNonTheme: { type: 'boolean', description: 'Accept a workspace root without theme markers (layout/theme.liquid, config/settings_schema.json, config/settings.html)' },
         timeoutMs: { type: 'number', description: 'Polling timeout in milliseconds (default 15000, max 25000)' },
@@ -5880,10 +5930,15 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         tabId: { type: 'string' },
         paneId: { type: 'string', enum: ['desktop', 'mobile'] },
       },
-      required: ['assetPath'],
+      anyOf: [{ required: ['assetPath'] }, { required: ['asset'] }],
     },
-    execute: (params: { assetPath: string; workspaceRoot?: string; allowNonTheme?: boolean; timeoutMs?: number; pollIntervalMs?: number; reloadOnMatch?: boolean; expectContains?: string[]; expectNotContains?: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => {
-      const { allowNonTheme, ...syncParams } = params;
+    execute: (params: { assetPath?: string; asset?: string; workspaceRoot?: string; allowNonTheme?: boolean; timeoutMs?: number; pollIntervalMs?: number; reloadOnMatch?: boolean; expectContains?: string[]; expectNotContains?: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }, context) => {
+      // The host reads only `assetPath`, so the alias is folded in here and never forwarded.
+      const { allowNonTheme, asset, ...rest } = params;
+      if (asset !== undefined && rest.assetPath !== undefined && asset !== rest.assetPath) {
+        throw new CapabilityError('INVALID_ARGUMENT', "anti.theme.await_cdn_sync: pass the asset as 'assetPath' or its alias 'asset', not two different values");
+      }
+      const syncParams = { ...rest, assetPath: (rest.assetPath ?? asset) as string };
       const strict = confineWorkspaceRootStrict(params.workspaceRoot, resolveCallerWorkspaceRoot(catalogue, context, getWorkspaceRoot));
       if (strict.redirected) {
         throw new CapabilityError('WORKSPACE_MISMATCH', `Requested workspaceRoot '${strict.requested}' is outside the bound workspace '${strict.root}'`, { requested: strict.requested, bound: strict.root });

@@ -271,7 +271,8 @@ describe('advertised MCP schemas', () => {
   it('publishes the typed agent.sequence step schema, including waitMs and pressKey', () => {
     const items = row('anti.agent.sequence')[2].actions.items;
     assert.strictEqual(items.type, 'object');
-    assert.deepStrictEqual(items.required, ['type']);
+    assert.strictEqual(items.required, undefined);
+    assert.deepStrictEqual(items.anyOf, [{ required: ['type'] }, { required: ['action'] }]);
     assert.ok(items.properties.type.enum.includes('pressKey'));
     assert.strictEqual(items.properties.waitMs.type, 'number');
     assert.strictEqual(items.properties.key.type, 'string');

@@ -2638,11 +2638,11 @@ export class BrowserControlPort {
     const { fields, limit, urlContains } = context;
     if (fields !== undefined) {
       if (!Array.isArray(fields) || fields.some((f) => typeof f !== 'string' || !f.trim())) {
-        throw new CapabilityError('INVALID_ARGUMENT', 'fields must be an array of tab field names', { validFields: LIST_TAB_FIELDS });
+        throw new CapabilityError('INVALID_ARGUMENT', `fields must be an array of tab field names; valid fields are ${LIST_TAB_FIELDS.join(', ')}`, { validFields: LIST_TAB_FIELDS });
       }
       const unknown = fields.filter((f) => !LIST_TAB_FIELDS.includes(f.trim()));
       if (unknown.length > 0) {
-        throw new CapabilityError('INVALID_ARGUMENT', `Unknown tab field(s) ${unknown.map((f) => JSON.stringify(f)).join(', ')}`, { unknownFields: unknown, validFields: LIST_TAB_FIELDS });
+        throw new CapabilityError('INVALID_ARGUMENT', `Unknown tab field(s) ${unknown.map((f) => JSON.stringify(f)).join(', ')}; valid fields are ${LIST_TAB_FIELDS.join(', ')}`, { unknownFields: unknown, validFields: LIST_TAB_FIELDS });
       }
     }
     if (limit !== undefined && (typeof limit !== 'number' || !Number.isInteger(limit) || limit < 1)) {

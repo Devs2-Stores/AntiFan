@@ -885,6 +885,51 @@ describe('ThemeTransactionRegistry ControlPlane Integration & Capability Dispatc
     }
   });
 
+  it('theme.settings_check reports how many theme files it scanned and is not ok when it scanned none', async () => {
+    const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-cp-sc-scanned-'));
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-ws-sc-scanned-'));
+    const emptyRoot = path.join(workspaceRoot, 'not-a-theme');
+    const projectId = makeControlPlaneId('project');
+    const workspaceId = makeControlPlaneId('workspace');
+
+    try {
+      fs.mkdirSync(emptyRoot, { recursive: true });
+      fs.mkdirSync(path.join(workspaceRoot, 'sections', 'nested'), { recursive: true });
+      fs.mkdirSync(path.join(workspaceRoot, 'snippets'), { recursive: true });
+      fs.writeFileSync(path.join(workspaceRoot, 'sections', 'hero.liquid'), '<section class="hero"></section>', 'utf8');
+      fs.writeFileSync(path.join(workspaceRoot, 'sections', 'nested', 'deep.liquid'), '<div></div>', 'utf8');
+      fs.writeFileSync(path.join(workspaceRoot, 'snippets', 'card.liquid'), '<div class="card"></div>', 'utf8');
+
+      const runtime = new ControlPlaneRuntime({ projectId, workspaceId, dataRoot, workspaceRoot });
+      await runtime.initialize();
+      const capability = runtime.capabilities.get('theme.settings_check')!;
+      const context: CapabilityRequestContext = {
+        lease: runtime.getLease(),
+        leaseToken: 'token-sc-scanned',
+        projectId,
+        workspaceId,
+      };
+
+      const scannedRes = (await capability.execute({ workspaceRoot }, context)) as { ok: boolean; scanned: number; scanWarning?: string };
+      assert.strictEqual(scannedRes.scanned, 3, 'every file under the theme folders counts, nested folders included');
+      assert.strictEqual(scannedRes.ok, true);
+      assert.strictEqual(scannedRes.scanWarning, undefined);
+
+      const emptyRes = (await capability.execute({ workspaceRoot: emptyRoot }, context)) as {
+        ok: boolean;
+        scanned: number;
+        scanWarning?: string;
+        totalFailures: number;
+      };
+      assert.strictEqual(emptyRes.scanned, 0);
+      assert.strictEqual(emptyRes.ok, false, 'a root with no theme files was never checked, so it cannot pass');
+      assert.match(String(emptyRes.scanWarning), /no theme files were found/);
+    } finally {
+      fs.rmSync(dataRoot, { recursive: true, force: true });
+      fs.rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
   it('settles VERIFIED after theme.transaction.await_sync_and_reload and refuses missing browserTarget with TARGET_REQUIRED', async () => {
     const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-cp-tx-sync-'));
     const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-ws-tx-sync-'));

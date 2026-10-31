@@ -97,6 +97,29 @@ function parseSettingsCheckScope(root: string, params: { files?: unknown; change
   };
 }
 
+/** Theme source folders `theme.settings_check` reads; their file count is the run's `scanned` total. */
+const THEME_SOURCE_FOLDERS = ['layout', 'templates', 'sections', 'snippets', 'assets', 'config', 'locales'] as const;
+const THEME_SCAN_MAX_DEPTH = 6;
+
+/** Number of files under the theme source folders of `root` (nested folders included, bounded in depth). */
+function countThemeFiles(root: string): number {
+  const walk = (dir: string, depth: number): number => {
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return 0;
+    }
+    let count = 0;
+    for (const entry of entries) {
+      if (entry.isFile()) count += 1;
+      else if (entry.isDirectory() && depth < THEME_SCAN_MAX_DEPTH) count += walk(path.join(dir, entry.name), depth + 1);
+    }
+    return count;
+  };
+  return THEME_SOURCE_FOLDERS.reduce((total, folder) => total + walk(path.join(root, folder), 0), 0);
+}
+
 function resolveRepoRoot(): string {
   let dir = __dirname;
   for (let i = 0; i < 8; i++) {
@@ -752,7 +775,13 @@ export function registerThemeTransactionCapabilities(
       if (scopedSchema.length > 0) refusals.push({ check: 'theme-schemas', failures: scopedSchema.length });
 
       const deadInSchema = Array.isArray(settingsBinding?.dead) ? settingsBinding.dead.length : 0;
-      const ok = scopedFailures.length === 0;
+      const scanned = countThemeFiles(root);
+      // A root that holds no theme files was never checked, so an empty failure list proves nothing.
+      const nothingScanned = scanned === 0;
+      const scanWarning = nothingScanned
+        ? `no theme files were found under ${root} (layout, templates, sections, snippets, assets, config, locales): the checks had nothing to read, so ok is false; point workspaceRoot at the theme folder`
+        : undefined;
+      const ok = scopedFailures.length === 0 && !nothingScanned;
       const scopedWarnings = kept(warnings);
 
       if (scope) {
@@ -760,6 +789,8 @@ export function registerThemeTransactionCapabilities(
         // they would still carry the findings the scope removed.
         return {
           ok,
+          scanned,
+          ...(scanWarning ? { scanWarning } : {}),
           failures: scopedFailures,
           totalFailures: scopedFailures.length,
           unscopedTotalFailures: failures.length,
@@ -776,6 +807,8 @@ export function registerThemeTransactionCapabilities(
 
       return {
         ok,
+        scanned,
+        ...(scanWarning ? { scanWarning } : {}),
         failures,
         totalFailures: failures.length,
         deadInSchema,

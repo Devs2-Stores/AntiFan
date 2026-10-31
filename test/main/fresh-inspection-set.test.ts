@@ -135,8 +135,10 @@ describe('Fresh Inspection Capabilities & Classification Contract', () => {
       const isReadEffect = def.policy.effect === 'read';
       const isNonEval = def.policy.risk !== 'eval';
       const nameOrDesc = `${def.name} ${def.description}`.toLowerCase();
+      // The find surface is the element search capability (browser.find, anti.inspect.find,
+      // antifan_find), named by its last segment; a row search over a sheet export is not one.
       const isDomSnapshotFindSurface =
-        (def.name.includes('dom') || def.name.includes('snapshot') || def.name.includes('find')) &&
+        (def.name.includes('dom') || def.name.includes('snapshot') || /(?:^|[._-])find$/.test(def.name)) &&
         !def.name.includes('dump_dom'); // dump_dom is write effect anyway
 
       if (isReadEffect && isNonEval && isDomSnapshotFindSurface) {
@@ -164,6 +166,7 @@ describe('Fresh Inspection Capabilities & Classification Contract', () => {
       'browser.visual_compare',
       'anti.visual.compare',
       'anti.verification.list',
+      'anti.sheet.find_rows',
     ];
 
     for (const name of nonInspectionReadCapabilities) {

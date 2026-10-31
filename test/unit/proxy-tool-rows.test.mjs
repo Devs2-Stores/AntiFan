@@ -108,7 +108,7 @@ test('listTools never emits a top-level oneOf/anyOf and states the alternatives 
   const sequence = tools.find((tool) => tool.name === 'anti.agent.sequence');
   assert.match(sequence.description, /Provide exactly one of: actions \| steps\./);
   const wait = tools.find((tool) => tool.name === 'browser.wait');
-  assert.match(wait.description, /Provide at least one of: condition \| type\./);
+  assert.match(wait.description, /Provide at least one of: condition \| type \| selector \| ref \| urlPattern \| url \| minGeneration\./);
   const evaluate = tools.find((tool) => tool.name === 'anti.browser.evaluate');
   assert.match(evaluate.description, /Provide exactly one of: expression \| expressionFile\./);
 });
@@ -210,4 +210,34 @@ test('write_cell is an advertised mutating tool, never read-safe, with an ambien
   assert.deepEqual([...found[3]].sort(), ['cell', 'value']);
   assert.equal(proxy.ambientTargetFieldFor('anti.sheet.write_cell'), 'tabId');
   assert.equal(proxy.READ_SAFE_CAPABILITIES['anti.sheet.write_cell'], undefined, 'a cell write is never replayed after a possible execution');
+});
+
+test('write_range is a mutating tool and find_rows a read-safe one, both with an ambient tab', () => {
+  for (const key of ['tabId', 'cell', 'values']) {
+    assert.ok(key in properties('anti.sheet.write_range'), `write_range advertises ${key}`);
+  }
+  assert.deepEqual([...row('anti.sheet.write_range')[3]].sort(), ['cell', 'values']);
+  assert.equal(proxy.ambientTargetFieldFor('anti.sheet.write_range'), 'tabId');
+  assert.equal(proxy.READ_SAFE_CAPABILITIES['anti.sheet.write_range'], undefined, 'a range write is never replayed');
+  assert.deepEqual([...row('anti.sheet.find_rows')[3]], ['query']);
+  assert.equal(proxy.ambientTargetFieldFor('anti.sheet.find_rows'), 'tabId');
+  assert.equal(proxy.READ_SAFE_CAPABILITIES['anti.sheet.find_rows'], true);
+});
+
+test('network inspection is read-safe, set_control and cart_contract are not', () => {
+  assert.ok(row('anti.inspect.network'), 'anti.inspect.network is advertised');
+  assert.equal(proxy.READ_SAFE_CAPABILITIES['anti.inspect.network'], true);
+  for (const name of ['anti.agent.set_control', 'anti.qa.cart_contract']) {
+    assert.ok(row(name), `${name} is advertised`);
+    assert.equal(proxy.READ_SAFE_CAPABILITIES[name], undefined, `${name} may click, so it is never replayed`);
+  }
+  assert.ok('locator' in properties('anti.agent.set_control'));
+  assert.equal(proxy.actionOutcomeFailed('anti.agent.set_control', { applied: false }), true);
+});
+
+test('terminal rows advertise multi-session wait and scoped project removal', () => {
+  const wait = properties('terminal.wait');
+  assert.equal(wait.sessionIds?.type, 'array');
+  assert.deepEqual([...row('terminal.wait')[3]], []);
+  assert.equal(properties('terminal.close').removeMintedProject?.type, 'boolean');
 });
