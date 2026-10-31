@@ -49,9 +49,15 @@ const ENV_KEYS = [
 	'ANTIFAN_CORE_PACK_COOLDOWN_MS',
 ];
 
+// The hook's 4 s default deadline keeps a live session fast; a test that spawns the real Core CLI
+// on a loaded machine can pass it and read as "core unavailable". Tests that exercise the deadline
+// set ANTIFAN_CORE_TIMEOUT_MS themselves; every other test gets the hook's 30 s ceiling.
+const TEST_CORE_TIMEOUT_MS = '30000';
+
 async function withEnv(overrides, fn) {
 	const saved = new Map(ENV_KEYS.map((k) => [k, process.env[k]]));
-	for (const [k, v] of Object.entries(overrides)) {
+	const effective = { ANTIFAN_CORE_TIMEOUT_MS: TEST_CORE_TIMEOUT_MS, ...overrides };
+	for (const [k, v] of Object.entries(effective)) {
 		if (v === undefined) delete process.env[k];
 		else process.env[k] = v;
 	}
