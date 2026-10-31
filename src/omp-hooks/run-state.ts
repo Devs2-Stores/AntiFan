@@ -33,6 +33,16 @@ export const CONTROL_POLL_INTERVAL_MS = 1_000;
  */
 export const LEASE_STALE_MS = 45_000;
 
+/**
+ * Build identity of this bundle, injected by `scripts/install-omp-hooks.mjs` at bundle time (sha256 of
+ * the bundle built without it). Source run directly (tests, `omp` loading the .ts) has none, so no
+ * `hookSha256` is reported.
+ */
+declare const __ANTIFAN_HOOK_BUILD_SHA256__: string | undefined;
+
+const RUNNING_HOOK_SHA256: string | undefined =
+  typeof __ANTIFAN_HOOK_BUILD_SHA256__ === "string" && __ANTIFAN_HOOK_BUILD_SHA256__ ? __ANTIFAN_HOOK_BUILD_SHA256__ : undefined;
+
 export interface TerminalRunStateFile {
   schema: 1;
   terminalSessionId: string;
@@ -47,6 +57,7 @@ export interface TerminalRunStateFile {
   lastTool?: string; // last toolName on tool_call/tool_result
   promptHead?: string; // first ≤120 chars of the normalized current prompt
   updatedAt: number; // heartbeat stamp, rewritten on every write
+  hookSha256?: string; // build identity of the run-state hook bundle writing this file; compared with the installed manifest
 }
 
 function safeFileSegment(value: string): string {
@@ -343,6 +354,7 @@ export default function runStateHook(pi: HookPi): void {
       ...(lastTool !== undefined ? { lastTool } : {}),
       ...(promptHead !== undefined ? { promptHead } : {}),
       updatedAt: now,
+      ...(RUNNING_HOOK_SHA256 !== undefined ? { hookSha256: RUNNING_HOOK_SHA256 } : {}),
     };
     try {
       atomicWriteJson(runStateFilePath, payload);

@@ -10,10 +10,28 @@ export interface LeaderWorkerRecord {
   assignedAt: number;
 }
 
+/**
+ * The capsule a Leader's worker placement created because no capsule recorded the folder. Only a
+ * capsule minted by that placement may later be removed with it; a capsule that already existed never
+ * gets a record. The record belongs to the capsule, not to the terminal that minted it: it outlives that
+ * terminal, so a removal that was refused while a sibling worker still used the folder can be asked again
+ * from that sibling.
+ */
+export interface LeaderMintedRecord {
+  capsuleId: string;
+  /** Absolute folder of the capsule, as the placement named it. */
+  workspacePath: string;
+  mintedAt: number;
+}
+
 interface LeaderRegistryFile {
   schema: 1;
   leaders: string[];
   workers: Record<string, LeaderWorkerRecord>;
+  /** Minted capsules by capsule id. A file written before records outlived their terminal keyed them by terminal id. */
+  minted?: Record<string, LeaderMintedRecord>;
+  /** Worker terminal id to the id of the minted capsule that terminal was placed in. */
+  placements?: Record<string, string>;
 }
 
 const FILE_NAME = 'leader-terminals.json';
@@ -40,6 +58,8 @@ export class LeaderRegistry extends EventEmitter {
 
   private readonly leaderIds = new Set<string>();
   private readonly workerRecords = new Map<string, LeaderWorkerRecord>();
+  private readonly mintedRecords = new Map<string, LeaderMintedRecord>();
+  private readonly placements = new Map<string, string>();
 
   public static getInstance(): LeaderRegistry {
     if (!LeaderRegistry.instance) LeaderRegistry.instance = new LeaderRegistry();
@@ -89,6 +109,23 @@ export class LeaderRegistry extends EventEmitter {
         });
       }
     }
+    if (file.minted && typeof file.minted === 'object') {
+      for (const [key, record] of Object.entries(file.minted)) {
+        if (!key || !record || typeof record.capsuleId !== 'string' || !record.capsuleId) continue;
+        if (typeof record.workspacePath !== 'string' || !record.workspacePath) continue;
+        this.mintedRecords.set(record.capsuleId, {
+          capsuleId: record.capsuleId,
+          workspacePath: record.workspacePath,
+          mintedAt: typeof record.mintedAt === 'number' ? record.mintedAt : 0,
+        });
+        if (key !== record.capsuleId) this.placements.set(key, record.capsuleId);
+      }
+    }
+    if (file.placements && typeof file.placements === 'object') {
+      for (const [workerId, capsuleId] of Object.entries(file.placements)) {
+        if (workerId && typeof capsuleId === 'string' && this.mintedRecords.has(capsuleId)) this.placements.set(workerId, capsuleId);
+      }
+    }
   }
 
   /** Persist the current shape and announce it. Returns whether the file was written. */
@@ -97,6 +134,7 @@ export class LeaderRegistry extends EventEmitter {
       schema: 1,
       leaders: [...this.leaderIds],
       workers: Object.fromEntries(this.workerRecords),
+      ...(this.mintedRecords.size > 0 ? { minted: Object.fromEntries(this.mintedRecords), placements: Object.fromEntries(this.placements) } : {}),
     };
     const target = this.filePath();
     const temp = `${target}.tmp-${process.pid}`;
@@ -191,19 +229,73 @@ export class LeaderRegistry extends EventEmitter {
     return false;
   }
 
+  /**
+   * Record that the placement which minted `workerId` also created capsule `capsuleId` for `workspacePath`.
+   * Returns whether the record is persisted. A worker's terminal id is placed in at most one capsule.
+   */
+  public recordMinted(workerId: string, record: { capsuleId: string; workspacePath: string }): boolean {
+    if (!workerId || !record.capsuleId || !record.workspacePath) return false;
+    const previousRecord = this.mintedRecords.get(record.capsuleId);
+    const previousPlacement = this.placements.get(workerId);
+    this.mintedRecords.set(record.capsuleId, { capsuleId: record.capsuleId, workspacePath: record.workspacePath, mintedAt: Date.now() });
+    this.placements.set(workerId, record.capsuleId);
+    if (this.commit()) return true;
+    if (previousRecord) this.mintedRecords.set(record.capsuleId, previousRecord);
+    else this.mintedRecords.delete(record.capsuleId);
+    if (previousPlacement) this.placements.set(workerId, previousPlacement);
+    else this.placements.delete(workerId);
+    this.emit('change');
+    return false;
+  }
+
+  /**
+   * Record that `workerId` was placed in a capsule an earlier placement minted, so that closing it can
+   * finish the removal that earlier worker's close could not. False when `capsuleId` is not a minted
+   * capsule (a folder that already had a project is never recorded) or the record could not be saved.
+   */
+  public recordJoined(workerId: string, capsuleId: string): boolean {
+    if (!workerId || !capsuleId || !this.mintedRecords.has(capsuleId)) return false;
+    const previousPlacement = this.placements.get(workerId);
+    this.placements.set(workerId, capsuleId);
+    if (this.commit()) return true;
+    if (previousPlacement) this.placements.set(workerId, previousPlacement);
+    else this.placements.delete(workerId);
+    this.emit('change');
+    return false;
+  }
+
+  /** The minted capsule `workerId` was placed in, whether it minted it or joined it. */
+  public mintedOf(workerId: string): LeaderMintedRecord | undefined {
+    const capsuleId = this.placements.get(workerId);
+    const record = capsuleId ? this.mintedRecords.get(capsuleId) : undefined;
+    return record ? { ...record } : undefined;
+  }
+
+  /** Drop the record of minted capsule `capsuleId` and every placement that named it, once the capsule was dealt with. Returns whether a record existed. */
+  public clearMinted(capsuleId: string): boolean {
+    if (!this.mintedRecords.delete(capsuleId)) return false;
+    for (const [id, placed] of [...this.placements]) {
+      if (placed === capsuleId) this.placements.delete(id);
+    }
+    this.commit();
+    return true;
+  }
+
   public workerOf(id: string): LeaderWorkerRecord | undefined {
     const record = this.workerRecords.get(id);
     return record ? { ...record } : undefined;
   }
 
   /**
-   * A terminal was closed: forget it. Drops its Leader flag and its own worker record. The workers it
-   * drove keep theirs: their terminals are still open and still gated.
+   * A terminal was closed: forget it. Drops its Leader flag, its own worker record and its placement. The
+   * workers it drove keep theirs: their terminals are still open and still gated. The minted capsule it was
+   * placed in stays recorded, for the next worker closed from that folder.
    */
   public forget(id: string): void {
     if (!id) return;
     let changed = this.leaderIds.delete(id);
     if (this.workerRecords.delete(id)) changed = true;
+    if (this.placements.delete(id)) changed = true;
     if (changed) this.commit();
   }
 
@@ -219,6 +311,12 @@ export class LeaderRegistry extends EventEmitter {
     for (const workerId of [...this.workerRecords.keys()]) {
       if (!liveIds.has(workerId)) {
         this.workerRecords.delete(workerId);
+        changed = true;
+      }
+    }
+    for (const workerId of [...this.placements.keys()]) {
+      if (!liveIds.has(workerId)) {
+        this.placements.delete(workerId);
         changed = true;
       }
     }

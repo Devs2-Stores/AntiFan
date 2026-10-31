@@ -1764,7 +1764,7 @@ export class NativeTabHost extends EventEmitter {
               console.warn(`[native-tab-host] leader terminal ${sessionId} minted but not renamed:`, err);
             }
           }
-          return { ok: true, sessionId, capsuleId: capsule.id, ...(mintOwnerKey ? { ownerKey: mintOwnerKey } : {}) };
+          return { ok: true, sessionId, capsuleId: capsule.id, ...(mintOwnerKey ? { ownerKey: mintOwnerKey } : {}), ...(existing ? {} : { minted: { capsuleId: capsule.id } }) };
         },
       );
     } catch (err) {

@@ -276,6 +276,14 @@ test("the sheet write tool is refused through the native name, write xd:// and e
   const hook = makeHook();
   const args = { cell: "F12", value: "Done" };
   assertRefused(await hook.call("mcp__antifan_browser_anti_sheet_write_cell", args), "REFUSED_LEADER_SHEET_WRITE");
+  assertRefused(
+    await hook.call("mcp__antifan_browser_anti_sheet_write_range", { startCell: "F12", values: [["Done"]] }),
+    "REFUSED_LEADER_SHEET_WRITE",
+  );
+  assertRefused(
+    await hook.call("eval", { code: "await tool.mcp__antifan_browser_anti_sheet_write_range({startCell: 'F12', values: [['Done']]})" }),
+    "REFUSED_LEADER_SHEET_WRITE",
+  );
   assertRefused(await hook.call("anti.sheet.write_cell", args), "REFUSED_LEADER_SHEET_WRITE");
   assertRefused(
     await hook.call("write", { path: "xd://mcp__antifan_browser_anti_sheet_write_cell", content: JSON.stringify(args) }),
@@ -289,7 +297,7 @@ test("the sheet write tool is refused through the native name, write xd:// and e
 
 test("page-mutating AntiFan tools are refused on every route", async () => {
   const hook = makeHook();
-  for (const name of ["anti_agent_cursor_click", "anti_agent_cursor_type", "anti_agent_sequence", "anti_agent_file_upload", "anti_agent_drop", "anti_agent_drag"]) {
+  for (const name of ["anti_agent_cursor_click", "anti_agent_cursor_type", "anti_agent_sequence", "anti_agent_file_upload", "anti_agent_drop", "anti_agent_drag", "anti_agent_set_control"]) {
     assertRefused(await hook.call(`mcp__antifan_browser_${name}`, { selector: "#x" }), "REFUSED_LEADER_PAGE_ACTION");
   }
   assertRefused(

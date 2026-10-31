@@ -18,6 +18,8 @@ import {
   registerLeaderPlacementPort,
   type LeaderPlacementRequest,
   type LeaderPlacementResult,
+  registerLeaderProjectRemovalPort,
+  type LeaderMintedProjectRemoval,
 } from '../../src/main/leader/leader-runtime';
 import {
   CapabilityError,
@@ -53,7 +55,7 @@ interface FakeRow {
   buffer?: string;
 }
 
-const writeRun = (terminalId: string, state: 'idle' | 'running' | 'waiting_user' | 'ended', runSeq: number, extra: { pid?: number; updatedAt?: number; lastEventAt?: number } = {}): void => {
+const writeRun = (terminalId: string, state: 'idle' | 'running' | 'waiting_user' | 'ended', runSeq: number, extra: { pid?: number; updatedAt?: number; lastEventAt?: number; hookSha256?: string } = {}): void => {
   fs.writeFileSync(
     path.join(RUNS_DIR, `${terminalId}.json`),
     JSON.stringify({
@@ -69,6 +71,7 @@ const writeRun = (terminalId: string, state: 'idle' | 'running' | 'waiting_user'
       lastEventAt: extra.lastEventAt ?? 2,
       promptHead: `prompt of ${terminalId}`,
       updatedAt: extra.updatedAt ?? Date.now(),
+      ...(extra.hookSha256 ? { hookSha256: extra.hookSha256 } : {}),
     }),
     'utf8'
   );
@@ -132,6 +135,8 @@ describe('Leader scope of the terminal capabilities', () => {
       writes: [] as Array<{ sessionId: string; input: string }>,
       closedSplits: [] as string[],
       closedBases: [] as string[],
+      /** Every input the facade's `waitTerminal` received. */
+      waits: [] as Array<Record<string, unknown>>,
       splitCreates: [] as string[],
       /** What the facade's `writeTo` resolves to; `false` is a daemon that reports no session took the input. */
       writeResult: true as unknown,
@@ -147,7 +152,10 @@ describe('Leader scope of the terminal capabilities', () => {
         return calls.writeResult;
       },
       resizeTo: () => {},
-      waitTerminal: async (params: { sessionId: string }) => ({ satisfied: true, sessionId: params.sessionId }),
+      waitTerminal: async (params: { sessionId: string }) => {
+        calls.waits.push({ ...params });
+        return { satisfied: true, sessionId: params.sessionId };
+      },
       closeSplitSession: async (id: string) => {
         calls.closedSplits.push(id);
         return true;
@@ -761,6 +769,384 @@ describe('Leader scope of the terminal capabilities', () => {
       const compact = (await catalogue.dispatch('terminal.list', { includeBuffer: false }, ctx())) as { sessions: Array<Record<string, unknown>> };
       assert.strictEqual(compact.sessions.length, full.sessions.length);
       assert.ok(compact.sessions.every((row) => !('buffer' in row)));
+    });
+
+    describe('terminal.wait condition inference', () => {
+      it('a pattern means output-match and silenceMs means silence, and the condition may still be explicit', async () => {
+        LeaderRegistry.getInstance().setLeader('terminal-lead', true);
+        const { catalogue, calls } = build();
+        await catalogue.dispatch('terminal.wait', { sessionId: 'terminal-w1', pattern: 'READY' }, ctx());
+        await catalogue.dispatch('terminal.wait', { sessionId: 'terminal-w1', silenceMs: 500 }, ctx());
+        await catalogue.dispatch('terminal.wait', { sessionId: 'terminal-w1', condition: 'exit' }, ctx());
+        assert.deepStrictEqual(calls.waits.map((wait) => wait.condition), ['output-match', 'silence', 'exit']);
+        assert.strictEqual(calls.waits[0]?.pattern, 'READY');
+        assert.strictEqual(calls.waits[1]?.silenceMs, 500);
+      });
+
+      it('minRunSeq or afterEventAt means run-idle', async () => {
+        LeaderRegistry.getInstance().setLeader('terminal-lead', true);
+        const { catalogue } = build();
+        writeRun('terminal-w1', 'idle', 5, { lastEventAt: Date.now() + 10_000 });
+        for (const hint of [{ minRunSeq: 3 }, { afterEventAt: 1 }]) {
+          const waited = (await catalogue.dispatch('terminal.wait', { sessionId: 'terminal-w1', timeoutMs: 1000, ...hint }, ctx())) as { run: { runSeq: number } };
+          assert.strictEqual(waited.run.runSeq, 5);
+        }
+      });
+
+      it('refuses a call that names no condition, and one whose hints disagree', async () => {
+        LeaderRegistry.getInstance().setLeader('terminal-lead', true);
+        const { catalogue, calls } = build();
+        await assert.rejects(
+          () => catalogue.dispatch('terminal.wait', { sessionId: 'terminal-w1' }, ctx()),
+          (err: unknown) => err instanceof CapabilityError && err.code === 'INVALID_ARGUMENT' && /output-match, exit, silence, run-idle/.test(err.message)
+        );
+        await assert.rejects(
+          () => catalogue.dispatch('terminal.wait', { sessionId: 'terminal-w1', pattern: 'x', silenceMs: 10 }, ctx()),
+          (err: unknown) => err instanceof CapabilityError && err.code === 'INVALID_ARGUMENT' && /ambiguous/.test(err.message)
+        );
+        assert.deepStrictEqual(calls.waits, [], 'nothing was waited on');
+      });
+
+      it('the schema no longer requires condition', () => {
+        const { catalogue } = build();
+        const schema = catalogue.get('terminal.wait')?.inputSchema as { required?: string[] } | undefined;
+        assert.ok(!schema?.required?.includes('condition'));
+      });
+    });
+
+    describe('terminal.wait run-idle over sessionIds', () => {
+      it('returns the first terminal whose run settled, with its run and the whole id list', async () => {
+        LeaderRegistry.getInstance().setLeader('terminal-lead', true);
+        const { catalogue } = build();
+        writeRun('terminal-w1', 'running', 1);
+        writeRun('terminal-plain', 'idle', 3);
+        const waited = (await catalogue.dispatch('terminal.wait', { sessionIds: ['terminal-w1', 'terminal-plain'], timeoutMs: 1000 }, ctx())) as {
+          satisfied: boolean; sessionId: string; sessionIds: string[]; run: { runSeq: number };
+        };
+        assert.strictEqual(waited.satisfied, true);
+        assert.strictEqual(waited.sessionId, 'terminal-plain');
+        assert.deepStrictEqual(waited.sessionIds, ['terminal-w1', 'terminal-plain']);
+        assert.strictEqual(waited.run.runSeq, 3);
+      });
+
+      it('waits until one of them flips to idle, and honours afterEventAt for every terminal', async () => {
+        LeaderRegistry.getInstance().setLeader('terminal-lead', true);
+        const { catalogue } = build();
+        writeRun('terminal-w1', 'idle', 1, { lastEventAt: 1_000 });
+        writeRun('terminal-plain', 'idle', 1, { lastEventAt: 1_000 });
+        const since = Date.now();
+        const flip = setTimeout(() => writeRun('terminal-plain', 'idle', 2, { lastEventAt: Date.now() + 1 }), 150);
+        const waited = (await catalogue.dispatch('terminal.wait', { sessionIds: ['terminal-w1', 'terminal-plain'], afterEventAt: since, timeoutMs: 5000 }, ctx())) as {
+          sessionId: string; run: { runSeq: number };
+        };
+        clearTimeout(flip);
+        assert.strictEqual(waited.sessionId, 'terminal-plain');
+        assert.strictEqual(waited.run.runSeq, 2);
+      });
+
+      it('ends in WAIT_TIMEOUT naming the terminals when none settles within the deadline', async () => {
+        LeaderRegistry.getInstance().setLeader('terminal-lead', true);
+        const { catalogue } = build();
+        writeRun('terminal-w1', 'running', 1);
+        writeRun('terminal-plain', 'running', 1);
+        await assert.rejects(
+          () => catalogue.dispatch('terminal.wait', { sessionIds: ['terminal-w1', 'terminal-plain'], timeoutMs: 200 }, ctx()),
+          (err: unknown) => err instanceof CapabilityError && err.code === 'WAIT_TIMEOUT' && JSON.stringify(err.details?.sessionIds) === JSON.stringify(['terminal-w1', 'terminal-plain'])
+        );
+      });
+
+      it('never polls a sleeping terminal and says so; all asleep answers SESSION_SLEEPING', async () => {
+        LeaderRegistry.getInstance().setLeader('terminal-lead', true);
+        const rows = rowsOf().map((row) => (row.id === 'terminal-w1' ? { ...row, state: 'sleeping' } : row));
+        const { catalogue } = build(rows);
+        writeRun('terminal-w1', 'idle', 9);
+        writeRun('terminal-plain', 'idle', 4);
+        const waited = (await catalogue.dispatch('terminal.wait', { sessionIds: ['terminal-w1', 'terminal-plain'], timeoutMs: 1000 }, ctx())) as {
+          sessionId: string; sleepingSessionIds?: string[];
+        };
+        assert.strictEqual(waited.sessionId, 'terminal-plain', 'the idle file of the sleeping terminal did not answer');
+        assert.deepStrictEqual(waited.sleepingSessionIds, ['terminal-w1']);
+
+        const allAsleep = build(rowsOf().map((row) => (row.id === 'terminal-w1' || row.id === 'terminal-plain' ? { ...row, state: 'sleeping' } : row)));
+        const sleeping = (await allAsleep.catalogue.dispatch('terminal.wait', { sessionIds: ['terminal-w1', 'terminal-plain'], timeoutMs: 1000 }, ctx())) as {
+          satisfied: boolean; code: string; sleepingSessionIds?: string[];
+        };
+        assert.strictEqual(sleeping.satisfied, false);
+        assert.strictEqual(sleeping.code, 'SESSION_SLEEPING');
+        assert.deepStrictEqual(sleeping.sleepingSessionIds, ['terminal-w1', 'terminal-plain']);
+      });
+
+      it('validates the list: only run-idle, at most 16 ids, strings only, and every id inside the caller reach', async () => {
+        LeaderRegistry.getInstance().setLeader('terminal-lead', true);
+        const { catalogue } = build();
+        const invalid = code('INVALID_ARGUMENT');
+        await assert.rejects(() => catalogue.dispatch('terminal.wait', { sessionIds: ['terminal-w1'], condition: 'exit' }, ctx()), invalid);
+        await assert.rejects(() => catalogue.dispatch('terminal.wait', { sessionIds: Array.from({ length: 17 }, (_, i) => `t-${i}`) }, ctx()), invalid);
+        await assert.rejects(() => catalogue.dispatch('terminal.wait', { sessionIds: ['terminal-w1', 7] }, ctx()), invalid);
+        await assert.rejects(() => catalogue.dispatch('terminal.wait', { sessionIds: [] }, ctx()), invalid);
+        await assert.rejects(() => catalogue.dispatch('terminal.wait', { sessionIds: ['terminal-w1', 'terminal-lead'], timeoutMs: 50 }, ctx()), code('TERMINAL_FORBIDDEN'));
+        await assert.rejects(
+          () => catalogue.dispatch('terminal.wait', { sessionIds: ['terminal-w1', 'terminal-plain'], timeoutMs: 50 }, attachmentContext('att-plain')),
+          code('TERMINAL_FORBIDDEN')
+        );
+      });
+    });
+
+    describe('terminal.list hook build status', () => {
+      it('flags a terminal whose OMP runs a different run-state hook build than the installed one', async () => {
+        LeaderRegistry.getInstance().setLeader('terminal-lead', true);
+        const { catalogue } = build(undefined, undefined, {}, { installedHookSha256: () => 'sha-installed' });
+        writeRun('terminal-w1', 'idle', 1, { hookSha256: 'sha-installed' });
+        writeRun('terminal-plain', 'idle', 1, { hookSha256: 'sha-old' });
+        writeRun('split-w1', 'idle', 1);
+        const listed = (await catalogue.dispatch('terminal.list', {}, ctx())) as { sessions: Array<{ id: string; hookSha256?: string; hookOutdated?: boolean }> };
+        const byId = new Map(listed.sessions.map((row) => [row.id, row]));
+        assert.strictEqual(byId.get('terminal-w1')?.hookOutdated, false);
+        assert.strictEqual(byId.get('terminal-w1')?.hookSha256, 'sha-installed');
+        assert.strictEqual(byId.get('terminal-plain')?.hookOutdated, true);
+        assert.strictEqual(byId.get('terminal-plain')?.hookSha256, 'sha-old');
+        assert.strictEqual(byId.get('split-w1')?.hookOutdated, true, 'a hook that reports no build predates build identities');
+        assert.ok(!('hookSha256' in (byId.get('split-w1') ?? {})));
+      });
+
+      it('reports nothing it cannot prove: no installed identity, or no run file', async () => {
+        LeaderRegistry.getInstance().setLeader('terminal-lead', true);
+        const { catalogue } = build(undefined, undefined, {}, { installedHookSha256: () => undefined });
+        writeRun('terminal-w1', 'idle', 1, { hookSha256: 'sha-old' });
+        const listed = (await catalogue.dispatch('terminal.list', {}, ctx())) as { sessions: Array<{ id: string; hookSha256?: string; hookOutdated?: boolean }> };
+        const withRun = listed.sessions.find((row) => row.id === 'terminal-w1');
+        assert.strictEqual(withRun?.hookSha256, 'sha-old');
+        assert.ok(!('hookOutdated' in (withRun ?? {})));
+        const noRun = listed.sessions.find((row) => row.id === 'terminal-plain');
+        assert.ok(!('hookOutdated' in (noRun ?? {})) && !('hookSha256' in (noRun ?? {})));
+      });
+    });
+
+    describe('removing the project a placement minted', () => {
+      const SCRATCH_ROOT = path.join(SCRATCH_DIR, 'leader-scratch');
+      let restoreRoots: () => void;
+      let previousRoots: string | undefined;
+      const removals: string[] = [];
+      let removalOutcome: () => Promise<LeaderMintedProjectRemoval>;
+      let unregisterRemoval: () => void;
+
+      beforeEach(() => {
+        previousRoots = process.env.ANTIFAN_LEADER_SCRATCH_ROOTS;
+        process.env.ANTIFAN_LEADER_SCRATCH_ROOTS = SCRATCH_ROOT;
+        removals.length = 0;
+        removalOutcome = async () => ({ status: 'REMOVED', projectId: 'project-gone' });
+        unregisterRemoval = registerLeaderProjectRemovalPort({
+          removeMintedProject: async ({ capsuleId }) => {
+            removals.push(capsuleId);
+            return removalOutcome();
+          },
+        });
+        restoreRoots = () => {
+          if (previousRoots === undefined) delete process.env.ANTIFAN_LEADER_SCRATCH_ROOTS;
+          else process.env.ANTIFAN_LEADER_SCRATCH_ROOTS = previousRoots;
+          unregisterRemoval();
+        };
+      });
+
+      const withRestore = async (run: () => Promise<void>): Promise<void> => {
+        try {
+          await run();
+        } finally {
+          restoreRoots();
+        }
+      };
+
+      const placeAndBuild = async (cwd: string, minted: boolean, sessionId = 'terminal-new') => {
+        LeaderRegistry.getInstance().setLeader('terminal-lead', true);
+        const release = registerLeaderPlacementPort({
+          placeTerminal: async (): Promise<LeaderPlacementResult> => ({
+            ok: true,
+            sessionId,
+            ownerKey: 'project:p9',
+            capsuleId: 'capsule-9',
+            ...(minted ? { minted: { capsuleId: 'capsule-9' } } : {}),
+          }),
+        });
+        const rows = [...rowsOf(), { id: sessionId, cwd, state: 'running', ownerKey: 'project:p9' }];
+        const built = build(rows);
+        try {
+          const created = (await built.catalogue.dispatch('terminal.create', { cwd, name: 'Row 9' }, ctx())) as { minted?: { capsuleId: string } };
+          return { ...built, created };
+        } finally {
+          release();
+        }
+      };
+
+      it('terminal.create reports `minted` and records it in the registry only when the placement created the project', async () => {
+        await withRestore(async () => {
+          const cwd = path.join(SCRATCH_ROOT, 'job-a');
+          const minted = await placeAndBuild(cwd, true);
+          assert.deepStrictEqual(minted.created.minted, { capsuleId: 'capsule-9' });
+          assert.strictEqual(LeaderRegistry.getInstance().mintedOf('terminal-new')?.capsuleId, 'capsule-9');
+          assert.strictEqual(LeaderRegistry.getInstance().mintedOf('terminal-new')?.workspacePath, path.resolve(cwd));
+
+          LeaderRegistry.resetInstance();
+          const reloaded = LeaderRegistry.getInstance().mintedOf('terminal-new');
+          assert.strictEqual(reloaded?.capsuleId, 'capsule-9', 'the record survives a restart');
+
+          fs.rmSync(path.join(CONFIG_DIR, 'leader-terminals.json'), { force: true });
+          LeaderRegistry.resetInstance();
+          const existing = await placeAndBuild(cwd, false);
+          assert.strictEqual(existing.created.minted, undefined);
+          assert.strictEqual(LeaderRegistry.getInstance().mintedOf('terminal-new'), undefined);
+        });
+      });
+
+      it('terminal.close removeMintedProject removes exactly the project this placement minted, under the scratch folder', async () => {
+        await withRestore(async () => {
+          const { catalogue, calls } = await placeAndBuild(path.join(SCRATCH_ROOT, 'job-b'), true);
+          const result = (await catalogue.dispatch('terminal.close', { sessionId: 'terminal-new', removeMintedProject: true }, ctx())) as {
+            closed: boolean; projectRemoval: { status: string; projectId?: string };
+          };
+          assert.deepStrictEqual(calls.closedBases, ['terminal-new']);
+          assert.strictEqual(result.closed, true);
+          assert.strictEqual(result.projectRemoval.status, 'REMOVED');
+          assert.deepStrictEqual(removals, ['capsule-9']);
+          assert.strictEqual(LeaderRegistry.getInstance().mintedOf('terminal-new'), undefined, 'a removed project leaves no record');
+        });
+      });
+
+      it('keeps the minted record after a refused removal, so closing the last worker in the folder finishes it', async () => {
+        await withRestore(async () => {
+          const cwd = path.join(SCRATCH_ROOT, 'job-g');
+          removalOutcome = async () => ({ status: 'REFUSED', reason: 'LIVE_TERMINALS_IN_PROJECT', liveSessions: 1 });
+          const first = await placeAndBuild(cwd, true, 'terminal-a');
+          const second = await placeAndBuild(cwd, false, 'terminal-b');
+          assert.strictEqual(second.created.minted, undefined, 'the second worker did not mint the project');
+          assert.strictEqual(LeaderRegistry.getInstance().mintedOf('terminal-b')?.capsuleId, 'capsule-9', 'but it is recorded as placed in the minted capsule');
+
+          const refused = (await first.catalogue.dispatch('terminal.close', { sessionId: 'terminal-a', removeMintedProject: true }, ctx())) as { projectRemoval: { status: string } };
+          assert.strictEqual(refused.projectRemoval.status, 'REFUSED');
+          // The host forgets a closed terminal's records as soon as it is closed.
+          LeaderRegistry.getInstance().forget('terminal-a');
+          assert.strictEqual(LeaderRegistry.getInstance().mintedOf('terminal-a'), undefined);
+          assert.strictEqual(LeaderRegistry.getInstance().mintedOf('terminal-b')?.capsuleId, 'capsule-9', 'the refusal did not lose the record');
+
+          removalOutcome = async () => ({ status: 'REMOVED', projectId: 'project-gone' });
+          const done = (await second.catalogue.dispatch('terminal.close', { sessionId: 'terminal-b', removeMintedProject: true }, ctx())) as { projectRemoval: { status: string } };
+          assert.strictEqual(done.projectRemoval.status, 'REMOVED');
+          assert.deepStrictEqual(removals, ['capsule-9', 'capsule-9']);
+          assert.strictEqual(LeaderRegistry.getInstance().mintedOf('terminal-b'), undefined, 'a removed project leaves no record');
+        });
+      });
+
+      it('a closed terminal keeps no placement but the capsule record survives a restart, and a file keyed by terminal id still loads', async () => {
+        const registry = LeaderRegistry.getInstance();
+        assert.strictEqual(registry.recordMinted('terminal-m', { capsuleId: 'capsule-m', workspacePath: path.join(SCRATCH_ROOT, 'm') }), true);
+        assert.strictEqual(registry.recordJoined('terminal-j', 'capsule-m'), true);
+        assert.strictEqual(registry.recordJoined('terminal-x', 'capsule-unknown'), false, 'a capsule nobody minted is never recorded as joined');
+        registry.forget('terminal-m');
+        LeaderRegistry.resetInstance();
+        assert.strictEqual(LeaderRegistry.getInstance().mintedOf('terminal-m'), undefined);
+        assert.strictEqual(LeaderRegistry.getInstance().mintedOf('terminal-j')?.capsuleId, 'capsule-m');
+        assert.strictEqual(LeaderRegistry.getInstance().clearMinted('capsule-m'), true);
+        assert.strictEqual(LeaderRegistry.getInstance().mintedOf('terminal-j'), undefined, 'clearing the capsule clears every placement that named it');
+
+        fs.writeFileSync(
+          path.join(CONFIG_DIR, 'leader-terminals.json'),
+          JSON.stringify({ schema: 1, leaders: [], workers: {}, minted: { 'terminal-old': { capsuleId: 'capsule-old', workspacePath: path.join(SCRATCH_ROOT, 'old'), mintedAt: 5 } } }),
+          'utf8',
+        );
+        LeaderRegistry.resetInstance();
+        assert.strictEqual(LeaderRegistry.getInstance().mintedOf('terminal-old')?.capsuleId, 'capsule-old');
+      });
+
+      it('refuses a folder outside the scratch allowlist and never calls the host', async () => {
+        await withRestore(async () => {
+          const { catalogue } = await placeAndBuild(path.join(SCRATCH_DIR, 'real-project'), true);
+          const result = (await catalogue.dispatch('terminal.close', { sessionId: 'terminal-new', removeMintedProject: true }, ctx())) as {
+            closed: boolean; projectRemoval: { status: string; reason?: string };
+          };
+          assert.strictEqual(result.closed, true, 'the terminal is still closed');
+          assert.strictEqual(result.projectRemoval.status, 'REFUSED');
+          assert.match(result.projectRemoval.reason ?? '', /OUTSIDE_SCRATCH_ALLOWLIST/);
+          assert.deepStrictEqual(removals, []);
+        });
+      });
+
+      it('the scratch root itself and a sibling that merely shares its prefix are outside the allowlist', async () => {
+        await withRestore(async () => {
+          for (const cwd of [SCRATCH_ROOT, `${SCRATCH_ROOT}-other${path.sep}job`]) {
+            LeaderRegistry.resetInstance();
+            const { catalogue } = await placeAndBuild(cwd, true);
+            const result = (await catalogue.dispatch('terminal.close', { sessionId: 'terminal-new', removeMintedProject: true }, ctx())) as {
+              projectRemoval: { status: string };
+            };
+            assert.strictEqual(result.projectRemoval.status, 'REFUSED', cwd);
+          }
+          assert.deepStrictEqual(removals, []);
+        });
+      });
+
+      it('SKIPPED for a worker whose placement did not mint the project, so a pre-existing project is never touched', async () => {
+        await withRestore(async () => {
+          const { catalogue } = await placeAndBuild(path.join(SCRATCH_ROOT, 'job-c'), false);
+          const result = (await catalogue.dispatch('terminal.close', { sessionId: 'terminal-new', removeMintedProject: true }, ctx())) as {
+            projectRemoval: { status: string; reason?: string };
+          };
+          assert.strictEqual(result.projectRemoval.status, 'SKIPPED');
+          assert.match(result.projectRemoval.reason ?? '', /NOT_MINTED_BY_PLACEMENT/);
+          const other = (await build().catalogue.dispatch('terminal.close', { sessionId: 'terminal-w1', removeMintedProject: true }, ctx())) as {
+            projectRemoval: { status: string };
+          };
+          assert.strictEqual(other.projectRemoval.status, 'SKIPPED', 'a terminal that was never a placement');
+          assert.deepStrictEqual(removals, []);
+        });
+      });
+
+      it('passes a host refusal or failure through, and an exception from the host becomes FAILED', async () => {
+        await withRestore(async () => {
+          for (const [outcome, expected] of [
+            [async (): Promise<LeaderMintedProjectRemoval> => ({ status: 'REFUSED', reason: 'LIVE_TERMINALS_REMAIN', liveSessions: 2 }), 'REFUSED'],
+            [async (): Promise<LeaderMintedProjectRemoval> => ({ status: 'NO_PROJECT' }), 'NO_PROJECT'],
+            [async (): Promise<LeaderMintedProjectRemoval> => { throw new Error('window gate vetoed'); }, 'FAILED'],
+          ] as const) {
+            LeaderRegistry.resetInstance();
+            removalOutcome = outcome;
+            const { catalogue } = await placeAndBuild(path.join(SCRATCH_ROOT, 'job-d'), true);
+            const result = (await catalogue.dispatch('terminal.close', { sessionId: 'terminal-new', removeMintedProject: true }, ctx())) as {
+              projectRemoval: { status: string; reason?: string };
+            };
+            assert.strictEqual(result.projectRemoval.status, expected);
+            if (expected === 'FAILED') assert.match(result.projectRemoval.reason ?? '', /window gate vetoed/);
+          }
+        });
+      });
+
+      it('does not touch the project when the terminal itself could not be closed', async () => {
+        await withRestore(async () => {
+          const { catalogue, calls } = await placeAndBuild(path.join(SCRATCH_ROOT, 'job-e'), true);
+          calls.closeResult = false;
+          const result = (await catalogue.dispatch('terminal.close', { sessionId: 'terminal-new', removeMintedProject: true }, ctx())) as {
+            closed: boolean; projectRemoval: { status: string; reason?: string };
+          };
+          assert.strictEqual(result.closed, false);
+          assert.strictEqual(result.projectRemoval.status, 'SKIPPED');
+          assert.match(result.projectRemoval.reason ?? '', /TERMINAL_NOT_CLOSED/);
+          assert.deepStrictEqual(removals, []);
+        });
+      });
+
+      it('is a Leader-only option and must be a boolean; a plain close removes nothing', async () => {
+        await withRestore(async () => {
+          const { catalogue } = await placeAndBuild(path.join(SCRATCH_ROOT, 'job-f'), true);
+          await assert.rejects(() => catalogue.dispatch('terminal.close', { sessionId: 'terminal-new', removeMintedProject: 'yes' }, ctx()), code('INVALID_ARGUMENT'));
+          const rows = rowsOf();
+          rows.push({ id: 'split-mine', cwd: 'E:/Work/third', state: 'running', ownerKey: 'project:p3', splitOf: 'terminal-plain' });
+          await assert.rejects(
+            () => build(rows).catalogue.dispatch('terminal.close', { sessionId: 'split-mine', removeMintedProject: true }, attachmentContext('att-plain')),
+            code('TERMINAL_FORBIDDEN')
+          );
+          const plain = await catalogue.dispatch('terminal.close', { sessionId: 'terminal-new' }, ctx());
+          assert.deepStrictEqual(plain, { closed: true });
+          assert.deepStrictEqual(removals, []);
+        });
+      });
     });
   });
 });

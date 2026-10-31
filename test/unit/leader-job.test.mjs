@@ -15,7 +15,7 @@ import { after, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { parseCsv, stringifyCsv } from "../../scripts/leader/csv.mjs";
-import { judgeRound, parseArgv } from "../../scripts/leader/leader-job.mjs";
+import { judgeRound, parseArgv, sheetExportUrl } from "../../scripts/leader/leader-job.mjs";
 import { parseReport, validateReportText } from "../../scripts/leader/report.mjs";
 import { analyzeSheet, diffSheets, outstandingDevRows, parseSheet, verifySheet } from "../../scripts/leader/sheet-diff.mjs";
 
@@ -717,6 +717,126 @@ describe("full lifecycle: verify, approve, close round, close", () => {
     assert.equal(cli(w, ["close", "--job", a.dir, "--force"]).code, 0);
     assert.equal(cli(w, ["status"]).lines.filter((l) => l.job).length, 0, "closed jobs are hidden");
     assert.equal(cli(w, ["status", "--all"]).lines.filter((l) => l.job).length, 1);
+  });
+});
+
+describe("sheet-less and gid-less jobs", () => {
+  test("sheetExportUrl exports the first tab without a gid and a named tab with one", () => {
+    assert.equal(sheetExportUrl("ABC", undefined, 7), "https://docs.google.com/spreadsheets/d/ABC/export?format=csv&t=7");
+    assert.equal(sheetExportUrl("ABC", null, 7), "https://docs.google.com/spreadsheets/d/ABC/export?format=csv&t=7");
+    assert.equal(sheetExportUrl("ABC", "957883403", 7), "https://docs.google.com/spreadsheets/d/ABC/export?format=csv&gid=957883403&t=7");
+    assert.equal(sheetExportUrl("ABC", "0", 7), "https://docs.google.com/spreadsheets/d/ABC/export?format=csv&gid=0&t=7", "gid 0 is a real tab id");
+  });
+
+  test("init without --gid records gid null and tells the worker the first tab is meant", () => {
+    const w = world();
+    const snap = path.join(w.root, "s.csv");
+    fs.writeFileSync(snap, fixture("seahorse-before.csv"));
+    const r = cli(w, ["init", "--slug", "nogid", "--issue-id", "5", "--shop", "s.example", "--sheet", "SHEETX", "--snapshot-file", snap]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.equal(r.last.gid, null);
+    const job = JSON.parse(fs.readFileSync(path.join(r.last.jobDir, "job.json"), "utf8"));
+    assert.equal(job.subject.gid, null);
+    const prompt = fs.readFileSync(path.join(r.last.jobDir, "nogid.prompt.md"), "utf8");
+    assert.ok(prompt.includes("SHEETX") && prompt.includes("tab đầu tiên"));
+    assert.deepEqual([...new Set(prompt.match(/\{\{[A-Z_]+\}\}/g))], ["{{TASK}}"]);
+  });
+
+  test("--no-sheet writes a header-only stub, a sheet-free prompt, and refuses sheet flags", () => {
+    const w = world();
+    const r = cli(w, ["init", "--slug", "nosheet", "--issue-id", "296", "--shop", "seahorse-2.myharavan.com", "--no-sheet", "--profile", "sheet-only"]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.equal(r.last.noSheet, true);
+    assert.equal(r.last.dataRows, 0);
+    const dir = r.last.jobDir;
+    const job = JSON.parse(fs.readFileSync(path.join(dir, "job.json"), "utf8"));
+    assert.equal(job.subject.noSheet, true);
+    assert.equal(job.subject.sheetId, "");
+    assert.equal(job.subject.gid, null);
+    assert.equal(fs.readFileSync(path.join(dir, "snapshot-before.csv"), "utf8"), "Stage,Mô tả,Dev note kết quả\n");
+    const prompt = fs.readFileSync(path.join(dir, "nosheet.prompt.md"), "utf8");
+    assert.ok(prompt.includes("KHÔNG có Google Sheet"));
+    assert.ok(!prompt.includes('"sheet": {') && !prompt.includes("Ghi sheet (nếu"));
+    assert.deepEqual([...new Set(prompt.match(/\{\{[A-Z_]+\}\}/g))], ["{{TASK}}"]);
+
+    const mixed = cli(w, ["init", "--slug", "mix", "--issue-id", "1", "--shop", "s", "--no-sheet", "--sheet", "X"]);
+    assert.equal(mixed.code, 2);
+    assert.match(mixed.stderr, /--no-sheet cannot be combined/);
+  });
+
+  test("verify-sheet reports N/A (never PASS), the sheet is not required, and claimed cells are refused", () => {
+    const w = world();
+    const init = cli(w, ["init", "--slug", "nosheet", "--issue-id", "296", "--shop", "s.example", "--no-sheet", "--profile", "sheet-only"]);
+    assert.equal(init.code, 0, init.stderr);
+    const j = { dir: init.last.jobDir, job: () => JSON.parse(fs.readFileSync(path.join(init.last.jobDir, "job.json"), "utf8")) };
+    assert.equal(dispatch(w, j, "terminal-7").code, 0);
+    assert.equal(settle(w, j, "terminal-7").code, 0);
+    let job = j.job();
+
+    fs.writeFileSync(job.rounds[0].reportPath, reportText(job, 1, { sheet: { cells: [{ keyText: "x", col: "Dev note kết quả", expect: "y" }] } }));
+    const refused = cli(w, ["validate-report", "--job", j.dir]);
+    assert.equal(refused.code, 1);
+    assert.match(refused.stderr, /no sheet/);
+
+    fs.writeFileSync(job.rounds[0].reportPath, reportText(job, 1, { sheet: undefined }));
+    const vr = cli(w, ["validate-report", "--job", j.dir]);
+    assert.equal(vr.code, 0, vr.stderr);
+    job = j.job();
+    assert.ok(!job.rounds[0].report.required.includes("sheet"));
+
+    const vs = cli(w, ["verify-sheet", "--job", j.dir]);
+    assert.equal(vs.code, 0, vs.stderr);
+    assert.equal(vs.last.status, "N/A");
+    assert.equal(vs.last.applicable, false);
+    assert.notEqual(vs.last.status, "PASS");
+    assert.deepEqual(vs.last.missing, ["dashboard"]);
+    assert.equal(j.job().state, "reported");
+
+    const rec = cli(w, ["record", "--job", j.dir, "--round", "1", "--kind", "dashboard", "--status", "PASS"]);
+    assert.equal(rec.last.state, "verified");
+  });
+
+  test("a sheet-less job whose report carries no dashboard block still needs the dashboard check before it is verified", () => {
+    const w = world();
+    const init = cli(w, ["init", "--slug", "nosheet", "--issue-id", "296", "--shop", "s.example", "--no-sheet", "--profile", "sheet-only"]);
+    assert.equal(init.code, 0, init.stderr);
+    const j = { dir: init.last.jobDir, job: () => JSON.parse(fs.readFileSync(path.join(init.last.jobDir, "job.json"), "utf8")) };
+    assert.equal(dispatch(w, j, "terminal-7").code, 0);
+    assert.equal(settle(w, j, "terminal-7").code, 0);
+    const job = j.job();
+
+    fs.writeFileSync(job.rounds[0].reportPath, reportText(job, 1, { sheet: undefined, dashboard: undefined }));
+    const vr = cli(w, ["validate-report", "--job", j.dir]);
+    assert.equal(vr.code, 0, vr.stderr);
+    assert.deepEqual(j.job().rounds[0].report.required, ["dashboard"]);
+
+    const vs = cli(w, ["verify-sheet", "--job", j.dir]);
+    assert.equal(vs.code, 0, vs.stderr);
+    assert.equal(vs.last.state, "reported", "the N/A sheet verdict alone must not verify the job");
+    assert.deepEqual(vs.last.missing, ["dashboard"]);
+    assert.equal(j.job().rounds[0].verification.sheet.outstandingDevRows, undefined, "N/A is not 'no rows outstanding'");
+
+    const rec = cli(w, ["record", "--job", j.dir, "--round", "1", "--kind", "dashboard", "--status", "PASS"]);
+    assert.equal(rec.last.state, "verified");
+  });
+
+  test("a report that requires no independent check is never verified", () => {
+    const w = world();
+    const init = cli(w, ["init", "--slug", "nosheet", "--issue-id", "296", "--shop", "s.example", "--no-sheet", "--profile", "sheet-only"]);
+    assert.equal(init.code, 0, init.stderr);
+    const j = { dir: init.last.jobDir, job: () => JSON.parse(fs.readFileSync(path.join(init.last.jobDir, "job.json"), "utf8")) };
+    assert.equal(dispatch(w, j, "terminal-7").code, 0);
+    assert.equal(settle(w, j, "terminal-7").code, 0);
+    const job = j.job();
+    fs.writeFileSync(job.rounds[0].reportPath, reportText(job, 1, { sheet: undefined }));
+    assert.equal(cli(w, ["validate-report", "--job", j.dir]).code, 0);
+    const stored = j.job();
+    stored.rounds[0].report.required = [];
+    fs.writeFileSync(path.join(j.dir, "job.json"), JSON.stringify(stored, null, 2));
+
+    const rec = cli(w, ["record", "--job", j.dir, "--round", "1", "--kind", "dashboard", "--status", "PASS"]);
+    assert.equal(rec.last.state, "reported");
+    assert.deepEqual(rec.last.missing, ["at least one independent check"]);
   });
 });
 

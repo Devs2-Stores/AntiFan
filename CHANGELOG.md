@@ -45,6 +45,14 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 - `evaluate` có cờ `truncated` khi kết quả bị cắt.
 - Giảm lag terminal: gói `terminal:activity` được gộp theo cửa sổ 100 ms (đầu và cuối) cho mỗi bề mặt và phiên, giữ `fromSeq` của gói đầu; thanh công cụ bỏ qua khung trạng thái giống hệt khung đã giao (khung mang `stateSeq`, renderer bỏ khung cũ hơn trạng thái ban đầu).
 
+### Thêm — Leader và cầu nối Core
+
+- `terminal.close {removeMintedProject:true}` dọn project scratch do chính lần đặt terminal của Leader tạo ra (chỉ trong thư mục scratch của Leader); `terminal.create` trả `minted`. Từ chối nếu project có cửa sổ đang mở, có tab đã lưu, đã được user tùy biến, gắn thư mục ngoài scratch hoặc dùng chung (`PROJECT_WINDOW_OPEN`, `PROJECT_HAS_SAVED_TABS`, `PROJECT_CUSTOMIZED`, `PROJECT_ATTACHES_NON_SCRATCH_FOLDER`, `PROJECT_NOT_EXCLUSIVE`); đọc lỗi thì cũng từ chối.
+- `terminal.wait` run-idle nhận `sessionIds[]` (tối đa 16) và trả terminal đầu tiên xong; tự suy `condition` từ `pattern`, `silenceMs`, `minRunSeq`, `afterEventAt`.
+- `terminal.list` báo `hookSha256` và `hookOutdated` khi OMP đang chạy bản hook cũ hơn bản đã cài.
+- `leader-job init` cho phép bỏ `--gid` (xuất tab đầu) và có `--no-sheet`; `verify-sheet` báo N/A thay vì PASS khi job không có sheet, và job không sheet luôn cần ít nhất một kiểm chứng độc lập (dashboard) mới thành `verified`.
+- Leader guard chặn thêm `anti.sheet.write_range` và `anti.agent.set_control`.
+
 ### Sửa — Link file trong terminal bị xuống hàng
 
 - Đường dẫn có thư mục chứa dấu cách mà chương trình tự ngắt dòng (xuống hàng thật, không phải soft-wrap của xterm) giờ được nối lại thành một link: chỉ nối khi phần đầu dòng sau không vừa chỗ trống cuối dòng trước, nên một dòng ngắn đi sau không bị ghép nhầm.

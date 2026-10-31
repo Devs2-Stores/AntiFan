@@ -29,6 +29,7 @@ import { WorkspaceCapsuleManager, findReusableCapsule, type WorkspaceCapsule } f
 import { ProjectRegistry } from './project/project-registry';
 import { ProjectPreferences, PROJECT_PREFERENCES_FILE } from './project/project-preferences';
 import { reconcileProjectRecords } from './project/project-reconcile';
+import { isUnderLeaderScratchRoot, registerLeaderProjectRemovalPort, type LeaderMintedProjectRemoval } from './leader/leader-runtime';
 import { classifyProjectTerminals, createProjectInactivityCloser, type ProjectTerminalFacts, type ProjectTerminalStates } from './project/project-inactivity-closer';
 import {
   hasValidatedAffiliation,
@@ -116,7 +117,7 @@ import { CockpitPort } from './tools/cockpit-port';
 import { CapabilityTransportAdapter } from './tools/capability-transport';
 import { DeviceManager } from './device/device-manager';
 import { IosDeviceAdapter } from './device/ios-device-adapter';
-import { validateControlPlaneId, makeControlPlaneId, CapabilityError, CONTROL_PLANE_DEFAULT_PROJECT_ID, CONTROL_PLANE_DEFAULT_WORKSPACE_ID, type ProjectRecord } from '../shared/control-plane-contracts';
+import { validateControlPlaneId, makeControlPlaneId, CapabilityError, CONTROL_PLANE_DEFAULT_PROJECT_ID, CONTROL_PLANE_DEFAULT_WORKSPACE_ID, type ProjectRecord, type WorkspaceRecord } from '../shared/control-plane-contracts';
 import {
   PROJECT_WINDOW_CHANNELS,
   type ProjectOpenListCandidate,
@@ -3130,6 +3131,78 @@ export async function removeProjectEntry(payload: unknown): Promise<ProjectRemov
   broadcastProjectInventoryChanged();
   return { status: 'REMOVED', projectId: validatedId };
 }
+
+/**
+ * The host half of a Leader's `terminal.close { removeMintedProject: true }`: remove the project that the
+ * Leader's own worker placement created, and nothing else.
+ *
+ * It re-derives every safety fact from the live capsule store instead of trusting the caller's record:
+ * the capsule's folder must be inside a Leader scratch folder; it must carry a validated project
+ * affiliation (a capsule that never became a project has nothing to remove); it must be the one capsule
+ * claiming that project; and every folder the project attaches must be scratch too. A project a person
+ * has since taken up is left alone: one with a window on screen, saved tabs, or a colour or star the
+ * user chose. Removal goes through `removeProjectEntry` without consent, so a project that still has live
+ * terminals is refused (`CONFIRM_REQUIRED`), never torn down. Anything the registry or the saved-tabs file
+ * cannot answer refuses the removal rather than assuming the project is unused.
+ */
+export async function removeLeaderMintedProject(capsuleId: string): Promise<LeaderMintedProjectRemoval> {
+  if (!capsuleManager) return { status: 'FAILED', reason: 'CAPSULE_STORE_UNAVAILABLE' };
+  let capsule: WorkspaceCapsule;
+  try {
+    capsule = capsuleManager.get(capsuleId);
+  } catch {
+    return { status: 'NO_PROJECT', reason: 'UNKNOWN_CAPSULE' };
+  }
+  if (!isUnderLeaderScratchRoot(capsule.workspacePath)) return { status: 'REFUSED', reason: 'OUTSIDE_SCRATCH_ALLOWLIST' };
+  if (!hasValidatedAffiliation(capsule)) return { status: 'NO_PROJECT', reason: 'CAPSULE_HAS_NO_PROJECT' };
+  const projectId = capsule.projectId;
+  if (uniqueValidatedClaim(capsuleManager.list(), projectId)?.id !== capsule.id) {
+    return { status: 'REFUSED', reason: 'PROJECT_NOT_EXCLUSIVE', projectId };
+  }
+  let workspaces: WorkspaceRecord[];
+  try {
+    workspaces = projectRegistry.listWorkspaces(projectId);
+  } catch (err) {
+    recordLifecycleEvent('project-remove.minted-refused', { projectId, reason: 'WORKSPACES_UNREADABLE', detail: String(err) });
+    return { status: 'REFUSED', reason: 'WORKSPACES_UNREADABLE', projectId };
+  }
+  for (const workspace of workspaces) {
+    if (workspace.state === 'attached' && workspace.rootPath && !isUnderLeaderScratchRoot(workspace.rootPath)) {
+      return { status: 'REFUSED', reason: 'PROJECT_ATTACHES_NON_SCRATCH_FOLDER', projectId };
+    }
+  }
+  const projectShell = liveShellFor(ownerKey({ kind: 'project', projectId }));
+  if (projectShell && shellIsOnScreen(projectShell)) return { status: 'REFUSED', reason: 'PROJECT_WINDOW_OPEN', projectId };
+  let chosenAppearance = false;
+  try {
+    const record = projectRegistry.getProject(projectId);
+    chosenAppearance = Boolean(record.color) || record.starred === true;
+  } catch {
+    // A project known only through its capsule has no registry record, so nothing was customised on it.
+  }
+  if (chosenAppearance) return { status: 'REFUSED', reason: 'PROJECT_CUSTOMIZED', projectId };
+  const savedTabs = savedTabsFilePath();
+  const savedDocument = readSavedTabsDocument(savedTabs);
+  if (!savedDocument && fs.existsSync(savedTabs)) return { status: 'REFUSED', reason: 'SAVED_TABS_UNREADABLE', projectId };
+  if ((savedDocument?.owners[ownerKey({ kind: 'project', projectId })]?.tabs?.length ?? 0) > 0) {
+    return { status: 'REFUSED', reason: 'PROJECT_HAS_SAVED_TABS', projectId };
+  }
+  const result = await removeProjectEntry({ projectId });
+  switch (result.status) {
+    case 'REMOVED':
+      return { status: 'REMOVED', projectId };
+    case 'CONFIRM_REQUIRED':
+      return { status: 'REFUSED', reason: 'LIVE_TERMINALS_IN_PROJECT', projectId, liveSessions: result.liveSessions };
+    case 'UNKNOWN_PROJECT':
+      return { status: 'NO_PROJECT', reason: 'PROJECT_NOT_LISTED', projectId };
+    case 'CLOSE_REFUSED':
+      return { status: 'REFUSED', reason: result.reason, projectId };
+    case 'FAILED':
+      return { status: 'FAILED', reason: result.reason, projectId };
+  }
+}
+
+registerLeaderProjectRemovalPort({ removeMintedProject: ({ capsuleId }) => removeLeaderMintedProject(capsuleId) });
 
 /**
  * The modal's explicit answer to a `CONFIRM_REQUIRED` ask. `confirmed: true` is the

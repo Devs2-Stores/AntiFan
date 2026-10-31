@@ -195,7 +195,7 @@ export function canonicalTool(name: string): string {
     .replace(/^mcp_/, "");
 }
 
-const SHEET_WRITERS = ["anti_sheet_write_cell"];
+const SHEET_WRITERS = ["anti_sheet_write_cell", "anti_sheet_write_range"];
 /** Tools that click, type, drop, upload or otherwise act on a page or the theme through a session. */
 const PAGE_ACTORS = [
   "anti_agent_cursor_click",
@@ -204,6 +204,7 @@ const PAGE_ACTORS = [
   "anti_agent_file_upload",
   "anti_agent_drop",
   "anti_agent_drag",
+  "anti_agent_set_control",
   "theme_transaction_write_cas",
   "playwright_browser_click",
   "playwright_browser_type",

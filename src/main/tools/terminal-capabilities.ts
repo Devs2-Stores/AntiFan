@@ -11,8 +11,19 @@ import {
   type TargetStaleCause,
 } from '../../shared/control-plane-contracts';
 import type { TerminalRunSnapshot } from '../../shared/contracts';
-import { LeaderRegistry } from '../leader/leader-registry';
-import { clearRunFilesOf, getLeaderPlacementPort, leaderRunSnapshot, waitForRunSettled } from '../leader/leader-runtime';
+import { LeaderRegistry, type LeaderMintedRecord } from '../leader/leader-registry';
+import {
+  clearRunFilesOf,
+  getLeaderPlacementPort,
+  getLeaderProjectRemovalPort,
+  installedRunStateHookSha256,
+  isUnderLeaderScratchRoot,
+  leaderHookStatus,
+  leaderRunSnapshot,
+  waitForAnyRunSettled,
+  waitForRunSettled,
+  type LeaderMintedProjectRemoval,
+} from '../leader/leader-runtime';
 import { daemonVersionStatus, type DaemonVersionStatus } from '../terminal-daemon/daemon-spawner';
 import { WorkerTerminalInputGate } from './worker-terminal-input-gate';
 
@@ -65,6 +76,9 @@ export interface TerminalWaitSleepingResult extends TerminalWaitResult {
   wakeCapability: 'terminal.write';
   message: string;
   wakeHint: string;
+  /** Set when the wait named several terminals. */
+  sessionIds?: string[];
+  sleepingSessionIds?: string[];
 }
 
 /**
@@ -81,6 +95,9 @@ export interface TerminalWaitTimedOutResult extends TerminalWaitResult {
   /** The largest deadline one call may use. */
   maxTimeoutMs: number;
   message: string;
+  /** Set when the wait named several terminals. */
+  sessionIds?: string[];
+  sleepingSessionIds?: string[];
 }
 
 /** `terminal.wait` with `condition: 'run-idle'`: the OMP run in that terminal has finished its turn. */
@@ -89,7 +106,66 @@ export interface TerminalRunWaitResult extends TerminalWaitResult {
   run: TerminalRunSnapshot;
 }
 
-export type TerminalWaitOutcome = TerminalWaitResult | TerminalRunWaitResult | TerminalWaitSleepingResult | TerminalWaitTimedOutResult;
+/**
+ * `terminal.wait` over `sessionIds[]` with `condition: 'run-idle'`: the first terminal whose run settled.
+ * `sessionId` names that terminal, `run` is its snapshot; the other terminals are still running.
+ */
+export interface TerminalAnyRunWaitResult extends TerminalRunWaitResult {
+  sessionId: string;
+  sessionIds: string[];
+  /** Terminals of the request that sleep and so were not polled (a wait never wakes one). */
+  sleepingSessionIds?: string[];
+}
+
+/**
+ * What `terminal.wait` accepts. `condition` may be left out when `pattern` (output-match), `silenceMs`
+ * (silence), or `sessionIds` / `minRunSeq` / `afterEventAt` (run-idle) say which one is meant.
+ * `sessionIds` waits for the first of several terminals and is only valid for run-idle.
+ */
+export type TerminalWaitParams = Omit<TerminalWaitInput, 'sessionId' | 'condition'> & {
+  sessionId?: string;
+  sessionIds?: string[];
+  condition?: TerminalWaitInput['condition'];
+};
+
+/** Most terminals one `terminal.wait` may poll together. */
+export const TERMINAL_WAIT_MAX_SESSIONS = 16;
+
+/**
+ * The wait condition a call means: the explicit one, or the single one its other parameters imply. Two
+ * implied conditions (a pattern together with silenceMs) are ambiguous and refused rather than guessed.
+ */
+export function inferTerminalWaitCondition(params: TerminalWaitParams, multiSession: boolean): TerminalWaitInput['condition'] {
+  if (params.condition !== undefined) return params.condition;
+  const implied: Array<{ condition: TerminalWaitInput['condition']; because: string }> = [];
+  if (params.pattern !== undefined) implied.push({ condition: 'output-match', because: 'pattern' });
+  if (params.silenceMs !== undefined) implied.push({ condition: 'silence', because: 'silenceMs' });
+  if (multiSession) implied.push({ condition: 'run-idle', because: 'sessionIds' });
+  else if (params.minRunSeq !== undefined) implied.push({ condition: 'run-idle', because: 'minRunSeq' });
+  else if (params.afterEventAt !== undefined) implied.push({ condition: 'run-idle', because: 'afterEventAt' });
+  const [only] = implied;
+  if (implied.length === 1 && only) return only.condition;
+  if (implied.length === 0) {
+    throw new CapabilityError(
+      'INVALID_ARGUMENT',
+      'condition is required: one of output-match, exit, silence, run-idle. It can be left out only when pattern (output-match), silenceMs (silence), or sessionIds / minRunSeq / afterEventAt (run-idle) names it'
+    );
+  }
+  throw new CapabilityError(
+    'INVALID_ARGUMENT',
+    `condition is ambiguous: ${implied.map((entry) => `${entry.because} implies ${entry.condition}`).join(' but ')}. Pass condition explicitly`
+  );
+}
+
+export type TerminalWaitOutcome =
+  | TerminalWaitResult
+  | TerminalRunWaitResult
+  | TerminalAnyRunWaitResult
+  | TerminalWaitSleepingResult
+  | TerminalWaitTimedOutResult;
+
+/** What a `terminal.close { removeMintedProject: true }` did about the project its placement minted. */
+export type TerminalProjectRemoval = LeaderMintedProjectRemoval | { status: 'SKIPPED'; reason: string };
 
 export interface TerminalWriteResult {
   /** Whether the input was handed to a live shell. */
@@ -384,12 +460,7 @@ async function waitForRunIdle(
   plan: { timeoutMs: number; clamped: boolean },
   signal: AbortSignal | undefined
 ): Promise<TerminalRunWaitResult | TerminalWaitTimedOutResult> {
-  for (const field of ['minRunSeq', 'afterEventAt'] as const) {
-    const value = params[field];
-    if (value !== undefined && (typeof value !== 'number' || !Number.isFinite(value))) {
-      throw new CapabilityError('INVALID_ARGUMENT', `${field} must be a finite number`);
-    }
-  }
+  assertFiniteRunCriteria(params);
   const sessionGeneration = typeof lifecycle?.sessionGeneration === 'number' ? lifecycle.sessionGeneration : 0;
   const lastSeq = typeof lifecycle?.lastSeq === 'number' ? lifecycle.lastSeq : 0;
   try {
@@ -414,6 +485,77 @@ async function waitForRunIdle(
   }
 }
 
+function assertFiniteRunCriteria(params: TerminalWaitParams): void {
+  for (const field of ['minRunSeq', 'afterEventAt'] as const) {
+    const value = params[field];
+    if (value !== undefined && (typeof value !== 'number' || !Number.isFinite(value))) {
+      throw new CapabilityError('INVALID_ARGUMENT', `${field} must be a finite number`);
+    }
+  }
+}
+
+/**
+ * `terminal.wait` for `condition: 'run-idle'` over several terminals: one poll loop answers with the first
+ * whose run settled. A sleeping terminal is never polled (its run cannot settle and a wait must not wake it);
+ * when every terminal sleeps the answer is the sleeping outcome of the first. The per-call deadline applies
+ * exactly as for one terminal.
+ */
+async function waitForAnyRunIdle(
+  params: TerminalWaitParams,
+  sessionIds: readonly [string, ...string[]],
+  terminal: TerminalManager,
+  plan: { timeoutMs: number; clamped: boolean },
+  signal: AbortSignal | undefined
+): Promise<TerminalAnyRunWaitResult | TerminalWaitTimedOutResult | TerminalWaitSleepingResult> {
+  assertFiniteRunCriteria(params);
+  const sleepingSessionIds: string[] = [];
+  const awake: string[] = [];
+  for (const id of sessionIds) {
+    const lifecycle = probeTerminalLifecycle(terminal, id);
+    if (lifecycle && lifecycle.disposed !== true && lifecycle.state === 'sleeping') sleepingSessionIds.push(id);
+    else awake.push(id);
+  }
+  const sleepingNote = sleepingSessionIds.length > 0 ? { sleepingSessionIds } : {};
+  const [firstAwake] = awake;
+  if (firstAwake === undefined) {
+    const first = probeTerminalLifecycle(terminal, sessionIds[0]);
+    return { ...sleepingWaitResult(sessionIds[0], first ?? {}), sessionIds: [...sessionIds], ...sleepingNote };
+  }
+  const cursorOf = (id: string): { sessionGeneration: number; lastSeq: number } => {
+    const lifecycle = probeTerminalLifecycle(terminal, id);
+    return {
+      sessionGeneration: typeof lifecycle?.sessionGeneration === 'number' ? lifecycle.sessionGeneration : 0,
+      lastSeq: typeof lifecycle?.lastSeq === 'number' ? lifecycle.lastSeq : 0,
+    };
+  };
+  try {
+    const { sessionId, run } = await waitForAnyRunSettled(awake, {
+      minRunSeq: params.minRunSeq,
+      afterEventAt: params.afterEventAt,
+      timeoutMs: plan.timeoutMs,
+      signal,
+    });
+    return { satisfied: true, sessionId, sessionIds: [...sessionIds], ...sleepingNote, ...cursorOf(sessionId), run };
+  } catch (err) {
+    if (!(err instanceof CapabilityError) || err.code !== 'WAIT_TIMEOUT') throw err;
+    if (!plan.clamped) throw new CapabilityError('WAIT_TIMEOUT', err.message, { ...err.details, sessionIds: [...sessionIds], ...sleepingNote });
+    return {
+      satisfied: false,
+      timedOut: true,
+      sessionId: firstAwake,
+      sessionIds: [...sessionIds],
+      ...sleepingNote,
+      ...cursorOf(firstAwake),
+      timeoutMs: TERMINAL_WAIT_MAX_TIMEOUT_MS,
+      requestedTimeoutMs: params.timeoutMs as number,
+      maxTimeoutMs: TERMINAL_WAIT_MAX_TIMEOUT_MS,
+      message:
+        `terminal.wait runs at most ${TERMINAL_WAIT_MAX_TIMEOUT_MS}ms per call, so the requested ${params.timeoutMs}ms was shortened and none of the ${awake.length} terminals settled in time. ` +
+        `They are unaffected: call terminal.wait again with the same sessionIds and condition "run-idle" and repeat until one is satisfied.`,
+    };
+  }
+}
+
 /**
  * A Leader's base terminal for a project folder: minted through the host's placement port and registered
  * as its worker. The registration is what makes the worker's OMP hook refuse unsafe theme commands, so a
@@ -423,7 +565,7 @@ async function placeLeaderWorker(
   terminal: TerminalManager,
   homeId: string,
   params: { cwd?: string; name?: string }
-): Promise<{ sessionId: string; cwd: string; workerOf: string; ownerKey?: string; capsuleId?: string }> {
+): Promise<{ sessionId: string; cwd: string; workerOf: string; ownerKey?: string; capsuleId?: string; minted?: { capsuleId: string } }> {
   const cwd = typeof params.cwd === 'string' ? params.cwd.trim() : '';
   if (!cwd) {
     throw new CapabilityError('INVALID_ARGUMENT', 'cwd is required: a Leader mints a terminal in the project folder it names');
@@ -454,12 +596,21 @@ async function placeLeaderWorker(
     const closed = await closeUnrecordedTerminal(() => terminal.closeSession(placed.sessionId));
     throw unrecordedWorkerError('The worker terminal', placed.sessionId, closed);
   }
+  // The capsule exists only because this placement created it: remember that, so closing this worker can
+  // remove exactly it later. A record that cannot be saved only means the capsule is left for the user to remove.
+  // A worker placed in a capsule an earlier placement minted is recorded as joined, so its close can finish a
+  // removal that the earlier worker's close had to refuse while this one was still open.
+  const minted = placed.minted && registry.recordMinted(placed.sessionId, { capsuleId: placed.minted.capsuleId, workspacePath: path.resolve(cwd) })
+    ? { capsuleId: placed.minted.capsuleId }
+    : undefined;
+  if (!placed.minted && placed.capsuleId) registry.recordJoined(placed.sessionId, placed.capsuleId);
   return {
     sessionId: placed.sessionId,
     cwd,
     workerOf: homeId,
     ...(placed.ownerKey ? { ownerKey: placed.ownerKey } : {}),
     ...(placed.capsuleId ? { capsuleId: placed.capsuleId } : {}),
+    ...(minted ? { minted } : {}),
   };
 }
 
@@ -480,6 +631,37 @@ function unrecordedWorkerError(label: string, sessionId: string, closed: boolean
       : `${label} "${sessionId}" could not be closed: it is still open and ungated, because the Leader registry could not record it and an unrecorded worker's OMP is not gated. Close it with terminal.close, check that the AntiFan config directory is writable, then retry`,
     { sessionId, closed }
   );
+}
+
+/**
+ * Remove the project a Leader's worker placement minted, after that worker's terminal was closed.
+ *
+ * Only a record written by the placement itself qualifies, and only while the folder it named is inside a
+ * Leader scratch folder; the host repeats both checks against the live capsule. The caller reads the record
+ * before closing, because closing a terminal drops its placement. The record itself belongs to the capsule
+ * and stays until the capsule's project is removed or is found to be gone, so a refused removal (a sibling
+ * worker still open, a window the user opened) can be asked again by closing the last worker in the folder.
+ */
+async function removeMintedProjectOf(
+  registry: LeaderRegistry,
+  minted: LeaderMintedRecord | undefined
+): Promise<TerminalProjectRemoval> {
+  if (!minted) {
+    return { status: 'SKIPPED', reason: 'NOT_MINTED_BY_PLACEMENT: this terminal did not create its project (it was minted in a folder that already had one, or the record is gone)' };
+  }
+  if (!isUnderLeaderScratchRoot(minted.workspacePath)) {
+    return { status: 'REFUSED', reason: 'OUTSIDE_SCRATCH_ALLOWLIST: the folder is not under a Leader scratch folder, so its project is left for the user to remove' };
+  }
+  const port = getLeaderProjectRemovalPort();
+  if (!port) return { status: 'FAILED', reason: 'REMOVAL_PORT_UNAVAILABLE: Main has not installed project removal' };
+  let outcome: LeaderMintedProjectRemoval;
+  try {
+    outcome = await port.removeMintedProject({ capsuleId: minted.capsuleId });
+  } catch (err) {
+    return { status: 'FAILED', reason: String(err instanceof Error ? err.message : err) };
+  }
+  if (outcome.status === 'REMOVED' || outcome.status === 'NO_PROJECT') registry.clearMinted(minted.capsuleId);
+  return outcome;
 }
 
 /**
@@ -516,6 +698,8 @@ export interface TerminalCapabilityDeps {
   probeTimeoutMs?: number;
   /** Staged-versus-running daemon bundle comparison reported by `terminal.list` (default: the spawner's). */
   daemonStatus?: () => DaemonVersionStatus;
+  /** Build identity of the installed run-state hook that `terminal.list` compares each run file against (default: the installer manifest's). */
+  installedHookSha256?: () => string | undefined;
 }
 
 /**
@@ -725,10 +909,10 @@ export function registerTerminalCapabilities(
     },
   });
 
-  catalogue.register<TerminalWaitInput, TerminalWaitOutcome>({
+  catalogue.register<TerminalWaitParams, TerminalWaitOutcome>({
     name: 'terminal.wait',
     description:
-      'Wait for output-match pattern, process exit, silence, or run-idle on one of your terminal split panes (the panes under the terminal you run in). run-idle waits until the OMP run in that terminal is idle, waiting for the user, or ended and returns the run snapshot; minRunSeq is the run counter the run must have reached, afterEventAt (pass the writtenAt of your terminal.write) counts only a run whose lastEventAt is newer than it and that completed at least one turn, so a leftover file or a fresh session that has not taken your prompt yet never satisfies it. A SLEEPING session returns immediately with satisfied=false, sleeping=true and code=SESSION_SLEEPING instead of blocking: it is never woken here, write input to wake it',
+      'Wait for output-match pattern, process exit, silence, or run-idle on one of your terminal split panes (the panes under the terminal you run in). condition may be left out when pattern (output-match), silenceMs (silence), or sessionIds / minRunSeq / afterEventAt (run-idle) names it. run-idle waits until the OMP run in that terminal is idle, waiting for the user, or ended and returns the run snapshot; minRunSeq is the run counter the run must have reached, afterEventAt (pass the writtenAt of your terminal.write) counts only a run whose lastEventAt is newer than it and that completed at least one turn, so a leftover file or a fresh session that has not taken your prompt yet never satisfies it. run-idle also accepts sessionIds (up to 16 terminals) instead of sessionId and answers with the FIRST terminal whose run settled (sessionId, run, sessionIds); call again with the remaining ids for the next one. A SLEEPING session returns immediately with satisfied=false, sleeping=true and code=SESSION_SLEEPING instead of blocking: it is never woken here, write input to wake it',
     risk: 'read',
     policy: {
       effect: 'read',
@@ -749,7 +933,8 @@ export function registerTerminalCapabilities(
       type: 'object',
       properties: {
         sessionId: { type: 'string', description: 'Terminal session ID' },
-        condition: { type: 'string', enum: ['output-match', 'exit', 'silence', 'run-idle'] },
+        sessionIds: { type: 'array', items: { type: 'string' }, description: `run-idle only: wait for the first of up to ${TERMINAL_WAIT_MAX_SESSIONS} terminals whose run settles, instead of one sessionId` },
+        condition: { type: 'string', enum: ['output-match', 'exit', 'silence', 'run-idle'], description: 'Optional when pattern, silenceMs, sessionIds, minRunSeq or afterEventAt implies it' },
         pattern: { type: 'string', description: 'Regex pattern for output-match' },
         sessionGeneration: { type: 'number', description: 'Expected session incarnation' },
         afterSeq: { type: 'number', description: 'Sequence cursor' },
@@ -758,31 +943,53 @@ export function registerTerminalCapabilities(
         afterEventAt: { type: 'number', description: 'run-idle only: epoch ms (the writtenAt of your terminal.write). Idle counts only once the run lastEventAt is newer than this and the run completed at least one turn' },
         timeoutMs: { type: 'number', description: `Wait deadline in milliseconds (default and maximum ${TERMINAL_WAIT_MAX_TIMEOUT_MS} per call; a longer request is shortened and, when it elapses, answers timedOut=true with lastSeq to continue from through afterSeq)` },
       },
-      required: ['sessionId', 'condition'],
     },
     execute: async (
-      params: TerminalWaitInput,
+      params: TerminalWaitParams,
       context?: CapabilityRequestContext | AuthenticatedCapabilityContext
     ) => {
       const signal = context && 'signal' in context ? context.signal : undefined;
-      assertTerminalOwnership(resolveTerminalCallerScope(ownership, context), params.sessionId);
-      // A sleeping session must never reach the wait path: materializing its shell
-      // would let a read-only MCP wait (or a Haravan barrier awaitSync) silently
-      // undo the nap and re-spawn a PTY. Answer with an explicit, actionable,
-      // typed outcome instead of blocking until the timeout.
-      const lifecycle = probeTerminalLifecycle(terminal, params.sessionId);
-      if (lifecycle && lifecycle.disposed !== true && lifecycle.state === 'sleeping') {
-        return sleepingWaitResult(params.sessionId, lifecycle);
+      const scope = resolveTerminalCallerScope(ownership, context);
+      const rawIds = params.sessionIds;
+      if (rawIds !== undefined && (!Array.isArray(rawIds) || rawIds.some((id) => typeof id !== 'string' || !id.trim()))) {
+        throw new CapabilityError('INVALID_ARGUMENT', 'sessionIds must be an array of non-empty terminal session ids');
+      }
+      const multiSession = rawIds !== undefined;
+      const named = typeof params.sessionId === 'string' && params.sessionId.trim() ? [params.sessionId.trim()] : [];
+      const [firstId, ...otherIds] = [...new Set([...named, ...(rawIds ?? []).map((id) => id.trim())])];
+      if (firstId === undefined) {
+        throw new CapabilityError('INVALID_ARGUMENT', 'sessionId is required (or sessionIds, for condition run-idle)');
+      }
+      const sessionIds: [string, ...string[]] = [firstId, ...otherIds];
+      if (sessionIds.length > TERMINAL_WAIT_MAX_SESSIONS) {
+        throw new CapabilityError('INVALID_ARGUMENT', `terminal.wait takes at most ${TERMINAL_WAIT_MAX_SESSIONS} sessionIds, got ${sessionIds.length}`);
+      }
+      for (const id of sessionIds) assertTerminalOwnership(scope, id);
+      const condition = inferTerminalWaitCondition(params, multiSession);
+      if (multiSession && condition !== 'run-idle') {
+        throw new CapabilityError('INVALID_ARGUMENT', `sessionIds is only valid with condition "run-idle", not "${condition}"`);
       }
       // The wait must end by its own deadline, inside the invocation budget: a deadline at or past
       // the budget is aborted by the platform and reads as an unexplained failure.
       const plan = planTerminalWaitTimeout(params.timeoutMs);
+      if (multiSession) return waitForAnyRunIdle(params, sessionIds, terminal, plan, signal);
+      const sessionId = firstId;
+      // A sleeping session must never reach the wait path: materializing its shell
+      // would let a read-only MCP wait (or a Haravan barrier awaitSync) silently
+      // undo the nap and re-spawn a PTY. Answer with an explicit, actionable,
+      // typed outcome instead of blocking until the timeout.
+      const lifecycle = probeTerminalLifecycle(terminal, sessionId);
+      if (lifecycle && lifecycle.disposed !== true && lifecycle.state === 'sleeping') {
+        return sleepingWaitResult(sessionId, lifecycle);
+      }
+      const { sessionIds: _namedByList, ...singleParams } = params;
+      const input: TerminalWaitInput = { ...singleParams, sessionId, condition };
       try {
-        if (params.condition === 'run-idle') return await waitForRunIdle(params, lifecycle, plan, signal);
-        return await terminal.waitTerminal({ ...params, timeoutMs: plan.timeoutMs }, signal);
+        if (condition === 'run-idle') return await waitForRunIdle(input, lifecycle, plan, signal);
+        return await terminal.waitTerminal({ ...input, timeoutMs: plan.timeoutMs }, signal);
       } catch (err) {
         if (plan.clamped && err instanceof CapabilityError && err.code === 'WAIT_TIMEOUT') {
-          return clampedWaitTimedOutResult(params.sessionId, params.timeoutMs as number, err);
+          return clampedWaitTimedOutResult(sessionId, params.timeoutMs as number, err);
         }
         throw err;
       }
@@ -800,7 +1007,7 @@ export function registerTerminalCapabilities(
   >({
     name: 'terminal.list',
     description:
-      'List the terminal split panes you may drive: the panes under the terminal you run in (the Space panes such as a sync watcher, and panes you created). The terminal you run in, other terminals, and other projects\' terminals are never listed; `omittedOutOfScopeTerminals` counts them. A Leader terminal (marked by the user) instead lists every live terminal of every project except its own, each row adding `workerOf` (when it is one of your workers) and `run` (the OMP run state read from its run file: state, runSeq, ompSessionId, promptHead, lastEventAt, stale). `daemonOutdated` ({ running, staged, message }) appears for a Leader when the terminal daemon still runs an older bundle than the one staged on disk: relay it to the user as "cần khởi động lại daemon", never restart it yourself (a restart ends every live shell). Rows carry bounded wire summary and incarnation metadata; includeBuffer:false drops the raw output tail (`buffer`) from every row, for polling many terminals',
+      'List the terminal split panes you may drive: the panes under the terminal you run in (the Space panes such as a sync watcher, and panes you created). The terminal you run in, other terminals, and other projects\' terminals are never listed; `omittedOutOfScopeTerminals` counts them. A Leader terminal (marked by the user) instead lists every live terminal of every project except its own, each row adding `workerOf` (when it is one of your workers) and `run` (the OMP run state read from its run file: state, runSeq, ompSessionId, promptHead, lastEventAt, stale), plus `hookSha256` (the run-state hook build that terminal\'s OMP runs) and `hookOutdated` (true when that build differs from the installed one, or reports none: that OMP started before the hooks were reinstalled, so tell the user to restart it; absent when the installed build is unknown). `daemonOutdated` ({ running, staged, message }) appears for a Leader when the terminal daemon still runs an older bundle than the one staged on disk: relay it to the user as "cần khởi động lại daemon", never restart it yourself (a restart ends every live shell). Rows carry bounded wire summary and incarnation metadata; includeBuffer:false drops the raw output tail (`buffer`) from every row, for polling many terminals',
     risk: 'read',
     policy: {
       effect: 'read',
@@ -861,6 +1068,7 @@ export function registerTerminalCapabilities(
         // OMP run state its run file records (when a hook ever wrote one).
         const registry = LeaderRegistry.getInstance();
         const reachable = sessions.filter((session) => Boolean(session?.id) && session.id !== scope.homeId && scope.ownership.isLiveTerminal?.(session.id) === true);
+        const installedHook = (deps.installedHookSha256 ?? installedRunStateHookSha256)();
         const rows = reachable.map((session): Record<string, unknown> & { id: string } => {
           const worker = registry.workerOf(session.id);
           const run = leaderRunSnapshot(session.id);
@@ -868,7 +1076,7 @@ export function registerTerminalCapabilities(
             ...(withOwned(session, true) as Record<string, unknown>),
             id: session.id,
             ...(worker?.leaderId === scope.homeId ? { workerOf: worker.leaderId } : {}),
-            ...(run ? { run } : {}),
+            ...(run ? { run, ...leaderHookStatus(session.id, installedHook) } : {}),
           };
         });
         const activeId = terminal.getActiveSessionId();
@@ -934,11 +1142,11 @@ export function registerTerminalCapabilities(
       initialRows?: number;
       reuse?: boolean;
     },
-    { sessionId: string; ownerBound?: boolean; reused?: boolean; cwd?: string; workerOf?: string; ownerKey?: string; capsuleId?: string }
+    { sessionId: string; ownerBound?: boolean; reused?: boolean; cwd?: string; workerOf?: string; ownerKey?: string; capsuleId?: string; minted?: { capsuleId: string } }
   >({
     name: 'terminal.create',
     description:
-      'Create a new terminal split pane under the terminal you run in (always a new pane, never the user\'s own split). You can only ever drive the panes under your own terminal, so this is the only way to get a shell. Close panes you no longer need with terminal.close. reuse:true returns your own idle pane for the same folder instead of a new one; use it only when that pane is idle, because a pane still running a command receives the input. A Leader terminal (marked by the user) that passes cwd without parentId instead mints a BASE terminal in the project that owns that folder, named by `name`, and registers it as its worker. A split minted under a terminal a Leader drives is registered as that Leader\'s worker too, so the theme-push rules that apply to the worker apply in the split',
+      'Create a new terminal split pane under the terminal you run in (always a new pane, never the user\'s own split). You can only ever drive the panes under your own terminal, so this is the only way to get a shell. Close panes you no longer need with terminal.close. reuse:true returns your own idle pane for the same folder instead of a new one; use it only when that pane is idle, because a pane still running a command receives the input. A Leader terminal (marked by the user) that passes cwd without parentId instead mints a BASE terminal in the project that owns that folder, named by `name`, and registers it as its worker; `minted: { capsuleId }` in the result means this call created the folder\'s project capsule (none existed), which terminal.close { removeMintedProject: true } can remove again when the folder is under a Leader scratch folder. A split minted under a terminal a Leader drives is registered as that Leader\'s worker too, so the theme-push rules that apply to the worker apply in the split',
     risk: 'write',
     policy: {
       effect: 'management',
@@ -1058,10 +1266,10 @@ export function registerTerminalCapabilities(
     }),
   });
 
-  catalogue.register<{ sessionId: string; isSplit?: boolean }, { closed: boolean }>({
+  catalogue.register<{ sessionId: string; isSplit?: boolean; removeMintedProject?: boolean }, { closed: boolean; projectRemoval?: TerminalProjectRemoval }>({
     name: 'terminal.close',
     description:
-      'Close one of YOUR terminal split panes (a pane under the terminal you run in) and safely terminate its process tree. The terminal you run in and every terminal outside it are refused. A Leader terminal (marked by the user) may close any live terminal of any project except its own',
+      'Close one of YOUR terminal split panes (a pane under the terminal you run in) and safely terminate its process tree. The terminal you run in and every terminal outside it are refused. A Leader terminal (marked by the user) may close any live terminal of any project except its own, and with removeMintedProject:true also removes the manager project that THIS worker\'s terminal.create minted (the result carries `minted`), but only when the folder is under a Leader scratch folder and no other terminal still lives in that project; a project that existed before the placement is never touched. The outcome is `projectRemoval` { status: REMOVED | NO_PROJECT | REFUSED | FAILED | SKIPPED, reason }',
     risk: 'write',
     policy: {
       effect: 'management',
@@ -1083,18 +1291,29 @@ export function registerTerminalCapabilities(
       properties: {
         sessionId: { type: 'string', description: 'Session ID to close' },
         isSplit: { type: 'boolean', description: 'Ignored for an agent: a pane is always closed as a split' },
+        removeMintedProject: { type: 'boolean', description: 'Leader only: after closing, also remove the manager project this worker\'s terminal.create minted (result `minted`). Refused unless the folder is under a Leader scratch folder; never removes a project that existed before the placement' },
       },
       required: ['sessionId'],
     },
     execute: async (
-      params: { sessionId: string; isSplit?: boolean },
+      params: { sessionId: string; isSplit?: boolean; removeMintedProject?: boolean },
       context?: CapabilityRequestContext | AuthenticatedCapabilityContext
     ) => {
       if (!params.sessionId || typeof params.sessionId !== 'string') {
         throw new CapabilityError('INVALID_ARGUMENT', 'sessionId is required');
       }
+      if (params.removeMintedProject !== undefined && typeof params.removeMintedProject !== 'boolean') {
+        throw new CapabilityError('INVALID_ARGUMENT', 'removeMintedProject must be a boolean');
+      }
       const scope = resolveTerminalCallerScope(ownership, context);
       assertTerminalOwnership(scope, params.sessionId);
+      const removeMinted = params.removeMintedProject === true;
+      if (removeMinted && !(scope.bound && scope.leader)) {
+        throw new CapabilityError('TERMINAL_FORBIDDEN', 'removeMintedProject is available to a Leader terminal only: a pane you split is not a placement that minted a project');
+      }
+      // Read before closing: the host forgets a closed terminal's registry records as soon as it is closed.
+      const registry = LeaderRegistry.getInstance();
+      const minted = removeMinted ? registry.mintedOf(params.sessionId) : undefined;
       // A bound caller can only reach a split pane, and a split id closes exactly that pane.
       const isSplit = scope.bound && scope.leader
         ? typeof probeTerminalLifecycle(terminal, params.sessionId)?.splitOf === 'string'
@@ -1103,7 +1322,11 @@ export function registerTerminalCapabilities(
         ? await terminal.closeSplitSession(params.sessionId)
         : await terminal.closeSession(params.sessionId);
       if (closed !== false) workerInputGate.forget(params.sessionId);
-      return { closed };
+      if (!removeMinted) return { closed };
+      if (closed === false) {
+        return { closed, projectRemoval: { status: 'SKIPPED', reason: 'TERMINAL_NOT_CLOSED: the terminal is still open, so its project was not touched' } };
+      }
+      return { closed, projectRemoval: await removeMintedProjectOf(registry, minted) };
     },
   });
 }

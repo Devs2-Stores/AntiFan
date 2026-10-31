@@ -16,7 +16,7 @@ const DEFAULT_JOBS_ROOT = "E:/Work/scratch/leader";
 const DEFAULT_DATA_ROOT = "E:/Work/.antifan-data";
 const JOB_SCHEMA = "leader-job/1";
 const HOST = "Taiz";
-const BOOL_FLAGS = new Set(["help", "allow-busy", "force", "all", "allow-outstanding", "without-done"]);
+const BOOL_FLAGS = new Set(["help", "allow-busy", "force", "all", "allow-outstanding", "without-done", "no-sheet"]);
 const VERIFY_KINDS = ["sheet", "dashboard", "storefront"];
 const VERIFY_STATUSES = ["PASS", "WARN", "FAIL", "UNREADABLE"];
 const PROBES = { themeId: "themeId.js", overflow: "overflow.js", "element-rect": "element-rect.js", "dashboard-issue": "dashboard-issue.js" };
@@ -28,10 +28,13 @@ const HELP = `leader-job.mjs - Leader job ledger (feedback jobs for host ${HOST}
 Usage: node scripts/leader/leader-job.mjs <command> [flags]
 
 Commands
-  init --slug S --issue-id ID --shop SHOP --sheet SHEETID --gid GID [--leader TERMINAL]
+  init --slug S --issue-id ID --shop SHOP (--sheet SHEETID [--gid GID] | --no-sheet) [--leader TERMINAL]
        [--cols-work H --cols-owner H --cols-note H --cols-done H] [--keys "a|b"]
        [--profile haravan|sheet-only] [--snapshot-file CSV]
        Create the job dir, fetch snapshot-before.csv, write job.json (state open) and <slug>.prompt.md.
+       Without --gid the sheet's first tab is exported (plain /export?format=csv). --no-sheet is for an
+       issue that has no Google Sheet: a header-only stub snapshot is written, verify-sheet reports N/A
+       (never PASS) and the sheet is not a required verification.
   dispatch --job DIR --worker TERMINAL [--prompt FILE] [--kind work|followup|close]
        [--mode auto|fresh|followup] [--allow-busy]
        Stamp dispatchedAt/preRunSeq, append a round, state=dispatched, print {input} for terminal.write.
@@ -191,9 +194,14 @@ function readTemplate(name) {
   return fs.readFileSync(path.join(HERE, "templates", name), "utf8");
 }
 
-function applyProfile(tpl, profile) {
-  return tpl.replace(/<!-- if:(\w+) -->\r?\n([\s\S]*?)<!-- endif -->\r?\n/g, (_, p, body) => (p === profile ? body : ""));
+/** Keep the blocks of the active flavours: the profile and `sheet` / `nosheet`. */
+function applyProfile(tpl, profile, hasSheet = true) {
+  const active = new Set([profile, hasSheet ? "sheet" : "nosheet"]);
+  return tpl.replace(/<!-- if:(\w+) -->\r?\n([\s\S]*?)<!-- endif -->\r?\n/g, (_, p, body) => (active.has(p) ? body : ""));
 }
+
+const NO_SHEET_STUB_CSV = "Stage,Mô tả,Dev note kết quả\n";
+const GID_FIRST_TAB = "tab đầu tiên (không chỉ định gid)";
 
 function jobVars(job, n, reportPath) {
   const c = job.subject.cols;
@@ -205,7 +213,7 @@ function jobVars(job, n, reportPath) {
     HOST: job.subject.host,
     SHOP: job.subject.shop,
     SHEET_ID: job.subject.sheetId,
-    GID: job.subject.gid,
+    GID: job.subject.gid ?? GID_FIRST_TAB,
     COL_WORK: c.work,
     COL_NOTE: c.note,
     COL_DONE: c.done ?? "(không có cột này)",
@@ -218,8 +226,14 @@ const promptPathFor = (dir, job, n) => fwd(path.join(dir, n === 1 ? `${job.slug}
 
 // ---------------------------------------------------------------- sheet io
 
+/** Plain `/export?format=csv` serves the first tab; a gid is added only when the caller knows one. */
+export function sheetExportUrl(sheet, gid, stamp = Date.now()) {
+  const gidParam = gid === null || gid === undefined || gid === "" ? "" : `&gid=${encodeURIComponent(gid)}`;
+  return `https://docs.google.com/spreadsheets/d/${encodeURIComponent(sheet)}/export?format=csv${gidParam}&t=${stamp}`;
+}
+
 async function fetchSheetCsv(sheet, gid) {
-  const url = `https://docs.google.com/spreadsheets/d/${encodeURIComponent(sheet)}/export?format=csv&gid=${encodeURIComponent(gid)}&t=${Date.now()}`;
+  const url = sheetExportUrl(sheet, gid);
   let res;
   try {
     res = await fetch(url, { redirect: "follow", signal: AbortSignal.timeout(30000) });
@@ -263,8 +277,12 @@ async function cmdInit(flags) {
   if (!/^[a-z0-9][a-z0-9-]{0,40}$/i.test(slug)) throw new CliError(EXIT.USAGE, "--slug must be letters, digits and dashes (max 41 chars)");
   const issueId = req(flags, "issue-id");
   const shop = req(flags, "shop");
-  const sheetId = req(flags, "sheet");
-  const gid = req(flags, "gid");
+  const noSheet = one(flags, "no-sheet") === true;
+  if (noSheet && (one(flags, "sheet") !== undefined || one(flags, "gid") !== undefined || one(flags, "snapshot-file") !== undefined)) {
+    throw new CliError(EXIT.USAGE, "--no-sheet cannot be combined with --sheet, --gid or --snapshot-file");
+  }
+  const sheetId = noSheet ? "" : req(flags, "sheet");
+  const gid = noSheet || one(flags, "gid") === undefined || one(flags, "gid") === "" ? null : String(one(flags, "gid"));
   const leaderArg = one(flags, "leader") || process.env.ANTIFAN_TERMINAL_SESSION_ID;
   if (!leaderArg) throw new CliError(EXIT.USAGE, "missing the Leader terminal: pass --leader or set ANTIFAN_TERMINAL_SESSION_ID");
   const leaderTerminal = validTerminalId(leaderArg, "leader");
@@ -274,7 +292,7 @@ async function cmdInit(flags) {
   let csv;
   const snapFile = one(flags, "snapshot-file");
   try {
-    csv = snapFile ? fs.readFileSync(snapFile, "utf8") : await fetchSheetCsv(sheetId, gid);
+    csv = noSheet ? NO_SHEET_STUB_CSV : snapFile ? fs.readFileSync(snapFile, "utf8") : await fetchSheetCsv(sheetId, gid);
   } catch (e) {
     throw new CliError(EXIT.USAGE, `cannot obtain the sheet snapshot: ${e.message}`);
   }
@@ -313,7 +331,8 @@ async function cmdInit(flags) {
       host: HOST,
       shop,
       sheetId,
-      gid: String(gid),
+      gid,
+      ...(noSheet ? { noSheet: true } : {}),
       cols: { work: cols.work, owner: cols.owner ?? null, note: cols.note, done: cols.done ?? null },
     },
     scope: { keys: keys ? keys.split("|").map(normKey).filter(Boolean) : null },
@@ -324,7 +343,7 @@ async function cmdInit(flags) {
   };
   const reportPath = reportPathFor(dir, job, 1);
   const promptPath = promptPathFor(dir, job, 1);
-  const skeleton = `${render(applyProfile(readTemplate("worker-header.md"), profile), jobVars(job, 1, reportPath))}\n# Việc\n{{TASK}}\n`;
+  const skeleton = `${render(applyProfile(readTemplate("worker-header.md"), profile, !noSheet), jobVars(job, 1, reportPath))}\n# Việc\n{{TASK}}\n`;
   fs.writeFileSync(promptPath, skeleton);
   saveJob(dir, job);
   emit({
@@ -334,6 +353,8 @@ async function cmdInit(flags) {
     job: name,
     state: job.state,
     cols: job.subject.cols,
+    gid: job.subject.gid,
+    noSheet,
     dataRows: analysis.rows.filter((r) => r.data).length,
     outstandingDevRows: outstandingDevRows(analysis).length,
     promptPath,
@@ -480,10 +501,12 @@ async function cmdWait(flags) {
   }
 }
 
-function requiredKindsFor(round, json) {
+function requiredKindsFor(round, json, job) {
   if (round.kind === "close") return ["dashboard"];
-  const req = ["sheet"];
-  if (json?.dashboard) req.push("dashboard");
+  // A job without a sheet still needs an independent check of the dashboard row: with nothing required,
+  // a report that carries only a summary would reach "verified" without anyone having looked at anything.
+  const req = job?.subject?.noSheet ? ["dashboard"] : ["sheet"];
+  if (json?.dashboard && !req.includes("dashboard")) req.push("dashboard");
   if (json?.storefront || (Array.isArray(json?.files) && json.files.length)) req.push("storefront");
   return req;
 }
@@ -510,9 +533,12 @@ function cmdValidateReport(flags) {
     status = v.status;
     json = v.json;
     errors.push(...v.errors);
+    if (job.subject.noSheet && Array.isArray(json?.sheet?.cells) && json.sheet.cells.length) {
+      errors.push("report claims sheet cells but this job has no sheet (init --no-sheet)");
+    }
   }
   const valid = errors.length === 0;
-  round.report = { status, valid, errors, checkedAt: Date.now(), ...(valid ? { required: requiredKindsFor(round, json) } : {}) };
+  round.report = { status, valid, errors, checkedAt: Date.now(), ...(valid ? { required: requiredKindsFor(round, json, job) } : {}) };
   if (valid) {
     if (round.n === job.rounds.length) job.state = status === "NEEDS_INPUT" ? "needs_input" : "reported";
   }
@@ -529,7 +555,9 @@ function applyVerification(job, round) {
   if (!rep?.valid) return { missing: ["valid report"] };
   const reportOk = round.kind === "close" ? rep.status === "DONE" : rep.status === "DONE" || rep.status === "PENDING";
   if (!reportOk) return { missing: [`report status ${rep.status} cannot be verified`] };
-  for (const k of rep.required ?? []) {
+  const required = rep.required ?? [];
+  if (required.length === 0) return { missing: ["at least one independent check"] };
+  for (const k of required) {
     const v = round.verification[k]?.status;
     if (v !== "PASS" && v !== "WARN") missing.push(k);
   }
@@ -548,6 +576,15 @@ async function cmdVerifySheet(flags) {
   const { dir, job } = loadJob(flags);
   const round = pickRound(job, flags);
   if (!round.report?.valid) throw new CliError(EXIT.REFUSED, `round ${round.n} has no valid report yet (run validate-report first)`);
+  if (job.subject.noSheet) {
+    // Nothing exists to compare against: the honest verdict is "not applicable", which
+    // is deliberately not a passing status for a job that does require a sheet check.
+    round.verification.sheet = { status: "N/A", changedCells: [], foreign: [], added: [], removed: [], notes: ["no sheet for this issue"], at: Date.now() };
+    const res = applyVerification(job, round);
+    saveJob(dir, job);
+    emit({ cmd: "verify-sheet", ok: true, job: job.job, round: round.n, status: "N/A", applicable: false, notes: round.verification.sheet.notes, state: job.state, missing: res.missing });
+    return EXIT.OK;
+  }
   const rep = JSON.parse(extractJson(fs.readFileSync(round.reportPath, "utf8")));
   const before = fs.readFileSync(path.join(dir, job.snapshotBefore), "utf8");
   let afterText = null;
