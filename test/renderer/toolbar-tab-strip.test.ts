@@ -265,3 +265,42 @@ describe('Project window strip', () => {
     );
   });
 });
+
+describe('Theme QA badge and state frame ordering', () => {
+  const tabs = [{ id: 'tab-1', title: 'Shop', url: 'https://shop.example.com/' }];
+  const badgeText = (doc: Document) => doc.getElementById('themeQaText')!.textContent;
+
+  test('an inconclusive row shows its reason, never a zero count', async () => {
+    const { doc, stub } = await loadToolbarWithTabs(tabs, 'tab-1');
+    stub.pushState({ tabs, activeTabId: 'tab-1', themeQa: { status: 'error', issueCount: null, reasonCode: 'QA_INCONCLUSIVE', updatedAt: 1 } });
+    await flush();
+    assert.strictEqual(badgeText(doc), 'QA Inconclusive');
+    assert.ok(!/Issues/.test(badgeText(doc) ?? ''));
+  });
+
+  test('a busy refusal and a failed row without a count read as such', async () => {
+    const { doc, stub } = await loadToolbarWithTabs(tabs, 'tab-1');
+    stub.pushState({ tabs, activeTabId: 'tab-1', themeQa: { status: 'error', issueCount: null, reasonCode: 'QA_BUSY', updatedAt: 1 } });
+    await flush();
+    assert.strictEqual(badgeText(doc), 'QA Busy');
+    stub.pushState({ tabs, activeTabId: 'tab-1', themeQa: { status: 'fail', issueCount: null, updatedAt: 2 } });
+    await flush();
+    assert.strictEqual(badgeText(doc), 'QA Failed');
+    stub.pushState({ tabs, activeTabId: 'tab-1', themeQa: { status: 'fail', issueCount: 3, updatedAt: 3 } });
+    await flush();
+    assert.strictEqual(badgeText(doc), '3 Issues');
+  });
+
+  test('a state frame at or below the sequence already applied is dropped', async () => {
+    const { doc, stub } = await loadToolbarWithTabs(tabs, 'tab-1');
+    stub.pushState({ tabs, activeTabId: 'tab-1', stateSeq: 5, themeQa: { status: 'pass', issueCount: 0, updatedAt: 1 } });
+    await flush();
+    assert.strictEqual(badgeText(doc), 'QA Clean');
+    stub.pushState({ tabs, activeTabId: 'tab-1', stateSeq: 4, themeQa: { status: 'fail', issueCount: 9, updatedAt: 2 } });
+    await flush();
+    assert.strictEqual(badgeText(doc), 'QA Clean', 'an older frame never overwrites newer state');
+    stub.pushState({ tabs, activeTabId: 'tab-1', stateSeq: 6, themeQa: { status: 'fail', issueCount: 2, updatedAt: 3 } });
+    await flush();
+    assert.strictEqual(badgeText(doc), '2 Issues');
+  });
+});

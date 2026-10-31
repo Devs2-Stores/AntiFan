@@ -1872,6 +1872,67 @@ describe('project window identity', () => {
     assert.deepEqual(payload.projectWindow, initial.projectWindow);
   });
 
+  describe('toolbar state frames', () => {
+    function hostWithToolbar() {
+      const host = createHost({ owner: PROJECT_A, tabs: [['a1', { title: 'One' }]], activeTabId: 'a1' });
+      host.toolbarBroadcastsSkipped = 0;
+      host.toolbarFrameSeq = 0;
+      host.lastToolbarBroadcast = null;
+      host.tabThemeQaStates = new Map<string, AnyRecord>();
+      const toolbar = makeWebContents();
+      (host.shell as AnyRecord).toolbarView = { webContents: toolbar };
+      const frames = () => toolbar.sent.filter((message) => message.channel === TOOLBAR_CHANNELS.STATE_UPDATED).map((message) => message.args[0] as AnyRecord);
+      return { host, toolbar, frames };
+    }
+
+    it('skips an identical frame for a tab that never ran QA', () => {
+      const { host, frames } = hostWithToolbar();
+      host.flushBroadcastState();
+      host.flushBroadcastState();
+      host.flushBroadcastState();
+      assert.equal(frames().length, 1, 'the idle row has no clock of its own, so repeats are deduplicated');
+      assert.equal(host.getToolbarBroadcastsSkipped(), 2);
+    });
+
+    it('delivers a frame again once the QA row changes', () => {
+      const { host, frames } = hostWithToolbar();
+      host.flushBroadcastState();
+      host.tabThemeQaStates.set('a1', { status: 'running', issueCount: null, reasonCode: 'QA_RUNNING', updatedAt: 1 });
+      host.flushBroadcastState();
+      host.tabThemeQaStates.set('a1', { status: 'pass', issueCount: 0, report: { summary: { passed: true } }, updatedAt: 2 });
+      host.flushBroadcastState();
+      const themeQa = frames().map((frame) => (frame.themeQa as AnyRecord).status);
+      assert.deepEqual(themeQa, ['idle', 'running', 'pass']);
+      assert.deepEqual((frames()[2]!.themeQa as AnyRecord).report, { summary: { passed: true } }, 'the sent frame still carries the report');
+    });
+
+    it('does not remember a frame the toolbar never received', () => {
+      const { host, toolbar, frames } = hostWithToolbar();
+      const frame = toolbar.mainFrame;
+      (toolbar as unknown as AnyRecord).mainFrame = null;
+      host.flushBroadcastState();
+      assert.equal(frames().length, 0, 'a webContents without a main frame accepts nothing');
+      (toolbar as unknown as AnyRecord).mainFrame = frame;
+      host.flushBroadcastState();
+      assert.equal(frames().length, 1, 'the identical state is delivered once the toolbar can take it');
+      assert.equal(host.getToolbarBroadcastsSkipped(), 0);
+    });
+
+    it('numbers delivered frames and names the latest one in the initial state', async () => {
+      const { host, frames } = hostWithToolbar();
+      host.flushBroadcastState();
+      host.tabThemeQaStates.set('a1', { status: 'fail', issueCount: 2, updatedAt: 5 });
+      host.flushBroadcastState();
+      assert.deepEqual(frames().map((frame) => frame.stateSeq), [1, 2]);
+      const harness: ChromeRouteHarness = createChromeRouteHarness({ host: asHost(host) });
+      const initial = (await harness.invoke(TOOLBAR_CHANNELS.GET_INITIAL_STATE)) as AnyRecord;
+      assert.equal(initial.stateSeq, 2);
+      host.flushBroadcastState();
+      assert.equal(frames().length, 3, 'a renderer that re-pulled its initial state is sent the next frame even when unchanged');
+      assert.equal(frames()[2]!.stateSeq, 3);
+    });
+  });
+
   it('adds the workspace path only for a verified affiliation and never invents one', async () => {
     const host = createHost({ owner: PROJECT_A, tabs: [['a1']], activeTabId: 'a1' });
     (host.shell as AnyRecord).title = 'Project A';
@@ -1970,9 +2031,10 @@ describe('terminal activity envelopes', () => {
     assert.ok(envelope.data.length <= 4096, `activity data is bounded, got ${envelope.data.length}`);
     assert.ok(envelope.data.endsWith(marker), 'trailing wait markers survive the tail cut');
 
-    // Small payloads pass through untouched — truncation only pays for big bursts.
+    // Small payloads pass through untouched — truncation only pays for big bursts. The activity
+    // throttle is per (surface, session), so a different session is not held back by the burst above.
     sidebarWc.sent.length = 0;
-    const small = { sessionId: 'sess-activity', data: 'echo', seq: 10, fromSeq: 10, throughSeq: 10 };
+    const small = { sessionId: 'sess-activity-small', data: 'echo', seq: 10, fromSeq: 10, throughSeq: 10 };
     host.dispatchTerminalData(small);
     const smallFrame = sidebarWc.sent.find((m) => m.channel === TERMINAL_CHANNELS.ACTIVITY);
     assert.ok(smallFrame);

@@ -1909,6 +1909,8 @@ async function ensureProjectWindow(
   }
 
   const host = projectWindowHostFactoryForTesting?.(shell) ?? new NativeTabHost(shell, capsuleManager || undefined);
+  // A host may be a test double, so the presenter is attached through an optional call.
+  host.setUnfocusedWindowPresenter?.(() => presentShellUnfocused(shell));
   // The reservation table, before the host can restore or create a single page: a tab
   // created inside an async close window would otherwise exist for exactly as long as it
   // takes the attempt to destroy its window.
@@ -2573,8 +2575,11 @@ function presentShellUnfocused(shell: ProjectWindowShell): void {
   const placement = windowStateManager?.getValidBounds(ownerKey(shell.owner));
   if (placement?.isMaximized) shell.window.maximize();
   else if (typeof placement?.x !== 'number' || typeof placement?.y !== 'number') shell.window.center();
-  if (shell.window.isMinimized()) shell.window.restore();
+  // showInactive un-minimizes without activation; restore() activates the window on Windows
+  // (measured by test/e2e/host-window-minimize-probe.cjs), so it only backs up a window that
+  // showInactive left minimized.
   shell.window.showInactive();
+  if (shell.window.isMinimized()) shell.window.restore();
 }
 
 /** Surfaces a project-window channel serves: the toolbar control and the sidebar's own. */
@@ -3962,6 +3967,13 @@ async function createWindow(): Promise<void> {
       }
       return undefined;
     },
+    describeClosedTab: (tabId) => {
+      for (const host of tabAuthorities.hosts()) {
+        const info = host.getClosedTabInfo(tabId);
+        if (info) return info;
+      }
+      return undefined;
+    },
     releaseSessionTab: (sessionId, tabId) => (hostForTabOrDegrade(tabId, 'controlPlane.releaseSessionTab')?.releaseSessionTab(sessionId, tabId) ?? false),
     releaseSessionTabPool: (sessionId) => {
       let anyReleased = false;
@@ -4206,6 +4218,8 @@ async function createWindow(): Promise<void> {
       const shell = tabAuthorities.shellForTab(tabId);
       if (shell && !shellIsOnScreen(shell)) presentShellUnfocused(shell);
     },
+    getHostWindowPresentation: (tabId) => hostForTabOrDegrade(tabId, 'port.getHostWindowPresentation')?.getHostWindowPresentation(tabId),
+    restoreHostWindowUnfocused: (tabId) => hostForTabOrDegrade(tabId, 'port.restoreHostWindowUnfocused')?.restoreHostWindowUnfocused(tabId) ?? { restored: false },
     closeTab: (tabId, source) => hostForTabOrBootstrap(tabId).closeTab(tabId, source),
     switchTab: (tabId, opts) => hostForTabOrBootstrap(tabId).switchTab(tabId, opts),
     trySwitchTab: (tabId, opts) => hostForTabOrBootstrap(tabId).trySwitchTab(tabId, opts),
@@ -4392,6 +4406,7 @@ async function createWindow(): Promise<void> {
     navigateAndWait: (tabId, url, timeoutMs) => hostForTabOrBootstrap(tabId).navigateAndWait(tabId, url, timeoutMs),
     runThemeQa: (tabId, options) => hostForTabOrBootstrap(tabId).runThemeQa(tabId, options),
     getThemeQaState: (tabId) => hostForTabOrBootstrap(tabId).getThemeQaState(tabId),
+    publishThemeQaState: (tabId, report) => hostForTabOrBootstrap(tabId).publishThemeQaState(tabId, report),
     checklistLoad: (tabId, input) => hostForTabOrBootstrap(tabId).themeChecklistLoad(input),
     checklistMutate: (tabId, input) => hostForTabOrBootstrap(tabId).themeChecklistMutate(input),
     checklistSave: (tabId, input) => hostForTabOrBootstrap(tabId).themeChecklistSave(input),

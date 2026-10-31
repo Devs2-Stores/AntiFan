@@ -776,6 +776,61 @@ export function classifyRenderSurfaceCause(snapshot: Partial<RenderSurfaceSnapsh
   return 'viewport-unmeasured';
 }
 
+/** What a caller can do about a tab with no render surface, in one consistent wording. */
+export interface RenderSurfaceRemedy {
+  /** One sentence naming the cause, then the ordered steps. Appended to refusal messages verbatim. */
+  text: string;
+  /** The next attempt can succeed once the caller follows the steps (the surface is recoverable). */
+  retryable: boolean;
+  /** The window holding the tab is hidden or minimized (not a property of the page). */
+  hostWindowHidden: boolean;
+  /** Capability names, in the order a caller should try them. */
+  steps: string[];
+}
+
+/**
+ * The single remedy every render-surface refusal quotes, so the port, the capture host and
+ * `get_viewport` never contradict each other.
+ *
+ * A hidden or minimized window has no compositor surface: resizing the tab cannot create one, so
+ * `set_viewport` is never advised for it. The advice is to bring the window back without taking
+ * focus (`tabs.activate` with `restoreWindow: true`), or to accept the degraded surface knowingly
+ * (`allowDegradedSurface`). A background tab of a visible window only needs activating.
+ */
+export function renderSurfaceRemedy(input: { cause: string; hostWindowHidden?: boolean }): RenderSurfaceRemedy {
+  const hostWindowHidden = input.hostWindowHidden === true || input.cause === 'window-not-presented';
+  if (hostWindowHidden) {
+    return {
+      text: 'The window holding this tab is hidden or minimized, so the tab has no compositor surface and resizing it cannot create one. Call anti.browser.tabs.activate with restoreWindow:true (restores the window without taking focus), then retry; or pass allowDegradedSurface:true to accept the zero-size surface knowingly. Do not use anti.browser.set_viewport for this.',
+      retryable: true,
+      hostWindowHidden: true,
+      steps: ['anti.browser.tabs.activate {restoreWindow:true}', 'retry', 'allowDegradedSurface:true'],
+    };
+  }
+  if (input.cause === 'document-not-loaded') {
+    return {
+      text: 'The document has not finished loading, so it has no laid-out surface yet. Wait for it (anti.browser.wait) and retry.',
+      retryable: true,
+      hostWindowHidden: false,
+      steps: ['anti.browser.wait', 'retry'],
+    };
+  }
+  if (input.cause === 'background-hidden') {
+    return {
+      text: 'The tab is in the background, so the page reports itself hidden and has no laid-out surface. Call anti.browser.tabs.activate with its tabId (add restoreWindow:true if the window is minimized), then retry; or pass allowDegradedSurface:true to accept the missing surface knowingly.',
+      retryable: true,
+      hostWindowHidden: false,
+      steps: ['anti.browser.tabs.activate', 'retry', 'allowDegradedSurface:true'],
+    };
+  }
+  return {
+    text: 'The tab reports no laid-out surface. Read its live viewport with anti.browser.get_viewport; if it is a background tab call anti.browser.tabs.activate first (add restoreWindow:true when get_viewport reports hostWindowHidden), then retry, or pass allowDegradedSurface:true to accept it knowingly. anti.browser.set_viewport applies a persistent device-emulation override: use it only when a specific device size is genuinely required.',
+    retryable: true,
+    hostWindowHidden: false,
+    steps: ['anti.browser.get_viewport', 'anti.browser.tabs.activate', 'retry', 'allowDegradedSurface:true'],
+  };
+}
+
 /**
  * Minimum scroll step for the materialization walk, in CSS pixels. The walk steps
  * by 85% of the viewport height when that is larger: every pixel still crosses the

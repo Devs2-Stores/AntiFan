@@ -28,6 +28,7 @@ import { registerWorkflowCapabilities } from '../workflow/workflow-capabilities'
 import { WorkflowRegistry } from '../workflow/workflow-registry';
 import { TerminalManager, type TerminalManagerStats } from '../browser/terminal-manager';
 import type { JsDialogDescription } from '../browser/js-dialog-tracker';
+import type { ClosedTabInfo } from '../browser/closed-tab-record';
 import { WorkflowEngine } from '../workflow/workflow-engine';
 import { assertExactBrowserTarget, BrowserTarget, CapabilityError, CapabilityRequestContext, issueRuntimeLease, RuntimeFeatureSwitch, RuntimeLease, WorkspaceRecord } from '../../shared/control-plane-contracts';
 import { WorkflowDefinition, WorkflowExecutionResult, WorkflowEventListener } from '../workflow/workflow-schema';
@@ -56,6 +57,8 @@ export interface ControlPlaneRuntimeOptions {
   isTabSplit?: (tabId: string) => boolean | undefined;
   resolveTabId?: (tabIdOrIdentifier: string) => string | undefined;
   resolveFailoverTabId?: (staleTabId: string) => string | undefined;
+  /** Who closed a recently closed tab and why; the catalogue folds it into stale-target refusals. */
+  describeClosedTab?: (tabId: string) => ClosedTabInfo | undefined;
   releaseSessionTab?: (sessionId: string, tabId: string) => boolean;
   releaseSessionTabPool?: (sessionId: string) => boolean;
   browserControlPort?: BrowserControlPort;
@@ -245,6 +248,7 @@ export class ControlPlaneRuntime {
       resolveTabAffiliation: options.resolveTabAffiliation,
       resolveTabId: options.resolveTabId,
       resolveFailoverTabId: options.resolveFailoverTabId,
+      describeClosedTab: options.describeClosedTab,
       getDocumentGeneration: options.getDocumentGeneration,
       getOpenJsDialog: options.getOpenJsDialog,
       // Read lazily at dispatch time: the device adapter registers after this runtime is constructed,

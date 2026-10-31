@@ -23,6 +23,7 @@ import { tabShareGrants, type TabShareGrant } from '../browser/tab-share-grants'
 import { dialogOpenError, type JsDialogDescription } from '../browser/js-dialog-tracker';
 import { SHARE_TAB_GUIDANCE } from '../../shared/tab-sharing';
 import { AttachmentTabLedger } from './attachment-tab-ledger';
+import type { ClosedTabInfo } from '../browser/closed-tab-record';
 
 /**
  * Target-bound capabilities that never reach the page, so an open JavaScript dialog does not
@@ -183,6 +184,8 @@ export interface CapabilityCatalogueOptions {
   /** Journal hook for each retarget a grant authorised; absent, the process-wide registry journals. */
   noteTabShareGrantUse?: (grant: TabShareGrant) => void;
   resolveFailoverTabId?: (staleTabId: string) => string | undefined;
+  /** Who closed a recently closed tab and why; answered by the host that closed it. */
+  describeClosedTab?: (tabId: string) => ClosedTabInfo | undefined;
   getDocumentGeneration?: (tabId?: string) => number;
   /**
    * Live device attachment/session binding, written by the registered device adapter. Absent when no
@@ -323,6 +326,20 @@ export class CapabilityCatalogue {
       } catch {}
     }
     return undefined;
+  }
+
+  /**
+   * Who closed a tab that no longer exists, why and when, plus the live tab its session can rebind
+   * to. Only a host that closed the tab recently can answer; the facts go into stale-target
+   * refusals so a caller can tell its own close from a user, page or application close.
+   */
+  describeClosedTab(tabId: string): ClosedTabInfo | undefined {
+    if (!tabId || !this.options.describeClosedTab) return undefined;
+    try {
+      return this.options.describeClosedTab(tabId);
+    } catch {
+      return undefined;
+    }
   }
   hasWorkspaceRegistry(): boolean {
     return Boolean(this.options.workspaceRegistry);
@@ -794,6 +811,7 @@ export class CapabilityCatalogue {
         // it (the MCP proxy mirrors the authority's tab) holds a stale default, so the
         // refusal names the live target it can retarget onto; the code stays the
         // fail-closed mismatch the explicit-foreign-id contract pins.
+        const closedTab = this.describeClosedTab(reqTabId);
         throw new CapabilityError(
           'TARGET_MISMATCH',
           `Unknown browser target: ${reqTabId}. This session's live target is '${context.browserTarget.tabId}'; rebind with anti.browser.rebind_target.`,
@@ -801,6 +819,7 @@ export class CapabilityCatalogue {
             requestedTabId: reqTabId,
             liveTabId: context.browserTarget.tabId,
             rebindTool: 'anti.browser.rebind_target',
+            ...(closedTab ?? {}),
             recovery: `Retry with tabId '${context.browserTarget.tabId}' (this session's live target), or list live tabs with anti.browser.tabs.list and call anti.browser.rebind_target {tabId} with one of them.`,
           }
         );

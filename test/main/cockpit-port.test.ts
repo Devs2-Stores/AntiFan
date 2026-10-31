@@ -126,3 +126,42 @@ describe('CockpitPort scope identity', () => {
     assert.strictEqual(port.releaseTab('tab-1'), undefined, 'releaseTab on a dead tab is a no-op, not a crash');
   });
 });
+
+describe('CockpitPort.publishThemeQaState', () => {
+  it('hands a finished report to the host row of a live tab and says it accepted it', () => {
+    const double = makeHost('tab-1', 'http://shop-a.local/', ['E:\\Work\\themes\\shop-a']);
+    const published: Array<{ tabId: string; report: unknown }> = [];
+    double.host.publishThemeQaState = (tabId, report) => {
+      published.push({ tabId, report });
+    };
+    const port = new CockpitPort(double.host);
+    const report = { summary: { criticalCount: 2, passed: false } };
+
+    assert.strictEqual(port.publishThemeQaState(' tab-1 ', report), true);
+    assert.deepStrictEqual(published, [{ tabId: 'tab-1', report }]);
+  });
+
+  it('refuses a dead or unknown tab, and a host without a toolbar, without publishing', () => {
+    const double = makeHost('tab-1', 'http://shop-a.local/', ['E:\\Work\\themes\\shop-a']);
+    let calls = 0;
+    double.host.publishThemeQaState = () => {
+      calls += 1;
+    };
+    const port = new CockpitPort(double.host);
+    assert.strictEqual(port.publishThemeQaState('ghost-tab', {}), false);
+    assert.strictEqual(port.publishThemeQaState('', {}), false);
+    double.alive.value = false;
+    assert.strictEqual(port.publishThemeQaState('tab-1', {}), false);
+    assert.strictEqual(calls, 0);
+
+    const headless = makeHost('tab-1', 'http://shop-a.local/', ['E:\\Work\\themes\\shop-a']);
+    assert.strictEqual(new CockpitPort(headless.host).publishThemeQaState('tab-1', {}), false);
+  });
+
+  it('an idle row has no count and a reason code', () => {
+    const idle: CockpitQaState = { status: 'idle', issueCount: null, reasonCode: 'QA_NOT_RUN', updatedAt: 0 };
+    const double = makeHost('tab-1', 'http://shop-a.local/', ['E:\\Work\\themes\\shop-a']);
+    double.host.getThemeQaState = () => idle;
+    assert.deepStrictEqual(new CockpitPort(double.host).getThemeQaState('tab-1'), idle);
+  });
+});

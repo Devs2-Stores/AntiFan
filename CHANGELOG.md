@@ -17,6 +17,18 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 - `anti.browser.navigate` có thêm `waitUntil`; các công cụ screenshot có thêm `saveTo` (cần grant ghi); `set_viewport` có thêm `hideScrollbar` và `clientWidth`; `tabs.list` có thêm bộ lọc.
 - `anti.browser.navigate` trả `redirectChain` (URL yêu cầu, từng bước redirect của server, URL commit) khi server chuyển hướng. Sửa lỗi composite host không chuyển tiếp `getRedirectChain`, khiến mọi công cụ MCP (route identity của screenshot/QA) luôn thấy `redirects: none`.
 
+### Sửa — Theme QA không còn cho verdict sai (có thay đổi phá vỡ)
+
+- `issueCount` trong trạng thái Theme QA (`theme.cockpit_findings`) là `null` kèm `reasonCode` khi chưa có báo cáo hoàn tất (`QA_NOT_RUN`, `QA_RUNNING`, `QA_BUSY`, `QA_INCONCLUSIVE`); toolbar không còn hiện "0 Issues" cho run INCONCLUSIVE. `qa_validate` qua MCP giờ cũng ghi trạng thái này.
+
+### Sửa — Tab, cửa sổ và thao tác
+
+- Một attachment mới từ cùng terminal, cùng project và workspace nhận lại các tab mà attachment trước đã mở (trong 1 giờ); khác project, workspace hoặc terminal thì bị từ chối như cũ.
+- `TARGET_STALE` của tab đã đóng có thêm `closedBy`, `closeReason`, `closedAt` và `replacementTabId` trong `details`. Đóng một tab `bind:false` không đổi tab đang bind.
+- Cửa sổ project bị thu nhỏ hoặc ẩn: `get_viewport` báo `hostWindowHidden`, `windowPresentation`; `tabs.activate` trả `rendered` và `hostWindowHidden`, và nhận `restoreWindow:true` để khôi phục cửa sổ không cướp focus (chỉ cho tab thuộc phiên; tab ngoài phiên trả `restoreRefused`). Thông báo `NO_RENDER_SURFACE` dùng chung một lời khuyên và không còn khuyên `set_viewport` cho cửa sổ ẩn.
+- Sửa lỗi khôi phục cửa sổ đang thu nhỏ (gồm cả lúc mở lại cửa sổ project khi khởi động) làm cửa sổ chiếm focus trên Windows: giờ chỉ dùng `showInactive`, `restore()` chỉ là dự phòng khi cửa sổ vẫn còn thu nhỏ.
+- Giảm lag terminal: gói `terminal:activity` được gộp theo cửa sổ 100 ms (đầu và cuối) cho mỗi bề mặt và phiên, giữ `fromSeq` của gói đầu; thanh công cụ bỏ qua khung trạng thái giống hệt khung đã giao (khung mang `stateSeq`, renderer bỏ khung cũ hơn trạng thái ban đầu).
+
 ### Sửa — Link file trong terminal bị xuống hàng
 
 - Đường dẫn có thư mục chứa dấu cách mà chương trình tự ngắt dòng (xuống hàng thật, không phải soft-wrap của xterm) giờ được nối lại thành một link: chỉ nối khi phần đầu dòng sau không vừa chỗ trống cuối dòng trước, nên một dòng ngắn đi sau không bị ghép nhầm.

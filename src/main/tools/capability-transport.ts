@@ -777,6 +777,16 @@ export class CapabilityTransportAdapter {
         authorityRevision: liveAuthority.authorityRevision,
         dispatchChildIntent,
       };
+      // Tabs an attachment minted from a terminal are filed under that terminal as well, so the
+      // terminal's next attachment can re-adopt them. The registry has just re-measured the
+      // terminal's current project and workspace for this dispatch; an attachment with no origin
+      // terminal binds no owner scope.
+      const tabOwnerScope = {
+        projectId: liveAuthority.projectId,
+        workspaceId: liveAuthority.workspaceId || '',
+        originTerminalSessionId: record.originTerminalSessionId,
+      };
+      this.catalogue.tabLedger.bindAttachment(authContext.attachmentId, tabOwnerScope);
       if (execControl.signal.aborted) {
         const err = new Error('Execution was aborted before handler dispatch');
         (err as unknown as { code: string; name: string }).code = 'ABORTED';
@@ -989,7 +999,7 @@ export class CapabilityTransportAdapter {
           // moves its binding outside the session's tab pool.
           this.catalogue.tabLedger.retainAttachments(this.attachmentRegistry.getActiveRecordIds());
           this.catalogue.tabLedger.prune((tabId) => this.catalogue.resolveTabId(tabId) !== undefined);
-          this.catalogue.tabLedger.record(authContext.attachmentId, newTabId);
+          this.catalogue.tabLedger.record(authContext.attachmentId, newTabId, tabOwnerScope);
         }
         // `tabs.create {bind:false}` opens the tab without moving this session's binding.
         if (newTabId && !(isOpenTab && p?.bind === false)) {
@@ -1468,7 +1478,26 @@ export class CapabilityTransportAdapter {
       state: 'failed',
       code: relayed.code,
       message: relayed.message,
-      details: relayed.details,
+      details: this.withClosedTabFacts(relayed.code, relayed.details),
+    };
+  }
+
+  /**
+   * A stale-target refusal whose tab no longer exists carries who closed it, why and when, and the
+   * live tab its session can rebind to, when the host that closed it still remembers. The facts
+   * come from the host's own record keyed by the refused tab id; the raising site's details win.
+   */
+  private withClosedTabFacts(code: string, details: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+    if (code !== 'TARGET_STALE' || details?.cause !== 'tab-gone') return details;
+    const staleTabId = [details.tabId, details.boundTabId, details.anchorTabId].find((id): id is string => typeof id === 'string' && id.trim().length > 0);
+    const closed = staleTabId ? this.catalogue.describeClosedTab(staleTabId.trim()) : undefined;
+    if (!closed) return details;
+    return {
+      closedBy: closed.closedBy,
+      closeReason: closed.closeReason,
+      closedAt: closed.closedAt,
+      ...(closed.replacementTabId ? { replacementTabId: closed.replacementTabId } : {}),
+      ...details,
     };
   }
 

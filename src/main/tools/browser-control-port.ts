@@ -46,6 +46,7 @@ import {
   REFERENCE_MATERIALIZATION_BOUND_MS,
   buildReferenceMaterializationScript,
   classifyRenderSurfaceCause,
+  renderSurfaceRemedy,
   type CaptureViewportTransaction,
   type RenderSurfaceSnapshot,
   type CaptureIdentitySnapshot,
@@ -56,7 +57,10 @@ import {
   deriveCaptureFreezeMeasurement,
   type CaptureFreezeMeasurement,
 } from '../verification/visual-capture.js';
-import type { SwitchTabOptions, SwitchTabResult } from '../browser/native-tab-host';
+import type { HostWindowPresentation, SwitchTabOptions, SwitchTabResult } from '../browser/native-tab-host';
+import type { NetworkLogFilters, NetworkLogResult } from '../browser/network-log-manager';
+import { parseControlStateInput, parseElementLocator } from '../browser/semantic-ref-executor';
+import { findEvalTruncation, type EvalTruncationReason } from '../browser/eval-result-truncation';
 import { classifyNetworkUrl } from '../browser/network-policy.js';
 import { withZeroNetworkDenialTransaction, type CdpDebuggerInterface } from '../browser/zero-network-interceptor.js';
 import {
@@ -266,6 +270,19 @@ function sameObservationIdentity(left: ObservationIdentity, right: ObservationId
     && left.documentGeneration === right.documentGeneration
     && left.mutationRevision === right.mutationRevision;
 }
+/**
+ * Result of activating a tab. `rendered` / `hostWindowHidden` describe the window holding the tab
+ * when the host can tell; `restoreRefused` is set when `restoreWindow` was asked for a tab this
+ * session may not drive, so its window was left untouched.
+ */
+export interface SwitchTabOutcome {
+  switched: boolean;
+  tabId: string;
+  rendered?: boolean;
+  hostWindowHidden?: boolean;
+  restoreRefused?: 'TAB_NOT_IN_SESSION';
+}
+
 export interface BrowserHostPort {
 
   hasTab?(tabId?: string | null): boolean;
@@ -3452,18 +3469,22 @@ export class BrowserControlPort {
       // that answered with no geometry (or could not run) means the tab has no surface. Same
       // code, different remedy, so the cause says which.
       const timedOut = this.isRenderSurfaceTimeout(err);
+      const hostWindowHidden = this.isHostWindowHidden(tabId);
+      const remedy = hostWindowHidden ? renderSurfaceRemedy({ cause: 'window-not-presented', hostWindowHidden: true }) : undefined;
       throw new CapabilityError(
         'NO_RENDER_SURFACE',
-        `${operation} cannot run on tab '${tabId}': the render surface could not be measured (${err instanceof Error ? err.message : String(err)})`,
+        `${operation} cannot run on tab '${tabId}': the render surface could not be measured (${err instanceof Error ? err.message : String(err)})` + (remedy ? `. ${remedy.text}` : ''),
         {
           tabId,
           paneId,
           operation,
           cause: timedOut ? 'PROBE_TIMEOUT' : 'ABSENT_SURFACE',
-          retryable: timedOut,
+          retryable: timedOut || hostWindowHidden,
           probeTimedOut: timedOut,
           probeBoundsMs: timedOut ? [RENDER_SURFACE_PROBE_BOUND_MS, RENDER_SURFACE_PROBE_RETRY_BOUND_MS] : [RENDER_SURFACE_PROBE_BOUND_MS],
           probeCause: classifyRenderSurfaceCause(undefined),
+          hostWindowHidden,
+          ...(remedy ? { steps: remedy.steps } : {}),
         }
       );
     }
@@ -3472,11 +3493,14 @@ export class BrowserControlPort {
       const healed = await this.reapplyVerifiedGeometry(tabId, paneId, snapshot);
       if (healed) return healed;
       const known = this.verifiedTabGeometry.get(tabId);
+      const surfaceCause = classifyRenderSurfaceCause(snapshot);
+      const hostWindowHidden = this.isHostWindowHidden(tabId);
+      const remedy = renderSurfaceRemedy({ cause: surfaceCause, hostWindowHidden });
       throw new CapabilityError(
         'NO_RENDER_SURFACE',
-        `${operation} cannot run on tab '${tabId}' pane '${paneId ?? 'desktop'}': the tab reports no laid-out surface (${snapshot.vw}x${snapshot.vh} CSS px, readyState '${snapshot.readyState}', hidden ${snapshot.hidden}, cause ${classifyRenderSurfaceCause(snapshot)})` +
+        `${operation} cannot run on tab '${tabId}' pane '${paneId ?? 'desktop'}': the tab reports no laid-out surface (${snapshot.vw}x${snapshot.vh} CSS px, readyState '${snapshot.readyState}', hidden ${snapshot.hidden}, cause ${surfaceCause})` +
           (known ? `, and re-applying its verified ${known.width}x${known.height} geometry did not restore one` : '') +
-          '. To inspect this tab, first read its live viewport with anti.browser.get_viewport on an attached tab. Note that anti.browser.set_viewport applies a persistent device-emulation override (use it only when a specific device size is genuinely required).',
+          `. ${remedy.text}`,
         {
           tabId,
           paneId,
@@ -3485,13 +3509,25 @@ export class BrowserControlPort {
           observedHeight: snapshot.vh,
           readyState: snapshot.readyState,
           documentHidden: snapshot.hidden,
-          cause: classifyRenderSurfaceCause(snapshot),
+          cause: surfaceCause,
+          hostWindowHidden: remedy.hostWindowHidden,
+          retryable: remedy.retryable,
+          steps: remedy.steps,
           ...(known ? { verifiedGeometry: known } : {}),
           activationCandidates: this.activationCandidates(tabId),
         }
       );
     }
     return snapshot;
+  }
+
+  /** Whether the window holding the tab is hidden or minimized; false when the host cannot tell. */
+  private isHostWindowHidden(tabId: string): boolean {
+    try {
+      return this.host.getHostWindowPresentation?.(tabId)?.hostWindowHidden === true;
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -5316,7 +5352,7 @@ export class BrowserControlPort {
       plane?: 'agent' | 'user' | string;
       [key: string]: unknown;
     }
-  ): { switched: boolean; tabId: string } {
+  ): SwitchTabOutcome {
     if (!this.host.switchTab && !this.host.trySwitchTab) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'switchTab is not supported by host');
     if (!context || !context.target) {
       throw new CapabilityError('TARGET_REQUIRED', `Browser target is required to switch tab. ${SHARE_TAB_GUIDANCE}`);
@@ -5381,8 +5417,13 @@ export class BrowserControlPort {
       // Owner decision (local single-user app): the agent plane may activate any
       // live, canonical tab this window has. No approval gate; the target already
       // resolved to a real tab id above and the transport rebinds the attachment
-      // to it after the switch.
-      return this.requireActivatedTab(targetId, context.target.tabId);
+      // to it after the switch. Restoring the host window is a stronger act than
+      // activating a tab: it only applies to a tab this session is bound to or
+      // may retarget, so a foreign project's window is never presented.
+      const boundForRestore = context.target.tabId.trim();
+      const mayRestore = targetId.trim() === boundForRestore ||
+        (this.host.isTabAllowed ? this.host.isTabAllowed(boundForRestore, targetId.trim()) === true : false);
+      return this.withWindowPresentation(this.requireActivatedTab(targetId, context.target.tabId), context.restoreWindow === true, mayRestore);
     }
 
     const boundId = context.target.tabId;
@@ -5402,7 +5443,35 @@ export class BrowserControlPort {
       }
     }
 
-    return this.requireActivatedTab(targetId, context.target.tabId);
+    return this.withWindowPresentation(this.requireActivatedTab(targetId, context.target.tabId), context.restoreWindow === true, true);
+  }
+
+  /**
+   * Reports whether the activated tab's window is composited. `restoreWindow` presents a hidden or
+   * minimized window without focus, but only when the caller may drive that tab; otherwise the
+   * window stays as it is and the result names the refusal. A host that cannot describe window
+   * presentation yields the plain activation result.
+   */
+  private withWindowPresentation(activated: { switched: boolean; tabId: string }, restoreRequested: boolean, mayRestore: boolean): SwitchTabOutcome {
+    let presentation: HostWindowPresentation | undefined;
+    let restoreRefused: SwitchTabOutcome['restoreRefused'];
+    if (restoreRequested && !mayRestore) {
+      restoreRefused = 'TAB_NOT_IN_SESSION';
+    } else if (restoreRequested && this.host.restoreHostWindowUnfocused) {
+      try {
+        presentation = this.host.restoreHostWindowUnfocused(activated.tabId).presentation;
+      } catch {
+        presentation = undefined;
+      }
+    }
+    if (!presentation) presentation = this.readHostWindowPresentation(activated.tabId);
+    if (!presentation) return restoreRefused ? { ...activated, restoreRefused } : activated;
+    return {
+      ...activated,
+      rendered: !presentation.hostWindowHidden,
+      hostWindowHidden: presentation.hostWindowHidden,
+      ...(restoreRefused ? { restoreRefused } : {}),
+    };
   }
 
   diagnostics(tabId?: string, level?: number | string): { console: unknown[]; failures: unknown[] } {
@@ -6009,6 +6078,14 @@ export class BrowserControlPort {
       zoomApplied,
     };
   }
+  private readHostWindowPresentation(tabId: string): HostWindowPresentation | undefined {
+    try {
+      return this.host.getHostWindowPresentation?.(tabId);
+    } catch {
+      return undefined;
+    }
+  }
+
   async getViewport(
     options: { tabId?: string } = {},
     target?: BrowserTarget
@@ -6030,6 +6107,12 @@ export class BrowserControlPort {
     cause?: string;
     probeError?: { code: string; message: string };
     detached?: boolean;
+    /** The window holding the tab is hidden or minimized (absent when the host cannot tell). */
+    hostWindowHidden?: boolean;
+    windowPresentation?: HostWindowPresentation;
+    /** What to do about a tab with no surface; present only when the surface is missing. */
+    remedy?: string;
+    retryable?: boolean;
   }> {
     const effectiveTabId = this.resolveTargetTab(target, options.tabId);
     const sessionRecords = this.host.getSessionTabList ? this.host.getSessionTabList(effectiveTabId) : [];
@@ -6059,6 +6142,7 @@ export class BrowserControlPort {
     }
 
     if (surface && Number.isFinite(surface.vw) && Number.isFinite(surface.vh) && surface.vw >= 1 && surface.vh >= 1) {
+      const windowPresentation = this.readHostWindowPresentation(effectiveTabId);
       return {
         tabId: effectiveTabId,
         presetId,
@@ -6071,10 +6155,14 @@ export class BrowserControlPort {
         mismatch: viewportWidthMismatch(requestedWidth, surface.vw),
         attached: isAttached,
         active: isActive,
+        ...(windowPresentation ? { hostWindowHidden: windowPresentation.hostWindowHidden, windowPresentation } : {}),
       };
     }
 
     const cause = classifyRenderSurfaceCause(surface);
+    const windowPresentation = this.readHostWindowPresentation(effectiveTabId);
+    const hostWindowHidden = windowPresentation?.hostWindowHidden === true;
+    const remedy = renderSurfaceRemedy({ cause, hostWindowHidden });
     return {
       tabId: effectiveTabId,
       presetId,
@@ -6090,6 +6178,9 @@ export class BrowserControlPort {
       cause: cause || 'The tab has no attached laid-out surface',
       ...(probeError ? { probeError } : {}),
       detached: !isAttached,
+      ...(windowPresentation ? { hostWindowHidden, windowPresentation } : {}),
+      remedy: remedy.text,
+      retryable: remedy.retryable,
     };
   }
 

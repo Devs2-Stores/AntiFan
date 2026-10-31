@@ -1,7 +1,7 @@
 import { describe, test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { AttachmentTabLedger } from '../../../src/main/tools/attachment-tab-ledger';
-import { CapabilityCatalogue } from '../../../src/main/tools/capability-catalogue';
+import { CapabilityCatalogue, type CapabilityCatalogueOptions } from '../../../src/main/tools/capability-catalogue';
 import { makeBrowserPolicy } from '../../../src/main/tools/browser-capabilities';
 import {
   AuthenticatedCapabilityContext,
@@ -55,10 +55,104 @@ describe('AttachmentTabLedger', () => {
     assert.equal(ledger.owns(CREATOR, CREATED_TAB), false);
     assert.equal(ledger.owns(SIBLING, FOREIGN_TAB), true);
   });
+
+  describe('terminal-origin re-adoption', () => {
+    const TERMINAL = 'terminal-session-1';
+    const scope = (overrides: Partial<{ workspaceId: string; projectId: string; originTerminalSessionId: string | undefined }> = {}) => ({
+      workspaceId: WORKSPACE_ID,
+      projectId: PROJECT_ID,
+      originTerminalSessionId: TERMINAL,
+      ...overrides,
+    });
+
+    test('a later attachment from the same terminal and project re-adopts the earlier tabs', () => {
+      const ledger = new AttachmentTabLedger();
+      ledger.record(CREATOR, CREATED_TAB, scope());
+      ledger.release(CREATOR);
+      assert.equal(ledger.owns(SIBLING, CREATED_TAB), false, 'unbound attachment adopts nothing');
+      ledger.bindAttachment(SIBLING, scope());
+      assert.equal(ledger.owns(SIBLING, CREATED_TAB), true);
+    });
+
+    test('an attachment from another project is refused', () => {
+      const ledger = new AttachmentTabLedger();
+      ledger.record(CREATOR, CREATED_TAB, scope());
+      ledger.bindAttachment(SIBLING, scope({ projectId: 'project-00000000-0000-4000-8000-000000000002' }));
+      assert.equal(ledger.owns(SIBLING, CREATED_TAB), false);
+    });
+
+    test('an attachment from another workspace is refused', () => {
+      const ledger = new AttachmentTabLedger();
+      ledger.record(CREATOR, CREATED_TAB, scope());
+      ledger.bindAttachment(SIBLING, scope({ workspaceId: 'workspace-00000000-0000-4000-8000-000000000002' }));
+      assert.equal(ledger.owns(SIBLING, CREATED_TAB), false);
+    });
+
+    test('an attachment from another terminal is refused', () => {
+      const ledger = new AttachmentTabLedger();
+      ledger.record(CREATOR, CREATED_TAB, scope());
+      ledger.bindAttachment(SIBLING, scope({ originTerminalSessionId: 'terminal-session-2' }));
+      assert.equal(ledger.owns(SIBLING, CREATED_TAB), false);
+    });
+
+    test('an attachment with no origin terminal never re-adopts, and files nothing under an owner', () => {
+      const ledger = new AttachmentTabLedger();
+      ledger.record(CREATOR, CREATED_TAB, scope());
+      ledger.bindAttachment(SIBLING, scope({ originTerminalSessionId: undefined }));
+      assert.equal(ledger.owns(SIBLING, CREATED_TAB), false);
+      ledger.record(SIBLING, FOREIGN_TAB, scope({ originTerminalSessionId: undefined }));
+      ledger.bindAttachment(CREATOR, scope());
+      assert.equal(ledger.owns(CREATOR, FOREIGN_TAB), false);
+    });
+
+    test('a re-bound attachment that moved to another project loses the adopted tabs', () => {
+      const ledger = new AttachmentTabLedger();
+      ledger.record(CREATOR, CREATED_TAB, scope());
+      ledger.bindAttachment(SIBLING, scope());
+      assert.equal(ledger.owns(SIBLING, CREATED_TAB), true);
+      ledger.bindAttachment(SIBLING, scope({ projectId: 'project-00000000-0000-4000-8000-000000000002' }));
+      assert.equal(ledger.owns(SIBLING, CREATED_TAB), false);
+    });
+
+    test('owner tabs that are gone are forgotten, and an untouched owner expires', () => {
+      let now = 1_000;
+      const ledger = new AttachmentTabLedger({ now: () => now, ownerTtlMs: 500 });
+      ledger.record(CREATOR, CREATED_TAB, scope());
+      ledger.prune(() => false);
+      ledger.bindAttachment(SIBLING, scope());
+      assert.equal(ledger.owns(SIBLING, CREATED_TAB), false, 'pruned tab is not adoptable');
+
+      ledger.record(CREATOR, FOREIGN_TAB, scope());
+      ledger.release(CREATOR);
+      now += 501;
+      assert.equal(ledger.owns(SIBLING, FOREIGN_TAB), false, 'owner entry past its TTL is dropped');
+    });
+
+    test('binding an attachment after the owner TTL does not bring the expired owner back', () => {
+      let now = 1_000;
+      const ledger = new AttachmentTabLedger({ now: () => now, ownerTtlMs: 500 });
+      ledger.record(CREATOR, CREATED_TAB, scope());
+      now += 501;
+      ledger.bindAttachment(SIBLING, scope());
+      assert.equal(ledger.owns(SIBLING, CREATED_TAB), false, 'the bind must not refresh an owner that already expired');
+      now += 1;
+      assert.equal(ledger.owns(SIBLING, CREATED_TAB), false, 'and the entry stays gone');
+    });
+
+    test('binding an attachment inside the owner TTL keeps the owner alive', () => {
+      let now = 1_000;
+      const ledger = new AttachmentTabLedger({ now: () => now, ownerTtlMs: 500 });
+      ledger.record(CREATOR, CREATED_TAB, scope());
+      now += 400;
+      ledger.bindAttachment(SIBLING, scope());
+      now += 400;
+      assert.equal(ledger.owns(SIBLING, CREATED_TAB), true, 'a dispatch inside the TTL refreshed the owner');
+    });
+  });
 });
 
 describe('catalogue gate and the creator ledger', () => {
-  function makeCatalogue(): { catalogue: CapabilityCatalogue; executedTabs: string[] } {
+  function makeCatalogue(extra: Partial<CapabilityCatalogueOptions> = {}): { catalogue: CapabilityCatalogue; executedTabs: string[] } {
     const catalogue = new CapabilityCatalogue({
       runtime: { mode: 'standalone', lifecycle: 'active' },
       projectId: PROJECT_ID,
@@ -69,6 +163,7 @@ describe('catalogue gate and the creator ledger', () => {
       isTabAllowed: (primary, requested) => primary === requested,
       resolveTabId: (id) => (id === BOUND_TAB || id === CREATED_TAB || id === FOREIGN_TAB ? id : undefined),
       getDocumentGeneration: () => 1,
+      ...extra,
     });
     const executedTabs: string[] = [];
     catalogue.register({
@@ -135,6 +230,53 @@ describe('catalogue gate and the creator ledger', () => {
     await assert.rejects(
       () => catalogue.dispatchAuthenticated('test.write', { tabId: FOREIGN_TAB }, contextFor(CREATOR)),
       (err: unknown) => err instanceof CapabilityError && err.code === 'TARGET_MISMATCH'
+    );
+  });
+
+  test('a re-minted attachment from the same terminal and project reaches the tab its predecessor opened', async () => {
+    const { catalogue, executedTabs } = makeCatalogue();
+    const scope = { workspaceId: WORKSPACE_ID, projectId: PROJECT_ID, originTerminalSessionId: 'terminal-session-1' };
+    catalogue.tabLedger.record(CREATOR, CREATED_TAB, scope);
+    catalogue.tabLedger.release(CREATOR);
+    catalogue.tabLedger.bindAttachment(SIBLING, scope);
+    await catalogue.dispatchAuthenticated('test.write', { tabId: CREATED_TAB }, contextFor(SIBLING));
+    assert.deepEqual(executedTabs, [CREATED_TAB]);
+  });
+
+  test('an attachment from another project, or with no origin terminal, is still refused', async () => {
+    const { catalogue, executedTabs } = makeCatalogue();
+    const scope = { workspaceId: WORKSPACE_ID, projectId: PROJECT_ID, originTerminalSessionId: 'terminal-session-1' };
+    catalogue.tabLedger.record(CREATOR, CREATED_TAB, scope);
+    catalogue.tabLedger.release(CREATOR);
+    catalogue.tabLedger.bindAttachment(SIBLING, { ...scope, projectId: 'project-00000000-0000-4000-8000-000000000002' });
+    await assert.rejects(
+      () => catalogue.dispatchAuthenticated('test.write', { tabId: CREATED_TAB }, contextFor(SIBLING)),
+      (err: unknown) => err instanceof CapabilityError && err.code === 'TARGET_MISMATCH'
+    );
+    catalogue.tabLedger.bindAttachment(SIBLING, { ...scope, originTerminalSessionId: undefined });
+    await assert.rejects(
+      () => catalogue.dispatchAuthenticated('test.write', { tabId: CREATED_TAB }, contextFor(SIBLING)),
+      (err: unknown) => err instanceof CapabilityError && err.code === 'TARGET_MISMATCH'
+    );
+    assert.deepEqual(executedTabs, []);
+  });
+
+  test('an unknown target that was closed names who closed it and why', async () => {
+    const { catalogue } = makeCatalogue({
+      describeClosedTab: (tabId) =>
+        tabId === 'tab-closed' ? { closedBy: 'user', closeReason: 'user-toolbar', closedAt: 99, replacementTabId: BOUND_TAB } : undefined,
+    });
+    await assert.rejects(
+      () => catalogue.dispatchAuthenticated('test.write', { tabId: 'tab-closed' }, contextFor(CREATOR)),
+      (err: unknown) => {
+        if (!(err instanceof CapabilityError) || err.code !== 'TARGET_MISMATCH') return false;
+        const details = err.details as Record<string, unknown>;
+        return details.closedBy === 'user' && details.closeReason === 'user-toolbar' && details.closedAt === 99 && details.replacementTabId === BOUND_TAB;
+      }
+    );
+    await assert.rejects(
+      () => catalogue.dispatchAuthenticated('test.write', { tabId: 'tab-never-existed' }, contextFor(CREATOR)),
+      (err: unknown) => err instanceof CapabilityError && err.code === 'TARGET_MISMATCH' && (err.details as Record<string, unknown>).closedBy === undefined
     );
   });
 

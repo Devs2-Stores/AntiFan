@@ -70,7 +70,7 @@ interface AntiFanTab {
   /** The project whose window minted this tab. */
   projectId?: string;
 }
-interface ThemeQaState { status: 'idle' | 'running' | 'pass' | 'fail' | 'error'; issueCount: number; reportArtifactId?: string; report?: Record<string, unknown>; error?: string; updatedAt: number; }
+interface ThemeQaState { status: 'idle' | 'running' | 'pass' | 'fail' | 'error'; issueCount: number | null; reasonCode?: string; reportArtifactId?: string; report?: Record<string, unknown>; error?: string; updatedAt: number; }
 interface ToolbarPhoneStatus {
   state: 'connected' | 'disconnected' | 'unknown';
   name?: string;
@@ -428,11 +428,15 @@ function renderThemeQa(state: ThemeQaState, report?: Record<string, unknown>) {
     btnThemeQa.classList.add('status-pass');
     btnThemeQa.disabled = false;
   } else if (state.status === 'fail') {
-    themeQaText.textContent = `${state.issueCount} Issues`;
+    themeQaText.textContent = typeof state.issueCount === 'number' ? `${state.issueCount} Issues` : 'QA Failed';
     btnThemeQa.classList.add('status-fail');
     btnThemeQa.disabled = false;
   } else if (state.status === 'error') {
-    themeQaText.textContent = 'QA Error';
+    themeQaText.textContent = state.reasonCode === 'QA_INCONCLUSIVE'
+      ? 'QA Inconclusive'
+      : state.reasonCode === 'QA_BUSY'
+        ? 'QA Busy'
+        : 'QA Error';
     btnThemeQa.classList.add('status-fail');
     btnThemeQa.disabled = false;
   } else {
@@ -1208,6 +1212,8 @@ function renderThemeStudioChecklist(refreshWorkspace = false) {
         if (themeTabChecklist) themeTabChecklist.style.display = 'none';
         renderThemeStudioFindings();
         openThemeQaSummary();
+      } else if (res && !res.ok) {
+        showToolbarToast(`QA không chạy được: ${res.error || 'validation failed'}`);
       }
     });
 
@@ -1572,7 +1578,7 @@ let isFontFinderActive = false;
 let isLensActive = false;
 let isRulerActive = false;
 let isBookmarkBarVisible = false;
-let themeQaState: ThemeQaState = { status: 'idle', issueCount: 0, updatedAt: Date.now() };
+let themeQaState: ThemeQaState = { status: 'idle', issueCount: null, updatedAt: Date.now() };
 let lastThemeQaReport: any = null;
 const btnPopoutTerminal = document.getElementById('btnPopoutTerminal') as HTMLButtonElement | null;
 
@@ -5212,36 +5218,18 @@ async function initToolbar() {
   closeRefusalUnsubscribe?.();
   closeRefusalUnsubscribe = api.onCloseRefused?.((notice) => renderCloseRefusalNotice(notice)) ?? null;
 
-  try {
-    const state = await api.getInitialState();
-    if (state) {
-      currentTabs = state.tabs || [];
-      activeTabId = state.activeTabId || '';
-      // Kick off the identity read without blocking the toolbar: a main process
-      // that stalls here would freeze tabs, profiles and bookmarks. The checklist
-      // paints its pending state until the answer lands.
-      void resolveChecklistWorkspace(checklistOrigin());
-      if (state.bookmarks) currentBookmarks = state.bookmarks;
-      if (state.activeChromeProfile) activeProfileInfo = state.activeChromeProfile;
-      if (state.chromeProfiles) availableChromeProfiles = state.chromeProfiles;
-      isInspecting = !!state.isInspecting;
-      isFontFinderActive = !!state.isFontFinderActive;
-      isLensActive = !!state.isLensActive;
-      isRulerActive = !!state.isRulerActive;
-      isBookmarkBarVisible = !!state.isBookmarkBarVisible;
-      if (state.themeQa) renderThemeQa(state.themeQa);
-      if ('phoneStatus' in state) renderPhoneStatus(state.phoneStatus as ToolbarPhoneStatus);
-      renderTabs();
-      renderBookmarks();
-      renderChromeProfiles();
-      updateControls();
-    }
-  } catch (err) {
-    console.error('[antifan toolbar] Failed to load initial state:', err);
-  }
+  // Pushes are subscribed BEFORE the initial pull so none can fall between the two. Every frame
+  // carries the main process's `stateSeq`; the initial reply names the sequence it already
+  // reflects, so a frame at or below the newest sequence applied here is dropped instead of
+  // overwriting newer state with older.
+  let lastStateSeq = 0;
   api.onStateUpdated((state: unknown) => {
     if (state && typeof state === 'object') {
       const s = state as Record<string, unknown>;
+      if (typeof s.stateSeq === 'number') {
+        if (s.stateSeq <= lastStateSeq) return;
+        lastStateSeq = s.stateSeq;
+      }
       currentTabs = (s.tabs as unknown as AntiFanTab[]) || [];
       activeTabId = (s.activeTabId as string) || '';
       if (s.bookmarks) currentBookmarks = s.bookmarks as unknown as Array<{ id: string; title: string; url: string }>;
@@ -5269,6 +5257,37 @@ async function initToolbar() {
       updateControls();
     }
   });
+
+  try {
+    const state = await api.getInitialState();
+    // A push that landed while the pull was in flight and is newer than the reply wins.
+    const initialSeq = state && typeof state.stateSeq === 'number' ? state.stateSeq : 0;
+    if (state && !(initialSeq > 0 && initialSeq < lastStateSeq)) {
+      lastStateSeq = Math.max(lastStateSeq, initialSeq);
+      currentTabs = state.tabs || [];
+      activeTabId = state.activeTabId || '';
+      // Kick off the identity read without blocking the toolbar: a main process
+      // that stalls here would freeze tabs, profiles and bookmarks. The checklist
+      // paints its pending state until the answer lands.
+      void resolveChecklistWorkspace(checklistOrigin());
+      if (state.bookmarks) currentBookmarks = state.bookmarks;
+      if (state.activeChromeProfile) activeProfileInfo = state.activeChromeProfile;
+      if (state.chromeProfiles) availableChromeProfiles = state.chromeProfiles;
+      isInspecting = !!state.isInspecting;
+      isFontFinderActive = !!state.isFontFinderActive;
+      isLensActive = !!state.isLensActive;
+      isRulerActive = !!state.isRulerActive;
+      isBookmarkBarVisible = !!state.isBookmarkBarVisible;
+      if (state.themeQa) renderThemeQa(state.themeQa);
+      if ('phoneStatus' in state) renderPhoneStatus(state.phoneStatus as ToolbarPhoneStatus);
+      renderTabs();
+      renderBookmarks();
+      renderChromeProfiles();
+      updateControls();
+    }
+  } catch (err) {
+    console.error('[antifan toolbar] Failed to load initial state:', err);
+  }
   // THEME_QA_STATE now carries {tabId, state} for every tab, not just the one in
   // front: a cockpit scan bound to another tab must not repaint this badge (F2).
   api.onThemeQaState((frame) => {

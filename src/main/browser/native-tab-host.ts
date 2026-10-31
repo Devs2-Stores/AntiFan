@@ -46,6 +46,7 @@ import { chromeSessionUserAgent, chromeUserAgentMetadata } from './google-auth-i
 import { configureBrowserSessionPartition, deriveCapsulePartition, unconfigureBrowserSessionPartition, type BrowserSessionUserAgentMode } from './browser-session-partition';
 import { cookieJarNameOfPartition, deriveCookieJarPartition, isCookieJarPartition, isValidCookieJarName } from './cookie-jar';
 import { TabDiagnosticsManager, computeOrigin, normalizeConsoleLevel } from './tab-diagnostics';
+import { describeClosedTab, recordClosedTab, type ClosedTabInfo, type ClosedTabRecord } from './closed-tab-record';
 import type { CaptureViewportTransaction, RenderSurfaceSnapshot, VerificationCaptureEnvelope } from '../verification/visual-capture';
 import { buildKeyboardInputEvents } from './keyboard-normalizer';
 import { FirstPartyNetworkTracker, type NetworkTrackerStats } from './first-party-network-tracker';
@@ -140,13 +141,27 @@ export interface NativeTabHostResourceStats {
   terminalFanoutMessages: number;
 }
 
+/** Whether the window holding a tab is composited; `hostWindowHidden` is the single answer callers branch on. */
+export interface HostWindowPresentation {
+  visible: boolean;
+  minimized: boolean;
+  maximized: boolean;
+  hostWindowHidden: boolean;
+}
+
 /**
  * The per-tab Theme QA row `tabThemeQaStates` holds and `THEME_QA_STATE`
  * pushes carry inside `{tabId, state}`.
+ *
+ * `issueCount` is a number only for a finished pass/fail report. Idle, running, error and
+ * inconclusive rows carry `null` plus a `reasonCode`, so a reader polling mid-run never mistakes
+ * "not finished" or "not decided" for "zero findings".
  */
 export interface TabThemeQaState {
   status: 'idle' | 'running' | 'pass' | 'fail' | 'error';
-  issueCount: number;
+  issueCount: number | null;
+  /** `QA_NOT_RUN` (idle), `QA_RUNNING`, `QA_INCONCLUSIVE` (an `error` row that carries a report), `QA_BUSY`, or the failure code of an `error` row. */
+  reasonCode?: string;
   reportArtifactId?: string;
   report?: unknown;
   error?: string;
@@ -199,6 +214,40 @@ const TERMINAL_DATA_FLUSH_MS = 4;
 // is 64 chars — so the head of a big batch buys the non-displaying surface
 // nothing and is not worth the structured clone.
 const TERMINAL_ACTIVITY_DATA_TAIL_CHARS = 4096;
+// Activity envelopes to one non-displaying surface are limited to one per window per session
+// (leading + trailing). A session streaming at the 4 ms batch cadence would otherwise send ~250
+// envelopes/s to every admitted surface for a tab-strip indicator the classifier already
+// throttles to 10 passes/s.
+const TERMINAL_ACTIVITY_THROTTLE_MS = 100;
+const TERMINAL_ACTIVITY_SLOTS_MAX = 256;
+const TERMINAL_ACTIVITY_SLOT_IDLE_MS = 10_000;
+
+interface TerminalActivitySlot {
+  lastSentAt: number;
+  timer: NodeJS.Timeout | null;
+  pending: TerminalDataPayload | null;
+  contents: Electron.WebContents;
+}
+
+/**
+ * Newest envelope wins the cursor fields; the data tails join and stay bounded. The merged envelope
+ * names the range its data honestly carries: the first envelope's `fromSeq` while nothing was cut
+ * (consecutive envelopes are contiguous, so a pane that is current up to that point applies it
+ * without a resync), and only the newest sequence once the head of the joined data was dropped.
+ */
+function mergeTerminalActivityEnvelopes(prev: TerminalDataPayload, next: TerminalDataPayload): TerminalDataPayload {
+  let data = prev.data + next.data;
+  let headDropped = false;
+  if (data.length > TERMINAL_ACTIVITY_DATA_TAIL_CHARS) {
+    data = data.slice(-TERMINAL_ACTIVITY_DATA_TAIL_CHARS);
+    const first = data.charCodeAt(0);
+    if (first >= 0xdc00 && first <= 0xdfff) data = data.slice(1);
+    headDropped = true;
+  }
+  const end = typeof next.throughSeq === 'number' ? next.throughSeq : next.seq;
+  const start = typeof prev.fromSeq === 'number' && prev.fromSeq > 0 ? prev.fromSeq : prev.seq;
+  return { ...next, data, fromSeq: headDropped ? end : start };
+}
 // Upper bound on persisted collapsed-category names so a corrupt saved-tabs.json
 // cannot smuggle in an unbounded array.
 const TERMINAL_COLLAPSED_CATEGORIES_MAX = 64;
@@ -1407,6 +1456,11 @@ export class NativeTabHost extends EventEmitter {
    * `undefined` until the window restored, which makes every key this window's to write.
    */
   private sharedDocumentPrefBaseline: Record<SharedDocumentPrefKey, string> | undefined;
+  /** Throttle state per `<surface>|<session>` for activity envelopes (see emitTerminalActivity). */
+  private terminalActivitySlots: Map<string, TerminalActivitySlot> = new Map();
+  private terminalActivityStats = { sent: 0, coalesced: 0, bytes: 0 };
+  /** Wall clock for the activity throttle; a field so tests can drive it. */
+  private terminalActivityClock: () => number = () => Date.now();
   // Running count of 'antifan:terminal:data' payloads actually handed to
   // safeSendWebContents; readable via getResourceStats/DUMP_DIAGNOSTICS without
   // benchmark mode.
@@ -1464,11 +1518,12 @@ export class NativeTabHost extends EventEmitter {
   /** When each OAuth popup tab was registered, for the lifetime the close event reports. */
   private readonly popupOpenedAt = new Map<string, number>();
   /**
-   * Pool anchor of each recently closed tab (bounded). Closing a tab removes it from
-   * every pool, which would otherwise erase the only trace of which session it belonged
-   * to and leave that session unable to name a replacement target.
+   * Every recently closed tab (bounded): who closed it, why, when, and the session pool anchor it
+   * belonged to. Closing a tab removes it from every pool, which would otherwise erase the only
+   * trace of which session it belonged to and leave that session unable to name a replacement
+   * target; the close facts let a later stale-target refusal explain itself.
    */
-  private readonly closedTabAnchors = new Map<string, string>();
+  private readonly closedTabAnchors = new Map<string, ClosedTabRecord>();
   private tabThemeQaStates = new Map<string, TabThemeQaState>();
   /**
    * In-memory checklist scopes for storefronts whose workspace could not be
@@ -1525,6 +1580,48 @@ export class NativeTabHost extends EventEmitter {
 
   public setViewportGate(gate: ViewportGate): void {
     this.viewportGate = gate;
+  }
+
+  /** Shows this host's window without focus, with its saved placement; injected by the composition root. */
+  private unfocusedWindowPresenter: (() => void) | null = null;
+
+  public setUnfocusedWindowPresenter(presenter: () => void): void {
+    this.unfocusedWindowPresenter = presenter;
+  }
+
+  /**
+   * Whether the window holding `tabId` is on screen and composited. A hidden or minimized window
+   * has no compositor surface, so every tab it holds reports a zero-size viewport. Undefined when
+   * this host owns no such tab.
+   */
+  public getHostWindowPresentation(tabId?: string): HostWindowPresentation | undefined {
+    const id = tabId ? (this.resolveTargetTabId(tabId) || tabId) : this.activeTabId;
+    if (!id || !this.tabs.has(id)) return undefined;
+    const win = this.shell.window;
+    const alive = !win.isDestroyed();
+    const visible = alive && win.isVisible();
+    const minimized = alive && win.isMinimized();
+    return { visible, minimized, maximized: alive && win.isMaximized(), hostWindowHidden: !alive || !visible || minimized };
+  }
+
+  /**
+   * Bring a hidden or minimized window back without taking focus from whatever the user is doing
+   * (restore if minimized, then `showInactive`). A window already on screen is left untouched, so
+   * the call is safe to repeat. Opt-in only: the user sees the window appear.
+   */
+  public restoreHostWindowUnfocused(tabId?: string): { restored: boolean; presentation?: HostWindowPresentation } {
+    const before = this.getHostWindowPresentation(tabId);
+    if (!before || !before.hostWindowHidden || this.shell.window.isDestroyed()) return { restored: false, ...(before ? { presentation: before } : {}) };
+    if (this.unfocusedWindowPresenter) {
+      this.unfocusedWindowPresenter();
+    } else {
+      // showInactive un-minimizes without activation; restore() activates the window on Windows,
+      // so it is only the fallback for a window showInactive left minimized.
+      this.shell.window.showInactive();
+      if (this.shell.window.isMinimized()) this.shell.window.restore();
+    }
+    const after = this.getHostWindowPresentation(tabId);
+    return { restored: after?.hostWindowHidden === false, ...(after ? { presentation: after } : {}) };
   }
 
   public syncWithAgentInput<T>(action: () => T): T {
@@ -2539,6 +2636,9 @@ export class NativeTabHost extends EventEmitter {
     channel: TOOLBAR_CHANNELS.GET_INITIAL_STATE,
     surface: 'toolbar',
     run: ({ host }) => {
+      // A renderer that (re)loads pulls state once; the next push must reach it even when it equals
+      // the last one sent, so the dedup cache is dropped here.
+      host.invalidateToolbarBroadcast?.();
       return {
         tabs: host.getTabList(),
         activeTabId: host.activeTabId,
@@ -2555,6 +2655,8 @@ export class NativeTabHost extends EventEmitter {
         themeQa: host.getThemeQaState(host.activeTabId),
         phoneStatus: host.cachedPhoneStatus,
         projectWindow: host.projectWindowIdentity(),
+        // The renderer subscribes to pushes before this reply lands and drops frames at or below it.
+        stateSeq: host.toolbarFrameSeq,
       };
     },
   },
@@ -8256,7 +8358,7 @@ export class NativeTabHost extends EventEmitter {
         } else {
           this.asyncQaQueue?.abort(id);
           this.diagnosticsManager.clear(id);
-          this.setThemeQaState(id, { status: 'idle', issueCount: 0, updatedAt: Date.now() });
+          this.setThemeQaState(id, { status: 'idle', issueCount: null, reasonCode: 'QA_NOT_RUN', updatedAt: Date.now() });
         }
         if (id === this.activeTabId) {
           this.broadcastState();
@@ -9409,20 +9511,10 @@ export class NativeTabHost extends EventEmitter {
       this.automationTabId = null;
     }
     this.tombstoneTerminalAgentAffinity(tabId, target.state.url);
+    let closedAnchor: string | undefined;
     if (this.sessionTabPools) {
       for (const [sId, pool] of Array.from(this.sessionTabPools.entries())) {
-        if (sId !== tabId && pool.has(tabId)) {
-          // Guarded like the maps above: partial hosts may lack closedTabAnchors.
-          if (this.closedTabAnchors) {
-            this.closedTabAnchors.delete(tabId);
-            this.closedTabAnchors.set(tabId, sId);
-            while (this.closedTabAnchors.size > 64) {
-              const oldest = this.closedTabAnchors.keys().next().value as string | undefined;
-              if (oldest === undefined) break;
-              this.closedTabAnchors.delete(oldest);
-            }
-          }
-        }
+        if (sId !== tabId && pool.has(tabId)) closedAnchor = sId;
         pool.delete(tabId);
         if (pool.size === 0) {
           this.sessionTabPools.delete(sId);
@@ -9446,6 +9538,7 @@ export class NativeTabHost extends EventEmitter {
         }
       }
     }
+    this.rememberClosedTab(tabId, closedAnchor, source);
     if (target.state.partition) {
       unconfigureBrowserSessionPartition(target.state.partition);
     }
@@ -12978,6 +13071,123 @@ export class NativeTabHost extends EventEmitter {
   }
 
   /**
+   * Sends one activity envelope to a non-displaying surface under a leading+trailing throttle per
+   * (surface, session). The renderer feeds these into a tab-strip classifier that itself keeps
+   * only the latest chunk per 100 ms and acks by `throughSeq`, so intermediate envelopes carry no
+   * information the trailing one does not: the leading send keeps the indicator immediate, the
+   * trailing send carries the newest `throughSeq` (the ack cursor) and the merged data tail, so a
+   * wait marker inside a coalesced chunk still reaches the classifier. A generation boundary
+   * flushes the pending envelope first because the renderer resets on a generation change.
+   * Returns 1 when an envelope was handed to the surface now, 0 when it was deferred.
+   */
+  private emitTerminalActivity(key: string, contents: Electron.WebContents, envelope: TerminalDataPayload): number {
+    const slots = this.terminalActivitySlots;
+    if (!slots) {
+      safeSendWebContents(contents, TERMINAL_CHANNELS.ACTIVITY, envelope);
+      return 1;
+    }
+    const slotKey = `${key}|${envelope.sessionId}`;
+    let slot = slots.get(slotKey);
+    if (!slot) {
+      this.pruneTerminalActivitySlots();
+      slot = { lastSentAt: 0, timer: null, pending: null, contents };
+      slots.set(slotKey, slot);
+    }
+    slot.contents = contents;
+    if (slot.pending && slot.pending.generation !== envelope.generation) {
+      this.flushTerminalActivitySlot(slot);
+    }
+    if (slot.timer) {
+      slot.pending = slot.pending ? mergeTerminalActivityEnvelopes(slot.pending, envelope) : envelope;
+      this.terminalActivityStats.coalesced += 1;
+      return 0;
+    }
+    const now = this.terminalActivityClock();
+    const elapsed = now - slot.lastSentAt;
+    if (elapsed >= TERMINAL_ACTIVITY_THROTTLE_MS) {
+      slot.lastSentAt = now;
+      this.sendTerminalActivityNow(slot, envelope);
+      return 1;
+    }
+    slot.pending = envelope;
+    this.terminalActivityStats.coalesced += 1;
+    const timer = setTimeout(() => {
+      slot!.timer = null;
+      this.flushTerminalActivitySlot(slot!);
+    }, Math.max(1, TERMINAL_ACTIVITY_THROTTLE_MS - elapsed));
+    if (typeof timer.unref === 'function') timer.unref();
+    slot.timer = timer;
+    return 0;
+  }
+
+  private sendTerminalActivityNow(slot: TerminalActivitySlot, envelope: TerminalDataPayload): void {
+    this.terminalActivityStats.sent += 1;
+    this.terminalActivityStats.bytes += envelope.data.length;
+    safeSendWebContents(slot.contents, TERMINAL_CHANNELS.ACTIVITY, envelope);
+  }
+
+  /** Sends the pending trailing envelope of one slot (if any) and stops its timer. */
+  private flushTerminalActivitySlot(slot: TerminalActivitySlot): void {
+    if (slot.timer) {
+      clearTimeout(slot.timer);
+      slot.timer = null;
+    }
+    const pending = slot.pending;
+    slot.pending = null;
+    if (!pending) return;
+    if (slot.contents.isDestroyed()) return;
+    slot.lastSentAt = this.terminalActivityClock();
+    this.sendTerminalActivityNow(slot, pending);
+    // A leading send is counted by its dispatch; a trailing one has no dispatch to count it.
+    this.terminalFanoutMessages += 1;
+  }
+
+  /**
+   * A surface that now displays the session receives `data` frames, so an older pending activity
+   * envelope for it would arrive after newer data: discard it.
+   */
+  private dropPendingTerminalActivity(key: string, sessionId: string): void {
+    const slots = this.terminalActivitySlots;
+    if (!slots || slots.size === 0) return;
+    const slot = slots.get(`${key}|${sessionId}`);
+    if (!slot) return;
+    if (slot.timer) {
+      clearTimeout(slot.timer);
+      slot.timer = null;
+    }
+    slot.pending = null;
+  }
+
+  /** Sends every pending trailing envelope now; used on shutdown paths and by tests. */
+  public flushTerminalActivity(): void {
+    for (const slot of this.terminalActivitySlots?.values() ?? []) this.flushTerminalActivitySlot(slot);
+  }
+
+  private pruneTerminalActivitySlots(): void {
+    const slots = this.terminalActivitySlots;
+    if (!slots || slots.size < TERMINAL_ACTIVITY_SLOTS_MAX) return;
+    const now = this.terminalActivityClock();
+    for (const [slotKey, slot] of slots) {
+      if (slot.timer || slot.pending) continue;
+      if (slot.contents.isDestroyed() || now - slot.lastSentAt > TERMINAL_ACTIVITY_SLOT_IDLE_MS) slots.delete(slotKey);
+    }
+  }
+
+  private clearTerminalActivitySlots(): void {
+    for (const slot of this.terminalActivitySlots?.values() ?? []) {
+      clearTimeout(slot.timer ?? undefined);
+      slot.timer = null;
+      slot.pending = null;
+    }
+    this.terminalActivitySlots?.clear();
+  }
+
+  /** Counts of activity envelopes handed to surfaces versus coalesced into a trailing one. */
+  public getTerminalActivityStats(): { sent: number; coalesced: number; bytes: number } {
+    return { ...this.terminalActivityStats };
+  }
+
+  /**
    * Fans one terminal data payload out to this host's subscribers. The sidebar
    * only receives sends while it is open — a closed sidebar re-hydrates from
    * getFullBuffer when toggleSidebar pushes 'antifan:terminal:session' on open,
@@ -13016,21 +13226,25 @@ export class NativeTabHost extends EventEmitter {
     };
     const sidebarContents = this.shell.isSidebarOpen ? this.shell.sidebarView?.webContents : undefined;
     if (sidebarContents && !sidebarContents.isDestroyed()) {
-      if (this.rendererDisplaysSession(`c${sidebarContents.id}`, payload.sessionId)) {
+      const key = `c${sidebarContents.id}`;
+      if (this.rendererDisplaysSession(key, payload.sessionId)) {
+        this.dropPendingTerminalActivity(key, payload.sessionId);
         safeSendWebContents(sidebarContents, TERMINAL_CHANNELS.DATA, payload);
+        sent += 1;
       } else {
-        safeSendWebContents(sidebarContents, TERMINAL_CHANNELS.ACTIVITY, activityEnvelope());
+        sent += this.emitTerminalActivity(key, sidebarContents, activityEnvelope());
       }
-      sent += 1;
     }
     for (const [id, win] of this.terminalWindows.entries()) {
       if (win && !win.isDestroyed()) {
-        if (this.rendererDisplaysSession(`w${id}`, payload.sessionId)) {
+        const key = `w${id}`;
+        if (this.rendererDisplaysSession(key, payload.sessionId)) {
+          this.dropPendingTerminalActivity(key, payload.sessionId);
           safeSendWebContents(win.webContents, TERMINAL_CHANNELS.DATA, payload);
+          sent += 1;
         } else {
-          safeSendWebContents(win.webContents, TERMINAL_CHANNELS.ACTIVITY, activityEnvelope());
+          sent += this.emitTerminalActivity(key, win.webContents, activityEnvelope());
         }
-        sent += 1;
       } else {
         this.terminalWindows.delete(id);
         this.terminalDisplayedSessions.delete(`w${id}`);
@@ -13112,11 +13326,30 @@ export class NativeTabHost extends EventEmitter {
     return undefined;
   }
 
+  /**
+   * Note that this host closed `tabId`. Guarded like every other map `closeTab` writes: partially
+   * built hosts (test doubles) may lack the record map, and a cleanup path must not throw there.
+   */
+  private rememberClosedTab(tabId: string, anchor: string | undefined, source: string | undefined): void {
+    if (!this.closedTabAnchors) return;
+    recordClosedTab(this.closedTabAnchors, tabId, anchor, source);
+  }
+
+  /**
+   * Who closed `tabId`, why and when, plus the live tab the owning session can rebind to. Answers
+   * only for tabs this host closed within the recent-history bound.
+   */
+  public getClosedTabInfo(tabId: string): ClosedTabInfo | undefined {
+    const record = tabId ? this.closedTabAnchors?.get(tabId) : undefined;
+    if (!record) return undefined;
+    return describeClosedTab(record, this.getFailoverTargetTab(tabId));
+  }
+
   public getFailoverTargetTab(staleTabId: string): string | undefined {
     if (!staleTabId) return undefined;
     // Closing a tab prunes it from its pool, so the anchor recorded at close time is the
     // only surviving link between the stale tab and the session that still owns a tab.
-    const anchor = this.closedTabAnchors?.get(staleTabId);
+    const anchor = this.closedTabAnchors?.get(staleTabId)?.anchor;
     if (anchor && this.hasTab(anchor)) return anchor;
     // A session that closed (or lost) the tab it was bound to must not be stranded: when
     // the stale tab belongs to a session pool, the pool's own open tab is a safe rebind —
@@ -15181,6 +15414,20 @@ export class NativeTabHost extends EventEmitter {
     }
   }
 
+  private lastToolbarBroadcast: { contents: Electron.WebContents; serialized: string } | null = null;
+  private toolbarBroadcastsSkipped = 0;
+  /** Sequence of the last state frame delivered to the toolbar; the renderer drops frames it already holds. */
+  private toolbarFrameSeq = 0;
+
+  /** Forget the last frame sent to the toolbar so the next broadcast is delivered unconditionally. */
+  public invalidateToolbarBroadcast(): void {
+    this.lastToolbarBroadcast = null;
+  }
+
+  public getToolbarBroadcastsSkipped(): number {
+    return this.toolbarBroadcastsSkipped;
+  }
+
   public flushBroadcastState(): void {
     if (this.isDisposed) return;
     if (this.broadcastTimer) {
@@ -15207,7 +15454,26 @@ export class NativeTabHost extends EventEmitter {
       phoneStatus: this.cachedPhoneStatus,
       projectWindow: this.projectWindowIdentity(),
     };
-    safeSendWebContents(this.shell.toolbarView?.webContents, TOOLBAR_CHANNELS.STATE_UPDATED, payload);
+    // The toolbar replaces its whole state from each frame, so a frame equal to the last one this
+    // toolbar received changes nothing; a new webContents or a renderer that re-pulled its initial
+    // state (see invalidateToolbarBroadcast) always gets one. Equality is judged on a fingerprint
+    // that leaves out the QA report body and the synthetic clock of an idle row, so an idle tab
+    // really is deduplicated; only a frame that was handed to the toolbar is remembered.
+    const toolbarContents = this.shell.toolbarView?.webContents;
+    let serialized: string | undefined;
+    try {
+      serialized = JSON.stringify({ ...payload, themeQa: this.themeQaBroadcastFingerprint(this.activeTabId) });
+    } catch {
+      serialized = undefined;
+    }
+    const last = this.lastToolbarBroadcast;
+    if (serialized !== undefined && toolbarContents && last && last.contents === toolbarContents && last.serialized === serialized) {
+      this.toolbarBroadcastsSkipped += 1;
+    } else {
+      const delivered = safeSendWebContents(toolbarContents, TOOLBAR_CHANNELS.STATE_UPDATED, { ...payload, stateSeq: this.toolbarFrameSeq + 1 });
+      if (delivered) this.toolbarFrameSeq += 1;
+      this.lastToolbarBroadcast = delivered && serialized !== undefined && toolbarContents ? { contents: toolbarContents, serialized } : null;
+    }
     this.schedulePersist();
   }
 
@@ -15288,7 +15554,75 @@ export class NativeTabHost extends EventEmitter {
   }
   public getThemeQaState(tabId?: string): TabThemeQaState {
     const id = tabId || this.activeTabId;
-    return this.tabThemeQaStates?.get(id) || { status: 'idle', issueCount: 0, updatedAt: Date.now() };
+    return this.tabThemeQaStates?.get(id) || { status: 'idle', issueCount: null, reasonCode: 'QA_NOT_RUN', updatedAt: Date.now() };
+  }
+
+  /**
+   * What the toolbar's rendering of a tab's QA row depends on, without the report body (an
+   * artifact-sized value that would otherwise be serialized on every broadcast) and without the
+   * clock of a row that never existed. A report only changes together with the row's `updatedAt`.
+   */
+  private themeQaBroadcastFingerprint(tabId: string): Record<string, unknown> {
+    const row = this.tabThemeQaStates?.get(tabId);
+    if (!row) return { status: 'idle', issueCount: null, reasonCode: 'QA_NOT_RUN' };
+    const { report, ...rest } = row;
+    return { ...rest, hasReport: report !== undefined };
+  }
+
+  /**
+   * Record a finished QA report as the tab's state row. The one derivation both the toolbar scan
+   * (`runThemeQa`) and a `theme.qa_validate` capability call go through, so the badge, the cockpit
+   * findings row and the receipt cannot disagree. A tab that closed meanwhile is ignored.
+   */
+  public publishThemeQaState(tabId: string, report: unknown): void {
+    if (!tabId || !this.tabs.has(tabId)) return;
+    const rec = (report && typeof report === 'object' ? report : {}) as {
+      summary?: { criticalCount?: unknown; passed?: unknown; verdict?: unknown; environment?: { degraded?: unknown } };
+      findings?: {
+        liquid?: { errors?: unknown[] };
+        overflow?: { culprits?: unknown[] };
+        assets?: { brokenAssets?: unknown[] };
+        hsRules?: { totalViolations?: number };
+        diagnosticIssues?: unknown[];
+      };
+      artifacts?: Array<{ kind?: string; id?: string }>;
+    };
+    const summary = rec.summary;
+    const findings = rec.findings;
+    const issueCount = typeof summary?.criticalCount === 'number'
+      ? summary.criticalCount
+      : (findings ? (
+          (findings.liquid?.errors?.length || 0) +
+          (findings.overflow?.culprits?.length || 0) +
+          (findings.assets?.brokenAssets?.length || 0) +
+          (findings.hsRules?.totalViolations || 0) +
+          (findings.diagnosticIssues?.length || 0)
+        ) : 0);
+    const reportArtifactId = Array.isArray(rec.artifacts) ? rec.artifacts.find((item) => item.kind === 'report')?.id : undefined;
+    // An inconclusive run (no failure observed, or failures the capture environment made suspect)
+    // has no finding count to show: a number would read as "nothing found" or as a verdict.
+    const inconclusive = summary?.verdict === 'INCONCLUSIVE' &&
+      (issueCount === 0 || summary.environment?.degraded === true);
+    if (inconclusive) {
+      this.setThemeQaState(tabId, {
+        status: 'error',
+        issueCount: null,
+        reasonCode: 'QA_INCONCLUSIVE',
+        reportArtifactId,
+        report,
+        updatedAt: Date.now(),
+      });
+      return;
+    }
+    const isPassed = typeof summary?.passed === 'boolean' ? summary.passed : issueCount === 0;
+    const status: 'pass' | 'fail' = isPassed ? 'pass' : 'fail';
+    this.setThemeQaState(tabId, {
+      status,
+      issueCount,
+      reportArtifactId,
+      report,
+      updatedAt: Date.now(),
+    });
   }
 
   /**
@@ -15440,12 +15774,12 @@ export class NativeTabHost extends EventEmitter {
     const requestedTabId = typeof tabId === 'string' ? tabId : '';
     const tab = requestedTabId ? this.tabs.get(requestedTabId) : undefined;
     if (!tab || (tab.view?.webContents && tab.view.webContents.isDestroyed())) {
-      this.setThemeQaState(requestedTabId, { status: 'error', issueCount: 0, error: 'TARGET_REQUIRED', updatedAt: Date.now() });
+      this.setThemeQaState(requestedTabId, { status: 'error', issueCount: null, reasonCode: 'TARGET_REQUIRED', error: 'TARGET_REQUIRED', updatedAt: Date.now() });
       return { ok: false, error: 'TARGET_REQUIRED' };
     }
     if (!this.controlPlane) {
       const error = 'Control plane runtime is not initialized';
-      this.setThemeQaState(requestedTabId, { status: 'error', issueCount: 0, error, updatedAt: Date.now() });
+      this.setThemeQaState(requestedTabId, { status: 'error', issueCount: null, reasonCode: 'CONTROL_PLANE_UNAVAILABLE', error, updatedAt: Date.now() });
       return { ok: false, error };
     }
     const lease = this.controlPlane.getLease();
@@ -15465,7 +15799,7 @@ export class NativeTabHost extends EventEmitter {
     const guarded = this.guardQaWorkspaceRoot(options?.workspaceRoot, this.resolveTabWorkspace(requestedTabId, tab.state.url));
     if (guarded.refusal) {
       const error = `${guarded.refusal.code}: ${guarded.refusal.message}`;
-      this.setThemeQaState(requestedTabId, { status: 'error', issueCount: 0, error, updatedAt: Date.now() });
+      this.setThemeQaState(requestedTabId, { status: 'error', issueCount: null, reasonCode: guarded.refusal.code, error, updatedAt: Date.now() });
       return { ok: false, error };
     }
     const workspaceRoot = guarded.root;
@@ -15483,21 +15817,7 @@ export class NativeTabHost extends EventEmitter {
             waivers: options?.waivers,
             signal,
           });
-          const summary = report.summary;
-          const findings = report.findings;
-          const issueCount = typeof summary?.criticalCount === 'number'
-            ? summary.criticalCount
-            : (findings ? (
-                (findings.liquid?.errors?.length || 0) +
-                (findings.overflow?.culprits?.length || 0) +
-                (findings.assets?.brokenAssets?.length || 0) +
-                (findings.hsRules?.totalViolations || 0) +
-                (findings.diagnosticIssues?.length || 0)
-              ) : 0);
-          const isPassed = typeof summary?.passed === 'boolean' ? summary.passed : issueCount === 0;
-          const status: 'pass' | 'fail' = isPassed ? 'pass' : 'fail';
-          const reportArtifactId = report.artifacts?.find((item: { kind?: string; id?: string }) => item.kind === 'report')?.id;
-          this.setThemeQaState(requestedTabId, { status, issueCount, reportArtifactId, report, updatedAt: Date.now() });
+          this.publishThemeQaState(requestedTabId, report);
           resolve({ ok: true, report });
         } catch (error) {
           if (signal.aborted) {
@@ -15505,7 +15825,8 @@ export class NativeTabHost extends EventEmitter {
             return;
           }
           const message = error instanceof Error ? error.message : String(error);
-          this.setThemeQaState(requestedTabId, { status: 'error', issueCount: 0, error: message, updatedAt: Date.now() });
+          const code = (error as { code?: unknown } | null)?.code;
+          this.setThemeQaState(requestedTabId, { status: 'error', issueCount: null, reasonCode: typeof code === 'string' && code ? code : 'QA_ERROR', error: message, updatedAt: Date.now() });
           resolve({ ok: false, error: message });
         }
     });
@@ -16247,6 +16568,7 @@ export class NativeTabHost extends EventEmitter {
     this.runDisposalStep('shellChrome', () => this.shell.disposeChrome());
     this.runDisposalStep('devToolsHost', () => this.devToolsHost?.dispose());
     this.runDisposalStep('networkTracker', () => this.networkTracker.dispose());
+    this.runDisposalStep('terminalActivity', () => this.clearTerminalActivitySlots());
     this.previewWatcherPool.clear();
     if (this.persistTimer) {
       clearTimeout(this.persistTimer);

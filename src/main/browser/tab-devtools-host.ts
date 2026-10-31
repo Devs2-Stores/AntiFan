@@ -30,6 +30,7 @@ import {
   RENDER_SURFACE_PROBE_BOUND_MS,
   RENDER_SURFACE_PROBE_EXPRESSION,
   classifyRenderSurfaceCause,
+  renderSurfaceRemedy,
   provenViewportCssSize,
   rasterMatchesCss,
   resolveCaptureMode,
@@ -2958,7 +2959,7 @@ export class TabDevToolsHost {
           if (!Number.isFinite(surface.vw) || !Number.isFinite(surface.vh) || surface.vw < 1 || surface.vh < 1) {
             throw new CaptureError(
               'NO_RENDER_SURFACE',
-              `Tab '${targetId}' pane '${effectivePane}' has no renderable surface: it reports ${surface.vw}x${surface.vh} CSS px (readyState '${surface.readyState}', hidden ${surface.hidden}, cause ${classifyRenderSurfaceCause(surface)}). Size the tab with anti.browser.set_viewport or navigate it to a real page before capturing.`
+              `Tab '${targetId}' pane '${effectivePane}' has no renderable surface: it reports ${surface.vw}x${surface.vh} CSS px (readyState '${surface.readyState}', hidden ${surface.hidden}, cause ${classifyRenderSurfaceCause(surface)}). ${renderSurfaceRemedy({ cause: classifyRenderSurfaceCause(surface), hostWindowHidden: this.ctx.isWindowRenderable ? !this.ctx.isWindowRenderable() : false }).text}`
             );
           }
           // The geometry baseline is this reading: it is the surface the capture is
@@ -2980,7 +2981,7 @@ export class TabDevToolsHost {
             if (!windowPresented) {
               throw new CaptureError(
                 'NO_RENDER_SURFACE',
-                `Tab '${targetId}' pane '${effectivePane}' cannot rasterize a ${mode} capture: the window is hidden or minimized, so the compositor produces no beyond-viewport surface (${surface.vw}x${surface.vh} CSS px, readyState '${surface.readyState}', cause window-not-presented). Show the window or use a viewport capture.`
+                `Tab '${targetId}' pane '${effectivePane}' cannot rasterize a ${mode} capture: the window is hidden or minimized, so the compositor produces no beyond-viewport surface (${surface.vw}x${surface.vh} CSS px, readyState '${surface.readyState}', cause window-not-presented). ${renderSurfaceRemedy({ cause: 'window-not-presented', hostWindowHidden: true }).text} A viewport capture still works.`
               );
             }
             // Occluded background panes report document.hidden until the capture lift.
@@ -2988,7 +2989,7 @@ export class TabDevToolsHost {
             if (isForeground && surface.hidden === true) {
               throw new CaptureError(
                 'NO_RENDER_SURFACE',
-                `Tab '${targetId}' pane '${effectivePane}' cannot rasterize a ${mode} capture: the window is hidden or minimized, so the compositor produces no beyond-viewport surface (${surface.vw}x${surface.vh} CSS px, readyState '${surface.readyState}', cause ${classifyRenderSurfaceCause(surface)}). Show the window or use a viewport capture.`
+                `Tab '${targetId}' pane '${effectivePane}' cannot rasterize a ${mode} capture: the window is hidden or minimized, so the compositor produces no beyond-viewport surface (${surface.vw}x${surface.vh} CSS px, readyState '${surface.readyState}', cause ${classifyRenderSurfaceCause(surface)}). ${renderSurfaceRemedy({ cause: 'window-not-presented', hostWindowHidden: true }).text} A viewport capture still works.`
               );
             }
           }
@@ -3184,7 +3185,7 @@ export class TabDevToolsHost {
           if (mode !== 'viewport' && this.ctx.isWindowRenderable && !this.ctx.isWindowRenderable()) {
             throw new CaptureError(
               'NO_RENDER_SURFACE',
-              `Tab '${targetId}' pane '${effectivePane}' cannot rasterize a ${mode} capture: the window was hidden or minimized during capture setup, so the compositor produces no beyond-viewport surface. Show the window or use a viewport capture.`
+              `Tab '${targetId}' pane '${effectivePane}' cannot rasterize a ${mode} capture: the window was hidden or minimized during capture setup, so the compositor produces no beyond-viewport surface. ${renderSurfaceRemedy({ cause: 'window-not-presented', hostWindowHidden: true }).text} A viewport capture still works.`
             );
           }
 

@@ -37,10 +37,18 @@ export type CockpitThemeQaOptions = Pick<Parameters<ThemeQaWorkflow['validate']>
   workspaceRoot?: string;
 };
 
-/** The QA state row a host keeps per tab (mirrors NativeTabHost's record). */
+/**
+ * The QA state row a host keeps per tab (mirrors NativeTabHost's record).
+ *
+ * `issueCount` is a number only when a finished report produced it (`pass`/`fail`). An idle, running
+ * or failed run has no count, so it reads `null` and `reasonCode` says why; a reader polling mid-run
+ * must never see a zero that means "nothing found".
+ */
 export interface CockpitQaState {
   status: 'idle' | 'running' | 'pass' | 'fail' | 'error';
-  issueCount: number;
+  issueCount: number | null;
+  /** `QA_NOT_RUN` (idle), `QA_RUNNING`, or the failure code of an `error` row. */
+  reasonCode?: string;
   reportArtifactId?: string;
   report?: unknown;
   error?: string;
@@ -100,6 +108,11 @@ export interface CockpitHostPort {
   checklistLoad(tabId: string, input: { scope: string; workspaceRoot: string }): CockpitChecklistLoadResult;
   checklistMutate(tabId: string, input: { scope: string; workspaceRoot: string; op: ChecklistMutationOp }): CockpitChecklistMutateResult;
   checklistSave(tabId: string, input: { scope: string; workspaceRoot: string; items: unknown; baseUpdatedAt?: number }): CockpitChecklistSaveResult;
+  /**
+   * Publish a finished QA report as the tab's state row. Optional so a host without a toolbar
+   * (headless, test doubles) can omit it; the port then reports `false`.
+   */
+  publishThemeQaState?(tabId: string, report: unknown): void;
 }
 
 export class CockpitPort {
@@ -185,5 +198,17 @@ export class CockpitPort {
 
   public checklistSave(tabId: string, input: { scope: string; workspaceRoot: string; items: unknown; baseUpdatedAt?: number }): CockpitChecklistSaveResult {
     return this.host.checklistSave(tabId, input);
+  }
+
+  /**
+   * Record a report produced outside a cockpit scan (`theme.qa_validate`) as the tab's QA state row,
+   * so `theme.cockpit_findings` and the toolbar badge agree with the receipt the caller just got.
+   * Returns whether the host accepted it.
+   */
+  public publishThemeQaState(tabId: string, report: unknown): boolean {
+    const cleanId = typeof tabId === 'string' ? tabId.trim() : '';
+    if (!cleanId || !this.host.hasTab(cleanId) || !this.host.publishThemeQaState) return false;
+    this.host.publishThemeQaState(cleanId, report);
+    return true;
   }
 }
