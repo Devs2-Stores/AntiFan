@@ -6,6 +6,9 @@
   1. Refuses a stale build: when any src\**\*.ts is newer than .compiled\src\main\index.js the
      script prints BUILD_STALE and stops, unless -AllowStale is passed.
   2. Finds the one running main process (the owner of the bridge listener).
+     It also stops (ENGAGE_SESSION_ACTIVE) while a ttb-dash Page engagement session holds the shared
+     Facebook login (identity.lock held or identity.json present in -EngageDir), even with -Force,
+     unless -IgnoreEngageSession is passed.
   3. Asks it to quit by launching the Electron executable with --antifan-quit-request. The
      running instance receives that flag through the single-instance handoff and runs its
      normal shutdown (quit.requested -> shutdown.clean in main.log), so no credential is needed.
@@ -26,7 +29,11 @@ param(
   [int]$BridgePort = 20130,
   [int]$QuitTimeoutSeconds = 45,
   [int]$StartTimeoutSeconds = 90,
-  [int]$ForceExitWaitSeconds = 20
+  [int]$ForceExitWaitSeconds = 20,
+  [switch]$IgnoreEngageSession,
+  # ttb-dash Page engagement (E:\Work\Gác\plans\reports\engage); written with [char] so the path survives a
+  # Windows PowerShell 5 read of this file as ANSI
+  [string]$EngageDir = ("E:\Work\G" + [char]0xE1 + "c\plans\reports\engage")
 )
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
@@ -67,6 +74,28 @@ for ($i = 0; $i -lt 16 -and $p; $i++) {
   if (-not $proc) { break }
   if ($proc.ProcessId -eq $mainPid) { Write-Output 'MAIN_IS_ANCESTOR: run this from a shell outside the app'; exit 1 }
   $p = $proc.ParentProcessId
+}
+
+# A ttb-dash engagement session drives the shared Facebook login through this app: it holds identity.lock while it
+# runs and writes identity.json while the browser acts as a Page. A restart in the middle kills its tab and can leave
+# every Facebook tab acting as that Page (27/10/2026 10:13, a -Force restart cut the Bep session).
+if (-not $IgnoreEngageSession -and (Test-Path $EngageDir)) {
+  $acting = Join-Path $EngageDir 'identity.json'
+  if (Test-Path $acting) {
+    Write-Output ("ENGAGE_SESSION_ACTIVE: the browser acts as a Page (" + (Get-Content -Raw -Encoding UTF8 $acting).Trim() + "); wait for it or pass -IgnoreEngageSession")
+    exit 1
+  }
+  $lockPath = Join-Path $EngageDir 'identity.lock'
+  if (Test-Path $lockPath) {
+    # ttb-dash takes the lock with msvcrt.locking on byte 0 (LockFile), the same lock FileStream.Lock tests
+    $held = $false
+    $fs = $null
+    try {
+      $fs = [System.IO.File]::Open($lockPath, 'Open', 'ReadWrite', 'ReadWrite')
+      try { $fs.Lock(0, 1); $fs.Unlock(0, 1) } catch [System.IO.IOException] { $held = $true }
+    } catch { } finally { if ($fs) { $fs.Dispose() } }
+    if ($held) { Write-Output 'ENGAGE_SESSION_ACTIVE: an engagement session holds identity.lock; wait for it or pass -IgnoreEngageSession'; exit 1 }
+  }
 }
 
 # The lifecycle journal the running instance writes (one JSON object per line). A refused quit
