@@ -44,6 +44,7 @@ import {
 } from './device-presets';
 import { chromeSessionUserAgent, chromeUserAgentMetadata } from './google-auth-identity';
 import { configureBrowserSessionPartition, deriveCapsulePartition, unconfigureBrowserSessionPartition, type BrowserSessionUserAgentMode } from './browser-session-partition';
+import { cookieJarNameOfPartition, deriveCookieJarPartition, isCookieJarPartition, isValidCookieJarName } from './cookie-jar';
 import { TabDiagnosticsManager, computeOrigin, normalizeConsoleLevel } from './tab-diagnostics';
 import type { CaptureViewportTransaction, RenderSurfaceSnapshot, VerificationCaptureEnvelope } from '../verification/visual-capture';
 import { buildKeyboardInputEvents } from './keyboard-normalizer';
@@ -1439,7 +1440,7 @@ export class NativeTabHost extends EventEmitter {
   private mutationSamples: Map<string, string[]> = new Map();
   private browserEpoch: number = 1;
   private tabPreviewUnsubscribers: Map<string, () => void> = new Map();
-  private recentlyClosedTabs: Array<{ url: string; title: string }> = [];
+  private recentlyClosedTabs: Array<{ url: string; title: string; cookieJar?: string }> = [];
   /**
    * The 60s sweep that hibernates idle tabs. Created lazily by
    * `ensureHibernationSweep`; cleared in `dispose`. `unref`'d so it can never
@@ -7945,6 +7946,9 @@ export class NativeTabHost extends EventEmitter {
   public isValidCapsulePartition(partition: string): boolean {
     if (!partition || typeof partition !== 'string') return false;
     const clean = partition.trim();
+    // A named cookie jar belongs to the one account an agent opened it for; no
+    // partition-addressed credential route (cookie import, extension grant) may reach it.
+    if (isCookieJarPartition(clean)) return false;
     if (clean.startsWith('persist:profile-') || clean.startsWith('ephemeral-profile-')) {
       return true;
     }
@@ -8710,6 +8714,12 @@ export class NativeTabHost extends EventEmitter {
       ephemeral?: boolean;
       isolateSession?: boolean;
       partition?: string;
+      /**
+       * Named persistent cookie jar (`persist:jar-<name>`, see `cookie-jar.ts`). The tab's
+       * cookies live in that jar instead of the shared profile jar, so a second account of
+       * the same site can stay signed in beside the first. Refused with `ephemeral`.
+       */
+      cookieJar?: string;
       /** Explicit terminal session that should own this tab. Omit for user-opened tabs. */
       terminalSessionId?: string;
       devicePresetId?: string;
@@ -8795,8 +8805,23 @@ export class NativeTabHost extends EventEmitter {
     const popup = options?.popup;
     const userAgentMode: BrowserSessionUserAgentMode = options?.userAgentMode || 'clean';
     const isEphemeral = Boolean(options?.ephemeral);
+    const cookieJar = options?.cookieJar;
+    if (cookieJar !== undefined) {
+      // The jar is checked here as well as at the capability boundary: restore and any other
+      // in-process caller reach this method without going through the capability.
+      if (!isValidCookieJarName(cookieJar)) {
+        throw new CapabilityError('INVALID_ARGUMENT', `cookieJar ${JSON.stringify(cookieJar)} is not a valid jar name`, { cookieJar });
+      }
+      if (isEphemeral) {
+        throw new CapabilityError('INVALID_ARGUMENT', 'cookieJar cannot be combined with an ephemeral tab', { cookieJar, ephemeral: true });
+      }
+    }
     let partition: string;
-    if (options?.partition && typeof options.partition === 'string') {
+    if (cookieJar !== undefined) {
+      // Wins over `isolateSession` and the internal `partition` option: a named jar is an
+      // explicit request for exactly this jar, and its prefix can never be a profile or capsule one.
+      partition = deriveCookieJarPartition(cookieJar, userAgentMode);
+    } else if (options?.partition && typeof options.partition === 'string') {
       partition = options.partition.trim();
     } else if (options?.isolateSession) {
       partition = deriveCapsulePartition(capsuleIdForTab, userAgentMode, isEphemeral);
@@ -8821,6 +8846,7 @@ export class NativeTabHost extends EventEmitter {
     const rawPresetId = options?.devicePresetId || (options?.mobile ? 'iphone-15' : undefined);
     const initialPreset = findDevicePreset(rawPresetId);
     const initialDevicePresetId = initialPreset?.id || (options?.mobile ? 'iphone-15' : 'responsive');
+    const tabCookieJar = cookieJarNameOfPartition(partition, userAgentMode);
     const state: AntiFanTab = {
       id,
       url,
@@ -8834,6 +8860,8 @@ export class NativeTabHost extends EventEmitter {
       capsuleId: capsuleIdForTab,
       userAgentMode,
       partition,
+      // Derived from the partition, so a popup that inherits its opener's jar partition reports the same jar.
+      ...(tabCookieJar ? { cookieJar: tabCookieJar } : {}),
       ephemeral: isEphemeral,
       ...(popup ? { popupOf: popup.openerTabId } : {}),
     };
@@ -9364,7 +9392,7 @@ export class NativeTabHost extends EventEmitter {
     this.ownedReloadTokens?.delete(tabId);
     const isAgent = target.state.ephemeral === true;
     if (!isAgent && target.state.url && target.state.url !== 'about:blank') {
-      this.recentlyClosedTabs.push({ url: target.state.url, title: target.state.title || 'Tab' });
+      this.recentlyClosedTabs.push({ url: target.state.url, title: target.state.title || 'Tab', ...(target.state.cookieJar ? { cookieJar: target.state.cookieJar } : {}) });
       if (this.recentlyClosedTabs.length > 20) this.recentlyClosedTabs.shift();
     }
 
@@ -10395,7 +10423,7 @@ export class NativeTabHost extends EventEmitter {
     if (this.recentlyClosedTabs.length === 0) return null;
     const last = this.recentlyClosedTabs.pop();
     if (last && last.url) {
-      return this.createTab(last.url);
+      return this.createTab(last.url, true, last.cookieJar ? { cookieJar: last.cookieJar } : undefined);
     }
     return null;
   }
@@ -10412,7 +10440,7 @@ export class NativeTabHost extends EventEmitter {
     const tab = this.tabs.get(tabId);
     if (!tab) return '';
     const targetUrl = tab.state.url || 'https://www.google.com';
-    const newTabId = this.createTab(targetUrl);
+    const newTabId = this.createTab(targetUrl, true, tab.state.cookieJar ? { cookieJar: tab.state.cookieJar } : undefined);
     const oldIndex = this.tabOrder.indexOf(tabId);
     if (newTabId && oldIndex !== -1) {
       // Place the duplicated tab directly to the right of the original tab
@@ -15066,6 +15094,8 @@ export class NativeTabHost extends EventEmitter {
     const id = this.createTab(isUnloadedStub ? 'about:blank' : safeUrl, false, {
       capsuleId: migrated.capsuleId,
       userAgentMode: migrated.userAgentMode,
+      // The jar the tab was saved in, so a restored tab keeps its logins.
+      ...(migrated.cookieJar ? { cookieJar: migrated.cookieJar } : {}),
     });
     for (const sourceId of sourceIds) opts.oldIdToNewId.set(sourceId, id);
     const persistedProjectId = typeof rawTab.projectId === 'string' && rawTab.projectId ? rawTab.projectId : undefined;

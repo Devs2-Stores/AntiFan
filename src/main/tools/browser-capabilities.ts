@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { BrowserTarget, CapabilityRequestContext, AuthenticatedCapabilityContext, CapabilityError, CapabilityEffectPolicyInput, CapabilityRisk, ReceiptBinding, digestText } from '../../shared/control-plane-contracts';
+import { parseCookieJarParam } from '../browser/cookie-jar';
 import { BrowserControlPort, BrowserWaitParams, buildRefLookupExpression, ResponsiveBreakpointOption, VISUAL_COMPARE_EXECUTION_BUDGET_MS, VISUAL_COMPARE_CANCELLATION_ACK_MS, FULL_PAGE_CAPTURE_EXECUTION_BUDGET_MS, FULL_PAGE_CAPTURE_CANCELLATION_ACK_MS, VIEWPORT_CAPTURE_EXECUTION_BUDGET_MS, VIEWPORT_CAPTURE_CANCELLATION_ACK_MS, REFERENCE_CAPTURE_EXECUTION_BUDGET_MS, REFERENCE_CAPTURE_CANCELLATION_ACK_MS, BROWSER_WAIT_INVOCATION_BUDGET_MS, BROWSER_WAIT_MAX_TIMEOUT_MS, BROWSER_EVAL_INVOCATION_BUDGET_MS, BROWSER_EVAL_MAX_TIMEOUT_MS } from './browser-control-port';
 import { CapabilityCatalogue } from './capability-catalogue';
 import { resolveCallerWorkspaceRoot } from './file-capabilities';
@@ -787,6 +788,7 @@ interface OpenTabParams {
   mobile?: boolean;
   projectId?: string;
   bind?: unknown;
+  cookieJar?: unknown;
 }
 
 /** Row filters shared by every tab-list registration. */
@@ -828,6 +830,13 @@ function parseBindFlag(bind: unknown): boolean | undefined {
   if (typeof bind !== 'boolean') throw new CapabilityError('INVALID_ARGUMENT', 'anti.browser.tabs.create: bind must be a boolean');
   return bind;
 }
+
+/** Schema fragment of the `cookieJar` argument, shared by every tab-open registration. */
+const COOKIE_JAR_SCHEMA_PROPERTY = {
+  type: 'string',
+  pattern: '^[a-z0-9][a-z0-9-]{1,39}$',
+  description: 'Name of a persistent, isolated cookie jar (partition persist:jar-<name>). Tabs opened with the same name share its cookies and stay signed in across restarts; tabs without it use the shared profile jar. Lowercase letters, digits and hyphens, 2-40 characters, not ending in -native. Cannot be combined with ephemeral: true.',
+} as const;
 
 /** Description suffix shared by every tab-close registration. */
 const CLOSE_TAB_DESCRIPTION = 'Close a Chromium browser tab by ID. A tab that is already gone is not an error: the result is {closed:false, alreadyGone:true}';
@@ -923,9 +932,14 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
   // same flag from the call and skips the rotation onto the new tab.
   const openTabFromParams = async (params: OpenTabParams, context: CapabilityRequestContext) => {
     const bind = parseBindFlag(params.bind);
+    // Validated before any host or window is allocated, so a bad name never costs a tab.
+    const cookieJar = parseCookieJarParam(params.cookieJar, params.ephemeral);
     await browser.ensureHostForNewTab({ target: context?.browserTarget, authenticatedProjectId: context?.projectId, url: params.url });
-    const { bind: _bind, ...openParams } = params;
-    return browser.openTab(openParams, { target: context?.browserTarget, authenticatedProjectId: context?.projectId, ...(bind === false ? { bind } : {}) });
+    const { bind: _bind, cookieJar: _cookieJar, ...openParams } = params;
+    return browser.openTab(
+      { ...openParams, ...(cookieJar ? { cookieJar } : {}) },
+      { target: context?.browserTarget, authenticatedProjectId: context?.projectId, ...(bind === false ? { bind } : {}) },
+    );
   };
 
   // A tab this very attachment opened stays closable by it even after a rebind moved its binding
@@ -1029,6 +1043,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         mobile: { type: 'boolean', description: 'Open directly in mobile mode with mobile User-Agent and viewport' },
         projectId: { type: 'string', description: 'Scope selector: must equal this session\'s authenticated projectId. A foreign or unbound selector is refused before allocation; it never widens authority.' },
         bind: { type: 'boolean', default: true, description: 'Pass false to open the tab without making it this session\'s bound target; every later call keeps its current tab until you rebind or pass this tab\'s tabId' },
+        cookieJar: COOKIE_JAR_SCHEMA_PROPERTY,
       },
     },
     execute: (params: OpenTabParams, context) => openTabFromParams(params, context),
@@ -1930,7 +1945,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     description: 'Alias for browser.open-tab',
     risk: 'write',
     policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
-    inputSchema: { type: 'object', properties: { url: { type: 'string' }, activate: { type: 'boolean' }, anchorTabId: { type: 'string', description: 'Live same-project tab selecting the window for creation' }, ephemeral: { type: 'boolean' }, userFacing: { type: 'boolean', description: 'Open tab directly on the visible user plane (non-ephemeral) for interactive inspection/debugging' }, projectId: { type: 'string', description: 'Scope selector: must equal this session\'s authenticated projectId. A foreign or unbound selector is refused before allocation; it never widens authority.' }, bind: { type: 'boolean', default: true, description: 'Pass false to open the tab without making it this session\'s bound target; every later call keeps its current tab until you rebind or pass this tab\'s tabId' } } },
+    inputSchema: { type: 'object', properties: { url: { type: 'string' }, activate: { type: 'boolean' }, anchorTabId: { type: 'string', description: 'Live same-project tab selecting the window for creation' }, ephemeral: { type: 'boolean' }, userFacing: { type: 'boolean', description: 'Open tab directly on the visible user plane (non-ephemeral) for interactive inspection/debugging' }, projectId: { type: 'string', description: 'Scope selector: must equal this session\'s authenticated projectId. A foreign or unbound selector is refused before allocation; it never widens authority.' }, bind: { type: 'boolean', default: true, description: 'Pass false to open the tab without making it this session\'s bound target; every later call keeps its current tab until you rebind or pass this tab\'s tabId' }, cookieJar: COOKIE_JAR_SCHEMA_PROPERTY } },
     execute: (params: OpenTabParams, context) => openTabFromParams(params, context),
   });
 
@@ -3241,6 +3256,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         mobile: { type: 'boolean', description: 'Open directly in mobile mode with mobile User-Agent and viewport' },
         projectId: { type: 'string', description: 'Scope selector: must equal this session\'s authenticated projectId. A foreign or unbound selector is refused before allocation; it never widens authority.' },
         bind: { type: 'boolean', default: true, description: 'Pass false to open the tab without making it this session\'s bound target; every later call keeps its current tab until you rebind or pass this tab\'s tabId' },
+        cookieJar: COOKIE_JAR_SCHEMA_PROPERTY,
       },
     },
     execute: (params: OpenTabParams, context) => openTabFromParams(params, context),

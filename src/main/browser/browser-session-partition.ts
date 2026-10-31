@@ -1,4 +1,5 @@
 import { session, Session } from 'electron';
+import { isCookieJarPartition } from './cookie-jar';
 import { setupClientHintsOverride } from './google-auth-identity';
 import { armCookieDurability } from './cookie-durability';
 import { armCookieEvictionLog } from './cookie-eviction-log';
@@ -45,6 +46,16 @@ export function isCapsuleSession(sess: Session): boolean {
   const partition = getBrowserSessionPartition(sess);
   if (!partition) return false;
   return partition.replace(/^persist:/, '').startsWith('capsule-');
+}
+
+/**
+ * True when the session's partition is a named cookie jar (`persist:jar-*`, see
+ * `cookie-jar.ts`). A jar persists, but it belongs to one account an agent opened it
+ * for: profile-level credential operations (Chrome profile sync, Session Vault,
+ * extension hydration) must never read it or write into it.
+ */
+export function isCookieJarSession(sess: Session): boolean {
+  return isCookieJarPartition(getBrowserSessionPartition(sess));
 }
 
 /**

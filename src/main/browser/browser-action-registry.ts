@@ -3,6 +3,7 @@
  * Central dispatch router for all Browser Actions invoked via MCP Stdio, WebSocket RPC, or Plugins.
  */
 import { NativeTabHost } from './native-tab-host';
+import { parseCookieJarParam } from './cookie-jar';
 import { AntiFanBridgeStatus } from '../../shared/contracts';
 import { CapabilityError } from '../../shared/control-plane-contracts';
 
@@ -140,13 +141,15 @@ export class BrowserActionRegistry {
           activate: { type: 'boolean', description: 'Whether to switch to this tab visually (default: true)' },
           ephemeral: { type: 'boolean', description: 'Whether to isolate this tab in an in-memory session partition (default: false)' },
           userFacing: { type: 'boolean', description: 'Open tab directly on the visible user plane (non-ephemeral) for interactive inspection/debugging' },
+          cookieJar: { type: 'string', description: 'Name of a persistent, isolated cookie jar (partition persist:jar-<name>; 2-40 lowercase letters, digits or hyphens). Tabs opened with the same name share its cookies and stay signed in across restarts; tabs without it use the shared profile jar. Not combinable with ephemeral.' },
         },
       },
-      handler: (params: { url?: string; activate?: boolean; ephemeral?: boolean; userFacing?: boolean }, { tabHost }) => {
+      handler: (params: { url?: string; activate?: boolean; ephemeral?: boolean; userFacing?: boolean; cookieJar?: unknown }, { tabHost }) => {
         const wantsUserPlane = Boolean(params?.userFacing);
         const isEphemeral = wantsUserPlane ? false : params?.ephemeral;
         const plane = wantsUserPlane ? ('user' as const) : ('agent' as const);
-        const tabId = tabHost.createTab(params?.url, params?.activate ?? true, { ephemeral: isEphemeral, plane });
+        const cookieJar = parseCookieJarParam(params?.cookieJar, isEphemeral);
+        const tabId = tabHost.createTab(params?.url, params?.activate ?? true, { ephemeral: isEphemeral, plane, ...(cookieJar ? { cookieJar } : {}) });
         return { tabId, success: true };
       },
     });

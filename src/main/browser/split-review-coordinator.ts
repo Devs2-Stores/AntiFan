@@ -6,6 +6,7 @@
 
 import { AntiFanTab, SplitPaneId, SplitReviewConfig } from '../../shared/contracts';
 import { DEVICE_PRESETS, DevicePreset, getPresetCornerRadius } from './device-presets';
+import { isValidCookieJarName } from './cookie-jar';
 
 export const DEFAULT_SPLIT_DESKTOP_PRESET = 'laptop-macbook13';
 export const DEFAULT_SPLIT_MOBILE_PRESET = 'phone-iphone15pro';
@@ -696,6 +697,9 @@ export function sanitizeTabForPersistence(tab: AntiFanTab): Partial<AntiFanTab> 
   if (tab.userAgentMode) {
     clean.userAgentMode = tab.userAgentMode;
   }
+  if (isValidCookieJarName(tab.cookieJar)) {
+    clean.cookieJar = tab.cookieJar;
+  }
   if (tab.splitMode) {
     clean.splitMode = true;
     clean.splitDesktopPresetId = tab.splitDesktopPresetId || DEFAULT_SPLIT_DESKTOP_PRESET;
@@ -727,6 +731,8 @@ export function migratePersistedTab(raw: Partial<AntiFanTab> | null | undefined)
     devicePresetId: typeof raw.devicePresetId === 'string' ? raw.devicePresetId : undefined,
     capsuleId: typeof raw.capsuleId === 'string' ? raw.capsuleId : undefined,
     userAgentMode: raw.userAgentMode === 'native' ? 'native' : (raw.userAgentMode === 'clean' ? 'clean' : undefined),
+    // A row that carries a malformed jar name restores into the shared jar rather than a made-up one.
+    cookieJar: isValidCookieJarName(raw.cookieJar) ? raw.cookieJar : undefined,
   };
   if (raw.splitMode === true) {
     result.splitMode = true;

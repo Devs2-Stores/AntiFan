@@ -285,13 +285,16 @@ export class LocalSessionVault {
    * actually landed.
    */
   private resolveCredentialJar(targetSession: Electron.Session): { jar: string; error?: string } {
-    const { getBrowserSessionPartition, isEphemeralSession, isCapsuleSession } = partitionNaming();
+    const { getBrowserSessionPartition, isEphemeralSession, isCapsuleSession, isCookieJarSession } = partitionNaming();
     const jar = getBrowserSessionPartition(targetSession) || 'unknown';
     if (isEphemeralSession(targetSession)) {
       return { jar, error: `EPHEMERAL_TARGET_REJECTED: refusing credential operation against non-durable jar '${jar}'` };
     }
     if (isCapsuleSession(targetSession)) {
       return { jar, error: `CAPSULE_TARGET_REJECTED: refusing credential operation against workspace-scoped jar '${jar}'` };
+    }
+    if (isCookieJarSession(targetSession)) {
+      return { jar, error: `COOKIE_JAR_TARGET_REJECTED: refusing credential operation against named cookie jar '${jar}'; a jar belongs to the one account it was opened for` };
     }
     return { jar };
   }

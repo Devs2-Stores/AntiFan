@@ -26,6 +26,12 @@ export interface AntiFanTab {
   userAgentMode?: 'clean' | 'native';
   partition?: string;
   /**
+   * Name of the named persistent cookie jar this tab runs in (partition `persist:jar-<name>`).
+   * Absent on a tab that uses the shared profile jar or a capsule jar. Persisted verbatim so a
+   * restored tab reopens in the same jar.
+   */
+  cookieJar?: string;
+  /**
    * The project whose window minted this tab, stamped at mint and persisted verbatim.
    * Absent on a tab minted outside a project window (the Terminal Manager has no tabs);
    * never re-resolved afterwards.

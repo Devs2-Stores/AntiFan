@@ -41,7 +41,7 @@ import { AttachmentRegistry, type PageCloseAdmission } from '../run/attachment-r
 import { SessionCapabilityFilter, isCapabilityNamePermitted } from '../tools/capability-catalogue';
 import { enforceProtectedDirectoryDacl, enforceProtectedFileDacl, resolveCurrentUserSid, applyProtectedPathsDacl } from '../security/windows-acl';
 import { ControlPlaneRuntime } from '../control-plane/control-plane-runtime';
-import { deriveCapsulePartition } from '../browser/browser-session-partition';
+import { deriveCapsulePartition, isCookieJarSession } from '../browser/browser-session-partition';
 import { extensionCookieImportSetDetails, type ExtensionCookieInput } from '../browser/chrome-profile-sync';
 import { isIdentityCookie } from '../../shared/identity-cookie-patterns';
 import { injectedScriptStore } from '../browser/scripts/injected-script-store.js';
@@ -1855,6 +1855,17 @@ export class BridgeServer {
                 res.end(JSON.stringify({ success: false, error: 'TARGET_REQUIRED', message: 'TARGET_REQUIRED: cookie import without attachment claims requires explicit tabId or partition.' }));
                 return;
               }
+            }
+            if (isCookieJarSession(targetSession)) {
+              // Chrome profile sync, extension hydration and bridge credentials all land here;
+              // a named cookie jar is never a target of any of them.
+              res.writeHead(403, responseHeaders);
+              res.end(JSON.stringify({
+                success: false,
+                error: 'COOKIE_JAR_TARGET_REJECTED',
+                message: 'COOKIE_JAR_TARGET_REJECTED: cookie import cannot target a named cookie jar; a jar keeps the cookies of the one account it was opened for.',
+              }));
+              return;
             }
 
             let importedCount = 0;

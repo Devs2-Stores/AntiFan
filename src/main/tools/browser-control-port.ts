@@ -124,7 +124,7 @@ function staleDetails(cause: TargetStaleCause, details: Record<string, unknown> 
 export const LIST_TAB_FIELDS: readonly string[] = Object.freeze([
   'id', 'url', 'title', 'favicon', 'isLoading', 'canGoBack', 'canGoForward', 'zoomFactor', 'devicePresetId', 'crashed',
   'isAudible', 'isMuted', 'scrollX', 'scrollY', 'aiState', 'isAgentControlled', 'themeError', 'terminalSessionId', 'capsuleId',
-  'userAgentMode', 'partition', 'projectId', 'popupOf', 'ephemeral', 'hibernated', 'lastActiveAt', 'splitMode',
+  'userAgentMode', 'partition', 'cookieJar', 'projectId', 'popupOf', 'ephemeral', 'hibernated', 'lastActiveAt', 'splitMode',
   'splitDesktopPresetId', 'splitMobilePresetId', 'splitFocusedPane', 'splitError',
   'affiliated', 'storefrontMatch', 'isBoundTab', 'isPrimaryTab',
 ]);
@@ -301,7 +301,7 @@ export interface BrowserHostPort {
    * one: the adapter resolves the host from it, so a child is created in its
    * parent's window instead of whichever window happens to be first.
    */
-  createTab?(url?: string, activate?: boolean, options?: { capsuleId?: string; userAgentMode?: BrowserSessionUserAgentMode; ephemeral?: boolean; devicePresetId?: string; mobile?: boolean; anchorTabId?: string; plane?: 'user' | 'agent'; projectId?: string }): string;
+  createTab?(url?: string, activate?: boolean, options?: { capsuleId?: string; userAgentMode?: BrowserSessionUserAgentMode; ephemeral?: boolean; cookieJar?: string; devicePresetId?: string; mobile?: boolean; anchorTabId?: string; plane?: 'user' | 'agent'; projectId?: string }): string;
   /** The capsule and project/workspace a tab was created in, or undefined when no capsule owns it. */
   resolveTabAffiliation?(tabId: string): { projectId?: string; workspaceId?: string; capsuleId?: string } | undefined;
   /** The live, user-issued share grant of a tab, if any; consulted only by explicit rebind. */
@@ -4940,7 +4940,7 @@ export class BrowserControlPort {
     return { capsuleId: affiliation.capsuleId, projectId: affiliation.projectId };
   }
 
-  openTab(options: { url?: string; activate?: boolean; ephemeral?: boolean; userFacing?: boolean; devicePresetId?: string; mobile?: boolean; projectId?: string; bind?: boolean } = {}, context?: { target?: BrowserTarget; authenticatedProjectId?: string }): { tabId: string } {
+  openTab(options: { url?: string; activate?: boolean; ephemeral?: boolean; cookieJar?: string; userFacing?: boolean; devicePresetId?: string; mobile?: boolean; projectId?: string; bind?: boolean } = {}, context?: { target?: BrowserTarget; authenticatedProjectId?: string }): { tabId: string } {
     if (!this.host.createTab) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'createTab is not supported by host');
     const boundTabId = context?.target?.tabId;
     // The projectId selector is validated before any allocation: it may only
@@ -4949,8 +4949,10 @@ export class BrowserControlPort {
     // It selects nothing beyond the authority the target already carries.
     this.assertProjectSelectorWithinScope(options.projectId, context?.target, context?.authenticatedProjectId);
     // A verification page the target host already served this session's partition: do not open
-    // another tab to feed the detector. An ephemeral tab gets a fresh partition and is not latched.
-    if (options.ephemeral !== true) this.assertAntiBotNotLatched(boundTabId, options.url, boundTabId);
+    // another tab to feed the detector. An ephemeral tab and a named-jar tab get a partition of
+    // their own, so the bound tab's latch does not describe them (a later navigate in the new
+    // tab is latched against its own partition).
+    if (options.ephemeral !== true && !options.cookieJar) this.assertAntiBotNotLatched(boundTabId, options.url, boundTabId);
     this.assertAnchorTabLive(boundTabId);
     if (boundTabId && this.host.getManagedTabIds) {
       // The same pruning source the adopt path counts: a closed tab can never be
@@ -4973,6 +4975,15 @@ export class BrowserControlPort {
     // Phase 2: routed tab creation must be authorized by the anchor tab's own
     // verified affiliation and must never inherit the globally active capsule.
     const verified = this.verifyRoutedAnchorCapsule(boundTabId, target);
+    // A named jar is durable, an ephemeral tab is not: refused here as well because the port is
+    // also reached by in-process callers that never pass through the capability boundary.
+    if (options.cookieJar !== undefined && options.ephemeral === true) {
+      throw new CapabilityError(
+        'INVALID_ARGUMENT',
+        'options.cookieJar cannot be combined with options.ephemeral=true: an ephemeral tab has no durable jar to join',
+        { cookieJar: options.cookieJar, ephemeral: options.ephemeral }
+      );
+    }
     // When userFacing is true, tab opens directly on the visible user plane (non-ephemeral, plane: 'user').
     if (options.userFacing === true && options.ephemeral === true) {
       throw new CapabilityError(
@@ -4988,6 +4999,7 @@ export class BrowserControlPort {
     const createOptions = (routed && target && target.projectId && target.workspaceId)
       ? {
           ephemeral: isEphemeral,
+          ...(options.cookieJar ? { cookieJar: options.cookieJar } : {}),
           devicePresetId: options.devicePresetId,
           mobile: options.mobile,
           capsuleId: verified.capsuleId,
@@ -4999,6 +5011,7 @@ export class BrowserControlPort {
         }
       : {
           ephemeral: isEphemeral,
+          ...(options.cookieJar ? { cookieJar: options.cookieJar } : {}),
           devicePresetId: options.devicePresetId,
           mobile: options.mobile,
           // `anchorTabId` params are validated transport-side and arrive via the

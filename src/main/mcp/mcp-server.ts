@@ -67,6 +67,7 @@ export class AntiFanMcpServer {
             anchorTabId: { type: 'string', description: 'Live same-project tab selecting the window for creation' },
             ephemeral: { type: 'boolean', description: 'Agent-plane tab excluded from the user tab strip' },
             userFacing: { type: 'boolean', description: 'Open tab directly on the visible user plane (non-ephemeral) for interactive inspection/debugging' },
+            cookieJar: { type: 'string', pattern: '^[a-z0-9][a-z0-9-]{1,39}$', description: 'Name of a persistent, isolated cookie jar (partition persist:jar-<name>). Tabs opened with the same name share its cookies and stay signed in across restarts; tabs without it use the shared profile jar. Not combinable with ephemeral.' },
             projectId: { type: 'string', description: 'Scope selector: must equal this session\'s authenticated projectId. A foreign or unbound selector is refused before allocation; it never widens authority.' },
           },
         },
