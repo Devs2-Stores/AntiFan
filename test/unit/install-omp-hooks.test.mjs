@@ -80,7 +80,7 @@ test("install bundles each hook, supersedes the legacy .ts, and records a manife
   assert.equal(manifest.schema, 1);
   assert.deepEqual(
     manifest.hooks.map((entry) => entry.id).sort(),
-    ["edit-guard", "run-state", "theme-qa-gate"],
+    ["edit-guard", "leader-guard", "run-state", "theme-qa-gate"],
   );
   for (const entry of manifest.hooks) {
     assert.match(entry.sha256, /^[0-9a-f]{64}$/);

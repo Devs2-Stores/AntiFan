@@ -72,6 +72,13 @@ const HOOKS = [
     legacyNames: [],
   },
   {
+    id: "leader-guard",
+    installName: "antifan-leader-guard",
+    phase: "pre",
+    source: "src/omp-hooks/leader-guard.ts",
+    legacyNames: [],
+  },
+  {
     id: "theme-qa-gate",
     installName: "antifan-theme-qa-gate",
     phase: "post",

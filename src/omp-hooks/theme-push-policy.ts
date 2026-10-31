@@ -3,8 +3,9 @@
  *
  * A worker is an OMP session the Leader started in another terminal; it runs
  * unattended, so the only thing that keeps it off a live storefront is code, not
- * its prompt. The rule the user set: a worker may sync its bound draft theme by
- * itself, and everything else that changes a theme on the shop waits for the user.
+ * its prompt. The rule the user set: a worker may sync its bound draft Haravan theme by
+ * itself, may push scoped files to one verified unpublished Shopify theme, and everything else
+ * that changes a theme on the shop waits for the user.
  *
  * Pure decision logic over the shell command text, kept free of fs/env/spawn so
  * it is testable as a table. `edit-guard.ts` decides whether the caller is a
@@ -31,7 +32,7 @@ export const THEME_PUSH_CODES = {
 } as const;
 
 export interface ThemeCommand {
-  cli: "hrv" | "shopify";
+  cli: "hrv" | "shopify" | "sapo";
   /** First known action word after `theme`, or the first positional when none is known. */
   action: string;
   /** Numeric positional after the action (the `[value]` theme id), if any. */
@@ -124,11 +125,12 @@ export function startsDirChange(text: string): boolean {
   });
 }
 
-/** `C:\x\hrv.cmd`, `./node_modules/.bin/haravan`, `shopify.exe` → `hrv` | `shopify` | null. */
-function cliOf(token: string): "hrv" | "shopify" | null {
+/** `C:\x\hrv.cmd`, `./node_modules/.bin/haravan`, `shopify.exe`, `sapo` → `hrv` | `shopify` | `sapo` | null. */
+function cliOf(token: string): "hrv" | "shopify" | "sapo" | null {
   const base = path.win32.basename(path.posix.basename(token)).toLowerCase().replace(/\.(cmd|exe|ps1|bat|js|mjs|cjs)$/, "");
   if (base === "hrv" || base === "haravan" || base === "haravan-cli") return "hrv";
   if (base === "shopify") return "shopify";
+  if (base === "sapo") return "sapo";
   return null;
 }
 
@@ -182,7 +184,13 @@ export type ThemeCommandPlan =
   | { decision: "allow" }
   | { decision: "block"; code: string; reason: string }
   /** Allowed only if `hrv theme info -j` in the theme root reports `themeId` with a non-`main` role. */
-  | { decision: "verify-draft"; themeId: string };
+  | { decision: "verify-draft"; themeId: string }
+  /**
+   * A scoped `shopify theme push` at one numeric theme of one store. Allowed only if
+   * `shopify theme list --id <themeId> --store <store> --json` reports exactly that theme with role
+   * `unpublished` or `development`.
+   */
+  | { decision: "verify-shopify-draft"; themeId: string; store: string };
 
 const ASK =
   "Stop and report STATUS: NEEDS_INPUT to the Leader with the exact command; only the user can approve it.";
@@ -196,11 +204,37 @@ export function planThemeCommand(cmd: ThemeCommand, boundThemeId: string | null)
   if (action === "" || (cmd.cli === "hrv" ? HRV_READ_ACTIONS : SHOPIFY_READ_ACTIONS)[action] === true) {
     return { decision: "allow" };
   }
-  if (cmd.cli === "shopify" || HRV_SYNC_ACTIONS[action] !== true) {
+  if (cmd.flags.some((flag) => flag === "--help" || flag === "-h")) {
+    // Help output runs nothing on the shop.
+    return { decision: "allow" };
+  }
+  if (cmd.cli === "shopify" && action === "push") return planShopifyPush(cmd);
+  if (cmd.cli !== "hrv" && action === "dev") {
+    // `shopify|sapo theme dev` serves a local preview on a development theme, so it does not
+    // change the live theme; naming an existing theme does, directly (`--theme`, `-t`, `-t123`,
+    // `-t=123`) or through an environment of shopify.theme.toml (`-e`, `--environment`), so those
+    // forms stay a question for the user. A theme id set in the process environment
+    // (SHOPIFY_FLAG_THEME_ID) is not visible in the command line and is not checked.
+    const namesExistingTheme = cmd.flags.some(
+      (flag) =>
+        flag === "--theme" ||
+        flag.startsWith("--theme=") ||
+        flag === "--environment" ||
+        flag.startsWith("--environment=") ||
+        /^-[a-z]*[te]/.test(flag),
+    );
+    if (!namesExistingTheme) return { decision: "allow" };
     return {
       decision: "block",
       code: THEME_PUSH_CODES.REMOTE_OP,
-      reason: `${THEME_PUSH_CODES.REMOTE_OP}: '${cmd.text}' changes a theme on the shop, and a Leader worker may only sync its own bound draft Haravan theme (hrv theme push --only <files> / hrv theme dev). ${ASK}`,
+      reason: `${THEME_PUSH_CODES.REMOTE_OP}: '${cmd.text}' syncs to an existing theme (--theme/-t or an --environment/-e), which may be the live one. Run '${cmd.cli} theme dev' without it so it uses a development theme. ${ASK}`,
+    };
+  }
+  if (cmd.cli !== "hrv" || HRV_SYNC_ACTIONS[action] !== true) {
+    return {
+      decision: "block",
+      code: THEME_PUSH_CODES.REMOTE_OP,
+      reason: `${THEME_PUSH_CODES.REMOTE_OP}: '${cmd.text}' changes a theme on the shop, and a Leader worker may only sync its own bound draft Haravan theme (hrv theme push --only <files> / hrv theme dev) or push scoped files to one unpublished Shopify theme (shopify theme push --theme <id> --store <store> --only <files> --nodelete). ${ASK}`,
     };
   }
   if (cmd.flags.some((flag) => flag === "--force" || flag.startsWith("--force=") || isShortBundleWith(flag, "f"))) {
@@ -241,12 +275,161 @@ export function planThemeCommand(cmd: ThemeCommand, boundThemeId: string | null)
   return { decision: "verify-draft", themeId: boundThemeId };
 }
 
+/**
+ * Everything `shopify theme push` accepts that a worker may pass. `--theme` is the target (a
+ * numeric id only), `--store` the shop, `--only`/`--nodelete` keep the push to named files;
+ * `--ignore`, `--json`, `--path`, `--no-color` and `--verbose` change nothing on the shop.
+ */
+const SHOPIFY_PUSH_VALUE_FLAGS: Record<string, "theme" | "store" | "only" | "ignore" | "path"> = {
+  "--theme": "theme",
+  "-t": "theme",
+  "--store": "store",
+  "-s": "store",
+  "--only": "only",
+  "-o": "only",
+  "--ignore": "ignore",
+  "-x": "ignore",
+  "--path": "path",
+};
+const SHOPIFY_PUSH_BOOLEAN_FLAGS: Record<string, "nodelete" | "other"> = {
+  "--nodelete": "nodelete",
+  "-n": "nodelete",
+  "--json": "other",
+  "-j": "other",
+  "--no-color": "other",
+  "--verbose": "other",
+};
+/** Flags that target the live theme, by long and short name. */
+const SHOPIFY_PUSH_LIVE_FLAGS: Record<string, true> = { "--live": true, "-l": true, "--allow-live": true, "-a": true };
+
+/** `x` or `x.myshopify.com`: the two store forms the CLI documents, as one plain token. */
+const SHOPIFY_STORE_RE = /^[a-z0-9][a-z0-9-]*(?:\.myshopify\.com)?$/i;
+/** A theme id without a leading zero. */
+const SHOPIFY_THEME_ID_RE = /^[1-9]\d{0,19}$/;
+
+/**
+ * A worker's `shopify theme push`: allowed only as a scoped push (`--only`, `--nodelete`) to one
+ * numeric theme of one named store, with no flag that picks, creates, publishes or forces a
+ * theme. The flag list is an allow-list: anything not named in it is refused. Whether the
+ * theme is not the live one is the caller's check (`verify-shopify-draft`).
+ */
+function planShopifyPush(cmd: ThemeCommand): ThemeCommandPlan {
+  const block = (code: string, why: string): ThemeCommandPlan => ({
+    decision: "block",
+    code,
+    reason: `${code}: '${cmd.text}' ${why} ${ASK}`,
+  });
+  const tokens = cmd.text.split(/\s+/).filter(Boolean);
+  const themeAt = tokens.indexOf("theme", 1);
+  if (themeAt === -1 || tokens[themeAt + 1] !== "push") {
+    return block(
+      THEME_PUSH_CODES.REMOTE_OP,
+      "does not read as 'shopify theme push <flags>' (a flag or word sits between 'theme' and 'push').",
+    );
+  }
+  const values: Record<"theme" | "store" | "only" | "ignore" | "path", string[]> = {
+    theme: [],
+    store: [],
+    only: [],
+    ignore: [],
+    path: [],
+  };
+  let nodelete = false;
+  const args = tokens.slice(themeAt + 2);
+  for (let i = 0; i < args.length; i += 1) {
+    const token = args[i] ?? "";
+    if (!token.startsWith("-") || token === "-" || token === "--") {
+      return block(THEME_PUSH_CODES.PUSH_SCOPE, `has the argument '${token}', which is not a flag value (theme push takes none).`);
+    }
+    let name: string;
+    let inline: string | null = null;
+    if (token.startsWith("--")) {
+      const eq = token.indexOf("=");
+      name = eq === -1 ? token : token.slice(0, eq);
+      inline = eq === -1 ? null : token.slice(eq + 1);
+    } else {
+      name = token.slice(0, 2);
+      const rest = token.slice(2);
+      if (rest.length > 0) inline = rest.startsWith("=") ? rest.slice(1) : rest;
+    }
+    if (SHOPIFY_PUSH_LIVE_FLAGS[name] === true) {
+      return block(THEME_PUSH_CODES.PUSH_LIVE, `uses ${name}, which targets or allows the shop's LIVE theme.`);
+    }
+    if (name === "--force" || name === "-f") {
+      return block(THEME_PUSH_CODES.PUSH_SCOPE, `uses ${name}, which skips the confirmation of a folder that is not a theme.`);
+    }
+    const booleanKind = SHOPIFY_PUSH_BOOLEAN_FLAGS[name];
+    if (booleanKind !== undefined) {
+      if (inline !== null) return block(THEME_PUSH_CODES.REMOTE_OP, `writes ${token}: flags that take no value cannot be bundled or given one.`);
+      if (booleanKind === "nodelete") nodelete = true;
+      continue;
+    }
+    const valueKind = SHOPIFY_PUSH_VALUE_FLAGS[name];
+    if (valueKind === undefined) {
+      return block(
+        THEME_PUSH_CODES.REMOTE_OP,
+        `uses ${name}, which a worker may not pass to shopify theme push (allowed: --theme/-t <id>, --store/-s, --only/-o, --nodelete/-n, --ignore/-x, --json/-j, --path, --no-color, --verbose).`,
+      );
+    }
+    const multiple = valueKind === "only" || valueKind === "ignore";
+    const taken: string[] = [];
+    if (inline !== null) {
+      taken.push(inline);
+    } else {
+      // A value-less flag takes the next word; --only/--ignore take every word up to the next flag.
+      while (i + 1 < args.length && !(args[i + 1] ?? "-").startsWith("-")) {
+        i += 1;
+        taken.push(args[i] ?? "");
+        if (!multiple) break;
+      }
+    }
+    if (taken.length === 0 || taken.some((value) => value.length === 0)) {
+      return block(THEME_PUSH_CODES.PUSH_SCOPE, `has ${name} without a value.`);
+    }
+    values[valueKind].push(...taken);
+  }
+  if (values.only.length === 0) {
+    return block(
+      THEME_PUSH_CODES.PUSH_SCOPE,
+      "pushes the whole theme. Push only the files you changed: shopify theme push --theme <id> --store <store> --only <file> [<file> ...] --nodelete.",
+    );
+  }
+  if (!nodelete) {
+    return block(THEME_PUSH_CODES.PUSH_SCOPE, "has no --nodelete, so it would delete remote files that are not in this folder.");
+  }
+  if (values.theme.length !== 1 || !SHOPIFY_THEME_ID_RE.test(values.theme[0] ?? "")) {
+    return block(
+      THEME_PUSH_CODES.PUSH_UNVERIFIED,
+      "must name exactly one existing theme by its numeric id (--theme 123456789); a name or a missing --theme cannot be checked.",
+    );
+  }
+  if (values.store.length !== 1 || !SHOPIFY_STORE_RE.test(values.store[0] ?? "")) {
+    return block(
+      THEME_PUSH_CODES.PUSH_UNVERIFIED,
+      "must name exactly one store (--store <prefix> or --store <prefix>.myshopify.com) so the theme's role can be checked.",
+    );
+  }
+  if (values.path.length > 1) {
+    return block(THEME_PUSH_CODES.PUSH_SCOPE, "has more than one --path.");
+  }
+  if (cmd.dirChanged) {
+    return block(
+      THEME_PUSH_CODES.PUSH_UNVERIFIED,
+      "may not run in the folder that was checked: a cd, pushd, Set-Location or script ran before it in this line or earlier in this terminal. Run it alone from a new terminal whose folder is the theme folder.",
+    );
+  }
+  const [themeId] = values.theme;
+  const [store] = values.store;
+  if (themeId === undefined || store === undefined) return block(THEME_PUSH_CODES.PUSH_UNVERIFIED, "has no theme or store.");
+  return { decision: "verify-shopify-draft", themeId, store };
+}
+
 /** `-f`, `-nf`, `-fo`: a single-dash flag or a bundle of short flags that includes `letter`. */
 function isShortBundleWith(flag: string, letter: string): boolean {
   return /^-[a-z]+$/.test(flag) && flag.includes(letter);
 }
 
-const CLI_WORD = String.raw`(?:hrv|haravan-cli|haravan|shopify)(?:\.(?:cmd|exe|ps1|bat|js|mjs|cjs))?`;
+const CLI_WORD = String.raw`(?:hrv|haravan-cli|haravan|shopify|sapo)(?:\.(?:cmd|exe|ps1|bat|js|mjs|cjs))?`;
 /**
  * After a CLI word: not part of a longer name (`hrv.liquid`, `hrv-x`) and not a folder
  * (`shopify/theme`, `Shopify\Rebel`). A backslash that is only a source-code escape
@@ -442,6 +625,61 @@ export function parseThemeInfo(output: string): { themeId: string; role: string 
   } catch {
     return null;
   }
+}
+
+/** Parsed `shopify theme list --json`: the array of themes; null when the output holds none. */
+export function parseShopifyThemeList(output: string): { id: string; role: string }[] | null {
+  const trimmed = output.trim();
+  const end = trimmed.lastIndexOf("]");
+  if (end === -1) return null;
+  // The CLI may print a notice (a version update, a login line) before the JSON.
+  const starts = [...trimmed.matchAll(/^\[/gm)].map((match) => match.index ?? 0);
+  for (const start of starts) {
+    if (start > end) break;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(trimmed.slice(start, end + 1));
+    } catch {
+      continue;
+    }
+    if (!Array.isArray(parsed)) continue;
+    const themes: { id: string; role: string }[] = [];
+    for (const item of parsed) {
+      if (item === null || typeof item !== "object" || !("id" in item) || !("role" in item)) return null;
+      const { id, role } = item;
+      if ((typeof id !== "number" && typeof id !== "string") || typeof role !== "string") return null;
+      themes.push({ id: String(id).trim(), role: role.trim().toLowerCase() });
+    }
+    return themes;
+  }
+  return null;
+}
+
+/** The refusal for a `verify-shopify-draft` plan whose `shopify theme list` answer did not clear it. */
+export function shopifyDraftVerdict(
+  cmd: ThemeCommand,
+  plan: { themeId: string; store: string },
+  themes: { id: string; role: string }[] | null,
+  detail: string,
+): { decision: "allow" } | { decision: "block"; code: string; reason: string } {
+  const unverified = (seen: string): { decision: "block"; code: string; reason: string } => ({
+    decision: "block",
+    code: THEME_PUSH_CODES.PUSH_UNVERIFIED,
+    reason: `${THEME_PUSH_CODES.PUSH_UNVERIFIED}: could not prove theme ${plan.themeId} of ${plan.store} is an unpublished theme before '${cmd.text}' (shopify theme list --id ${plan.themeId} --store ${plan.store} --json: ${seen}). ${ASK}`,
+  });
+  if (themes === null) return unverified(detail);
+  const matches = themes.filter((theme) => theme.id === plan.themeId);
+  if (matches.length !== 1) return unverified(`it reported ${matches.length} themes with that id`);
+  const role = matches[0]?.role ?? "";
+  if (role === "live" || role === "main") {
+    return {
+      decision: "block",
+      code: THEME_PUSH_CODES.PUSH_LIVE,
+      reason: `${THEME_PUSH_CODES.PUSH_LIVE}: theme ${plan.themeId} is the shop's LIVE theme (role ${role}), and '${cmd.text}' would change what customers see. ${ASK}`,
+    };
+  }
+  if (role === "unpublished" || role === "development") return { decision: "allow" };
+  return unverified(`its role is '${role}'`);
 }
 
 /** The refusal for a `verify-draft` plan whose `hrv theme info` answer did not clear it. */

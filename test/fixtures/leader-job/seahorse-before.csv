@@ -1,0 +1,163 @@
+Stage,ID,https://www.seahorse.com.vn/?themeid=1000668896,Mô tả,Dev note kết quả,Hình kết quả,,
+Fixed,,, tràn màng hình ,Em đã fix ạ,,,
+Fixed,,,"hiện tại mình xem thì có khoản trắng này
+",Em đã fix ạ ,,,
+Fixed,,,Khi kéo nhỏ ô web lại thì sẽ thấy có chỗ chữ bị nhảy/co lại như vậy,Em đã fix ạ ,,,
+Fixed,,, logo chìm bên dưới  cậu điều chỉnh lại giúp mình hạn chế cắt đôi logo,Em đã fix ạ ,,,
+Fixed,,,"với xem lại giúp mình phần hiển thị bên mục này
+",Phần này sẽ bỏ ảnh bị lỗi ạ,,,
+Fixed,,,"phần hiển thị logo đối tác nhờ Team điều chỉnh lại hiển thị 3 logo ( nếu số lượng logo đối tác nhiều có thể cho chạy để linh hoạt hơn)",Em đã fix ạ,,,
+Fixed,,,"Điều chỉnh lại độ phân giải để 
+nhìn rõ hơn ( hiện tại khá mờ nhìn
+không rõ)",Em đã reup ạ,,,
+Fixed,,,"Thanh menu bar mình muốn hiển thị đủ các tab như trong bản demo mình gửi. Khi nào cuộn chuột xuống thì menu bar biến mất, khi bắt đầu cuộn lên thì nó lại hiện ra => <ục này khách muốn khi cuộn xuống menu bar sẽ biến mất hẳn",Em đã fix ạ,,,
+Fixed,,,"Khi trỏ chuột vào 1 mục, ví dụ About Us, thì xổ xuống giúp mình 3 tab service chính nằm trong About Us là: our History, Vision-mission-Core Value...",Em đã fix ạ ,,,
+Fixed,,,"Mấy chỗ chữ trên nền hình này xử lý giúp mình, đừng để chữ nằm trên 1 block màu trắng như thế này nhé",Em đã fix ạ,,,
+Fixed,,,Phần hình bị ko thẳng hàng với chỗ About us nè. Nếu không phải cố ý để vậy cho mục đích show nhiều hình hơn thì chỉnh giúp mình nhé,Em đã fix ạ,,,
+Fixed,,,"Phần chữ hàng dưới bị cắt ngang và ngoại trừ ô thứ 2, các ô còn lại lúc trỏ chuột ko thấy hiện info",Em đã fix ạ,,,
+Fixed,,,"Hình ảnh và nội dung không khớp
+với nhau","Dạ hình ảnh và nội dung mình có thể chủ động thay được ạ, còn nội dung trên live chỉ là demo thôi ạ",,,
+Fixed,,,"Điều chỉnh Logo to hơn tí để phù 
+hợp với giao diện ( vì hiện tại giao 
+diện tràng viền nên trông logo khá
+nhỏ)",Em đã fix ạ ,,,
+Fixed,,,"Thêm  ảnh nền phía sau nhìn sẽ sinh động hơn, 
+và đổi Icon ( phần làm dấu đỏ) Sang một icon khác 
+có thể như icon bên hình mẫu bên phải",Em đã fix ạ,,,
+Fixed,,,"Có thể điều chỉnh logo đối tác tự động chạy vòng
+được không ",Em đã fix chạy lặp lại ạ,,,
+Fixed,,,Điều chỉnh ảnh fix vào khung,Em đã fix ạ,,,
+Fixed,,,Điều chỉnh lại ảnh đề nhìn cho hợp lý hơn ,Em đã fix ạ,,,
+Fixed,,,"ở Tap About Us : hai giá trị Our mission và our values 
+hiển thị như hình ( điều chỉnh lại cho hợp lý) và điều chỉnh
+lại chữ tiếng Việt.",Em đã fix ạ,,,
+Fixed,,,"Khi mở full màn hình và kéo xuống thì chỗ contact us bị che mất.
+
+Khi kéo lên thì vị trí 2 menu trước sau bị lệch",Em đã fix ạ,,,
+Fixed,,,"Cái block này đừng để xanh đen 1 mảng thế này, transparent hoặc chuyển màu để hoà vào ảnh -> Mình muốn lúc kéo xuống thì cái thanh này biến mất luôn á, chỉ hiện lại khi bắt đầu scroll lên thôi, để nó ko bị chặn 1 khối xanh đen trên đầu trang bị nặng nề á","Vùng này nếu transparent scroll xuống chỗ  trắng sẽ ko thấy ạ
+
+Em đã fix lại theo yêu cầu ạ",,,
+Fixed,,,"Việc trỏ chuột vào một tab thì hiện hover hình là tính năng hay sao? Nếu là vậy thì mỗi tab đều nên hiện hover. 
+Hiện giờ chỉ có mỗi tab 2 Pacific là hiện hover khi trỏ chuột thôi. Và hình lỗi. => Phần này sửa thành tab nào có ảnh sẽ hiện hover ảnh, tab nào không có ảnh khi rê vào sẽ không hiện gì cả",Em đã fix ạ ,,,
+Fixed,,,"Các tab hiển thị trên menu sao nhiều quá vậy? trên thanh menu chỉ mong muốn hiển thị 6 mục chính như hình dưới. Những thứ ko liên quan bỏ.
+
+Yêu cầu tên mục cũng tương tự như hình bên dưới",Em đã fix lại theo đúng Brief,,,
+Fixed,,,Nhiều mục ko đúng yêu cầu. About us trỏ xuống hiện như hình dưới,Em đã fix ạ,,,
+Fixed,,,"Mục Galerry này gom vào News & Event. 
+
+Đây không phải web bán hàng quần áo nên ko để những thứ ko liên quan như box bên tay trái",Em đã bỏ ạ,,,
+Fixed,,,"Khi thu nhỏ thì box menu bị che màn hình & không tương tác được gì nữa. --> Điều chỉnh lại tính tương thích, đặc biệt chú ý xem trên đt và màn hình với các kích thước khác nhau",Em đã fix ạ,,,
+Fixed,,,MỤC QUAN TRỌNG NHẤT PROJECT ĐÂU?,"Đã có và nhắn qua Zalo ạ, mình check lại danh sách các trang giúp em ở file bàn giao nha
+
+Mọi link đều có ở file bàn giao, mình check kĩ giúp em",,,
+Fixed,,,hiện tại khi logo chạy qua không hết và bị cắt 1 phần,Em đã fix vấn đề bị cắt ạ,,,
+Fixed,,,"Cần điều chỉnh lại khoản cách giữa các ảnh và nội dung
+cho cân đối, hài hòa hơn","Em thấy mình có up hình dài, em sẽ fix lại phần này như sau:
+1. Cột trái hình luôn fill full chiều cao
+2. Cột phải text sẽ neo theo màn hình nếu cột trái hình quá dài
+
+Mình check lại giúp em nha",,,
+Fixed,,,"Phần Menu cần điều chỉnh lại kiểu chữ dạng Bold để có 
+cái nhìn chắc chắn và mạnh mẽ hơn.",Em đã fix in đậm ạ,,,
+Fixed,,,Tính năng kính Lúp chưa hoạt động,Em đã fix ạ,,,
+,,,https://demo.saokim.com.vn/seahorse/,,,,
+Fixed,,,"Ở trang đầu tiên kéo xuống đến mục Latest news and updates
+ thì có mấy trang như này nhưng ko click vào được cũng ko dẫn đến đâu nè. 
+
+Mà ví dụ muốn gắn link vào những bài này thì gắn ntn?","Phần này là trỏ link về danh mục tin tức, và link mỗi bài là bài viết tương ứng từ danh mục đó ạ",,Dạ mục này là mình đang chọn blog news & event trong menu nên khi click vào trang sẽ thấy các bài blog này đang có ạ,
+Fixed,,https://drive.google.com/file/d/FIXTUREFILEID0001/view?usp=sharing,"Có 1 lỗi hiển thị, màn hình và hình ảnh bị giật lúc thu nhỏ màn hình web lại.",Em đã fix ạ,,,
+Cần thêm thông tin mô tả,,,"Tương tự khu vực Projects này chị cũng ko biết phải chỉnh link dẫn ở đâu trong cài đặt theme. 
+
+Hiện giờ hai mục 2.5 & 2.6 (Latest News và Projects chị đang tạm ấn ẩn đi, khi nào chỉnh xong thì public nhé)","Ngọc hướng dẫn chỗ này nha, nó là trỏ danh mục sp và danh mục blog á
+Các link là product và article tương ứng",,"Dạ mục 2.5 mình sẽ chọn nhóm sản phẩm ạ, sau khi chọn nhóm sản phẩm thì mục này sẽ hiển thị các nội dung có trong nhóm đó, không cần trỏ link từng bài ạ","Dạ mục 2.6 thì mình sẽ chọn Blog, sau khi chọn Blog thì mục này sẽ hiển thị các nội dung có trong Blog đó, không cần trỏ link từng bài ạ"
+Fixed,,,"Một số đối tác chị đã đổi tên nhưng tên đầu mục vẫn giư nguyên. VD: Dối tác 5: REPSOL trong khi chị đã đổi thành Geo Norway rồi.
+
+Phần client chị muốn nhiều hơn 6 thì add thêm ntn",Đã fix và mở thành 10 cái ạ ,,,
+Fixed,,,"Khi bấm vào ABOUT US thì trang tự nhảy sang OUR STORY chứ ko nhảy sang trang mục About Seahorse như bên tay trái hiển thị.
+
+Nhưng chị thấy bỏ cái mục About Seahorse đi cũng được, mà hiện giờ chị chưa thấy nó nằm ở đâu để tắt.","Dạ vẫn đúng trang á Chị, do mình tắt mục About nên giao diện hơi lạ, em bật lại rồi ạ https://www.seahorse.com.vn/pages/about-us-1 ",,,
+Cần thêm thông tin mô tả,,,"Tên hiển thị trong thanh Menu drop xuống và cái ô bên ngoài không khớp với nhau.
+
+--> Menu bar theo phần hiển thị bên ngoài là ""Vision-Mission- Core Value"" đồng thời gom lại làm 1 hàng để click thôi. Như bây giờ đang tách thành 3 hàng ""Our Vision
+Our Mission
+Our Value""  
+","Dạ phần này thuộc về menu, mình chỉnh trong menu là được ạ. Em đã chỉnh 3 mục thành 1 rồi ạ",,,
+Fixed,,,Cái mục này nằm đâu ta chị tìm ko ra,Phần này đề xuất bỏ đi do confirm trước đó và ở yêu cầu row 41 bên dưới ạ,,,
+Fixed,,,"30/8 update: Khi vào menu -> click vào 1 mục con của services, ví dụ là Offshore Support Vessel là sẽ bị link ra cái trang trắng của mục Projects này. Chị muốn link nó vào trang Our service chuẩn ở dưới:","Dạ phần này chị thiết lập trong menu nha, chỗ chọn liên kết chị chọn ""trang"". liên kết đến mình chọn trang nội dung tương ứng, em có thay đổi mục  Offshore Support Vessels như ảnh kế bên, 3 mục còn lại cũng set up tương tự nha Chị. Set up xong thì khi chị chọn mục này từ menu sẽ ra đúng trang dịch vụ ạ",,,
+Fixed,,,"Trang Contact Us, đẩy địa điểm HCM lên đầu, 
+Address:
+
+SEAHORSE MARINE AND ENERGY JSC
+Street No. 12, Dong Xuyen Industrial Park,
+Rach Dua Ward, Ho Chi Minh City
+
+Telephone: (+84) 254 381 6886
+Email: contact-a@example.com
+LinkedIn: Seahorse Marine and Energy JSC
+
+Đổi địa điểm Hà Nội thành Quảng Ngãi
+Address:
+
+Dung Quat Economic Zone, located in Binh Son District, Quang Ngai Province.",,,,
+Fixed,,,Cái logo nhỏ nhỏ trên tab này vẫn chưa dc update nè,"Em đã fix ạ, mình cần thay hình thì re-up lại ở mục só 1 thiết lập nha https://prnt.sc/Vv5-f1UYAe7M",,,
+Fixed,,,"Dòng cuối cùng Linkedin Seahorse Marine and Energy JSC á, link cho chị vào trang này để khi bấm nó mở trang linkedin dưới đây nhé, tên hiển thị giữ nguyên
+https://www.linkedin.com/company/seahorse-marine-and-energy-joint-stock-company/?originalSubdomain=vn ","Dạ link Linkedkin em đã chèn cho Chị rồi, mình có thể chèn link các mạng xã hội ở mục 15 như ảnh bên trái ạ",,,
+Fixed,,,"Dạ check giúp em các nút tab ở trang news & event với trang tuyển dụng nha, khi click qua tab khác thì web vẫn đi link nhưng tab bôi đen sẽ là tab trước đó
+
+",Em đã fix ạ,,,
+Fixed,,,"Anh check lại dùm em phần thay ảnh nha, em thay ảnh thấy không ăn thiết lập",,,,
+Fixed,,,Khi click vào Oil& Gas em muốn nó xuất hiện ở chỗ Oil & Gas dưới đây luôn thay vì phải roll từ đầu trang xuống tương tự cho các mục con còn lại.,Em đã fix ạ,,,
+Fixed,,,Hướng dẫn khách nhập nhãn để hiển thị vào tab,"Dạ để bài viết phân vào các tab thì mình sẽ nhập nhãn ở bài viết đó nha ạ. Ở đây em sẽ demo cho bài PTTEP PROJECT nha ạ. Anh, Chị muốn bài này xuất hiện ở mục Technical thì sẽ nhập ""Technical"" ạ. Các bước thao tác mình xem các ảnh kế giúp em nha ạ, các nhãn Leadership, Vessel & Equipment cũng tương tự ạ, mình để ý chính tả và viết hoa lúc nhập nhãn nha ạ",,,
+Fixed,,,Hướng dẫn khách nhập nhãn để hiển thị vào tab,"Dạ để các bài tuyển dụng phân vào các tab thì cũng nhập nhãn luôn ạ. ở đây em sẽ demo cho bài ""Marine Logistics Coordinator"" nha ạ. Anh, Chị muốn bài này xuất hiện ở mục Operations thì sẽ nhập nhãn ""Operations""  ạ. Các bước thao tác bên cạnh ạ",,"Dạ phần này các tab cũng bị bôi đen như tab ở news & event, em có note lại ở dòng 45 rồi ạ",
+Cần thêm thông tin mô tả,,,Chuyển chủ sở hữu sheet ứng tuyển về mail contact-b@example.com dùm em ạ -> link folder của khách https://drive.google.com/drive/folders/FIXTUREFOLDERID0001?usp=sharing chèn key để cv gửi lên sẽ về folder ạ,Link Drive bị 404 ,,,
+Fixed,,,"Dạ phần contact us này đổ data về mail contact-c@example.com ạ, khách không dùng sheet cho phần này ạ ",Đã chuyển về form contact ạ,,,
+Fixed,,,"(Trang tuyển dụng) các bài viết tuyển dụng lấy ảnh đại diện của bài hiển thị ạ, cho ảnh ở trên nội dung như ảnh dưới ạ",Em đã fix ạ https://prnt.sc/a5y-zZLSxeDq,,,
+Fixed,,,"Trang chi tiết tuyển dụng cho hiển thị ảnh luôn ạ, có thể ảnh bên phải nội dung hoặc ảnh bên trên nội dung ạ, linh động giúp khách ạ'",Em đã fix ạ https://www.seahorse.com.vn/blogs/careers/marine-logistics-coordinator?themeid=1000668896,,,
+Fixed,,,"Thêm chức năng để có thể thay đổi ảnh nền ( hiện tại 
+chưa thể đổi được ảnh nền)",Em đã fix ạ https://prnt.sc/Cm604LYxSofF,,,
+Fixed,,,Câu thông báo không tìm ra thông tin chuyển qua tiếng Anh giúp khách ạ,Em đã fix ạ https://prnt.sc/StNhVM919JVk,,,
+Fixed,,,"Phần menu đăng tuyển không xuất hiện các NHÃN như 
+hiện tại,",Em hướng dẫn khách rồi ạ,,,
+Fixed,,,"Thông tin của tàu anh sửa lại bên trái khoảng 6 ô chèn text, bên phải sẽ là hình nha ạ. Nếu được Anh cho khách bật/tắt 6 ô text linh hoạt nha ạ","Em đã fix ạ, lưu ý do không có design/figma nên bản này chỉ cố bám sát hình thôi, ko 100% được nhé, có báo từ đầu ạ https://prnt.sc/kVpXXrfBAFG3",,,
+Fixed,,,"Trang card tàu chỗ icon anh cho khách vị trí thay ảnh icon nha, dùng chung cho tất cả tàu ạ, dòng nào không có thông tin thì icon tự ẩn đi","Em đã fix ạ. Vào Thiết lập giao diện > 16. Trang Đội tàu > 16.1 Thiết lập chung > nhóm Ảnh biểu tượng thông số: có 6 ô Ảnh Thông số 1 đến 6, dùng chung cho tất cả tàu (ảnh số 1 đi với Thông số 1 của mọi tàu, ảnh số 2 đi với Thông số 2, tương tự đến 6). Mình up ảnh PNG nền trong suốt, khoảng 108x108, rồi bấm Lưu là icon đổi trên mọi tàu. Thông số nào để trống thì dòng đó và icon tự ẩn.",,,
+Fixed,,,"Trang card tàu lun, mỗi tàu anh cho 1 vị trí chèn video nha, khách dùng video tải lên haravan với video kéo từ youtube ạ","Em đã fix ạ. Vào Thiết lập giao diện > 16. Trang Đội tàu > chọn tàu cần thêm video (16.2 là Tàu 01 ... 16.7 là Tàu 06) > nhóm Hình ảnh Tàu > ô Video (Popup). Dán 1 trong 2 loại link: link YouTube, hoặc link file video .mp4 đã tải lên Haravan, rồi bấm Lưu. Khi bấm vào ảnh tàu, video là slide cuối trong popup, góc ảnh hiện thêm chữ 1 Video. Để trống ô này thì tàu đó không hiện video; link sai hoặc không mở được thì web tự ẩn video.",,,
+Fixed,,,Ảnh của trang services đã thay trong thiết lập nhung web chưa nhận á anh,"Em đã fix ạ:
+- Ảnh trang Dịch vụ giờ hiển thị đúng ảnh đã chọn trong Thiết lập (ví dụ Ảnh Thẻ 1 là tàu đỏ).
+- Mỗi vị trí ảnh có ô riêng tại 6. Trang Danh sách Dịch vụ (6.1 - 6.3).",,,
+Fixed,,,phần 2.4 của trang chủ anh cho khách chỗ thiết lập ảnh riêng nha ,"Em đã fix ạ:
+- Thư viện ảnh ""Our key assets"" có 4 ô ảnh riêng tại 2. Trang chủ > 2.4. Đội tàu & Nguồn lực, không còn lấy ảnh của mục khác.
+- Nút bật/tắt khối dùng đúng ô của mục 2.4.",,,
+Fixed,,,trang card tàu anh cho ảnh tàu bự ra sát viền nha,"Em đã fix ạ:
+- Card tàu rộng ra sát viền (cách mép 24px), khung ảnh tàu lớn hơn trên màn hình máy tính (màn 1440: rộng 368px, trước 297px).
+- Mobile ảnh tàu vẫn full ngang card.",,,
+Fixed,,,"Logo chìm đang bị content che mất, anh cho logo nhỏ lại nha, cho logo trọn vẹn không bị che là được ạ","Em đã fix ạ:
+- Logo chìm thu nhỏ và nằm gọn giữa tiêu đề và số liệu, không còn bị chữ che trên cả máy tính và mobile.",,,
+Fixed,,,"phần ảnh và tên khoanh đỏ của mục about trên trang chủ anh cho thiết lập ảnh và tên nha, hiện tại là ảnh lấy ở mục khác và tên cố định á, khách cần đổi lại","Em đã fix ạ:
+- Slider tàu trong khối Giới thiệu có 4 slide, mỗi slide có ảnh, tên và nút bật/tắt riêng tại 2. Trang chủ > 2.2. Giới thiệu.
+- Số thứ tự trước tên và 01/04 tự tính theo số slide đang bật.
+Lưu ý: slide 1 và 2 đang cùng tên Pacific Endeavour như trước, anh/chị đổi tên slide 2 trong mục 2.2 giúp em ạ.",,,
+Fixed,,,trang our industries anh cho chỗ thiết lập ảnh luôn nha,"Em đã fix ạ:
+- Trang Our Industries: ảnh của 5 ngành và các ảnh khác trong trang đều có ô thiết lập riêng tại 8. Trang Lĩnh vực hoạt động (8.1 - 8.4).",,,
+Fixed,,,"https://www.seahorse.com.vn/pages/services 
+mục này chưa có chỗ chèn ảnh và thay đổi text trong thiết lập á anh, thêm giúp em với ạ","Em đã fix ạ:
+- Trang Dịch vụ đã có ô đổi ảnh và chữ cho hero, khối giới thiệu, 4 thẻ dịch vụ (ảnh, tên, mô tả, nút, link) và khối cuối trang tại 6. Trang Danh sách Dịch vụ.",,,
+Fixed,,,"Anh rà lại giúp em chỗ nào chưa được chọn ảnh, sửa text trên thiết lập thì anh thêm nha ạ, khách cần thiết lập độc lập chứ không sys cho các vị trí á","Em đã fix ạ:
+- Rà toàn bộ các trang: mỗi ảnh và chữ đang hiển thị đều có ô thiết lập riêng, không còn dùng chung giữa các mục.
+- Ảnh trên web hiển thị đúng ảnh đang xem trong ô Thiết lập.
+Lưu ý: chữ ""Homepage"" của breadcrumb dùng chung cho mọi trang.",,,
+Fixed,,,"Anh check dùm em lại 2 menu Engineering & O&M Consultancy nha, khi click trên web đang không đi đúng nhóm í ạ
+
+
+ Menu O&M của services link trang này https://www.seahorse.com.vn/pages/engineering-o-m-consultancy 
+
+Menu O&M của project link trang này https://www.seahorse.com.vn/collections/engineering-o-m-consultancy 
+
+Nhưng mà click cả 2 menu thì đều sang trang https://www.seahorse.com.vn/pages/industries#offshore-engineering-construction-support  và scroll xuống vị trí như ảnh 2 ","Em đã fix ạ:
+- Menu Services > Engineering & O&M Consultancy giờ mở đúng trang Engineering & O&M Consultancy.
+- Menu Projects > Engineering & O&M Consultancy giờ mở đúng nhóm dự án Engineering & O&M Consultancy.",,,
+,,,"Chỗ đối tác thêm 20 logo nữa, tổng 30 logo nha anh",,,,
+,,,"Chỗ dự án này khi khách không nhập nội dung tóm tắt thì web sẽ tự lấy nội dung bài viết lên chỗ tóm tắt nhưng mà bị double nội dung ở vài chỗ á anh
+
+
+https://seahorse-2.myharavan.com/admin/products/1076284112 ",,,,
+,,,Các trang page anh fix cho nội dung sẽ dàn trải full chiều ngang màn hình nha,,,,

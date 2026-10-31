@@ -726,11 +726,14 @@ test("a call the guard cannot classify is refused while scoped and passed throug
 // config/settings_data.json: writable in every mode, after one scoped fetch per run
 // ---------------------------------------------------------------------------
 
-const { HRV_COMMAND_ENV } = await load("theme-draft-probe");
+const { HRV_COMMAND_ENV, SHOPIFY_COMMAND_ENV } = await load("theme-draft-probe");
 const HRV_AT_LOAD = process.env[HRV_COMMAND_ENV];
+const SHOPIFY_AT_LOAD = process.env[SHOPIFY_COMMAND_ENV];
 after(() => {
   if (HRV_AT_LOAD === undefined) delete process.env[HRV_COMMAND_ENV];
   else process.env[HRV_COMMAND_ENV] = HRV_AT_LOAD;
+  if (SHOPIFY_AT_LOAD === undefined) delete process.env[SHOPIFY_COMMAND_ENV];
+  else process.env[SHOPIFY_COMMAND_ENV] = SHOPIFY_AT_LOAD;
 });
 
 /**
@@ -1180,7 +1183,17 @@ for (const [label, command, extra, expectedCode] of [
   ["a forced push", "hrv theme push -f --only a.liquid", {}, "REFUSED_THEME_PUSH_SCOPE"],
   ["a push with an inline --force value", "hrv theme push --only a.liquid --force=1", {}, "REFUSED_THEME_PUSH_SCOPE"],
   ["a publish", "hrv theme publish 1001507144", {}, "REFUSED_THEME_REMOTE_OP"],
-  ["a Shopify push", "shopify theme push --only sections/a.liquid", {}, "REFUSED_THEME_REMOTE_OP"],
+  ["a Shopify push with no nodelete or target", "shopify theme push --only sections/a.liquid", {}, "REFUSED_THEME_PUSH_SCOPE"],
+  ["a Shopify dev pointed at an existing theme", "shopify theme dev --theme 123", {}, "REFUSED_THEME_REMOTE_OP"],
+  ["a Shopify dev with a short theme flag", "shopify theme dev -t live", {}, "REFUSED_THEME_REMOTE_OP"],
+  ["a Shopify dev with an attached theme id", "shopify theme dev -t123", {}, "REFUSED_THEME_REMOTE_OP"],
+  ["a Shopify dev with an inline short theme value", "shopify theme dev -t=123", {}, "REFUSED_THEME_REMOTE_OP"],
+  ["a Shopify dev with an inline long theme value", "shopify theme dev --theme=123", {}, "REFUSED_THEME_REMOTE_OP"],
+  ["a Shopify dev using a toml environment", "shopify theme dev -e production", {}, "REFUSED_THEME_REMOTE_OP"],
+  ["a Shopify dev using a long environment flag", "shopify theme dev --environment production", {}, "REFUSED_THEME_REMOTE_OP"],
+  ["a Sapo push", "sapo theme push", {}, "REFUSED_THEME_REMOTE_OP"],
+  ["a Sapo publish", "sapo theme publish 1", {}, "REFUSED_THEME_REMOTE_OP"],
+  ["a Sapo dev pointed at an existing theme", "sapo theme dev --theme 5", {}, "REFUSED_THEME_REMOTE_OP"],
   ["a push to another theme id", "hrv theme push 999 --only a.liquid", {}, "REFUSED_THEME_PUSH_FOREIGN_THEME"],
   ["a push after cd", "cd ../other && hrv theme push --only a.liquid", {}, "REFUSED_THEME_PUSH_UNVERIFIED"],
   ["a push from an unbound folder", "hrv theme dev", { cwd: os.tmpdir() }, "REFUSED_THEME_PUSH_UNVERIFIED"],
@@ -1202,6 +1215,209 @@ for (const [label, command, extra, expectedCode] of [
     }
   });
 }
+
+for (const command of [
+  "shopify theme dev",
+  "shopify theme dev --store x.myshopify.com --theme-editor-sync",
+  "sapo theme dev",
+  "hrv theme push --help",
+  "shopify theme dev -h",
+]) {
+  test(`a worker may run '${command}': it previews on a development theme and needs no probe`, async () => {
+    const root = makeThemeWorkspace();
+    bindShop(root);
+    const stub = installInfoStub({ role: "main" });
+    try {
+      await asTerminal(true, async () => {
+        assert.equal(await runBash(root, `sess-shopify-dev-${command.length}`, command), null);
+        assert.equal(stub.recorded().length, 0, "no hrv call is made for a Shopify dev preview");
+      });
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+      fs.rmSync(stub.dir, { recursive: true, force: true });
+    }
+  });
+}
+
+/** A stand-in `shopify` answering `theme list --id .. --json` with `themes` (or the raw text `raw`), and exiting `exitCode`. */
+function installShopifyStub({ themes, raw, exitCode = 0 }) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "shopify-stub-"));
+  const calls = path.join(dir, "calls.jsonl");
+  const script = path.join(dir, "shopify.mjs");
+  const body = raw ?? `New version of Shopify CLI available\n${JSON.stringify(themes, null, 2)}`;
+  fs.writeFileSync(
+    script,
+    [
+      'import { appendFileSync } from "node:fs";',
+      `appendFileSync(${JSON.stringify(calls)}, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd() }) + "\\n");`,
+      `console.log(${JSON.stringify(body)});`,
+      `process.exitCode = ${exitCode};`,
+    ].join("\n"),
+  );
+  process.env[SHOPIFY_COMMAND_ENV] = `"${process.execPath}" "${script}"`;
+  const recorded = () =>
+    fs.existsSync(calls)
+      ? fs.readFileSync(calls, "utf8").trim().split("\n").map((row) => JSON.parse(row))
+      : [];
+  return { dir, recorded };
+}
+
+const SHOPIFY_PUSH = "shopify theme push --theme 123456789 --store demo-shop --only sections/a.liquid --nodelete";
+const DEMO = (role, id = 123456789) => ({ id, name: "Demo", role });
+
+for (const [label, stubArgs, expectedCode] of [
+  ["an unpublished theme", { themes: [DEMO("unpublished")] }, null],
+  ["a development theme", { themes: [DEMO("development")] }, null],
+  ["the live theme", { themes: [DEMO("live")] }, "REFUSED_THEME_PUSH_LIVE"],
+  ["a theme the CLI calls main", { themes: [DEMO("main")] }, "REFUSED_THEME_PUSH_LIVE"],
+  ["an unreadable list", { raw: "Error: not logged in to demo-shop" }, "REFUSED_THEME_PUSH_UNVERIFIED"],
+  ["an unknown role", { themes: [DEMO("demo")] }, "REFUSED_THEME_PUSH_UNVERIFIED"],
+  ["an empty list", { themes: [] }, "REFUSED_THEME_PUSH_UNVERIFIED"],
+  ["a list without that id", { themes: [DEMO("unpublished", 5)] }, "REFUSED_THEME_PUSH_UNVERIFIED"],
+  ["an ambiguous list", { themes: [DEMO("unpublished"), DEMO("live")] }, "REFUSED_THEME_PUSH_UNVERIFIED"],
+  ["a failing CLI", { themes: [DEMO("unpublished")], exitCode: 1 }, "REFUSED_THEME_PUSH_UNVERIFIED"],
+]) {
+  test(`a worker's scoped shopify theme push to ${label} is decided by shopify theme list`, async () => {
+    const root = makeThemeWorkspace();
+    const stub = installShopifyStub(stubArgs);
+    const sessionId = `sess-shopify-push-${label.replace(/\W+/g, "-")}`;
+    try {
+      await asTerminal(true, async () => {
+        const result = await runBash(root, sessionId, SHOPIFY_PUSH);
+        const calls = stub.recorded();
+        assert.equal(calls.length, 1, "exactly one theme list probe");
+        assert.deepEqual(calls[0].argv, ["theme", "list", "--id", "123456789", "--store", "demo-shop", "--json"]);
+        assert.equal(path.resolve(calls[0].cwd).toLowerCase(), path.resolve(root).toLowerCase());
+        if (expectedCode === null) {
+          assert.equal(result, null, "a verified unpublished push passes");
+          assert.deepEqual(
+            readLog(root, sessionId).map((row) => `${row.decision}:${row.code}:${row.path}`),
+            ["allow:THEME_SYNC_DRAFT_VERIFIED:"],
+          );
+        } else {
+          assert.equal(result?.block, true);
+          assert.ok(result.reason.startsWith(`${expectedCode}:`), result.reason);
+          assert.equal(readLog(root, sessionId).at(-1).code, expectedCode);
+        }
+      });
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+      fs.rmSync(stub.dir, { recursive: true, force: true });
+    }
+  });
+}
+
+for (const [command, store] of [
+  ["shopify theme push -t 123456789 -s demo-shop -o sections/a.liquid templates/index.json -n", "demo-shop"],
+  ["shopify theme push --theme=123456789 --store=demo-shop.myshopify.com --only=a.liquid --nodelete --json", "demo-shop.myshopify.com"],
+  ["shopify theme push -t123456789 -sdemo-shop -oa.liquid -n", "demo-shop"],
+  ["shopify theme push -t=123456789 -s=demo-shop -o=a.liquid -n -x config/settings_data.json --verbose --no-color", "demo-shop"],
+  ["shopify theme push --only a.liquid --nodelete --store demo-shop --theme 123456789 --path .", "demo-shop"],
+]) {
+  test(`a worker's '${command}' is allowed after one probe naming the same theme and store`, async () => {
+    const root = makeThemeWorkspace();
+    const stub = installShopifyStub({ themes: [DEMO("unpublished")] });
+    try {
+      await asTerminal(true, async () => {
+        assert.equal(await runBash(root, `sess-shopify-forms-${command.length}`, command), null);
+        const calls = stub.recorded();
+        assert.equal(calls.length, 1);
+        assert.deepEqual(calls[0].argv, ["theme", "list", "--id", "123456789", "--store", store, "--json"]);
+      });
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+      fs.rmSync(stub.dir, { recursive: true, force: true });
+    }
+  });
+}
+
+for (const [label, command, expectedCode] of [
+  ["no --store", "shopify theme push --theme 123456789 --only a.liquid --nodelete", "REFUSED_THEME_PUSH_UNVERIFIED"],
+  ["a store that is a URL", "shopify theme push --theme 123456789 --store https://demo-shop.myshopify.com --only a.liquid --nodelete", "REFUSED_THEME_PUSH_UNVERIFIED"],
+  ["no --only", "shopify theme push --theme 123456789 --store demo-shop --nodelete", "REFUSED_THEME_PUSH_SCOPE"],
+  ["an --only without a file", "shopify theme push --theme 123456789 --store demo-shop --only --nodelete", "REFUSED_THEME_PUSH_SCOPE"],
+  ["no --nodelete", "shopify theme push --theme 123456789 --store demo-shop --only a.liquid", "REFUSED_THEME_PUSH_SCOPE"],
+  ["a theme named by its name", "shopify theme push --theme my-theme-name --store demo-shop --only a.liquid --nodelete", "REFUSED_THEME_PUSH_UNVERIFIED"],
+  ["a theme id with a leading zero", "shopify theme push --theme 0123 --store demo-shop --only a.liquid --nodelete", "REFUSED_THEME_PUSH_UNVERIFIED"],
+  ["no --theme", "shopify theme push --store demo-shop --only a.liquid --nodelete", "REFUSED_THEME_PUSH_UNVERIFIED"],
+  ["two themes", "shopify theme push --theme 1 --theme 2 --store demo-shop --only a.liquid --nodelete", "REFUSED_THEME_PUSH_UNVERIFIED"],
+  ["--live", `${SHOPIFY_PUSH} --live`, "REFUSED_THEME_PUSH_LIVE"],
+  ["-l", `${SHOPIFY_PUSH} -l`, "REFUSED_THEME_PUSH_LIVE"],
+  ["--allow-live", `${SHOPIFY_PUSH} --allow-live`, "REFUSED_THEME_PUSH_LIVE"],
+  ["-a", `${SHOPIFY_PUSH} -a`, "REFUSED_THEME_PUSH_LIVE"],
+  ["--unpublished", `${SHOPIFY_PUSH} --unpublished`, "REFUSED_THEME_REMOTE_OP"],
+  ["-u", `${SHOPIFY_PUSH} -u`, "REFUSED_THEME_REMOTE_OP"],
+  ["--development", `${SHOPIFY_PUSH} --development`, "REFUSED_THEME_REMOTE_OP"],
+  ["--publish", `${SHOPIFY_PUSH} --publish`, "REFUSED_THEME_REMOTE_OP"],
+  ["-p", `${SHOPIFY_PUSH} -p`, "REFUSED_THEME_REMOTE_OP"],
+  ["--force", `${SHOPIFY_PUSH} --force`, "REFUSED_THEME_PUSH_SCOPE"],
+  ["-f", `${SHOPIFY_PUSH} -f`, "REFUSED_THEME_PUSH_SCOPE"],
+  ["--password", `${SHOPIFY_PUSH} --password shptka_x`, "REFUSED_THEME_REMOTE_OP"],
+  ["--stable", `${SHOPIFY_PUSH} --stable`, "REFUSED_THEME_REMOTE_OP"],
+  ["a toml environment", `${SHOPIFY_PUSH} -e production`, "REFUSED_THEME_REMOTE_OP"],
+  ["an unknown flag", `${SHOPIFY_PUSH} --frobnicate`, "REFUSED_THEME_REMOTE_OP"],
+  ["bundled short flags", "shopify theme push --theme 123456789 --store demo-shop --only a.liquid -nj", "REFUSED_THEME_REMOTE_OP"],
+  ["a value on a boolean flag", "shopify theme push --theme 123456789 --store demo-shop --only a.liquid --nodelete=false", "REFUSED_THEME_REMOTE_OP"],
+  ["a flag before push", "shopify theme --store demo-shop push --theme 123456789 --only a.liquid --nodelete", "REFUSED_THEME_REMOTE_OP"],
+  ["a stray argument", `${SHOPIFY_PUSH} extra.liquid`, "REFUSED_THEME_PUSH_SCOPE"],
+  ["a cd before it", `cd ../other && ${SHOPIFY_PUSH}`, "REFUSED_THEME_PUSH_UNVERIFIED"],
+  ["a publish chained after it", `${SHOPIFY_PUSH} && shopify theme publish 123456789`, "REFUSED_THEME_REMOTE_OP"],
+  ["a Sapo push with the same flags", "sapo theme push --theme 123456789 --store demo-shop --only a.liquid --nodelete", "REFUSED_THEME_REMOTE_OP"],
+]) {
+  test(`a worker's shopify theme push with ${label} is refused`, async () => {
+    const root = makeThemeWorkspace();
+    const stub = installShopifyStub({ themes: [DEMO("unpublished")] });
+    try {
+      await asTerminal(true, async () => {
+        const result = await runBash(root, `sess-shopify-refuse-${label.replace(/\W+/g, "-")}`, command);
+        assert.equal(result?.block, true, `${command} must be refused`);
+        assert.ok(result.reason.startsWith(`${expectedCode}:`), result.reason);
+        if (!command.includes("&&")) assert.equal(stub.recorded().length, 0, "no probe for a command that fails the flag rules");
+      });
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+      fs.rmSync(stub.dir, { recursive: true, force: true });
+    }
+  });
+}
+
+test("a worker's scoped shopify push is refused while a flag-equivalent environment variable is set", async () => {
+  const root = makeThemeWorkspace();
+  const stub = installShopifyStub({ themes: [DEMO("unpublished")] });
+  const saved = process.env.SHOPIFY_FLAG_LIVE;
+  process.env.SHOPIFY_FLAG_LIVE = "1";
+  try {
+    await asTerminal(true, async () => {
+      const result = await runBash(root, "sess-shopify-env", SHOPIFY_PUSH);
+      assert.ok(result?.reason.startsWith("REFUSED_THEME_PUSH_UNVERIFIED:"), result?.reason);
+      assert.match(result.reason, /SHOPIFY_FLAG_LIVE/);
+      assert.equal(stub.recorded().length, 0);
+    });
+  } finally {
+    if (saved === undefined) delete process.env.SHOPIFY_FLAG_LIVE;
+    else process.env.SHOPIFY_FLAG_LIVE = saved;
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(stub.dir, { recursive: true, force: true });
+  }
+});
+
+test("the user's own session and a worker's help or list calls need no Shopify probe", async () => {
+  const root = makeThemeWorkspace();
+  const stub = installShopifyStub({ themes: [DEMO("live")] });
+  try {
+    await asTerminal(true, async () => {
+      assert.equal(await runBash(root, "sess-shopify-help", "shopify theme push --help"), null);
+      assert.equal(await runBash(root, "sess-shopify-list", "shopify theme list --store demo-shop"), null);
+    });
+    await asTerminal(false, async () => {
+      assert.equal(await runBash(root, "sess-shopify-user", "shopify theme push --live"), null);
+    });
+    assert.equal(stub.recorded().length, 0);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(stub.dir, { recursive: true, force: true });
+  }
+});
 
 test("theme reads in a worker and every theme command outside a worker pass without a probe", async () => {
   const root = makeThemeWorkspace();
@@ -1750,5 +1966,50 @@ test("gateThemeLine decides one line: pass, probed allow, live refusal, unverifi
     // The probe the 1 ms budget cut off may still be exiting inside `root`, and Windows refuses to remove a folder a live process holds.
     fs.rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 200 });
     fs.rmSync(draft.dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 200 });
+  }
+});
+
+test("gateThemeLine (the terminal.write path) applies the same Shopify draft decision as the bash hook", async () => {
+  const root = makeThemeWorkspace();
+  const stub = installShopifyStub({ themes: [DEMO("unpublished")] });
+  try {
+    assert.deepEqual(
+      await draftProbe.gateThemeLine({ text: SHOPIFY_PUSH, cwd: path.join(root, "sections"), timeoutMs: 20_000 }),
+      { decision: "allow", verified: [SHOPIFY_PUSH] },
+    );
+    assert.deepEqual(stub.recorded().map((call) => call.argv), [["theme", "list", "--id", "123456789", "--store", "demo-shop", "--json"]]);
+
+    const moved = await draftProbe.gateThemeLine({ text: SHOPIFY_PUSH, cwd: root, timeoutMs: 20_000, assumeDirChanged: true });
+    assert.equal(moved.code, "REFUSED_THEME_PUSH_UNVERIFIED");
+    assert.equal(stub.recorded().length, 1, "no probe when the folder cannot be trusted");
+
+    const live = await draftProbe.gateThemeLine({ text: `${SHOPIFY_PUSH} --live`, cwd: root, timeoutMs: 20_000 });
+    assert.equal(live.code, "REFUSED_THEME_PUSH_LIVE");
+    assert.equal(stub.recorded().length, 1, "a live flag is refused before any probe");
+
+    fs.rmSync(stub.dir, { recursive: true, force: true });
+    const liveStub = installShopifyStub({ themes: [DEMO("live")] });
+    const refused = await draftProbe.gateThemeLine({ text: SHOPIFY_PUSH, cwd: root, timeoutMs: 20_000 });
+    assert.equal(refused.code, "REFUSED_THEME_PUSH_LIVE");
+    assert.equal(refused.command, SHOPIFY_PUSH);
+    fs.rmSync(liveStub.dir, { recursive: true, force: true });
+
+    for (const line of ["shopify theme publish 123456789", "sapo theme push --theme 1 --store s --only a --nodelete"]) {
+      const outcome = await draftProbe.gateThemeLine({ text: line, cwd: root, timeoutMs: 20_000 });
+      assert.equal(outcome.code, "REFUSED_THEME_REMOTE_OP", line);
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(stub.dir, { recursive: true, force: true });
+  }
+});
+
+test("parseShopifyThemeList reads the JSON array past a notice and rejects anything else", () => {
+  assert.deepEqual(themePolicy.parseShopifyThemeList('Update available\n[\n  { "id": 5, "name": "A", "role": "Unpublished" }\n]\n'), [
+    { id: "5", role: "unpublished" },
+  ]);
+  assert.deepEqual(themePolicy.parseShopifyThemeList("[]"), []);
+  for (const output of ["", "no themes", "{}", "[1]", '[{ "id": 5 }]', "[ not json ]"]) {
+    assert.equal(themePolicy.parseShopifyThemeList(output), null, output);
   }
 });

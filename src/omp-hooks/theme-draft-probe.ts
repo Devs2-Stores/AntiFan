@@ -10,10 +10,20 @@
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { findBindingRoot, resolveShopIdentity } from "./theme-paths";
-import { classifyThemeLine, draftVerdict, parseThemeInfo, planThemeCommand } from "./theme-push-policy";
+import {
+  classifyThemeLine,
+  draftVerdict,
+  parseShopifyThemeList,
+  parseThemeInfo,
+  planThemeCommand,
+  shopifyDraftVerdict,
+  THEME_PUSH_CODES,
+} from "./theme-push-policy";
 
 /** Shell command prefix that runs the Haravan CLI; tests and non-PATH installs override it. */
 export const HRV_COMMAND_ENV = "ANTIFAN_HRV_COMMAND";
+/** Shell command prefix that runs the Shopify CLI; tests and non-PATH installs override it. */
+export const SHOPIFY_COMMAND_ENV = "ANTIFAN_SHOPIFY_COMMAND";
 
 export interface HrvRun {
   /** Combined stdout+stderr (capped), or null when the CLI never ran to completion. */
@@ -82,12 +92,13 @@ function killProbeTree(child: ChildProcess): void {
 }
 
 /**
- * `<hrv> <args>` in `cwd`. One shell line (a `.cmd` shim on Windows needs the shell),
- * so callers must interpolate only values they validated as plain tokens.
+ * `<cli> <args>` in `cwd`, where `<cli>` is the value of `envName` or `fallback`. One shell line
+ * (a `.cmd` shim on Windows needs the shell), so callers must interpolate only values they
+ * validated as plain tokens.
  */
-export function runHrv(cwd: string, args: string, timeoutMs: number): Promise<HrvRun> {
+function runCli(envName: string, fallback: string, cwd: string, args: string, timeoutMs: number): Promise<HrvRun> {
   const { promise, resolve } = Promise.withResolvers<HrvRun>();
-  const command = (process.env[HRV_COMMAND_ENV] ?? "").trim() || "hrv";
+  const command = (process.env[envName] ?? "").trim() || fallback;
   let output = "";
   let settled = false;
   let timer: NodeJS.Timeout | undefined;
@@ -123,6 +134,34 @@ export function runHrv(cwd: string, args: string, timeoutMs: number): Promise<Hr
   return promise;
 }
 
+/** `hrv <args>` in `cwd`; see `runCli`. */
+export function runHrv(cwd: string, args: string, timeoutMs: number): Promise<HrvRun> {
+  return runCli(HRV_COMMAND_ENV, "hrv", cwd, args, timeoutMs);
+}
+
+/** `shopify <args>` in `cwd`; see `runCli`. */
+export function runShopify(cwd: string, args: string, timeoutMs: number): Promise<HrvRun> {
+  return runCli(SHOPIFY_COMMAND_ENV, "shopify", cwd, args, timeoutMs);
+}
+
+/**
+ * Environment variables the Shopify CLI reads in place of the flags a worker may not pass to
+ * `theme push` (live, publish, create, development, force, legacy upload, environment, token). A
+ * line that looks scoped on the command line would still act on them, so one set in this process
+ * stops the push.
+ */
+const SHOPIFY_PUSH_ENV_OVERRIDES = [
+  "SHOPIFY_FLAG_LIVE",
+  "SHOPIFY_FLAG_ALLOW_LIVE",
+  "SHOPIFY_FLAG_PUBLISH",
+  "SHOPIFY_FLAG_UNPUBLISHED",
+  "SHOPIFY_FLAG_DEVELOPMENT",
+  "SHOPIFY_FLAG_FORCE",
+  "SHOPIFY_FLAG_STABLE",
+  "SHOPIFY_FLAG_ENVIRONMENT",
+  "SHOPIFY_CLI_THEME_TOKEN",
+];
+
 export function lastOutputLine(output: string): string {
   const lines = output
     .replace(/\u001b\[[0-9;]*m/g, "")
@@ -135,7 +174,7 @@ export function lastOutputLine(output: string): string {
 export type ThemeGateOutcome =
   /** The line names no theme CLI. */
   | { decision: "pass" }
-  /** Every theme command in the line may run; `verified` lists the sync commands `hrv theme info -j` cleared. */
+  /** Every theme command in the line may run; `verified` lists the sync commands the draft check (`hrv theme info -j` / `shopify theme list`) cleared. */
   | { decision: "allow"; verified: string[] }
   | { decision: "block"; code: string; reason: string; command: string };
 
@@ -143,7 +182,7 @@ export type ThemeGateOutcome =
  * Gate one shell line of a worker. `cwd` is the folder the line will run in;
  * `assumeDirChanged` says the shell was moved by an earlier line, so the binding found
  * from `cwd` cannot be trusted and any sync action is unverifiable. `timeoutMs` bounds each
- * `hrv theme info -j` probe; a probe that cannot answer in time is a refusal, never a pass.
+ * draft probe (`hrv theme info -j`, `shopify theme list`); a probe that cannot answer in time is a refusal, never a pass.
  */
 export async function gateThemeLine(o: {
   text: string;
@@ -170,6 +209,22 @@ export async function gateThemeLine(o: {
       if (verdict.decision === "allow") verified.push(cmd.text);
     } else if (plan.decision === "verify-draft") {
       verdict = draftVerdict(cmd, plan.themeId, null, "no binding folder");
+    } else if (plan.decision === "verify-shopify-draft") {
+      const override = SHOPIFY_PUSH_ENV_OVERRIDES.find((name) => (process.env[name] ?? "").trim().length > 0);
+      if (override !== undefined) {
+        verdict = {
+          decision: "block",
+          code: THEME_PUSH_CODES.PUSH_UNVERIFIED,
+          reason: `${THEME_PUSH_CODES.PUSH_UNVERIFIED}: ${override} is set in the environment, and the Shopify CLI would apply it to '${cmd.text}' in place of a flag the push rules check. Stop and report STATUS: NEEDS_INPUT to the Leader with the exact command; only the user can approve it.`,
+        };
+      } else {
+        const run = await runShopify(o.cwd, `theme list --id ${plan.themeId} --store ${plan.store} --json`, o.timeoutMs);
+        const info = run.output === null || run.exitCode !== 0 ? null : parseShopifyThemeList(run.output);
+        const detail =
+          run.output === null ? run.failure : run.exitCode !== 0 ? `exit ${run.exitCode ?? "null"}: ${lastOutputLine(run.output)}` : lastOutputLine(run.output);
+        verdict = shopifyDraftVerdict(cmd, plan, info, detail);
+        if (verdict.decision === "allow") verified.push(cmd.text);
+      }
     } else {
       verdict = plan;
     }
