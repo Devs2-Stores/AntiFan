@@ -1503,6 +1503,54 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
     detectorFailed('overlap', err);
   }
 
+  // ---- 5b. a control's own label spilling out of its box onto another control ---------------------
+  // A nowrap label wider than a fixed-size icon button (a 36px cart button whose "Giỏ báo giá"
+  // caption stays visible) paints outside its border box and lands on the neighbouring control, while
+  // no box pair crosses: the sibling-box and text-over-text rules only see the boxes and the glyphs.
+  // Reported when the label leaves its owning control by 4px or more and the part outside meets
+  // another control's box. Absolutely placed parts (count badges, tooltips), clipping owners
+  // (ellipsis, overflow hidden: the clipping rule owns those) and moving subtrees are left alone.
+  try {
+    const spillOwners = new Map();
+    for (let i = 0; i < controls.length; i++) spillOwners.set(controls[i].el, controls[i]);
+    const spillFlow = controls.filter((c) => !unsettled(c.el) && !isSrOnly(c.el));
+    const spillReported = new Set();
+    for (let i = 0; i < runs.length; i++) {
+      const run = runs[i];
+      const owner = run.p.closest(ACTIONABLE);
+      if (!owner || spillReported.has(owner) || !spillOwners.has(owner)) continue;
+      const oc = spillOwners.get(owner);
+      if (cs(owner).display === 'inline' || unsettled(owner) || run.p.closest('[aria-hidden="true"]')) continue;
+      let skip = false;
+      for (let e = run.p; e && !skip; e = e.parentElement) {
+        const s = cs(e);
+        if (e !== owner && (s.position === 'absolute' || s.position === 'fixed')) skip = true;
+        else if (hasRealTransform(s)) skip = true;
+        else if (s.overflowX !== 'visible') skip = true;
+        if (e === owner) break;
+      }
+      if (skip) continue;
+      const spillRight = run.r.right - oc.rect.right;
+      const spillLeft = oc.rect.left - run.r.left;
+      if (Math.max(spillRight, spillLeft) < 4) continue;
+      const out = spillRight >= spillLeft
+        ? { left: Math.max(run.r.left, oc.rect.right), right: run.r.right, top: run.r.top, bottom: run.r.bottom }
+        : { left: run.r.left, right: Math.min(run.r.right, oc.rect.left), top: run.r.top, bottom: run.r.bottom };
+      for (let j = 0; j < spillFlow.length; j++) {
+        const other = spillFlow[j];
+        if (other.el === owner || other.el.contains(owner) || owner.contains(other.el) || other.layer !== oc.layer) continue;
+        const ix = span(out.left, out.right, other.rect.left, other.rect.right);
+        const iy = span(out.top, out.bottom, other.rect.top, other.rect.bottom);
+        if (ix < 2 || iy < 4) continue;
+        spillReported.add(owner);
+        push({ kind: 'overlap', severity: 'critical', selector: getSelector(owner), relatedSelector: getSelector(other.el), details: 'Text "' + snippet(run.n.nodeValue) + '" spills ' + Math.round(Math.max(spillRight, spillLeft)) + 'px out of its own control ' + getSelector(owner) + ' (' + Math.round(oc.rect.width) + 'px wide) and lands on ' + getSelector(other.el), rect: toRect({ left: Math.max(out.left, other.rect.left), top: Math.max(out.top, other.rect.top), right: Math.min(out.right, other.rect.right), bottom: Math.min(out.bottom, other.rect.bottom) }) });
+        break;
+      }
+    }
+  } catch (err) {
+    detectorFailed('overlap', err);
+  }
+
   mark('controlStack');
   // ---- 6. in-flow sibling boxes overlapping (ambiguous: warning only) -------------------------
   try {

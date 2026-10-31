@@ -59,6 +59,12 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 - Mức `warning`, nhưng nằm trong `STRICT_REGISTRY_RULES` nên fail run `build-strict` (waive được). `measuredRules` của receipt có thêm `image-distorted`.
 - Test: `image-frame-scanner` + `theme-qa-bare-call` + `theme-qa-fail-closed-adjudication` + `qa-validate-report-integrity` 76/76; fixture Electron `image-distorted-bad/good/contain-good` pass ở 375 và 1440.
 
+### Thêm — QA bắt nhãn chữ của một control tràn ra ngoài nút và đè lên control khác
+
+- `layout-integrity-engine` có bước 5b: nhãn chữ nằm trong một control (nút icon cố định 36px giữ chữ `nowrap` rộng hơn nút, `overflow: visible`) tràn ra ngoài hộp của chính control đó từ 4px trở lên và phần tràn chạm hộp của control khác thì báo `overlap` mức `critical`. Trước đây không rule nào bắt được ca này: hộp của hai control không chồng nhau và không có chữ nào đè chữ.
+- So sánh theo cùng layer (`layer` của control phải bằng nhau): các control trong header `position: sticky/fixed` vốn bị bỏ khỏi `flowControls` nên trước đây không bao giờ được so với nhau. Badge đếm `position: absolute`, owner có `overflow` khác `visible` (ellipsis, clip), subtree có transform và chữ `aria-hidden` không bị chấm.
+- Fixture Electron `82-sticky-header-label-spills-onto-icon-control` (fail trên engine cũ, pass 375 và 1440) và `83-sticky-header-label-fits-and-badge-ok`; toàn corpus `pass=136 fail=0`, unit `layout-integrity-engine` 10/10.
+
 ### Thêm — Mở cửa sổ project thì tự chạy theme watcher
 
 - Khi người dùng mở một cửa sổ project (hoặc app khôi phục cửa sổ lúc khởi động), app tự chạy watcher của theme trong một pane split riêng bên dưới terminal sẵn có của cửa sổ: `hrv theme dev` nếu thư mục có `.haravan-cli_local.json` hợp lệ, `sapo theme dev` nếu có `.sapo-cli_local.json`, `shopify theme dev` nếu có `shopify.theme.toml` hoặc intake ghi `platform: "shopify"`. Thư mục có cả hrv lẫn sapo thì mở hai pane cạnh nhau. Pane mang role `sync`, `idlePolicy: never` nên không bị sleep, và mở lại cửa sổ không chạy thêm bản thứ hai (pane đang chạy được dùng lại, pane đang ngủ được đánh thức và gõ lại lệnh).
