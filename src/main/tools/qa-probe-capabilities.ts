@@ -1,6 +1,6 @@
 /**
  * Storefront QA probes exposed as capabilities: `anti.qa.variant_image_probe`,
- * `anti.qa.pdp_contract`, `anti.qa.menu_depth`, `anti.qa.page_structure`,
+ * `anti.qa.pdp_contract`, `anti.qa.cart_contract`, `anti.qa.menu_depth`, `anti.qa.page_structure`,
  * `anti.qa.pick_product` and the offline `theme.package_check`.
  *
  * Probe bodies live in `qa/probes/*` and only see the narrow `ProbeDeps`
@@ -17,6 +17,7 @@ import { assertThemeWorkspaceRoot } from '../qa/workspace-markers';
 import { makeProbeDeps, type ProbeDeps } from '../qa/probes/probe-deps';
 import { runVariantImageProbe } from '../qa/probes/variant-image-probe';
 import { runPdpContract } from '../qa/probes/pdp-contract';
+import { runCartContract } from '../qa/probes/cart-contract';
 import { runMenuDepth } from '../qa/probes/menu-depth';
 import { runPageStructure } from '../qa/probes/page-structure';
 import { runPickProduct, type PickProductStrategy } from '../qa/probes/pick-product';
@@ -127,6 +128,32 @@ export function registerQaProbeCapabilities(
     policy: passivePolicy(),
     inputSchema: { type: 'object', properties: { ...tabProps } },
     execute: (params: ProbeTabParams, context) => runPdpContract(depsFor(params, context)),
+  });
+
+  catalogue.register({
+    name: 'anti.qa.cart_contract',
+    description: 'Check the cart page: the quantity (+ / − / input), remove and checkout controls exist, and the checkout target is usable (checkout-target-invalid for /[object Object], undefined, empty or #). Passive by default: reads /cart.js and the controls and clicks nothing. exerciseCart:true clicks + then − on the first line, watches for the /cart/change|update request and the quantity change (cart-control-no-request when a click sends nothing) and puts the quantity back; allowRemove:true also clicks the remove control and adds the line back. An empty cart returns measured:false with QA_EMPTY_CART_NOT_EXERCISED: the probe never adds items. Reports measured:false on a non-cart route.',
+    risk: 'write',
+    requiresBrowserTarget: true,
+    policy: interactionPolicy('write'),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ...tabProps,
+        exerciseCart: { type: 'boolean', description: 'Click + then − on the first cart line and restore the quantity (changes the cart temporarily)' },
+        allowRemove: { type: 'boolean', description: 'With exerciseCart: also click the remove control of the first line, then add the line back' },
+      },
+    },
+    execute: (params: ProbeTabParams & { exerciseCart?: unknown; allowRemove?: unknown }, context) => {
+      const name = 'anti.qa.cart_contract';
+      if (params.exerciseCart !== undefined && typeof params.exerciseCart !== 'boolean') throw invalid(name, 'exerciseCart must be a boolean');
+      if (params.allowRemove !== undefined && typeof params.allowRemove !== 'boolean') throw invalid(name, 'allowRemove must be a boolean');
+      if (params.allowRemove === true && params.exerciseCart !== true) throw invalid(name, 'allowRemove only applies together with exerciseCart: true');
+      return runCartContract(depsFor(params, context), {
+        ...(params.exerciseCart === true ? { exerciseCart: true } : {}),
+        ...(params.allowRemove === true ? { allowRemove: true } : {}),
+      });
+    },
   });
 
   catalogue.register({

@@ -28,6 +28,20 @@ export const DEFAULT_SWEEP_BREAKPOINTS: readonly SweepBreakpoint[] = [
 ];
 
 /**
+ * Desktop widths where a header's menu, search and cart controls first run out of room (700-1300px):
+ * the standard list jumps from 768 to 1024 to 1440 and misses a header that only breaks between them.
+ * A dense-header sweep passes this list as `customBreakpoints`; the default sweep never includes it.
+ */
+export const HEADER_DENSE_BREAKPOINTS: readonly SweepBreakpoint[] = [700, 900, 1100, 1200, 1300].map((width) => ({
+  id: `header-dense-${width}`,
+  name: `Header Dense (${width}px)`,
+  width,
+  height: 900,
+  deviceScaleFactor: 1,
+  mobile: false,
+}));
+
+/**
  * Short viewports where fixed headers, sticky bars and cookie banners eat most of the screen:
  * a landscape phone, a small laptop, and a phone with the keyboard open. A caller adds them
  * through `viewports`; no sweep includes them unasked.

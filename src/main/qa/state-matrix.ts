@@ -207,6 +207,21 @@ export const smCloseSelector = (i: number) => `[${SM_CLOSE}="${i}"]`;
 /** Shared in-page helpers (closest-style lookups, visibility maths). */
 const PAGE_HELPERS = String.raw`
   const PREVIEW_CHROME = ${JSON.stringify(PLATFORM_PREVIEW_CHROME)};
+  // Height of the platform admin/preview bar pinned to the top, measured from its own box. Only a
+  // bar that is displayed can be measured, so a caller that hides the preview chrome must read this first.
+  const measurePreviewBarShift = () => {
+    const pw = window.innerWidth;
+    const ph = window.innerHeight;
+    let shift = 0;
+    document.querySelectorAll(PREVIEW_CHROME).forEach((bar) => {
+      const bs = getComputedStyle(bar);
+      if ((bs.position !== 'fixed' && bs.position !== 'sticky') || bs.display === 'none' || bs.visibility === 'hidden') return;
+      const b = bar.getBoundingClientRect();
+      if (b.width < pw * 0.5 || b.height <= 0 || b.top > 1 || b.bottom <= 0) return;
+      shift = Math.max(shift, Math.min(Math.round(b.bottom), Math.round(ph / 2)));
+    });
+    return shift;
+  };
   const selectorOf = (el) => {
     if (!el || el.nodeType !== 1) return '';
     if (el.getAttribute('id')) return '#' + el.getAttribute('id');
@@ -450,8 +465,11 @@ export function buildPrepareScript(index: number, recordRest = true): string {
   const t = document.querySelector('${smTriggerSelector(index)}');
   if (!t) return { ok: false, reason: 'TRIGGER_GONE' };
   // The platform preview bar (Haravan ?themeid=) is shown to the merchant only; a shopper never
-  // sees it, so it must not cover a bottom dock the run clicks.
-  if (!document.getElementById('__antifan_sm_preview_chrome__')) {
+  // sees it, so it must not cover a bottom dock the run clicks. It is measured before it is hidden,
+  // because the open measurement runs after this and could no longer see it.
+  const chromeHidden = !!document.getElementById('__antifan_sm_preview_chrome__');
+  const measuredBarShift = chromeHidden ? null : measurePreviewBarShift();
+  if (!chromeHidden) {
     const st = document.createElement('style');
     st.id = '__antifan_sm_preview_chrome__';
     st.textContent = PREVIEW_CHROME + ' { display: none !important; pointer-events: none !important; }';
@@ -462,7 +480,12 @@ export function buildPrepareScript(index: number, recordRest = true): string {
   // the panel this trigger opens; mark them so the open measurement skips them.
   document.querySelectorAll('[' + PREOPEN + ']').forEach((n) => n.removeAttribute(PREOPEN));
   document.querySelectorAll(LAYER_SELECTOR).forEach((el) => { if (!el.closest(PREVIEW_CHROME) && isOpen(el)) el.setAttribute(PREOPEN, '1'); });
-  if (${JSON.stringify(recordRest)} || !window.__antifanStateMatrixRest) window.__antifanStateMatrixRest = { scrollLocked: scrollLocked() };
+  const priorRest = window.__antifanStateMatrixRest;
+  if (${JSON.stringify(recordRest)} || !priorRest) {
+    window.__antifanStateMatrixRest = { scrollLocked: scrollLocked(), barShift: measuredBarShift !== null ? measuredBarShift : (priorRest && priorRest.barShift) || 0 };
+  } else if (measuredBarShift !== null) {
+    priorRest.barShift = measuredBarShift;
+  }
   return { ok: true, scrollLocked: window.__antifanStateMatrixRest.scrollLocked };
 })()`;
 }
@@ -576,9 +599,18 @@ export function buildMeasureOpenScript(index: number, kind: StateMatrixKind, clo
       if ((clipX && (r.right > cr.right + 2 || r.left < cr.left - 2)) || (clipY && (r.bottom > cr.bottom + 2 || r.top < cr.top - 2))) { clipped = true; break; }
     }
   }
+  // The platform's admin/preview bar is fixed to the top for the merchant and never shown to shoppers.
+  // The platform pushes every fixed element down by the bar's height, so a fixed panel laid out below
+  // the bar is measured against the viewport minus the bar. The bar is measured, not assumed: a bar of
+  // any height from any platform in the preview-chrome list shifts the panel by its own height.
+  const restState = window.__antifanStateMatrixRest;
+  const barShift = restState && typeof restState.barShift === 'number' ? restState.barShift : measurePreviewBarShift();
+  let fixedPanel = false;
+  for (let p = panel; p && p !== document.documentElement && !fixedPanel; p = p.parentElement) fixedPanel = getComputedStyle(p).position === 'fixed';
   // Sapo's admin-session script (content_for_header, logged-in admins only) adds 40px to the inline
-  // top of every fixed element on window.onload; customers never get that shift.
-  const adminShift = Array.from(document.scripts).some((s) => !s.src && s.textContent.includes('function doShift(down)') && s.textContent.includes('admin_bar_iframe')) && /(^|;)\\s*top:\\s*-?\\d/.test(panel.getAttribute('style') || '') ? 40 : 0;
+  // top of every fixed element on window.onload, also when the bar itself has not rendered yet.
+  const scriptShift = Array.from(document.scripts).some((s) => !s.src && s.textContent.includes('function doShift(down)') && s.textContent.includes('admin_bar_iframe')) && /(^|;)\\s*top:\\s*-?\\d/.test(panel.getAttribute('style') || '') ? 40 : 0;
+  const adminShift = barShift > 0 && fixedPanel && r.top >= barShift - 1 ? barShift : scriptShift;
   const within = r.left >= -1 && r.top - adminShift >= -1 && r.right <= vw + 1 && r.bottom - adminShift <= vh + 1;
   let occluded = false;
   const cx = Math.floor(Math.max(0, Math.min(vw - 1, r.left + r.width / 2)));

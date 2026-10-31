@@ -23,6 +23,7 @@ const defaultOptions = {
 const PROBE_TOOLS = [
   'anti.qa.variant_image_probe',
   'anti.qa.pdp_contract',
+  'anti.qa.cart_contract',
   'anti.qa.menu_depth',
   'anti.qa.page_structure',
   'anti.qa.pick_product',
@@ -92,7 +93,7 @@ interface ObjectSchema {
 const FIXTURE_THEME = path.resolve(process.cwd(), 'test/fixtures/probes/package-theme');
 
 describe('qa-probe-capabilities registration', () => {
-  it('registers exactly the six probe tools', () => {
+  it('registers exactly the seven probe tools', () => {
     const { catalogue } = makeFixture();
     for (const name of PROBE_TOOLS) assert.ok(catalogue.has(name), `${name} is registered`);
     assert.strictEqual(catalogue.listAll().filter((c) => PROBE_TOOLS.includes(c.name as (typeof PROBE_TOOLS)[number])).length, PROBE_TOOLS.length);
@@ -108,6 +109,8 @@ describe('qa-probe-capabilities registration', () => {
       assert.strictEqual(catalogue.get(name)?.risk, 'read', `${name} risk`);
       assert.strictEqual(catalogue.getPolicy(name)?.effect, 'read', `${name} effect`);
     }
+    assert.strictEqual(catalogue.get('anti.qa.cart_contract')?.risk, 'write', 'the exercise mode clicks cart controls');
+    assert.strictEqual(catalogue.getPolicy('anti.qa.cart_contract')?.effect, 'interactive-effect');
   });
 
   it('binds every probe to a browser tab except the offline package check', () => {
@@ -135,6 +138,7 @@ describe('qa-probe-capabilities registration', () => {
     for (const key of ['workspaceRoot', 'zipPath', 'expectedBrand', 'forbiddenWords', 'formBefore', 'formAfter', 'allowNonTheme']) {
       assert.ok(props('theme.package_check').includes(key), `theme.package_check advertises ${key}`);
     }
+    assert.deepStrictEqual(props('anti.qa.cart_contract').sort(), ['allowRemove', 'exerciseCart', 'paneId', 'tabId']);
   });
 });
 
@@ -158,6 +162,15 @@ describe('qa-probe-capabilities validation', () => {
     await assert.rejects(() => catalogue.dispatch('anti.qa.page_structure', { rules: [] }, makeBoundContext()), invalid);
     await assert.rejects(() => catalogue.dispatch('anti.qa.page_structure', { viewportHeight: 10 }, makeBoundContext()), invalid);
     await assert.rejects(() => catalogue.dispatch('anti.qa.pick_product', { strategy: 'long-title', sampleLimit: 1000 }, makeBoundContext()), invalid);
+    assert.strictEqual(evalCalls.length, 0);
+  });
+
+  it('refuses malformed cart_contract flags and a remove without exercise', async () => {
+    const { catalogue, evalCalls } = makeFixture();
+    const invalid = (err: unknown): boolean => err instanceof CapabilityError && err.code === 'INVALID_ARGUMENT';
+    await assert.rejects(() => catalogue.dispatch('anti.qa.cart_contract', { exerciseCart: 'yes' }, makeBoundContext()), invalid);
+    await assert.rejects(() => catalogue.dispatch('anti.qa.cart_contract', { allowRemove: 1 }, makeBoundContext()), invalid);
+    await assert.rejects(() => catalogue.dispatch('anti.qa.cart_contract', { allowRemove: true }, makeBoundContext()), (err: unknown) => invalid(err) && /exerciseCart/.test((err as Error).message));
     assert.strictEqual(evalCalls.length, 0);
   });
 });
@@ -187,6 +200,14 @@ describe('qa-probe-capabilities execution', () => {
     const result = (await catalogue.dispatch('anti.qa.pdp_contract', {}, makeBoundContext())) as { measured: boolean; passed: boolean | null };
     assert.strictEqual(result.measured, false);
     assert.strictEqual(result.passed, null);
+  });
+
+  it('runs the cart probe passively by default and reports an unreadable cart as unmeasured', async () => {
+    const { catalogue, evalCalls } = makeFixture({ evalResult: undefined });
+    const result = (await catalogue.dispatch('anti.qa.cart_contract', {}, makeBoundContext())) as { measured: boolean; passed: boolean | null };
+    assert.strictEqual(result.measured, false);
+    assert.strictEqual(result.passed, null);
+    assert.strictEqual(evalCalls.length, 1, 'a passive run reads the cart once and clicks nothing');
   });
 
   it('honours an explicit tabId and paneId when binding the probe', async () => {

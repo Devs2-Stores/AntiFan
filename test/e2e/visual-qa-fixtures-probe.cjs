@@ -11,14 +11,17 @@ const outDir = requestedOut ? path.resolve(requestedOut) : fs.mkdtempSync(path.j
 const scanFile = (process.argv.find((arg) => arg.startsWith('--scan-file=')) || '').slice(12);
 const corpusArg = (process.argv.find((arg) => arg.startsWith('--corpus=')) || '').slice(9);
 const corpusPath = corpusArg ? path.resolve(process.cwd(), corpusArg) : path.join(root, 'test/fixtures/visual-qa/fixtures.cjs');
-// 'wide' only runs the fixtures that ask for it (expect.viewports names it, or a control sets
-// expect.wide): it exists for rules that need a viewport wider than the page container.
+// 'wide', 'tablet' and 'dense' only run the fixtures that ask for them (expect.viewports names them,
+// or a control sets expect.wide for 'wide'): 'wide' exists for rules that need a viewport wider than the
+// page container, 'tablet' and 'dense' (768 and 1000px) for headers that break between the standard widths.
 const viewports = [
   { name: 'mobile', width: 375, height: 667, deviceScaleFactor: 2, mobile: true },
   { name: 'desktop', width: 1440, height: 900, deviceScaleFactor: 1, mobile: false },
   { name: 'wide', width: 1920, height: 1080, deviceScaleFactor: 1, mobile: false, optIn: true },
+  { name: 'tablet', width: 768, height: 1024, deviceScaleFactor: 1, mobile: false, optIn: true },
+  { name: 'dense', width: 1000, height: 900, deviceScaleFactor: 1, mobile: false, optIn: true },
 ];
-const runsAt = (vp, fixture) => !vp.optIn || (fixture.expect.viewports || []).includes(vp.name) || fixture.expect.wide === true;
+const runsAt = (vp, fixture) => !vp.optIn || (fixture.expect.viewports || []).includes(vp.name) || (vp.name === 'wide' && fixture.expect.wide === true);
 let currentWin;
 let currentDebugger;
 let exitCode = 2;

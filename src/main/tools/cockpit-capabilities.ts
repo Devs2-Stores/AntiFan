@@ -51,6 +51,7 @@ import { runPageStructure } from '../qa/probes/page-structure';
 import { runMenuDepth } from '../qa/probes/menu-depth';
 import { runVariantImageProbe } from '../qa/probes/variant-image-probe';
 import { runPdpContract } from '../qa/probes/pdp-contract';
+import { runCartContract } from '../qa/probes/cart-contract';
 import { parseBaselineViewportsInput, resolveBaselineViewports, type BaselineViewportsInput } from '../qa/baseline-provenance';
 import { DEADLINES } from '../../shared/deadline-chain';
 // Circular edge (browser-capabilities ↔ this module): the namespace is resolved
@@ -401,6 +402,7 @@ function inferPageKey(liveUrl: string): string {
   if (PRODUCT_PAGE_PATH.test(pathname)) return 'product';
   if (ARTICLE_PAGE_PATH.test(pathname)) return 'article';
   if (pathname === '/' || pathname === '') return 'home';
+  if (/^\/cart\/?$/.test(pathname)) return 'cart';
   if (/^\/collections\/[^/]+\/?$/.test(pathname)) return 'collection';
   return '';
 }
@@ -409,6 +411,7 @@ const PROBES_BY_PAGE: Readonly<Record<string, ReadonlyArray<keyof ChecklistProbe
   home: ['page_structure', 'menu_depth'],
   product: ['variant_image_probe', 'pdp_contract'],
   collection: ['menu_depth'],
+  cart: ['cart_contract'],
 };
 
 async function runPageProbes(deps: ProbeDeps, page: string): Promise<ChecklistProbeResults> {
@@ -420,6 +423,7 @@ async function runPageProbes(deps: ProbeDeps, page: string): Promise<ChecklistPr
         case 'menu_depth': results[name] = await runMenuDepth(deps); break;
         case 'variant_image_probe': results[name] = await runVariantImageProbe(deps, {}); break;
         case 'pdp_contract': results[name] = await runPdpContract(deps); break;
+        case 'cart_contract': results[name] = await runCartContract(deps); break;
       }
     } catch (err) {
       results[name] = { measured: false, passed: null, findings: [], data: {}, error: err instanceof Error ? err.message : String(err) };

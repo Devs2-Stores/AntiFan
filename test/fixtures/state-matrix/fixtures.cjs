@@ -155,6 +155,16 @@ module.exports = [
     html: overlayPage().replace('style=""', 'style="top:40px"'),
     expect: { triggers: 1, status: { 0: 'FAIL' }, codes: { 0: ['OVERLAY_OFFSCREEN'] } },
   },
+  {
+    // A 44px Haravan-style preview bar (#preview-bar-iframe, fixed to the top for the merchant only)
+    // and a drawer laid out directly below it: the drawer is 44px lower than shoppers see it, so
+    // its bottom edge is past the fold only because of the bar. The bar is measured, not assumed to be 40px.
+    id: 'drawer-below-a-measured-preview-bar',
+    html: overlayPage()
+      .replace('style=""', 'style="top:44px"')
+      .replace('<header>', '<div id="preview-bar-iframe" style="position:fixed;top:0;left:0;right:0;height:44px;z-index:2147483647;background:#222"></div><header style="margin-top:48px">'),
+    expect: { triggers: 1, noCodes: { 0: ['OVERLAY_OFFSCREEN'] } },
+  },
   { id: 'drawer-focus-stays-behind', html: overlayPage({ focus: false }), expect: { status: { 0: 'WARN' }, codes: { 0: ['FOCUS_NOT_MOVED'] } } },
   {
     id: 'stuck-overlay-stops-the-run',

@@ -140,6 +140,30 @@ describe('checklist autotick', () => {
     assert.strictEqual(hasGuide['pdp-11']?.done, true);
   });
 
+  it('ticks crt-04 from any measured cart run and crt-02 only when the controls were clicked', () => {
+    const passive = byId(deriveChecklistTicks({ probes: { cart_contract: probe({ exercised: false, steps: [] }) } }));
+    assert.strictEqual(passive['crt-04']?.done, true);
+    assert.strictEqual(passive['crt-02'], undefined, 'a passive run does not decide the quantity controls');
+
+    const exercised = byId(deriveChecklistTicks({ probes: { cart_contract: probe({ exercised: true, steps: [] }) } }));
+    assert.strictEqual(exercised['crt-04']?.done, true);
+    assert.strictEqual(exercised['crt-02']?.done, true);
+  });
+
+  it('un-ticks crt-04 on a broken checkout target and crt-02 on a control that sent no request', () => {
+    const ticks = byId(deriveChecklistTicks({
+      probes: { cart_contract: probe({ exercised: true, steps: [] }, [finding('checkout-target-invalid'), finding('cart-control-no-request'), finding('cart-control-no-request')]) },
+    }));
+    assert.strictEqual(ticks['crt-04']?.done, false);
+    assert.match(ticks['crt-04']!.note, /checkout-target-invalid/);
+    assert.strictEqual(ticks['crt-02']?.done, false);
+    assert.match(ticks['crt-02']!.note, /2 nút/);
+  });
+
+  it('ticks nothing for a cart run that measured nothing, such as an empty cart', () => {
+    assert.deepStrictEqual(deriveChecklistTicks({ probes: { cart_contract: probe({ exercised: false, steps: [] }, [finding('QA_EMPTY_CART_NOT_EXERCISED', 'info')], false) } }), []);
+  });
+
   it('never names a manual-only item', () => {
     const ticks = deriveChecklistTicks({
       qa: { measuredRules: ['font-below-min', 'control-height-band'], findings: { responsive: responsive([]), visualQuality: { measured: true, mobile: true, findings: [] } } },
@@ -148,9 +172,10 @@ describe('checklist autotick', () => {
         menu_depth: probe({ maxDepth: 3, perLevelCounts: [], level3Visible: true, mobileMaxDepth: 3 }),
         variant_image_probe: probe({ perValue: [], optionValuesCount: {} }),
         pdp_contract: probe({ missing: [], present: [], hasSizeOption: true }),
+        cart_contract: probe({ exercised: true, steps: [] }),
       },
     });
-    const allowed = new Set(['qag-07', 'qag-29', 'hom-01', 'hom-02', 'hom-03', 'hom-05', 'hom-06', 'hom-07', 'hom-08', 'hom-09', 'qag-20', 'pdp-01', 'pdp-04', 'qag-34', 'pdp-11']);
+    const allowed = new Set(['qag-07', 'qag-29', 'hom-01', 'hom-02', 'hom-03', 'hom-05', 'hom-06', 'hom-07', 'hom-08', 'hom-09', 'qag-20', 'pdp-01', 'pdp-04', 'qag-34', 'pdp-11', 'crt-02', 'crt-04']);
     for (const tick of ticks) assert.ok(allowed.has(tick.itemId), `${tick.itemId} is not a measured item`);
   });
 });

@@ -2,7 +2,7 @@ import { PLATFORM_PREVIEW_CHROME } from '../platform-preview-chrome';
 
 export interface LayoutIntegrityFinding {
   kind: 'overlap' | 'clipping' | 'occlusion' | 'offscreen' | 'zero-size' | 'sticky-obstruction' | 'layout-shift' | 'spacing' | 'timed-popup-occluder';
-  ruleId?: string; // present on 'spacing' findings: which clearance rule fired
+  ruleId?: string; // which rule fired, on findings a kind alone does not identify ('spacing' clearance rules, 'same-layer-controls-stacked', 'fixed-chrome-ratio')
   severity: 'critical' | 'warning';
   selector: string; // best-effort CSS path, capped 200 chars
   relatedSelector?: string; // optional peer selector for sibling-gap findings
@@ -1453,24 +1453,42 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
     return Boolean(v) && span(cr.left, cr.right, v.left, v.right) >= 8 && span(cr.top, cr.bottom, v.top, v.bottom) >= 8;
   };
   const overlaysInside = (control, other, cr, or) => isAbsoluteOverlayOver(control, other) && span(cr.left, cr.right, or.left, or.right) * span(cr.top, cr.bottom, or.top, or.bottom) >= 0.9 * cr.width * cr.height && !coversValue(cr, other);
+  // Each control's boxes cut to the part that survives its clipping ancestors: a link clipped
+  // away at the bottom of a collapsed block cannot be tapped there, so it stacks on nothing.
+  const fragments = (c) => {
+    const v = c.vis;
+    const raw = cs(c.el).display === 'inline' ? c.el.getClientRects() : [c.rect];
+    const out = [];
+    for (let i = 0; i < raw.length; i++) {
+      const left = Math.max(raw[i].left, v.left);
+      const right = Math.min(raw[i].right, v.right);
+      const top = Math.max(raw[i].top, v.top);
+      const bottom = Math.min(raw[i].bottom, v.bottom);
+      if (right - left >= 1 && bottom - top >= 1) out.push({ left: left, right: right, top: top, bottom: bottom, width: right - left, height: bottom - top });
+    }
+    return out;
+  };
+  // The largest share of the smaller box that two controls' fragments cover, with the covered rect.
+  // Null while every fragment pair is under 8px in either axis (a hairline touch is not a stack).
+  const stackedShare = (A, B) => {
+    const fa = fragments(A);
+    const fb = fragments(B);
+    let best = 0;
+    let bestRect = null;
+    for (let x = 0; x < fa.length; x++) {
+      for (let y = 0; y < fb.length; y++) {
+        const ix = span(fa[x].left, fa[x].right, fb[y].left, fb[y].right);
+        const iy = span(fa[x].top, fa[x].bottom, fb[y].top, fb[y].bottom);
+        if (ix < 8 || iy < 8) continue;
+        const ratio = (ix * iy) / Math.min(fa[x].width * fa[x].height, fb[y].width * fb[y].height);
+        if (ratio > best) { best = ratio; bestRect = { left: Math.max(fa[x].left, fb[y].left), top: Math.max(fa[x].top, fb[y].top), right: Math.min(fa[x].right, fb[y].right), bottom: Math.min(fa[x].bottom, fb[y].bottom) }; }
+      }
+    }
+    return bestRect ? { best: best, rect: bestRect } : null;
+  };
   try {
     const flowControls = controls.filter((c) => !c.layer && !unsettled(c.el) && !isSrOnly(c.el));
     flowControls.sort((a, b) => a.rect.top - b.rect.top);
-    // Each control's boxes cut to the part that survives its clipping ancestors: a link clipped
-    // away at the bottom of a collapsed block cannot be tapped there, so it stacks on nothing.
-    const fragments = (c) => {
-      const v = c.vis;
-      const raw = cs(c.el).display === 'inline' ? c.el.getClientRects() : [c.rect];
-      const out = [];
-      for (let i = 0; i < raw.length; i++) {
-        const left = Math.max(raw[i].left, v.left);
-        const right = Math.min(raw[i].right, v.right);
-        const top = Math.max(raw[i].top, v.top);
-        const bottom = Math.min(raw[i].bottom, v.bottom);
-        if (right - left >= 1 && bottom - top >= 1) out.push({ left: left, right: right, top: top, bottom: bottom, width: right - left, height: bottom - top });
-      }
-      return out;
-    };
     for (let i = 0; i < flowControls.length; i++) {
       const A = flowControls[i];
       for (let j = i + 1; j < flowControls.length; j++) {
@@ -1480,22 +1498,10 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
         if (overlaysInside(A.el, B.el, A.rect, B.rect) || overlaysInside(B.el, A.el, B.rect, A.rect) || isCollapsedCurtain(A.el, B.el) || isCollapsedCurtain(B.el, A.el)) continue;
         // A carousel's own navigation over its slides is not a stacked pair.
         if (Boolean(A.el.closest(CAROUSEL_SLIDE)) !== Boolean(B.el.closest(CAROUSEL_SLIDE))) continue;
-        const fa = fragments(A);
-        const fb = fragments(B);
-        let best = 0;
-        let bestRect = null;
-        for (let x = 0; x < fa.length; x++) {
-          for (let y = 0; y < fb.length; y++) {
-            const ix = span(fa[x].left, fa[x].right, fb[y].left, fb[y].right);
-            const iy = span(fa[x].top, fa[x].bottom, fb[y].top, fb[y].bottom);
-            if (ix < 8 || iy < 8) continue;
-            const ratio = (ix * iy) / Math.min(fa[x].width * fa[x].height, fb[y].width * fb[y].height);
-            if (ratio > best) { best = ratio; bestRect = { left: Math.max(fa[x].left, fb[y].left), top: Math.max(fa[x].top, fb[y].top), right: Math.min(fa[x].right, fb[y].right), bottom: Math.min(fa[x].bottom, fb[y].bottom) }; }
-          }
-        }
+        const hit = stackedShare(A, B);
         // A quarter of a control lying under another is enough for taps on it to land on the wrong one.
-        if (best >= 0.25 && !imagePending(A.el, B.el)) {
-          push({ kind: 'overlap', severity: 'critical', selector: getSelector(B.el), details: 'Actionable controls stacked: ' + getSelector(B.el) + ' covers ' + Math.round(best * 100) + '% of ' + getSelector(A.el), rect: toRect(bestRect) });
+        if (hit && hit.best >= 0.25 && !imagePending(A.el, B.el)) {
+          push({ kind: 'overlap', severity: 'critical', selector: getSelector(B.el), details: 'Actionable controls stacked: ' + getSelector(B.el) + ' covers ' + Math.round(hit.best * 100) + '% of ' + getSelector(A.el), rect: toRect(hit.rect) });
         }
       }
     }
@@ -1547,6 +1553,45 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
         break;
       }
     }
+  } catch (err) {
+    detectorFailed('overlap', err);
+  }
+
+  // ---- 5c. actionable controls stacked inside one fixed/sticky layer -------------------------
+  // The flow rule above leaves out every control that sits in a fixed or sticky layer, and the
+  // label-spill rule needs a label wider than its own box. A sticky header whose menu, search and
+  // cart controls squeeze into one row at a mid-size width can still lay two boxes on top of each
+  // other with neither condition met. Controls are paired only within the same layer (the pairing
+  // across layers belongs to the layer collision check) with the flow rule's exemptions.
+  try {
+    const byLayer = new Map();
+    for (let i = 0; i < controls.length; i++) {
+      const c = controls[i];
+      if (!c.layer || unsettled(c.el) || isSrOnly(c.el)) continue;
+      const group = byLayer.get(c.layer);
+      if (group) group.push(c);
+      else byLayer.set(c.layer, [c]);
+    }
+    const stackedReported = new Set();
+    byLayer.forEach((group) => {
+      if (group.length < 2) return;
+      group.sort((a, b) => a.rect.top - b.rect.top);
+      for (let i = 0; i < group.length; i++) {
+        const A = group[i];
+        for (let j = i + 1; j < group.length; j++) {
+          const B = group[j];
+          if (B.rect.top >= A.rect.bottom) break;
+          if (stackedReported.has(B.el) || stackedReported.has(A.el)) continue;
+          if (A.el.contains(B.el) || B.el.contains(A.el)) continue;
+          if (overlaysInside(A.el, B.el, A.rect, B.rect) || overlaysInside(B.el, A.el, B.rect, A.rect) || isCollapsedCurtain(A.el, B.el) || isCollapsedCurtain(B.el, A.el)) continue;
+          if (Boolean(A.el.closest(CAROUSEL_SLIDE)) !== Boolean(B.el.closest(CAROUSEL_SLIDE))) continue;
+          const hit = stackedShare(A, B);
+          if (!hit || hit.best < 0.25 || imagePending(A.el, B.el)) continue;
+          stackedReported.add(B.el);
+          push({ kind: 'overlap', ruleId: 'same-layer-controls-stacked', severity: 'critical', selector: getSelector(B.el), relatedSelector: getSelector(A.el), details: 'Controls stacked in ' + getSelector(A.layer) + ': ' + getSelector(B.el) + ' covers ' + Math.round(hit.best * 100) + '% of ' + getSelector(A.el), rect: toRect(hit.rect) });
+        }
+      }
+    });
   } catch (err) {
     detectorFailed('overlap', err);
   }
@@ -1848,7 +1893,8 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
         const l = layerCandidates[i];
         if (unsettled(l) || !painted(l) || alphaOf(l) < 0.5) continue;
         const lr = l.getBoundingClientRect();
-        if (lr.width < vw * 0.5 || lr.height < 8 || lr.bottom <= 0 || lr.top >= vh) continue;
+        // A drawer parked off-canvas (translateX(-100%), left:-100%) holds no viewport height.
+        if (lr.width < vw * 0.5 || lr.height < 8 || lr.bottom <= 0 || lr.top >= vh || lr.right <= 0 || lr.left >= vw) continue;
         if (lr.width >= vw * 0.9 && lr.height >= vh * 0.9) continue;
         if (releasedSticky(l, lr) || (cs(l).position === 'sticky' && lr.width < vw * 0.9)) continue;
         if (bars.some((b) => b.layer.contains(l) || l.contains(b.layer))) continue;

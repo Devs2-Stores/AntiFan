@@ -172,6 +172,8 @@ const MEASURED_BY: Record<string, { measuredBy: string; action: string }> = Obje
     ['pdp-01', 'anti.qa.variant_image_probe'],
     ['pdp-04', 'anti.qa.variant_image_probe'],
     ['pdp-11', 'anti.qa.pdp_contract'],
+    ['crt-02', 'anti.qa.cart_contract'],
+    ['crt-04', 'anti.qa.cart_contract'],
     ['sys-04', 'anti.qa.state_matrix'],
     ['qag-07', 'theme.qa_validate'],
     ['qag-20', 'anti.qa.page_structure'],

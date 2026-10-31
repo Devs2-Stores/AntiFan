@@ -15,7 +15,7 @@ export interface ChecklistTick {
 
 /** Page-probe results keyed by capability suffix. */
 export type ChecklistProbeResults = Partial<Record<
-  'variant_image_probe' | 'pdp_contract' | 'menu_depth' | 'page_structure',
+  'variant_image_probe' | 'pdp_contract' | 'menu_depth' | 'page_structure' | 'cart_contract',
   ProbeResult<unknown>
 >>;
 
@@ -142,6 +142,24 @@ function deriveFromPdpContract(result: ProbeResult<unknown>, ticks: ChecklistTic
   });
 }
 
+/**
+ * The quantity controls (crt-02) are ticked only by a run that clicked them; the checkout control
+ * (crt-04) by any measured run. An empty cart is never measured, so it ticks nothing.
+ */
+function deriveFromCartContract(result: ProbeResult<unknown>, ticks: ChecklistTick[]): void {
+  if (!result.measured) return;
+  const data = asRec(result.data);
+  const checkoutBad = ruleHits(result, 'cart-checkout-missing', 'checkout-target-invalid');
+  ticks.push(checkoutBad === 0
+    ? { itemId: 'crt-04', done: true, note: note('nút thanh toán có đích hợp lệ') }
+    : { itemId: 'crt-04', done: false, note: note(`nút thanh toán hỏng (${result.findings.filter((f) => f.ruleId === 'cart-checkout-missing' || f.ruleId === 'checkout-target-invalid').map((f) => f.ruleId).join(', ')})`) });
+  if (data?.exercised !== true) return;
+  const dead = ruleHits(result, 'cart-control-no-request');
+  ticks.push(dead === 0
+    ? { itemId: 'crt-02', done: true, note: note('nút +/− gửi request giỏ hàng và đổi số lượng') }
+    : { itemId: 'crt-02', done: false, note: note(`${dead} nút số lượng không gửi request (cart-control-no-request)`) });
+}
+
 export function deriveChecklistTicks(results: { qa?: unknown; probes?: Record<string, ProbeResult<unknown>> }): ChecklistTick[] {
   const ticks: ChecklistTick[] = [];
   if (results.qa !== undefined) deriveFromQa(results.qa, ticks);
@@ -150,5 +168,6 @@ export function deriveChecklistTicks(results: { qa?: unknown; probes?: Record<st
   if (probes.menu_depth) deriveFromMenuDepth(probes.menu_depth, ticks);
   if (probes.variant_image_probe) deriveFromVariantProbe(probes.variant_image_probe, ticks);
   if (probes.pdp_contract) deriveFromPdpContract(probes.pdp_contract, ticks);
+  if (probes.cart_contract) deriveFromCartContract(probes.cart_contract, ticks);
   return ticks;
 }

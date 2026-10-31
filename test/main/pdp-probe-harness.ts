@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import { createRequire } from 'node:module';
 import type { ProbeDeps } from '../../src/main/qa/probes/probe-deps';
 
-type JsdomCtor = new (html: string, options?: Record<string, unknown>) => JsdomInstance;
+export type JsdomCtor = new (html: string, options?: Record<string, unknown>) => JsdomInstance;
 
 export interface JsdomInstance {
   window: Window & typeof globalThis & { eval: (src: string) => unknown; fetch: unknown };
@@ -17,7 +17,7 @@ export interface FetchRoute {
 
 export const STOREFRONT_ORIGIN = 'https://shop.example';
 
-function loadJsdom(): JsdomCtor {
+export function loadJsdom(): JsdomCtor {
   const req = createRequire(__filename);
   const searchPaths = process.env.ANTIFAN_JSDOM ? [process.env.ANTIFAN_JSDOM, path.dirname(__filename)] : [path.dirname(__filename)];
   const resolved = req.resolve('jsdom', { paths: searchPaths });
