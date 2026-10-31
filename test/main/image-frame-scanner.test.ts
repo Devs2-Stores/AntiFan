@@ -14,9 +14,10 @@ function findRoot(): string {
 
 const root = findRoot();
 
-test('image-crop and image-low-res are the two rules and their limits are the documented ones', () => {
-  assert.deepEqual([...IMAGE_FRAME_RULE_IDS], ['image-crop', 'image-low-res']);
+test('image-crop, image-low-res and image-distorted are the rules and their limits are the documented ones', () => {
+  assert.deepEqual([...IMAGE_FRAME_RULE_IDS], ['image-crop', 'image-low-res', 'image-distorted']);
   assert.equal(IMAGE_FRAME_LIMITS.maxCropShare, 0.08);
+  assert.equal(IMAGE_FRAME_LIMITS.maxAspectDistortion, 0.06);
   assert.equal(IMAGE_FRAME_LIMITS.minSourceToBoxRatio, 1.5);
 });
 
@@ -70,5 +71,5 @@ test('image frame: a cover-cropped image is flagged, an uncropped one and a shar
     return;
   }
   assert.equal(run.status, 0, output.slice(-1500));
-  assert.match(output, /SUMMARY fixtures=3 pass=3 fail=0/);
+  assert.match(output, /SUMMARY fixtures=6 pass=6 fail=0/);
 });

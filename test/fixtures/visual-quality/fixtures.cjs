@@ -265,6 +265,9 @@ module.exports = [
   { id: 'image-crop-bad', scanner: 'image-frame', html: kit('image-crop-bad'), expect: { rules: ['image-crop'], absent: ['image-low-res'] } },
   { id: 'image-crop-good', scanner: 'image-frame', html: kit('image-crop-good'), expect: { control: true } },
   { id: 'image-low-res-bad', scanner: 'image-frame', html: kit('image-crop-good').replace('width:240px;height:120px', 'width:320px;height:160px'), expect: { rules: ['image-low-res'], absent: ['image-crop'] } },
+  { id: 'image-distorted-bad', scanner: 'image-frame', html: kit('image-crop-good').replace('height:120px;object-fit:cover', 'height:240px'), expect: { rules: ['image-distorted'], absent: ['image-crop', 'image-low-res'] } },
+  { id: 'image-distorted-good', scanner: 'image-frame', html: kit('image-crop-good').replace('object-fit:cover', ''), expect: { control: true } },
+  { id: 'image-distorted-contain-good', scanner: 'image-frame', html: kit('image-crop-good').replace('height:120px;object-fit:cover', 'height:240px;object-fit:contain'), expect: { control: true } },
   { id: 'registry-rules-unmeasured-without-thresholds', html: kit('min-font-size-bad'), expect: { absent: ['font-below-min', 'title-scale', 'input-height-band'], measuredRules: ['contrast-low'], unmeasuredRules: ['font-below-min', 'control-height-band', 'wrapped-label', 'icon-stroke-mismatch', 'overlay-fit', 'title-scale', 'input-height-band'] } },
   { id: 'registry-rules-measured-with-thresholds', thresholds: true, html: kit('page-good'), expect: { control: true, measuredRules: ['contrast-low', 'font-below-min', 'control-height-band', 'wrapped-label', 'icon-stroke-mismatch', 'overlay-fit', 'title-scale', 'input-height-band'] } },
 ];

@@ -6,6 +6,9 @@
  *                   aspect ratios disagree), so the shopper sees a cut-off product or face.
  *  - image-low-res: the file the browser picked is narrower than 1.5x the width it is drawn at, so
  *                   it renders soft.
+ *  - image-distorted: object-fit: fill (the <img> default) draws the picture in a box whose aspect
+ *                   ratio differs from the file's by more than 6%, so the picture is stretched or
+ *                   squashed (logo squeezed by a flex-shrunk parent, width/height forced separately).
  *
  * Images that have not finished loading are counted in stats.imagesPending and not graded: a
  * missing natural size is a loading state, never a defect of the frame. Parked boxes (closed
@@ -14,7 +17,7 @@
  */
 import { PLATFORM_PREVIEW_CHROME } from '../platform-preview-chrome';
 
-export const IMAGE_FRAME_RULE_IDS = ['image-crop', 'image-low-res'] as const;
+export const IMAGE_FRAME_RULE_IDS = ['image-crop', 'image-low-res', 'image-distorted'] as const;
 
 export type ImageFrameRuleId = (typeof IMAGE_FRAME_RULE_IDS)[number];
 
@@ -57,6 +60,7 @@ export const IMAGE_FRAME_LIMITS = Object.freeze({
   minBoxPx: 32,
   maxCropShare: 0.08,
   minSourceToBoxRatio: 1.5,
+  maxAspectDistortion: 0.06,
 });
 
 export class ImageFrameScanner {
@@ -137,6 +141,26 @@ export class ImageFrameScanner {
       stats.imagesChecked++;
       const cs = getComputedStyle(img);
       const sel = selectorOf(img);
+      if (cs.objectFit === 'fill') {
+        const cw = r.width - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0) - (parseFloat(cs.borderLeftWidth) || 0) - (parseFloat(cs.borderRightWidth) || 0);
+        const ch = r.height - (parseFloat(cs.paddingTop) || 0) - (parseFloat(cs.paddingBottom) || 0) - (parseFloat(cs.borderTopWidth) || 0) - (parseFloat(cs.borderBottomWidth) || 0);
+        if (cw >= L.minBoxPx && ch >= L.minBoxPx) {
+          const natRatio = nw / nh;
+          const boxRatio = cw / ch;
+          const skew = Math.abs(boxRatio / natRatio - 1);
+          if (skew > L.maxAspectDistortion) {
+            const pct = Math.round(skew * 1000) / 10;
+            push({
+              ruleId: 'image-distorted',
+              severity: 'warning',
+              selector: sel,
+              details: 'Image ' + sel + ' (' + nw + 'x' + nh + ', ' + Math.round(natRatio * 100) / 100 + ':1) is drawn in a ' + Math.round(cw) + 'x' + Math.round(ch) + 'px box (' + Math.round(boxRatio * 100) / 100 + ':1), stretched by ' + pct + '% with object-fit: fill',
+              rect: rectOf(r),
+              measured: { distortionPct: pct, naturalRatio: Math.round(natRatio * 1000) / 1000, boxRatio: Math.round(boxRatio * 1000) / 1000, naturalWidth: nw, naturalHeight: nh, boxWidth: Math.round(cw), boxHeight: Math.round(ch), maxPct: L.maxAspectDistortion * 100 },
+            }, 'distort|' + sel + '|' + nw + 'x' + nh + '|' + Math.round(cw) + 'x' + Math.round(ch));
+          }
+        }
+      }
       if (cs.objectFit === 'cover') {
         const scale = Math.max(r.width / nw, r.height / nh);
         const shownShare = Math.min(1, (r.width * r.height) / (scale * scale * nw * nh));

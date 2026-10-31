@@ -1263,6 +1263,7 @@ const STRICT_REGISTRY_RULES: Record<string, true> = {
   'title-scale': true,
   'input-height-band': true,
   'image-crop': true,
+  'image-distorted': true,
 };
 
 /** Edge-clearance rules that fail a build-strict run (waivable); under audit they stay warnings. */
