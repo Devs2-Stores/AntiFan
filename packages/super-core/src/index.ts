@@ -84,8 +84,21 @@ function collapseDuplicateStatements<
 }
 
 
-export interface QueryOpts { text?: string; platform?: string; unitId?: string; unitIds?: string[]; kind?: string; limit?: number; includeGlobal?: boolean; namespace?: CoreNamespace; scope?: string; }
-export interface PackOpts { task: string; platform?: string; unitIds?: string[]; limit?: number; sessionId?: string; includeGlobal?: boolean; namespace?: CoreNamespace; scope?: string; diagnostics?: boolean; }
+export interface QueryOpts {
+  text?: string; platform?: string; unitId?: string; unitIds?: string[]; kind?: string; limit?: number; includeGlobal?: boolean; namespace?: CoreNamespace; scope?: string;
+  /**
+   * Directory names (`scratch`, `plans`) whose files must not back a claim: a claim is
+   * dropped when it has evidence and EVERY anchor lives under such a directory. A claim
+   * with no anchors, or with one anchor outside them, is kept.
+   */
+  excludeSourceDirs?: string[];
+}
+export interface PackOpts {
+  task: string; platform?: string; unitIds?: string[]; limit?: number; sessionId?: string; includeGlobal?: boolean; namespace?: CoreNamespace; scope?: string; diagnostics?: boolean;
+  /** Claims scoring below this (0..1) stay out of the pack; an empty pack is a valid answer. Default 0. */
+  minScore?: number;
+  excludeSourceDirs?: string[];
+}
 export interface PackDiagnostics {
   staleClaims: number;
   agingClaims: number;
@@ -652,6 +665,20 @@ export class Core {
     if (opts.unitId) { where.push('c.unitId = ?'); args.push(opts.unitId); }
     if (opts.unitIds?.length) { where.push(`c.unitId IN (${opts.unitIds.map(() => '?').join(',')})`); args.push(...opts.unitIds); }
     if (opts.kind) { where.push('c.kind = ?'); args.push(opts.kind); }
+    const excludeDirs = (opts.excludeSourceDirs ?? []).filter((d) => /^[A-Za-z0-9._-]+$/.test(d));
+    if (excludeDirs.length) {
+      // Artifact relPaths use either separator; compare on a '/'-delimited form so a segment
+      // match cannot hit a longer name ("plans-old") and `_`/`%` in a name are not wildcards.
+      const segmentMatch = excludeDirs.map(() => "('/' || REPLACE(a1.relPath, char(92), '/') || '/') LIKE ? ESCAPE '!'").join(' OR ');
+      where.push(`NOT (
+        EXISTS (SELECT 1 FROM evidence e0 WHERE e0.claimId = c.claimId)
+        AND NOT EXISTS (
+          SELECT 1 FROM evidence e1 LEFT JOIN artifacts a1 ON a1.entryId = e1.entryId
+          WHERE e1.claimId = c.claimId AND NOT (a1.entryId IS NOT NULL AND (${segmentMatch}))
+        )
+      )`);
+      for (const d of excludeDirs) args.push(`%/${d.replace(/[!%_]/g, (ch) => `!${ch}`)}/%`);
+    }
     // Project scope is a PREFERENCE, not a filter: claims from the caller's own
     // units fill the pool first, the rest of the store fills what is left, so a
     // project with thin evidence still gets cross-project knowledge instead of an
@@ -737,7 +764,9 @@ export class Core {
     // for an oversampled pool, collapse equal statements, then take N DISTINCT.
     const pool = Math.min(limit * 4, 200);
     const projectScope = opts.scope ? this.resolveScope(opts.scope) : null;
-    const raw = this.query({ text: opts.task, platform: opts.platform, unitIds: opts.unitIds, scope: opts.scope, includeGlobal: opts.includeGlobal, namespace: opts.namespace, limit: pool });
+    const minScore = typeof opts.minScore === 'number' && Number.isFinite(opts.minScore) ? Math.max(0, Math.min(1, opts.minScore)) : 0;
+    const raw = this.query({ text: opts.task, platform: opts.platform, unitIds: opts.unitIds, scope: opts.scope, includeGlobal: opts.includeGlobal, namespace: opts.namespace, excludeSourceDirs: opts.excludeSourceDirs, limit: pool })
+      .filter((c) => c.score >= minScore);
     const claims = collapseDuplicateStatements(raw, limit);
     // Conflicts stay store-wide unless units are named explicitly: the conflict
     // list is a warning surface, and hiding a cross-project conflict is worse

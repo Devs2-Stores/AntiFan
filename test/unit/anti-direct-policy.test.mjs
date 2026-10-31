@@ -388,14 +388,13 @@ test('a ticked Core annotation switches an armed Direct session back to Core con
 	);
 
 	// The disarm is a mode switch, not a one-prompt exception: an untagged follow-up
-	// stays in Core mode too.
-	const skippedAfter = h.entries.filter((e) => e.data?.event === 'BRIDGE_CONTEXT_SKIPPED');
+	// stays in Core mode too. (A skip for the pack cooldown after the timed-out Core
+	// call is a Core-mode outcome, not a return to anti-direct.)
+	const directSkips = () =>
+		h.entries.filter((e) => e.data?.event === 'BRIDGE_CONTEXT_SKIPPED' && e.data?.intent === 'user-direct').length;
+	const skippedAfter = directSkips();
 	await h.emitBeforeAgentStart('tiếp tục kiểm tra luồng checkout');
-	assert.equal(
-		h.entries.filter((e) => e.data?.event === 'BRIDGE_CONTEXT_SKIPPED').length,
-		skippedAfter.length,
-		'untagged follow-up must not fall back to anti-direct'
-	);
+	assert.equal(directSkips(), skippedAfter, 'untagged follow-up must not fall back to anti-direct');
 	assert.equal(process.env.ANTIFAN_ANTI_DIRECT, undefined);
 });
 

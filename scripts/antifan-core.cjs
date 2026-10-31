@@ -3,7 +3,7 @@
 // Usage: antifan-core <command> [json-args]
 //   import <reportsDir>     import scout ledgers
 //   query '{"text":"..."}'  anchored claims
-//   pack '{"task":"..."}'   context pack
+//   pack '{"task":"..."}'   context pack; optional minScore (0..1, default 0) and excludeSourceDirs (["scratch","plans"])
 //   scope '{"path":"E:\\Work\\apps\\AntiFan"}'  units a project root resolves to
 //   recommend '{"task":"..."}'
 //   receipt '{"task":"...","recommendation":"..."}'

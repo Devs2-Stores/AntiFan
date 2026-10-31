@@ -196,6 +196,8 @@ interface BridgeState {
 	unavailableReason: string | null;
 	/** When `coreStatus` was last decided, so an unavailable verdict can expire. */
 	coreStatusAt: number;
+	/** A failed `pack` call is not retried before this epoch-ms, so a down Core costs one timeout, not one per prompt. */
+	packCooldownUntil: number;
 	pack: CorePack | null;
 	packId: string | null;
 	coreRelease: string | null;
@@ -234,7 +236,11 @@ const BRIDGE_CONTEXT_FAILED = "BRIDGE_CONTEXT_FAILED";
 /** Refusal code for receipt-required actions while Core is unavailable. */
 const REFUSAL_CODE = "REFUSED_CORE_UNAVAILABLE";
 
-const DEFAULT_TIMEOUT_MS = 8_000;
+const DEFAULT_TIMEOUT_MS = 4_000;
+/** After a failed `pack` call the hook stays out of Core for this long (fail open, no repeat timeouts). */
+const PACK_FAILURE_COOLDOWN_MS = 60_000;
+/** Directories whose files do not back injected claims: working notes and plan reports are not project knowledge. */
+const DEFAULT_EXCLUDE_SOURCE_DIRS = ["scratch", "plans"];
 /**
  * How long an "unavailable" verdict is trusted before Core is probed again.
  *
@@ -381,6 +387,20 @@ function envInt(name: string, fallback: number, max: number): number {
 	const raw = process.env[name];
 	const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN;
 	return Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, max) : fallback;
+}
+
+/** `ANTIFAN_CORE_MIN_SCORE`: lowest claim score (0..1) worth injecting. Unset or invalid means 0 (no floor). */
+function minScoreFromEnv(): number {
+	const raw = process.env.ANTIFAN_CORE_MIN_SCORE;
+	const parsed = raw ? Number.parseFloat(raw) : Number.NaN;
+	return Number.isFinite(parsed) ? Math.max(0, Math.min(1, parsed)) : 0;
+}
+
+/** `ANTIFAN_CORE_EXCLUDE_DIRS`: comma list; set to an empty string to exclude nothing. */
+function excludeSourceDirsFromEnv(): string[] {
+	const raw = process.env.ANTIFAN_CORE_EXCLUDE_DIRS;
+	if (raw === undefined) return DEFAULT_EXCLUDE_SOURCE_DIRS;
+	return raw.split(",").map((part) => part.trim()).filter((part) => part.length > 0);
 }
 
 /** taskHash binds the pack to (normalized task text, project identity). */
@@ -877,6 +897,7 @@ export default function antifanCoreBridgeHook(pi: BridgeAPI): void {
 		coreStatus: "unknown",
 		unavailableReason: null,
 		coreStatusAt: 0,
+		packCooldownUntil: 0,
 		pack: null,
 		packId: null,
 		coreRelease: null,
@@ -1011,6 +1032,7 @@ export default function antifanCoreBridgeHook(pi: BridgeAPI): void {
 		state.coreStatus = "unknown";
 		state.unavailableReason = null;
 		state.coreStatusAt = 0;
+		state.packCooldownUntil = 0;
 		state.pack = null;
 		state.packId = null;
 		state.coreRelease = null;
@@ -1140,6 +1162,14 @@ export default function antifanCoreBridgeHook(pi: BridgeAPI): void {
 					"inline",
 				);
 			}
+			if (Date.now() < state.packCooldownUntil) {
+				recordEvent("BRIDGE_CONTEXT_SKIPPED", {
+					taskHash,
+					reason: "pack cooldown after a failed Core call",
+					retryInMs: state.packCooldownUntil - Date.now(),
+				});
+				return undefined;
+			}
 			const platform = resolvePlatform();
 
 			const result = await runCoreCli(
@@ -1156,6 +1186,9 @@ export default function antifanCoreBridgeHook(pi: BridgeAPI): void {
 					// still fills what is left. The resolved project root is the
 					// authority — never inferred from the prompt.
 					scope: state.projectRoot,
+					// An empty pack is a valid answer. The floor only removes weak claims; it never makes the call fail.
+					minScore: minScoreFromEnv(),
+					excludeSourceDirs: excludeSourceDirsFromEnv(),
 					// Scope the pack to a platform when the workspace declares one.
 					// Without it the Core applies no platform constraint, so claims
 					// tagged for a different e-commerce platform are injected into
@@ -1172,8 +1205,11 @@ export default function antifanCoreBridgeHook(pi: BridgeAPI): void {
 			);
 
 			if (!result.ok || !result.pack) {
+				state.packCooldownUntil = Date.now() + envInt("ANTIFAN_CORE_PACK_COOLDOWN_MS", PACK_FAILURE_COOLDOWN_MS, 600_000);
 				return emitFailureOnce(result.reason ?? "pack command returned no pack", "inline");
 			}
+
+			state.packCooldownUntil = 0;
 
 			const pack = result.pack;
 			state.coreStatus = "available";

@@ -1338,3 +1338,78 @@ test('a merge flattens list-shaped provenance and leaves nothing for the next op
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// A pack over a store whose claims are anchored in three kinds of file: a source file, a plans
+// report and a scratch note, plus a claim with no anchor at all.
+function fixtureSourceDirs() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'core-srcdirs-'));
+  fs.mkdirSync(path.join(dir, 'units', 'u-src'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'project-register.json'), JSON.stringify({
+    runId: 't', units: [{ unitId: 'u-src', rootId: 'work-root', relPath: 'apps\\demo', kind: 'package', disposition: 'ELIGIBLE', parentId: null, markers: [] }],
+  }));
+  fs.writeFileSync(path.join(dir, 'skills-register.json'), JSON.stringify({ skills: [] }));
+  const entry = (entryId: string, rel: string) => JSON.stringify({ entryId, relPath: rel, path: `E:\\Work\\${rel}`, size: 1, mtime: '2026-01-01T00:00:00Z', sha256: entryId, disposition: 'ANALYZED_WITH_CLAIMS', observedAt: '2026-01-01T00:00:00Z' });
+  fs.writeFileSync(path.join(dir, 'units', 'u-src', 'content-ledger.jsonl'), [
+    entry('e-src', 'apps\\demo\\src\\widget.ts'),
+    entry('e-plan', 'apps\\demo\\plans\\260101-widget\\plan.md'),
+    entry('e-scratch', 'scratch\\widget-notes.md'),
+    entry('e-plans-old', 'apps\\demo\\plans-old\\widget.md'),
+  ].join('\n') + '\n');
+  const claim = (claimId: string, statement: string, entryIds: string[]) => JSON.stringify({
+    claimId, unitId: 'u-src', statement, kind: 'RULE', status: 'OBSERVED', extractorVersion: 't', context: {},
+    evidenceRefs: entryIds.map((entryId) => ({ entryId, revision: 'r', path: entryId, anchor: 'a' })),
+  });
+  fs.writeFileSync(path.join(dir, 'units', 'u-src', 'claims.jsonl'), [
+    claim('c-src', 'widget renders from the source file', ['e-src']),
+    claim('c-plan', 'widget plan report says rewrite it', ['e-plan']),
+    claim('c-scratch', 'widget scratch note says retry', ['e-scratch']),
+    claim('c-mixed', 'widget fact seen in the plan and in source', ['e-plan', 'e-src']),
+    claim('c-lookalike', 'widget fact from the plans-old folder', ['e-plans-old']),
+    claim('c-bare', 'widget fact with no anchor', []),
+  ].join('\n') + '\n');
+  return dir;
+}
+
+test('excludeSourceDirs drops claims anchored only under those directories, keeps mixed, bare and look-alike ones', () => {
+  const dir = fixtureSourceDirs();
+  const core = openCore(path.join(dir, 'core.db'));
+  try {
+    core.importScout(dir);
+    const ids = (opts: { excludeSourceDirs?: string[] }) => core.query({ text: 'widget', limit: 50, ...opts }).map((c) => c.claimId).sort();
+    assert.deepEqual(ids({}), ['c-bare', 'c-lookalike', 'c-mixed', 'c-plan', 'c-scratch', 'c-src']);
+    assert.deepEqual(ids({ excludeSourceDirs: ['plans', 'scratch'] }), ['c-bare', 'c-lookalike', 'c-mixed', 'c-src']);
+    assert.deepEqual(ids({ excludeSourceDirs: ['scratch'] }), ['c-bare', 'c-lookalike', 'c-mixed', 'c-plan', 'c-src']);
+    assert.deepEqual(ids({ excludeSourceDirs: ['bad name;drop', '%'] }), ['c-bare', 'c-lookalike', 'c-mixed', 'c-plan', 'c-scratch', 'c-src'], 'names that are not plain segments are ignored');
+    const pack = core.contextPack({ task: 'widget', excludeSourceDirs: ['plans', 'scratch'] });
+    assert.ok(!pack.claims.some((c) => c.claimId === 'c-plan' || c.claimId === 'c-scratch'));
+  } finally {
+    core.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('minScore keeps weak claims out of a pack and an empty pack is still a pack', () => {
+  const dir = fixtureSourceDirs();
+  const core = openCore(path.join(dir, 'core.db'));
+  try {
+    core.importScout(dir);
+    const open = core.contextPack({ task: 'widget' });
+    assert.ok(open.claims.length > 0);
+    // Scores include a recency term, so two packs built moments apart differ in the last digits:
+    // the threshold sits a clear margin below the best score instead of on it.
+    const top = Math.max(...open.claims.map((c) => c.score));
+    const floor = top - 0.05;
+    const mid = core.contextPack({ task: 'widget', minScore: floor });
+    assert.ok(mid.claims.length >= 1 && mid.claims.every((c) => c.score >= floor));
+    assert.equal(core.contextPack({ task: 'widget', minScore: 0 }).claims.length, open.claims.length, 'default and 0 are the same');
+    const none = core.contextPack({ task: 'widget', minScore: 1 });
+    assert.equal(none.claims.length, 0, 'nothing reaches a perfect score');
+    assert.ok(typeof none.packId === 'string' && none.packId.length > 0, 'the pack identity is still issued');
+    assert.ok(Array.isArray(none.conflicts) && Array.isArray(none.unknowns));
+    const same = core.contextPack({ task: 'widget', minScore: Number.NaN });
+    assert.equal(same.claims.length, open.claims.length, 'a non-numeric minScore is ignored');
+  } finally {
+    core.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

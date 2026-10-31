@@ -44,6 +44,9 @@ const ENV_KEYS = [
 	'ANTIFAN_CORE_BRIDGE_GATE',
 	'ANTIFAN_ANTI_DIRECT',
 	'ANTIFAN_ANTI_DIRECT_ORIGIN',
+	'ANTIFAN_CORE_MIN_SCORE',
+	'ANTIFAN_CORE_EXCLUDE_DIRS',
+	'ANTIFAN_CORE_PACK_COOLDOWN_MS',
 ];
 
 async function withEnv(overrides, fn) {
@@ -408,6 +411,111 @@ test('core timeout: hard spawn timeout fires and session continues', async () =>
 			assert.match(messages[0].details.reason, /timeout/i);
 		},
 	);
+});
+
+/** A CLI that appends every invocation's command and JSON args to `calls`, then answers `reply`. */
+function recordingStub(dir, reply) {
+	const calls = path.join(dir, 'calls.jsonl');
+	const stub = writeStubCli(
+		dir,
+		`require('node:fs').appendFileSync(${JSON.stringify(calls)}, JSON.stringify({ cmd: process.argv[2], args: JSON.parse(process.argv[3] || '{}') }) + '\\n');\n${reply}`,
+	);
+	return { stub, calls: () => readJsonl(calls) };
+}
+
+const EMPTY_PACK_STUB = `console.log(JSON.stringify({ packId: 'pack-empty', claims: [], conflicts: [], unknowns: [], release: null, diagnostics: null }));`;
+
+test('after a failed pack call the next prompts do not call Core again until the cooldown ends', async () => {
+	const dir = tmpDir('core-bridge-cooldown-');
+	const rec = recordingStub(dir, EXIT2_STUB);
+	await withEnv({ ANTIFAN_CORE_CLI: rec.stub, ANTIFAN_CORE_BRIDGE_LOG: path.join(dir, 'events.jsonl'), SUPER_CORE_DB: undefined, ANTIFAN_PROJECT_ROOT: undefined, ANTIFAN_CORE_PACK_COOLDOWN_MS: '600000' }, async () => {
+		const h = makePi();
+		bridgeHook(h.pi);
+		const ctx = { cwd: REPO };
+		const first = await h.emitBeforeAgentStart('first prompt', ctx);
+		assert.equal(first.length, 1, 'the one failure label');
+		assert.equal(rec.calls().filter((c) => c.cmd === 'pack').length, 1);
+
+		const second = await h.emitBeforeAgentStart('second prompt', ctx);
+		const third = await h.emitBeforeAgentStart('third prompt', ctx);
+		assert.equal(second.length + third.length, 0, 'fail open: no message, no throw');
+		assert.equal(rec.calls().filter((c) => c.cmd === 'pack').length, 1, 'the cooldown spared Core the repeat calls');
+		assert.equal(h.entries.filter((e) => e.data?.event === 'BRIDGE_CONTEXT_FAILED').length, 1);
+		assert.equal(h.entries.filter((e) => e.data?.event === 'BRIDGE_CONTEXT_SKIPPED').length, 2, 'each skipped prompt is on the record');
+
+		// A new session starts clean.
+		await h.emit('session_start');
+		await h.emitBeforeAgentStart('fourth prompt', ctx);
+		assert.equal(rec.calls().filter((c) => c.cmd === 'pack').length, 2);
+	});
+});
+
+test('a short cooldown lets the next prompt retry and a recovered Core is used', async () => {
+	const dir = tmpDir('core-bridge-cooldown-short-');
+	const flag = path.join(dir, 'up');
+	const calls = path.join(dir, 'calls.jsonl');
+	const stub = writeStubCli(
+		dir,
+		`const fs = require('node:fs'); fs.appendFileSync(${JSON.stringify(calls)}, process.argv[2] + '\\n');\n` +
+			`if (!fs.existsSync(${JSON.stringify(flag)})) { console.error(JSON.stringify({available:false,reason:'down'})); process.exit(2); }\n${EMPTY_PACK_STUB}`,
+	);
+	await withEnv({ ANTIFAN_CORE_CLI: stub, ANTIFAN_CORE_BRIDGE_LOG: path.join(dir, 'events.jsonl'), SUPER_CORE_DB: undefined, ANTIFAN_PROJECT_ROOT: undefined, ANTIFAN_CORE_PACK_COOLDOWN_MS: '1' }, async () => {
+		const h = makePi();
+		bridgeHook(h.pi);
+		const ctx = { cwd: REPO };
+		assert.equal((await h.emitBeforeAgentStart('first prompt', ctx)).length, 1);
+		fs.writeFileSync(flag, '');
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		const second = await h.emitBeforeAgentStart('second prompt', ctx);
+		assert.equal(second.length, 1);
+		assert.equal(second[0].details.kind, 'core-context-pack');
+	});
+});
+
+test('the pack request carries the score floor and the excluded source directories', async () => {
+	const dir = tmpDir('core-bridge-pack-args-');
+	const rec = recordingStub(dir, EMPTY_PACK_STUB);
+	const base = { ANTIFAN_CORE_CLI: rec.stub, ANTIFAN_CORE_BRIDGE_LOG: path.join(dir, 'events.jsonl'), SUPER_CORE_DB: undefined, ANTIFAN_PROJECT_ROOT: undefined };
+	const packArgs = () => rec.calls().filter((c) => c.cmd === 'pack').at(-1).args;
+
+	await withEnv({ ...base, ANTIFAN_CORE_MIN_SCORE: undefined, ANTIFAN_CORE_EXCLUDE_DIRS: undefined }, async () => {
+		const h = makePi();
+		bridgeHook(h.pi);
+		await h.emitBeforeAgentStart('default args prompt', { cwd: REPO });
+		assert.equal(packArgs().minScore, 0);
+		assert.deepEqual(packArgs().excludeSourceDirs, ['scratch', 'plans']);
+	});
+	await withEnv({ ...base, ANTIFAN_CORE_MIN_SCORE: '0.3', ANTIFAN_CORE_EXCLUDE_DIRS: 'scratch, drafts' }, async () => {
+		const h = makePi();
+		bridgeHook(h.pi);
+		await h.emitBeforeAgentStart('env args prompt', { cwd: REPO });
+		assert.equal(packArgs().minScore, 0.3);
+		assert.deepEqual(packArgs().excludeSourceDirs, ['scratch', 'drafts']);
+	});
+	await withEnv({ ...base, ANTIFAN_CORE_MIN_SCORE: 'not-a-number', ANTIFAN_CORE_EXCLUDE_DIRS: '' }, async () => {
+		const h = makePi();
+		bridgeHook(h.pi);
+		await h.emitBeforeAgentStart('invalid env prompt', { cwd: REPO });
+		assert.equal(packArgs().minScore, 0);
+		assert.deepEqual(packArgs().excludeSourceDirs, [], 'an empty list turns the exclusion off');
+	});
+});
+
+test('an empty pack is a pack, not a BRIDGE_CONTEXT_FAILED', async () => {
+	const dir = tmpDir('core-bridge-empty-pack-');
+	const rec = recordingStub(dir, EMPTY_PACK_STUB);
+	await withEnv({ ANTIFAN_CORE_CLI: rec.stub, ANTIFAN_CORE_BRIDGE_LOG: path.join(dir, 'events.jsonl'), SUPER_CORE_DB: undefined, ANTIFAN_PROJECT_ROOT: undefined, ANTIFAN_CORE_MIN_SCORE: '1' }, async () => {
+		const h = makePi();
+		bridgeHook(h.pi);
+		const messages = await h.emitBeforeAgentStart('a prompt with no strong claims', { cwd: REPO });
+		assert.equal(messages.length, 1);
+		assert.equal(messages[0].details.kind, 'core-context-pack');
+		assert.equal(messages[0].details.claimCount, 0);
+		assert.equal(h.entries.filter((e) => e.data?.event === 'BRIDGE_CONTEXT_FAILED').length, 0);
+		// Same task again: the empty pack is kept, Core is not asked twice.
+		await h.emitBeforeAgentStart('a prompt with no strong claims', { cwd: REPO });
+		assert.equal(rec.calls().filter((c) => c.cmd === 'pack').length, 1);
+	});
 });
 
 // ---------------------------------------------------------------------------

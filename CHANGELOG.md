@@ -52,6 +52,7 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 - `terminal.list` báo `hookSha256` và `hookOutdated` khi OMP đang chạy bản hook cũ hơn bản đã cài.
 - `leader-job init` cho phép bỏ `--gid` (xuất tab đầu) và có `--no-sheet`; `verify-sheet` báo N/A thay vì PASS khi job không có sheet, và job không sheet luôn cần ít nhất một kiểm chứng độc lập (dashboard) mới thành `verified`.
 - Leader guard chặn thêm `anti.sheet.write_range` và `anti.agent.set_control`.
+- Cầu nối Core: timeout 4 giây, nghỉ 60 giây sau một lần lỗi pack (vẫn fail-open), `ANTIFAN_CORE_MIN_SCORE` (mặc định 0), loại claim chỉ nằm trong `scratch` và `plans` (`ANTIFAN_CORE_EXCLUDE_DIRS`); pack rỗng không còn bị coi là lỗi.
 
 ### Sửa — Link file trong terminal bị xuống hàng
 
