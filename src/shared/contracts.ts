@@ -784,7 +784,13 @@ export const TERMINAL_CHANNELS = {
   LEADER_SET: 'antifan:terminal:leader-set',
   /** Quick-Look preview of a local file referenced in terminal output. */
   READ_FILE_PREVIEW: 'antifan:terminal:read-file-preview',
+  /** Open an Office, PDF or zip file referenced in terminal output with the system's default app. */
+  OPEN_DOCUMENT: 'antifan:terminal:open-document',
 } as const;
+
+export type OpenTerminalDocumentResult =
+  | { ok: true; filePath: string }
+  | { ok: false; reason: 'NOT_DOCUMENT' | 'NOT_FOUND' | 'OPEN_FAILED'; message?: string };
 
 export interface ReadFilePreviewRequest {
   filePath: string;

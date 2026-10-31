@@ -4165,9 +4165,13 @@ function attachFileLinksProvider(term, currentSessionId) {
         const links = findTerminalFileLinkRanges(term.buffer.active, y).map((found) => ({
           range: { start: found.start, end: found.end },
           text: found.text,
-          activate(_event, clickedText) {
+          async activate(_event, clickedText) {
             const sid = typeof currentSessionId === 'function' ? currentSessionId() : currentSessionId;
-            openFileQuickLook(clickedText, sid);
+            let opened = null;
+            try {
+              opened = await api?.openTerminalDocument?.(clickedText, sid);
+            } catch {}
+            if (!opened?.ok) openFileQuickLook(clickedText, sid);
           },
         }));
         callback(links.length > 0 ? links : undefined);

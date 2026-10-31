@@ -20,6 +20,11 @@ const VIDEO_MIME_BY_EXTENSION: Record<string, string> = {
 };
 const VIDEO_SNIFF_BYTES = 16;
 const MP4_BOX_TYPES: Record<string, true> = { ftyp: true, moov: true, mdat: true, free: true, skip: true, wide: true, pnot: true };
+const SYSTEM_APP_DOCUMENT_EXTENSIONS: Record<string, true> = { pdf: true, doc: true, docx: true, xls: true, xlsx: true, ppt: true, pptx: true, zip: true };
+
+export function isSystemAppDocument(filePath: string): boolean {
+  return SYSTEM_APP_DOCUMENT_EXTENSIONS[path.extname(filePath).slice(1).toLowerCase()] === true;
+}
 
 function readHead(filePath: string, length: number): Buffer {
   const fd = fs.openSync(filePath, 'r');

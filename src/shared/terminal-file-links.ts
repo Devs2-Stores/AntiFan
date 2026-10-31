@@ -36,6 +36,7 @@ const VALID_FILE_EXTENSIONS: Record<string, true> = {
   py: true, rs: true, go: true, c: true, cpp: true, h: true, hpp: true, cs: true, java: true, kt: true, swift: true, rb: true, php: true,
   lock: true, log: true, sql: true, csv: true, tsv: true, xml: true, vue: true, svelte: true, astro: true,
   graphql: true, gql: true, proto: true, env: true,
+  pdf: true, doc: true, docx: true, xls: true, xlsx: true, ppt: true, pptx: true, zip: true,
 };
 
 const DISALLOWED_EXTENSIONS: Record<string, true> = {
@@ -144,23 +145,33 @@ export interface TerminalFileLinkRange {
 
 /** Rows one logical line may span before the reader stops (a runaway wrap chain). */
 const MAX_WRAPPED_ROWS = 64;
+/** Word-wrap breaks one path may be joined across (a path with several spaced folders). */
+const MAX_JOINED_BREAKS = 4;
 
-/**
- * File links touching buffer row `bufferLineNumber` (1-based, as xterm's provideLinks passes it),
- * in cell coordinates. The row is read together with the rows it wraps from and into, so a path the
- * terminal broke across rows stays one link, and every string index is mapped to the cell it was
- * printed in: a wide glyph (CJK, emoji) takes two cells but one index, so string offsets alone put
- * every link after it in the wrong columns.
- */
-export function findTerminalFileLinkRanges(buffer: TerminalBufferLike, bufferLineNumber: number): TerminalFileLinkRange[] {
-  const row = bufferLineNumber - 1;
-  let first = row;
-  while (first > 0 && row - first < MAX_WRAPPED_ROWS && buffer.getLine(first)?.isWrapped) first -= 1;
+// The end of a row that stops inside an absolute path: the path start, then any spaced words.
+const PATH_HEAD_RE = new RegExp(
+  String.raw`(?:^|[\s"'` + '`' + String.raw`(\[<])(?:[a-zA-Z]:[\\/]|\/(?:home|Users|usr|var|tmp|etc|work|Work)[\\/])` +
+    String.raw`[^${STOP}]*(?: ${SPACED_WORD})*$`,
+);
+
+interface TerminalCellRef {
+  x: number;
+  y: number;
+  width: number;
+}
+
+interface RowsText {
+  text: string;
+  /** One entry per string index: the 1-based cell that character was printed in. */
+  cells: TerminalCellRef[];
+}
+
+function readRows(buffer: TerminalBufferLike, first: number, last: number): RowsText {
   let text = '';
-  const cells: Array<{ x: number; y: number; width: number }> = [];
-  for (let y = first; y - first < MAX_WRAPPED_ROWS; y += 1) {
+  const cells: TerminalCellRef[] = [];
+  for (let y = first; y <= last; y += 1) {
     const line = buffer.getLine(y);
-    if (!line || (y > first && !line.isWrapped)) break;
+    if (!line) break;
     for (let x = 0; x < line.length; x += 1) {
       const cell = line.getCell(x);
       const width = cell ? cell.getWidth() : 1;
@@ -170,6 +181,84 @@ export function findTerminalFileLinkRanges(buffer: TerminalBufferLike, bufferLin
       text += chars;
     }
   }
+  return { text, cells };
+}
+
+function trimRows(rows: RowsText, start: boolean, end: boolean): RowsText {
+  let from = 0;
+  let to = rows.text.length;
+  if (start) while (from < to && rows.text[from] === ' ') from += 1;
+  if (end) while (to > from && rows.text[to - 1] === ' ') to -= 1;
+  return { text: rows.text.slice(from, to), cells: rows.cells.slice(from, to) };
+}
+
+/** The 0-based rows xterm soft-wrapped into one logical line with `row`. */
+function wrapGroup(buffer: TerminalBufferLike, row: number): { first: number; last: number } {
+  let first = row;
+  while (first > 0 && row - first < MAX_WRAPPED_ROWS && buffer.getLine(first)?.isWrapped) first -= 1;
+  let last = row;
+  while (last - first < MAX_WRAPPED_ROWS - 1 && buffer.getLine(last + 1)?.isWrapped) last += 1;
+  return { first, last };
+}
+
+/**
+ * True when the program word-wrapped a path at one of its spaces: `prev` ends inside an absolute
+ * path, the hard-broken row `next` opens with a `/`- or `\`-separated token, and that token would
+ * not have fitted after `prev`'s text. The fit test is what tells a TUI's word wrap (OMP prints
+ * `E:\Work\F1GENZ` and `MultiSync\a.xlsx` as two rows) from two unrelated lines.
+ */
+function continuesPathAcrossBreak(buffer: TerminalBufferLike, prev: { first: number; last: number }, next: number): boolean {
+  const nextLine = buffer.getLine(next);
+  const prevLine = buffer.getLine(prev.last);
+  if (!nextLine || nextLine.isWrapped || !prevLine) return false;
+  const head = trimRows(readRows(buffer, prev.first, prev.last), false, true);
+  const lastCell = head.cells[head.cells.length - 1];
+  if (!lastCell || lastCell.y !== prev.last + 1 || !PATH_HEAD_RE.test(head.text)) return false;
+  const tail = trimRows(readRows(buffer, next, next), true, false);
+  const tokenLength = tail.text.search(/ |$/);
+  const token = tail.text.slice(0, tokenLength);
+  if (!/[\\/]/.test(token) || !new RegExp(`^${TOKEN}$`).test(token)) return false;
+  let tokenColumns = 0;
+  for (const cell of tail.cells.slice(0, tokenLength)) tokenColumns += cell.width;
+  return lastCell.x + lastCell.width - 1 + 1 + tokenColumns > prevLine.length;
+}
+
+/**
+ * File links touching buffer row `bufferLineNumber` (1-based, as xterm's provideLinks passes it),
+ * in cell coordinates. The row is read together with the rows it wraps from and into, so a path the
+ * terminal broke across rows stays one link, and every string index is mapped to the cell it was
+ * printed in: a wide glyph (CJK, emoji) takes two cells but one index, so string offsets alone put
+ * every link after it in the wrong columns. A path the program itself word-wrapped at a space (hard
+ * rows, no xterm wrap flag) is joined back the same way when `continuesPathAcrossBreak` holds.
+ */
+export function findTerminalFileLinkRanges(buffer: TerminalBufferLike, bufferLineNumber: number): TerminalFileLinkRange[] {
+  const start = wrapGroup(buffer, bufferLineNumber - 1);
+  const groups = [start];
+  let head = start;
+  for (let k = 0; k < MAX_JOINED_BREAKS && head.first > 0; k += 1) {
+    const prev = wrapGroup(buffer, head.first - 1);
+    if (!continuesPathAcrossBreak(buffer, prev, head.first)) break;
+    groups.unshift(prev);
+    head = prev;
+  }
+  let tail = start;
+  for (let k = 0; k < MAX_JOINED_BREAKS; k += 1) {
+    if (!continuesPathAcrossBreak(buffer, tail, tail.last + 1)) break;
+    tail = wrapGroup(buffer, tail.last + 1);
+    groups.push(tail);
+  }
+  let text = '';
+  const cells: TerminalCellRef[] = [];
+  groups.forEach((group, i) => {
+    const rows = trimRows(readRows(buffer, group.first, group.last), i > 0, i < groups.length - 1);
+    const before = cells[cells.length - 1];
+    if (before) {
+      text += ' ';
+      cells.push({ x: before.x + before.width, y: before.y, width: 1 });
+    }
+    text += rows.text;
+    cells.push(...rows.cells);
+  });
   const ranges: TerminalFileLinkRange[] = [];
   for (const link of findTerminalFileLinks(text)) {
     const startCell = cells[link.start];

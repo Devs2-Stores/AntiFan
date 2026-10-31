@@ -18,7 +18,7 @@ import { StorageLocations } from '../config/storage-locations';
 import { parseOwnerKey } from '../project/project-context';
 import { openSpace, openSpaceSplits, openBuiltinSplits, describeSpaceSplits, createConfirmationStore, type SpaceOpenDeps, type SpaceSplitAnchor, type SpaceSplitDeps } from '../project/space-open';
 import { buildSpaceTemplate, writeSpaceManifestExclusive, antifanDirUnignoredInGit } from '../project/space-manifest';
-import type { SpaceInitResult, SpaceOpenReason, SpaceSplitsInfo, ReadFilePreviewResult, CaptureFullPageResult, TerminalLeaderSetResult, TerminalLeaderStamp } from '../../shared/contracts';
+import type { SpaceInitResult, SpaceOpenReason, SpaceSplitsInfo, ReadFilePreviewResult, OpenTerminalDocumentResult, CaptureFullPageResult, TerminalLeaderSetResult, TerminalLeaderStamp } from '../../shared/contracts';
 import { AntiFanTab, SplitPaneId, AntiFanPickedElement, TOOLBAR_CHANNELS, SIDEBAR_CHANNELS, TERMINAL_CHANNELS, FRAME_BACKDROP_CHANNELS, PROJECT_WINDOW_CHANNELS, TerminalAckPayload, TerminalDataPayload, TerminalNewInFolderResult, SpaceOpenResult, TerminalTabLayout, TerminalTabPrefs, TERMINAL_TAB_LAYOUT_DEFAULT_WIDTH, clampTerminalTabSidebarWidth, TERMINAL_CATEGORY_COLORS_MAX, TERMINAL_CATEGORY_COLOR_PATTERN, ToolbarPhoneStatus, TerminalAgentAffinityInfo, ProjectWindowIdentity, BRIDGE_CHANNELS, RunCardState, RunControlOp, RunControlReason, RunControlResult, CapsuleBrief, CapsuleBriefResult, CapsuleBriefReason } from '../../shared/contracts';
 import { buildBridgeHealthReport, subscribeBridgeHealth } from '../bridge/bridge-health';
 import { RunStateService } from '../run/run-state-service';
@@ -66,7 +66,7 @@ import { HaravanUploader } from './haravan-uploader';
 import type { ActionSequenceParams, ActionSequenceResult, NavigationWaitOptions, NavigationWaitUntil } from './tab-automation-host';
 import { TerminalManager, DEFAULT_TERMINAL_CAPSULE_ID, agentTerminalOwnerKey, workspaceTerminalProvenance, selectAnnotationTargets, selectAnnotationPickerRows, type SessionSummary, type TerminalDiagnosticsReport, type TerminalManagerStats, type TerminalSessionStateProjection } from './terminal-manager';
 import { writeFullPageCapture } from './full-page-capture-file';
-import { buildVSCodeFileUrl, buildVSCodeLaunchArgs, normalizePreviewPath, readFilePreview } from './file-preview-reader';
+import { buildVSCodeFileUrl, buildVSCodeLaunchArgs, isSystemAppDocument, normalizePreviewPath, readFilePreview } from './file-preview-reader';
 import { checkForUpdatesAndRestart } from './app-menu';
 import { SkillScanner } from './skill-scanner';
 import { getCoreHealthService } from '../diagnostics/core-health';
@@ -3486,23 +3486,27 @@ export class NativeTabHost extends EventEmitter {
         };
       }
 
-      let targetPath = normalizePreviewPath(rawPath);
-
-      if (!path.isAbsolute(targetPath)) {
-        let baseCwd = '';
-        if (sessionId) {
-          try {
-            const s = TerminalManager.getInstance().getSession(sessionId);
-            if (s && s.cwd) baseCwd = s.cwd;
-          } catch {}
-        }
-        if (!baseCwd) {
-          const activeCapsule = host.capsuleManager?.getActive?.();
-          if (activeCapsule?.workspacePath) baseCwd = activeCapsule.workspacePath;
-        }
-        targetPath = baseCwd ? path.resolve(baseCwd, targetPath) : path.resolve(targetPath);
+      return readFilePreview(host.resolveTerminalFilePath(rawPath, sessionId));
+    },
+  },
+  {
+    channel: TERMINAL_CHANNELS.OPEN_DOCUMENT,
+    surface: ['sidebar', 'terminalPopout'],
+    run: async ({ host }, event, args): Promise<OpenTerminalDocumentResult> => {
+      const raw = args[0];
+      const payload = raw && typeof raw === 'object' ? (raw as { filePath?: unknown; sessionId?: unknown }) : {};
+      const rawPath = typeof payload.filePath === 'string' ? payload.filePath.trim() : '';
+      const sessionId = typeof payload.sessionId === 'string' ? payload.sessionId.trim() : '';
+      if (!rawPath) return { ok: false, reason: 'NOT_DOCUMENT' };
+      const targetPath = host.resolveTerminalFilePath(rawPath, sessionId);
+      if (!isSystemAppDocument(targetPath)) return { ok: false, reason: 'NOT_DOCUMENT' };
+      try {
+        if (!fs.statSync(targetPath).isFile()) return { ok: false, reason: 'NOT_FOUND' };
+      } catch {
+        return { ok: false, reason: 'NOT_FOUND' };
       }
-      return readFilePreview(targetPath);
+      const error = await shell.openPath(targetPath);
+      return error ? { ok: false, reason: 'OPEN_FAILED', message: error } : { ok: true, filePath: targetPath };
     },
   },
   {
@@ -5439,6 +5443,23 @@ export class NativeTabHost extends EventEmitter {
       safeSendWebContents(contents, 'antifan:terminal:session', projection);
     }
     return this.shell.isSidebarOpen;
+  }
+
+  private resolveTerminalFilePath(rawPath: string, sessionId: string): string {
+    const targetPath = normalizePreviewPath(rawPath);
+    if (path.isAbsolute(targetPath)) return targetPath;
+    let baseCwd = '';
+    if (sessionId) {
+      try {
+        const s = TerminalManager.getInstance().getSession(sessionId);
+        if (s && s.cwd) baseCwd = s.cwd;
+      } catch {}
+    }
+    if (!baseCwd) {
+      const activeCapsule = this.capsuleManager?.getActive?.();
+      if (activeCapsule?.workspacePath) baseCwd = activeCapsule.workspacePath;
+    }
+    return baseCwd ? path.resolve(baseCwd, targetPath) : path.resolve(targetPath);
   }
 
   private openInVSCode(targetPath?: string): { ok: boolean; error?: string; workspacePath?: string } {

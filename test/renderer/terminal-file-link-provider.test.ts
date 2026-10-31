@@ -50,4 +50,24 @@ describe('terminal file link provider', () => {
     attach(term);
     assert.deepStrictEqual((await provide(term, 1)).map((l) => l.text), ['E:/Work/1. Intro/a.md']);
   });
+
+  it('rejoins a spaced path a program word-wrapped onto a new row', async () => {
+    const term = new FakeTerminal();
+    term.setBufferRows([
+      { text: 'E:\\Work\\apps\\F1GENZ'.padEnd(40) },
+      { text: 'MultiSync\\reports\\doi-soat-2026.xlsx'.padEnd(40) },
+    ]);
+    attach(term);
+    const expected = [['E:\\Work\\apps\\F1GENZ MultiSync\\reports\\doi-soat-2026.xlsx', { start: { x: 1, y: 1 }, end: { x: 36, y: 2 } }]];
+    assert.deepStrictEqual((await provide(term, 1)).map((l) => [l.text, l.range]), expected);
+    assert.deepStrictEqual((await provide(term, 2)).map((l) => [l.text, l.range]), expected);
+  });
+
+  it('leaves two rows apart when the second row would have fitted after the first', async () => {
+    const term = new FakeTerminal();
+    term.setBufferRows([{ text: 'E:\\Work\\apps'.padEnd(40) }, { text: 'notes\\a.md'.padEnd(40) }]);
+    attach(term);
+    assert.deepStrictEqual((await provide(term, 1)).map((l) => l.text), []);
+    assert.deepStrictEqual((await provide(term, 2)).map((l) => l.text), ['notes\\a.md']);
+  });
 });

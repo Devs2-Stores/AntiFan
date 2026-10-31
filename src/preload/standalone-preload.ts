@@ -23,6 +23,7 @@ import type {
   SpaceSplitsInfo,
   TerminalTabPrefs,
   ReadFilePreviewResult,
+  OpenTerminalDocumentResult,
   TerminalLeaderSetResult,
 } from '../shared/contracts';
 
@@ -138,6 +139,8 @@ const api = {
     ipcRenderer.invoke(TERMINAL_CHANNELS.OPEN_IN_VSCODE, path),
   readFilePreview: (filePath: string, sessionId?: string): Promise<ReadFilePreviewResult> =>
     ipcRenderer.invoke(TERMINAL_CHANNELS.READ_FILE_PREVIEW, { filePath, sessionId }),
+  openTerminalDocument: (filePath: string, sessionId?: string): Promise<OpenTerminalDocumentResult> =>
+    ipcRenderer.invoke(TERMINAL_CHANNELS.OPEN_DOCUMENT, { filePath, sessionId }),
   togglePanel: () => ipcRenderer.invoke('antifan:toolbar:toggle-sidebar'),
   setPanelWidth: (width: number) => ipcRenderer.invoke('antifan:sidebar:set-width', width),
   setTerminalTabPrefs: (prefs: Partial<TerminalTabPrefs>) => ipcRenderer.invoke(TERMINAL_CHANNELS.SET_TAB_PREFS, prefs),

@@ -17,6 +17,11 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 - `anti.browser.navigate` có thêm `waitUntil`; các công cụ screenshot có thêm `saveTo` (cần grant ghi); `set_viewport` có thêm `hideScrollbar` và `clientWidth`; `tabs.list` có thêm bộ lọc.
 - `anti.browser.navigate` trả `redirectChain` (URL yêu cầu, từng bước redirect của server, URL commit) khi server chuyển hướng. Sửa lỗi composite host không chuyển tiếp `getRedirectChain`, khiến mọi công cụ MCP (route identity của screenshot/QA) luôn thấy `redirects: none`.
 
+### Sửa — Link file trong terminal bị xuống hàng
+
+- Đường dẫn có thư mục chứa dấu cách mà chương trình tự ngắt dòng (xuống hàng thật, không phải soft-wrap của xterm) giờ được nối lại thành một link: chỉ nối khi phần đầu dòng sau không vừa chỗ trống cuối dòng trước, nên một dòng ngắn đi sau không bị ghép nhầm.
+- File `.xlsx`, `.xls`, `.docx`, `.doc`, `.pptx`, `.ppt`, `.pdf`, `.zip` trong terminal giờ thành link; bấm vào mở bằng ứng dụng mặc định của hệ điều hành (kênh `antifan:terminal:open-document`), các file khác vẫn mở Quick-Look.
+
 ### Thêm — Terminal Leader điều phối các terminal khác
 
 - Chuột phải một terminal gốc → **Đặt làm Leader** (👑). OMP chạy trong terminal đó được `terminal.*` chạm tới mọi terminal còn sống của mọi project (trừ chính shell của nó): `terminal.list` trả thêm `cwd`, `name`, `workerOf` và trạng thái run OMP (`run`), `includeBuffer:false` bỏ phần output thô để poll nhiều terminal; `terminal.create` với `cwd` tuyệt đối và không `parentId` tạo terminal gốc trong project sở hữu thư mục đó và ghi nhận là worker; `terminal.close` đóng được terminal gốc. Quyền Leader chỉ tính từ terminal mà attachment được tạo ra (kể cả attachment tạo qua pairing của MCP proxy), không phụ thuộc tab đang bind và không đổi theo `rebind_target`; terminal do agent tạo không đặt làm Leader được.

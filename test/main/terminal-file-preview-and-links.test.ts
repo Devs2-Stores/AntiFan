@@ -4,7 +4,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { TERMINAL_CHANNELS } from '../../src/shared/contracts';
-import { buildVSCodeFileUrl, buildVSCodeLaunchArgs, normalizePreviewPath, readFilePreview } from '../../src/main/browser/file-preview-reader';
+import { buildVSCodeFileUrl, buildVSCodeLaunchArgs, isSystemAppDocument, normalizePreviewPath, readFilePreview } from '../../src/main/browser/file-preview-reader';
 import { findTerminalFileLinks, isValidTerminalFilePath } from '../../src/shared/terminal-file-links';
 
 const linkTexts = (line: string): string[] => findTerminalFileLinks(line).map((link) => link.text);
@@ -38,6 +38,15 @@ describe('Terminal File Quick-Look & Link Provider Contracts', () => {
       preloadContent,
       /readFilePreview:\s*\(filePath:\s*string,\s*sessionId\?:\s*string\)/
     );
+  });
+
+  it('every file-link channel the preload invokes has exactly one main-side handler', () => {
+    const preload = fs.readFileSync(path.join(ROOT, 'src/preload/standalone-preload.ts'), 'utf8');
+    const host = fs.readFileSync(path.join(ROOT, 'src/main/browser/native-tab-host.ts'), 'utf8');
+    for (const key of ['READ_FILE_PREVIEW', 'OPEN_DOCUMENT', 'OPEN_IN_VSCODE'] as const) {
+      assert.ok(preload.includes(`ipcRenderer.invoke(TERMINAL_CHANNELS.${key},`), `preload invokes ${key}`);
+      assert.strictEqual(host.split(`channel: TERMINAL_CHANNELS.${key},`).length - 1, 1, `one handler for ${key}`);
+    }
   });
 
   it('verifies standalone.js links terminal paths through the shared findTerminalFileLinkRanges global', () => {
@@ -218,6 +227,15 @@ describe('Terminal File Quick-Look & Link Provider Contracts', () => {
 
   it('turns a video path in terminal output into a link', () => {
     assert.deepStrictEqual(linkTexts('Đã xuất E:/Work/Gác/channels/ttb/videos/reel-01/out/r1.mp4 xong'), ['E:/Work/Gác/channels/ttb/videos/reel-01/out/r1.mp4']);
+  });
+
+  it('turns an Office or PDF path into a link and routes only those to the system app', () => {
+    const report = 'E:\\Work\\apps\\F1GENZ MultiSync\\reports\\doi-soat-2026-10-30.xlsx';
+    assert.deepStrictEqual(linkTexts(`File Excel: ${report}`), [report]);
+    assert.strictEqual(isSystemAppDocument(report), true);
+    assert.strictEqual(isSystemAppDocument('C:/Docs/Spec.PDF'), true);
+    assert.strictEqual(isSystemAppDocument('E:/Work/a.md'), false);
+    assert.strictEqual(isSystemAppDocument('E:/Work/setup.exe'), false);
   });
 
   it('verifies openInVSCode logic correctly strips line:col, resolves relative path, and generates -r -g arguments', () => {
