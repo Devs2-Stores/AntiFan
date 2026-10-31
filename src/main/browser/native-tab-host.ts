@@ -1913,6 +1913,7 @@ export class NativeTabHost extends EventEmitter {
         getTabTerminalSession: (tabId) => this.getTabTerminalSession(tabId),
         sendKeyboardPress: (params) => this.sendKeyboardPress(params),
         withAgentInput: (action) => this.withAgentInput(action),
+        withPaintingSurface: (tabId, paneId, action) => this.withPaintingSurface(tabId, paneId, action),
         navigateAndWait: (tabId, inputUrl, wait) => this.navigateAndWait(tabId, inputUrl, wait),
         getLastNavigationFailure: (tabId) => this.getLastNavigationFailure(tabId),
       });

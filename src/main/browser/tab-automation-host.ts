@@ -244,6 +244,12 @@ export interface TabAutomationContext {
    * stamp the user-presence clock and defer a later activation.
    */
   withAgentInput?: <T>(action: () => Promise<T>) => Promise<T>;
+  /**
+   * Holds a tab's pane attached and unthrottled while `action` runs. A detached background pane
+   * produces no frames, and Chromium delivers a CDP `mouseMoved` (rAF-aligned input) only on the
+   * next frame, so every trusted pointer gesture there stalled about 5 s before its first event.
+   */
+  withPaintingSurface?: <T>(tabId: string, paneId: SplitPaneId, action: () => Promise<T>) => Promise<T>;
   navigateAndWait?: (tabId: string, inputUrl: string, wait?: number | NavigationWaitOptions) => Promise<boolean>;
   /** The recorded failure of the tab's last navigation, when the host kept one. */
   getLastNavigationFailure?: (tabId: string) => { cause: string; message: string; timedOut: boolean } | undefined;
@@ -967,10 +973,26 @@ export class TabAutomationHost {
         }
       }
     };
-    if (this.ctx.withAgentInput) {
-      return await this.ctx.withAgentInput(dispatch);
+    const run = () => (this.ctx.withAgentInput ? this.ctx.withAgentInput(dispatch) : dispatch());
+    return await this.withPointerSurface(wc, run);
+  }
+
+  /**
+   * Runs a trusted pointer dispatch with the pane of `wc` producing frames when it is not the
+   * presented tab (see `TabAutomationContext.withPaintingSurface`). The presented tab already
+   * paints and runs `action` untouched.
+   */
+  private withPointerSurface<T>(wc: Electron.WebContents | null, action: () => Promise<T>): Promise<T> {
+    const surface = this.ctx.withPaintingSurface;
+    if (!surface || !wc) return action();
+    const activeTabId = this.ctx.getActiveTabId();
+    for (const [tabId, tab] of this.ctx.getAllTabs()) {
+      const paneId: SplitPaneId | null = tab.view?.webContents === wc ? 'desktop' : tab.mobileView?.webContents === wc ? 'mobile' : null;
+      if (!paneId) continue;
+      if (tabId === activeTabId) return action();
+      return surface(tabId, paneId, action);
     }
-    return await dispatch();
+    return action();
   }
 
   private async executeTrustedHover(
@@ -1144,10 +1166,8 @@ export class TabAutomationHost {
         }
       }
     };
-    if (this.ctx.withAgentInput) {
-      return await this.ctx.withAgentInput(dispatch);
-    }
-    return await dispatch();
+    const run = () => (this.ctx.withAgentInput ? this.ctx.withAgentInput(dispatch) : dispatch());
+    return await this.withPointerSurface(wc, run);
   }
   public async dispatchAgentAction(
     action: 'click' | 'type' | 'move' | 'hover' | 'scroll' | 'highlight' | 'clear' | 'trajectory',
@@ -2907,7 +2927,8 @@ export class TabAutomationHost {
     const effectivePane: SplitPaneId = params.paneId || (splitHasLiveMobile ? (target.focusedPane || target.state.splitFocusedPane || 'desktop') : 'desktop');
 
     return this.withTabAgentWorking(targetId, async () => {
-      return await this.ctx.runTargetOperation(targetId, effectivePane, async () => {
+      // Every step of the gesture is a `mouseMoved`, each one stalled on a pane that paints nothing.
+      return await this.ctx.runTargetOperation(targetId, effectivePane, () => this.withPointerSurface(this.ctx.getTabWebContents(targetId, effectivePane), async () => {
         const wc = this.ctx.getTabWebContents(targetId, effectivePane);
         if (!wc || wc.isDestroyed()) return { success: false, reason: 'WebContents destroyed' };
 
@@ -3031,6 +3052,9 @@ export class TabAutomationHost {
 
             for (let step = 1; step <= steps; step++) {
               const ratio = step / steps;
+              // A held background pane sits under the presented tab, and an occluded view gets about
+              // one frame per second: each rAF-aligned move would wait for it. Ask for the frame.
+              wc.invalidate?.();
               await this.sendCdpInputCommand(wc, 'Input.dispatchMouseEvent', {
                 type: 'mouseMoved',
                 x: Math.round(startPoint.x + (endPoint.x - startPoint.x) * ratio),
@@ -3093,7 +3117,7 @@ export class TabAutomationHost {
           const reason = err instanceof Error ? err.message : String(err);
           return { success: false, reason };
         }
-      });
+      }));
     });
   }
 

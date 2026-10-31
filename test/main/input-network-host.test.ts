@@ -22,6 +22,9 @@ interface Harness {
   loading: { value: boolean };
   /** `afterScript` runs after each isolated-world script (given its code), to stage a change between two steps of one action. */
   hooks: { afterScript?: (code: string) => void };
+  /** The host's context, for a test that adds an optional seam before the first action. */
+  ctx: any;
+  wc: any;
 }
 
 /**
@@ -102,7 +105,7 @@ function harness(html: string, boxes: Record<string, Box> = {}): Harness {
     dom.reconfigure({ url: 'https://shop.example.com/thank-you' });
     generation.value += 1;
   };
-  return { host: new TabAutomationHost(ctx), dom, doc, win, cdp, generation, navigate, destroy: () => { destroyed = true; }, loading, hooks };
+  return { host: new TabAutomationHost(ctx), dom, doc, win, cdp, generation, navigate, destroy: () => { destroyed = true; }, loading, hooks, ctx, wc };
 }
 
 const CARD: Record<string, Box> = {
@@ -411,5 +414,53 @@ describe('trusted type read-back', () => {
     // The insert reports success but focus is not on an editable control.
     const res = await h.host.dispatchAgentAction('type', { selector: '#mail', text: 'abc', trusted: true, tabId: 'tab-1' });
     if (res.success) assert.notEqual((res.data as Record<string, unknown>).verified, true);
+  });
+});
+
+describe('trusted pointer input on a tab that is not presented', () => {
+  /** Records which CDP mouse events were sent while the pane was held painting. */
+  function withSurfaceSpy(h: Harness, activeTabId: string) {
+    const held: Array<{ tabId: string; paneId: string }> = [];
+    let depth = 0;
+    const insideHold: boolean[] = [];
+    const send = h.wc.debugger.sendCommand;
+    h.wc.debugger.sendCommand = async (command: string, params: any) => {
+      if (command === 'Input.dispatchMouseEvent') insideHold.push(depth > 0);
+      return send(command, params);
+    };
+    h.ctx.getActiveTabId = () => activeTabId;
+    h.ctx.getAllTabs = () => new Map<string, unknown>([['tab-other', { view: { webContents: {} } }], ['tab-1', { view: { webContents: h.wc } }]]).entries();
+    h.ctx.withPaintingSurface = async (tabId: string, paneId: string, action: () => Promise<unknown>) => {
+      held.push({ tabId, paneId });
+      depth++;
+      try { return await action(); } finally { depth--; }
+    };
+    return { held, insideHold };
+  }
+
+  it('sends every mouse event of a click while a background pane is held painting', async () => {
+    const h = harness('<button id="pay">Pay</button>', CARD);
+    const spy = withSurfaceSpy(h, 'tab-other');
+    const res = await h.host.dispatchAgentAction('click', { selector: '#pay', tabId: 'tab-1' });
+    assert.equal(res.success, true, JSON.stringify(res));
+    assert.deepEqual(spy.held, [{ tabId: 'tab-1', paneId: 'desktop' }]);
+    assert.ok(spy.insideHold.length >= 3, 'move, press and release were sent');
+    assert.ok(spy.insideHold.every(Boolean), 'a mouseMoved sent to a pane that paints nothing waits about 5 s for a frame');
+  });
+
+  it('holds the pane for a hover too', async () => {
+    const h = harness('<button id="pay">Pay</button>', CARD);
+    const spy = withSurfaceSpy(h, 'tab-other');
+    await h.host.dispatchAgentAction('hover', { selector: '#pay', tabId: 'tab-1' });
+    assert.deepEqual(spy.held, [{ tabId: 'tab-1', paneId: 'desktop' }]);
+    assert.ok(spy.insideHold.length > 0 && spy.insideHold.every(Boolean));
+  });
+
+  it('leaves the presented tab alone: it already paints', async () => {
+    const h = harness('<button id="pay">Pay</button>', CARD);
+    const spy = withSurfaceSpy(h, 'tab-1');
+    const res = await h.host.dispatchAgentAction('click', { selector: '#pay', tabId: 'tab-1' });
+    assert.equal(res.success, true, JSON.stringify(res));
+    assert.deepEqual(spy.held, []);
   });
 });
