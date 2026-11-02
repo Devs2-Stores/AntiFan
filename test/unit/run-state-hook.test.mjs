@@ -339,6 +339,158 @@ test("a session that starts before the previous one ends is a guest until the ow
   });
 });
 
+const HOUR = 3_600_000;
+
+/** Records a terminal host the way it does once it starts listening: `daemon-host/daemon-handshake.json`. */
+function writeHostHandshake(dataRoot, { startedAt, pid = process.pid }) {
+  writeRawHostHandshake(dataRoot, JSON.stringify({ pid, port: 1234, protocol: "ws", startedAt, token: "t", version: "v1" }));
+}
+
+function writeRawHostHandshake(dataRoot, text) {
+  const target = path.join(dataRoot, "daemon-host", "daemon-handshake.json");
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.writeFileSync(target, text);
+}
+
+/**
+ * Loads a copy of the hook as a process that started `ageMs` ago would: the hook dates its own
+ * process from `process.uptime()` when the module is evaluated.
+ */
+async function loadHookAsProcessOfAge(ageMs) {
+  const realUptime = process.uptime;
+  process.uptime = () => ageMs / 1000;
+  try {
+    return await loadHook();
+  } finally {
+    process.uptime = realUptime;
+  }
+}
+
+test("a session that outlived its terminal host retires, and the session living in the terminal takes the card over", async () => {
+  // The host died and was replaced: the old shell and its `omp` survive without a PTY, alive and
+  // heartbeating and stuck on an ask nobody can answer, while the user works in a new `omp` in the
+  // replacement shell. The orphan used to keep the card at `waiting_user` for as long as it lived.
+  await withDataRoot(async (dataRoot) => {
+    const orphanHook = (await loadHookAsProcessOfAge(HOUR)).default; // started an hour ago
+    const liveHook = (await loadHookAsProcessOfAge(0)).default; // started just now
+
+    const orphan = makeHost();
+    orphanHook(orphan.pi);
+    const orphanCtx = makeContext({ sessionId: "orphan" });
+    await orphan.emit("session_start", {}, orphanCtx);
+    await orphan.emit("before_agent_start", { prompt: "old task" }, orphanCtx);
+    await orphan.emit("tool_call", { toolName: "ask" }, orphanCtx);
+
+    const live = makeHost();
+    liveHook(live.pi);
+    const liveCtx = makeContext({ sessionId: "live" });
+    await live.emit("session_start", {}, liveCtx);
+    await live.emit("before_agent_start", { prompt: "new task" }, liveCtx);
+
+    orphan.pi._heartbeat();
+    live.pi._heartbeat();
+    const stuck = readStateFile(dataRoot);
+    assert.equal(stuck.ompSessionId, "orphan", "with no replacement on record the orphan's card stands");
+    assert.equal(stuck.state, "waiting_user");
+
+    // The host alive now started ten minutes ago: after the orphan, before the live session.
+    writeHostHandshake(dataRoot, { startedAt: Date.now() - 600_000 });
+    orphan.pi._heartbeat();
+    const ended = readStateFile(dataRoot);
+    assert.equal(ended.ompSessionId, "orphan");
+    assert.equal(ended.state, "ended");
+
+    await orphan.emit("tool_call", { toolName: "read" }, orphanCtx);
+    await orphan.emit("turn_end", {}, orphanCtx);
+    orphan.pi._heartbeat();
+    assert.equal(readStateFile(dataRoot).state, "ended", "a retired session never writes again");
+
+    live.pi._heartbeat();
+    const taken = readStateFile(dataRoot);
+    assert.equal(taken.ompSessionId, "live");
+    assert.equal(taken.state, "running");
+    assert.equal(taken.promptHead, "new task");
+  });
+});
+
+test("a session is not retired by a host that started before it, a host that is gone, or a record it cannot read", async () => {
+  const { HOST_START_SKEW_MS } = await loadHook();
+  const scenarios = {
+    "no record": () => {},
+    "host older than the process": (dataRoot) => writeHostHandshake(dataRoot, { startedAt: Date.now() - 2 * HOUR }),
+    "host that started inside the clock slack": (dataRoot) =>
+      writeHostHandshake(dataRoot, { startedAt: Date.now() - HOUR + HOST_START_SKEW_MS - 500 }),
+    "host that is no longer running": (dataRoot) =>
+      writeHostHandshake(dataRoot, { startedAt: Date.now() - 600_000, pid: deadPid() }),
+    "record that is not JSON": (dataRoot) => writeRawHostHandshake(dataRoot, "{ not json"),
+    "record without a start stamp": (dataRoot) =>
+      writeRawHostHandshake(dataRoot, JSON.stringify({ pid: process.pid, port: 1234 })),
+  };
+  for (const [label, record] of Object.entries(scenarios)) {
+    await withDataRoot(async (dataRoot) => {
+      record(dataRoot);
+      const { default: hook } = await loadHookAsProcessOfAge(HOUR); // started an hour ago
+      const host = makeHost();
+      hook(host.pi);
+      const ctx = makeContext({ sessionId: "steady" });
+      await host.emit("session_start", {}, ctx);
+      await host.emit("before_agent_start", { prompt: "work" }, ctx);
+      host.pi._heartbeat();
+      const state = readStateFile(dataRoot);
+      assert.equal(state?.ompSessionId, "steady", label);
+      assert.equal(state?.state, "running", label);
+    });
+  }
+});
+
+test("a session that retires while another session owns the card leaves that card alone", async () => {
+  // Two sessions in one terminal, the older one only a guest. When the host is replaced the guest
+  // retires as well, and its `ended` must not land on a card it never owned.
+  await withDataRoot(async (dataRoot) => {
+    const ownerHook = (await loadHookAsProcessOfAge(0)).default; // started just now, owns the card
+    const guestHook = (await loadHookAsProcessOfAge(HOUR)).default; // started an hour ago
+
+    const owner = makeHost();
+    ownerHook(owner.pi);
+    const ownerCtx = makeContext({ sessionId: "owner" });
+    await owner.emit("session_start", {}, ownerCtx);
+    await owner.emit("before_agent_start", { prompt: "owner task" }, ownerCtx);
+
+    const guest = makeHost();
+    guestHook(guest.pi);
+    const guestCtx = makeContext({ sessionId: "guest" });
+    await guest.emit("session_start", {}, guestCtx);
+    await guest.emit("before_agent_start", { prompt: "guest task" }, guestCtx);
+    assert.equal(readStateFile(dataRoot).ompSessionId, "owner", "the guest never held the card");
+
+    writeHostHandshake(dataRoot, { startedAt: Date.now() - 600_000 });
+    guest.pi._heartbeat(); // the guest retires
+    owner.pi._heartbeat();
+    const card = readStateFile(dataRoot);
+    assert.equal(card.ompSessionId, "owner");
+    assert.equal(card.state, "running");
+    assert.equal(card.promptHead, "owner task");
+  });
+});
+
+test("a session that starts in a process older than the live host never announces itself", async () => {
+  // A subagent of an orphaned `omp` (or its `/new`) starts after the host was replaced. It must not
+  // grab the card the retired orphan just freed, nor open a control channel nobody will read.
+  await withDataRoot(async (dataRoot) => {
+    writeHostHandshake(dataRoot, { startedAt: Date.now() - 600_000 });
+    const { default: hook } = await loadHookAsProcessOfAge(HOUR);
+    const host = makeHost();
+    hook(host.pi);
+    const ctx = makeContext({ sessionId: "late-subagent" });
+    await host.emit("session_start", {}, ctx);
+    await host.emit("before_agent_start", { prompt: "orphan's subagent" }, ctx);
+    await host.emit("tool_call", { toolName: "ask" }, ctx);
+    host.pi._heartbeat();
+    assert.equal(readStateFile(dataRoot), null, "no card for a process whose terminal is gone");
+    assert.equal(fs.existsSync(path.join(dataRoot, "runtime", "runs", "control", "late-subagent")), false);
+  });
+});
+
 test("a resumed session keeps the time of its last real event until its first prompt", async () => {
   await withDataRoot(async (dataRoot) => {
     const { default: hook } = await loadHook();

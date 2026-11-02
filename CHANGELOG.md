@@ -65,6 +65,13 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 - Leader guard chặn thêm `anti.sheet.write_range` và `anti.agent.set_control`.
 - Cầu nối Core: timeout 4 giây, nghỉ 60 giây sau một lần lỗi pack (vẫn fail-open), `ANTIFAN_CORE_MIN_SCORE` (mặc định 0), loại claim chỉ nằm trong `scratch` và `plans` (`ANTIFAN_CORE_EXCLUDE_DIRS`); pack rỗng không còn bị coi là lỗi.
 
+### Sửa — Badge "chờ bạn" kẹt mãi sau khi terminal host bị thay
+
+- **Triệu chứng:** terminal Gác hiện "chờ bạn" (run `waiting_user`) hàng giờ dù phiên đang dùng trong terminal đó không hỏi gì.
+- **Nguyên nhân (đọc `runtime/runs/terminal-33.json`, `daemon-host/daemon-handshake.json` và cây process):** terminal host bị thay (host mới ghi `daemon-handshake.json` với `startedAt` mới) và `omp` của host cũ không chết theo PTY. Nó thành process mồ côi: shell cha đã mất nên không ai gõ vào được, nhưng pid vẫn sống, hook run-state trong nó vẫn heartbeat 15 giây làm mới `updatedAt`, và lệnh `ask` cuối chưa ai trả lời nên state kẹt ở `waiting_user`. Luật lease giữ thẻ cho owner còn sống, nên phiên `omp` mới chạy trong terminal đó chỉ là khách, không ghi đè được, và Manager mãi hiện thẻ của phiên mồ côi.
+- **Sửa:** hook run-state so thời điểm process của nó khởi động (ước từ `process.uptime()`, lệch vài chục ms) với `startedAt` của terminal host đang sống (đọc `daemon-host/daemon-handshake.json`, chỉ tin khi pid của host còn sống). Process khởi động trước host đó hơn 2 giây thuộc về host đã bị thay: hook ghi `ended` một lần, dừng heartbeat và control watcher rồi im lặng, nên phiên mới trong terminal nhận lại thẻ theo luật lease cũ. Process già hơn host cũng không công bố thẻ cho session nó mở sau đó (subagent, `/new`). Không đọc được bản ghi host (thiếu file, hỏng, pid host đã chết) thì hành vi giữ nguyên.
+- **Triển khai:** hook là bản cài user-scope: cần `node scripts/install-omp-hooks.mjs --install`, và chỉ session `omp` khởi động sau đó mới chạy bản mới. Process mồ côi đang chạy bản hook cũ vẫn giữ thẻ cho tới khi bị đóng.
+
 ### Sửa — Link file trong terminal bị xuống hàng
 
 - Đường dẫn có thư mục chứa dấu cách mà chương trình tự ngắt dòng (xuống hàng thật, không phải soft-wrap của xterm) giờ được nối lại thành một link: chỉ nối khi phần đầu dòng sau không vừa chỗ trống cuối dòng trước, nên một dòng ngắn đi sau không bị ghép nhầm.

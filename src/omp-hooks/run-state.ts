@@ -7,6 +7,10 @@
  *
  * Inert unless ANTIFAN_TERMINAL_SESSION_ID and ANTIFAN_DATA_ROOT are both set.
  * Handlers never throw into the OMP runtime.
+ *
+ * A process older than the live terminal host belongs to a host that has since been replaced: its
+ * PTY is gone and nobody can reach it. Its sessions retire (`ended` once, then silence) instead of
+ * holding the terminal's card, see `hostReplaced`.
  */
 
 import * as fs from "node:fs";
@@ -32,6 +36,21 @@ export const CONTROL_POLL_INTERVAL_MS = 1_000;
  * shows the file as stale, so a different session may take the terminal over.
  */
 export const LEASE_STALE_MS = 45_000;
+
+/**
+ * Slack when comparing this process's start (estimated from `process.uptime()`, within ~20 ms of the OS
+ * creation time in Node and in the `omp` runtime) with the start the terminal host recorded. A shell is
+ * spawned some time after its host and `omp` after the shell, so a real descendant clears it by seconds.
+ */
+export const HOST_START_SKEW_MS = 2_000;
+
+/**
+ * The record the terminal host writes once, when it starts listening: `{ pid, port, startedAt, ... }`.
+ * `src/main/terminal-daemon/daemon-entry.ts` writes it to the path `daemon-spawner.ts` hands it.
+ */
+export function terminalHostHandshakePath(dataRoot: string): string {
+  return path.join(dataRoot, "daemon-host", "daemon-handshake.json");
+}
 
 /**
  * Build identity of this bundle, injected by `scripts/install-omp-hooks.mjs` at bundle time (sha256 of
@@ -127,6 +146,7 @@ function pidAlive(pid: unknown): boolean {
  * when the current owner is the same session (resume), has ended, died, or went silent
  * for longer than the lease; otherwise it is a guest and leaves the owner's card alone.
  * An absent or corrupt file is fail-open: the first writer must be able to create it.
+ * A session that retired because its host was replaced writes `ended`, which frees the file the same way.
  */
 function ownsFile(existing: TerminalRunStateFile | null | "locked", mine: string, now: number): boolean {
   if (existing === "locked") return false;
@@ -135,6 +155,25 @@ function ownsFile(existing: TerminalRunStateFile | null | "locked", mine: string
   if (existing.state === "ended") return true;
   if (!pidAlive(existing.pid)) return true;
   return typeof existing.updatedAt !== "number" || now - existing.updatedAt > LEASE_STALE_MS;
+}
+
+/** When this process started, from its own uptime. */
+const PROCESS_STARTED_AT = Date.now() - process.uptime() * 1000;
+
+/**
+ * `startedAt` of the terminal host that is alive now, or `null` when there is nothing to compare
+ * with: no record, a record that cannot be read, or a host pid that no longer runs.
+ */
+function readLiveHostStartedAt(dataRoot: string): number | null {
+  try {
+    const record: unknown = JSON.parse(fs.readFileSync(terminalHostHandshakePath(dataRoot), "utf8"));
+    if (!record || typeof record !== "object") return null;
+    const { pid, startedAt } = record as { pid?: unknown; startedAt?: unknown };
+    if (typeof startedAt !== "number" || !Number.isFinite(startedAt) || startedAt <= 0) return null;
+    return pidAlive(pid) ? startedAt : null;
+  } catch {
+    return null;
+  }
 }
 
 function readMode(dataRoot: string, ompSessionId: string): "unset" | "core" | "direct" | "fast" {
@@ -333,8 +372,10 @@ export default function runStateHook(pi: HookPi): void {
   let heartbeatTimer: NodeJS.Timeout | null = null;
   let sessionInitialized = false;
   let draining = false;
+  /** Set once this session left the terminal for good: `retire`, or a start in a process older than the live host. */
+  let retired = false;
   function writeState(): void {
-    if (!runStateFilePath || !dataRoot || !terminalSessionId) return;
+    if (!runStateFilePath || !dataRoot || !terminalSessionId || retired) return;
     const now = Date.now();
     // A guest session keeps tracking in memory (and keeps its own control watcher) but
     // never overwrites the owner's card.
@@ -363,15 +404,44 @@ export default function runStateHook(pi: HookPi): void {
     }
   }
 
+  /**
+   * Whether the terminal host alive now started after this process did. A shell, and every `omp` it
+   * runs, is spawned by the host that owns its PTY, so a process older than the live host belongs to
+   * a host that has since died: its PTY is gone and nobody can answer it, yet it is alive and keeps
+   * heartbeating. That would pin the terminal's card to this session's last state (an unanswered
+   * ask stays `waiting_user` forever) and keep every newer session in the terminal a guest.
+   */
+  function hostReplaced(): boolean {
+    if (!dataRoot) return false;
+    const hostStartedAt = readLiveHostStartedAt(dataRoot);
+    return hostStartedAt !== null && PROCESS_STARTED_AT + HOST_START_SKEW_MS < hostStartedAt;
+  }
+
+  /**
+   * Leave the terminal for good: one last `ended` (written only while this session still owns the
+   * file, so the session living in the terminal now takes the card over), then no more writes,
+   * heartbeats or control polling.
+   */
+  function retire(): void {
+    state = "ended";
+    pendingAskTool = null;
+    lastEventAt = Date.now();
+    writeState();
+    retired = true;
+    dispose();
+  }
+
+  function beat(): void {
+    try {
+      if (retired || state === "ended") return;
+      if (hostReplaced()) retire();
+      else writeState();
+    } catch {}
+  }
+
   function startHeartbeat(): void {
-    if (heartbeatTimer) return;
-    heartbeatTimer = setInterval(() => {
-      try {
-        if (state !== "ended") {
-          writeState();
-        }
-      } catch {}
-    }, RUN_HEARTBEAT_MS);
+    if (heartbeatTimer || retired) return;
+    heartbeatTimer = setInterval(beat, RUN_HEARTBEAT_MS);
     heartbeatTimer.unref?.();
   }
 
@@ -528,6 +598,7 @@ export default function runStateHook(pi: HookPi): void {
 
   function startControlWatcher(controlDir: string): void {
     stopControlWatcher();
+    if (retired) return;
     try {
       fs.mkdirSync(controlDir, { recursive: true });
       controlWatcher = fs.watch(controlDir, () => {
@@ -565,6 +636,7 @@ export default function runStateHook(pi: HookPi): void {
   if (typeof pi === "object" && pi !== null) {
     (pi as Record<string, unknown>)._drainControl = drainControl;
     (pi as Record<string, unknown>)._dispose = dispose;
+    (pi as Record<string, unknown>)._heartbeat = beat;
   }
 
   pi.on("session_start", (_event: unknown, ctx: unknown) => {
@@ -576,6 +648,12 @@ export default function runStateHook(pi: HookPi): void {
       terminalSessionId = env.terminalSessionId;
       dataRoot = env.dataRoot;
       runStateFilePath = path.join(dataRoot, "runtime", "runs", `${terminalSessionId}.json`);
+      // A process older than the live host never announces itself, not even for a session it starts
+      // now (a subagent, `/new`): see `hostReplaced`.
+      if (hostReplaced()) {
+        retired = true;
+        return;
+      }
 
       const newOmpSessionId = sessionIdOf(ctx);
       cwd = cwdOf(ctx);
