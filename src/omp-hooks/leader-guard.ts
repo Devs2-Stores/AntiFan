@@ -3,32 +3,49 @@
  *
  * A Leader (a terminal marked in the Manager's `leader-terminals.json`) hands work to worker
  * OMP sessions and then monitors and independently verifies it. It never edits a theme,
- * pushes one, writes the customer's sheet, comments on the dashboard or sets a Stage; only a
- * worker does that. Two guards enforce the rule, and both apply to a Leader terminal only:
+ * pushes one, writes the customer's sheet, comments on the dashboard or sets a Stage, and it does
+ * not look into the work itself (it reads the LIST of work items, a worker reads their content);
+ * only a worker does that. Three guards enforce the rule, and all apply to a Leader terminal only:
  *
  * - `session_stop`: blocks the Leader from ending its turn while a job it dispatched is still
  *   open (`state` dispatched | settled | reported in `<jobs root>/<job>/job.json`, written by
  *   `scripts/leader/leader-job.mjs`). The block is a continuation with the exact next command.
  *   It fails OPEN: an unreadable job file, a missing root or any error allows the stop, and
  *   OMP's own cap on session_stop continuations is a second fuse. Nothing here can trap a session.
- * - `tool_call`: refuses (`REFUSED_LEADER_*`) the calls that would do worker work:
+ * - `tool_call`, write boundary: refuses (`REFUSED_LEADER_*`) the calls that would do worker work:
  *   theme-file writes (edit/write/ast_edit and best-effort shell writes into a theme workspace),
  *   write-class theme CLI commands, the AntiFan tools that mutate a page or the sheet, and an
  *   in-page evaluate whose script writes (quickUpdate, addNewComment, cart writes, POST/PUT/
  *   PATCH/DELETE fetches). The three ways to reach an MCP tool are covered: the native tool name,
  *   `write xd://<tool>`, and an `eval` / `bash` text that names the tool.
+ * - `tool_call`, investigation budget: counts the calls that dig into the work - read/grep/glob/lsp/
+ *   ast_edit on a path outside `LEADER_READ_ALLOW_ROOTS` (internal URIs are free), a shell or eval
+ *   line that runs git (inspection subcommands), rg, grep, cat, ls, find and the like on such a path,
+ *   eval that calls `archive.*` or reads `~/.omp/agent/sessions`, and web_search - and refuses the
+ *   call after the `LEADER_INVESTIGATE_LIMIT`th with `REFUSED_LEADER_INVESTIGATE`. The count starts
+ *   again at the Leader's next successful `terminal.create` / `terminal.write` (read from
+ *   `tool_result`, so a failed or unconfirmed dispatch resets nothing). What a Leader does for a
+ *   living never counts: `terminal.*`, `core.*`, todo, task, wait, ask, `leader-job.mjs`,
+ *   `wait-workers.mjs`, read-only evaluate, anything in its job folder, merging a worker's branch.
+ *   Only a session with a UI is budgeted: a subagent the Leader spawns (no UI, same env) is not,
+ *   though the write boundary above still applies to it.
  *
  * This is a guardrail for a cooperative Leader, not a sandbox. Known limits: a `.click()` on a
  * submit/buy element inside an evaluate script is not scanned; shell writes into a theme folder are
  * recognised by verb/redirect and path only, so a script that writes the files (`node x.js`,
- * `python -c`) is not seen; `anti.browser.navigate` to a state-changing GET is not seen. There is no
- * override switch. A guard failure never blocks a call (the gate fails open), because a stuck
- * Leader is an outage and the guard is advisory.
+ * `python -c`) is not seen; `anti.browser.navigate` to a state-changing GET is not seen. The budget
+ * judges a shell or eval line by its verbs and path literals, so a script that reads files
+ * (`node x.js`, `python -c`), a dispatch made from inside an eval, a path held in a variable and a
+ * `task` subagent that does the looking-into are not seen; the count lives in the memory of the OMP
+ * session that loaded the hook, so a restart starts again at zero. There is no override switch. A
+ * guard failure never blocks a call (the gate fails open), because a stuck Leader is an outage and
+ * the guard is advisory.
  *
  * Nothing in here throws: every handler catches.
  */
 
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 
 import { DEVICE_PATH_RE, WRITE_TOOLS, extractTargetPaths } from "./edit-guard-policy";
@@ -42,6 +59,7 @@ export const LEADER_GUARD_CODES = {
   PAGE_ACTION: "REFUSED_LEADER_PAGE_ACTION",
   PAGE_WRITE_SCRIPT: "REFUSED_LEADER_PAGE_WRITE_SCRIPT",
   UNREADABLE: "REFUSED_LEADER_UNREADABLE",
+  INVESTIGATE: "REFUSED_LEADER_INVESTIGATE",
 } as const;
 
 /** The Manager's Leader registry under the config dir (`src/main/leader/leader-registry.ts`). */
@@ -447,6 +465,403 @@ export function planLeaderToolCall(
 }
 
 // ---------------------------------------------------------------------------
+// tool_call: investigation budget
+// ---------------------------------------------------------------------------
+
+/** Investigation calls a Leader may make between two worker dispatches; the next one is refused. */
+export const LEADER_INVESTIGATE_LIMIT = 4;
+
+/**
+ * Where a Leader reads freely: its job ledger, the AntiFan data root, OMP config and skills, and the
+ * Leader's own skill text and scripts. The job ledger and the data root also follow `LEADER_JOBS_ROOT`
+ * and `ANTIFAN_DATA_ROOT`. Past OMP sessions (`<.omp>/agent/sessions`) are carved out of `.omp`: mining
+ * them is investigating.
+ */
+export const LEADER_READ_ALLOW_ROOTS = [
+  "E:/Work/scratch/leader",
+  "E:/Work/.antifan-data",
+  "C:/Users/Admin/.omp",
+  "E:/Work/apps/AntiFan/skills",
+  "E:/Work/apps/AntiFan/scripts/leader",
+] as const;
+
+/** Internal URIs are free to read; any other URL (`https://`, `pr://`, `ssh://` ...) is not a local path and is not. */
+const FREE_URI_RE = /^(?:skill|xd|memory|local|out|agent|proc|history|artifact):\/\//i;
+const ANY_URI_RE = /^[a-z][a-z0-9+.-]+:\/\//i;
+
+const INVESTIGATE_HAND_OFF =
+  'Bạn là Leader (điều phối). Đừng tự điều tra/làm việc: viết "Bước 0: điều tra và báo cáo" vào prompt rồi `terminal.create` một worker. Các tool điều phối vẫn dùng bình thường.';
+
+const INVESTIGATE_PATH_TOOLS: Record<string, true> = { read: true, grep: true, glob: true, lsp: true, ast_edit: true };
+
+/** Programs that list or search files. A Leader's own commands (`node scripts/leader/...`) never start with one. */
+const FILE_READ_VERBS: Record<string, true> = {
+  rg: true,
+  grep: true,
+  egrep: true,
+  fgrep: true,
+  findstr: true,
+  "select-string": true,
+  sls: true,
+  cat: true,
+  type: true,
+  head: true,
+  tail: true,
+  more: true,
+  less: true,
+  bat: true,
+  wc: true,
+  "get-content": true,
+  gc: true,
+  ls: true,
+  dir: true,
+  tree: true,
+  find: true,
+  fd: true,
+  "get-childitem": true,
+  gci: true,
+};
+/** For these the first operand is the pattern, not a path. */
+const PATTERN_FIRST_VERBS: Record<string, true> = { rg: true, grep: true, egrep: true, fgrep: true, findstr: true, "select-string": true, sls: true, fd: true };
+const CD_VERBS: Record<string, true> = { cd: true, chdir: true, pushd: true, "set-location": true, sl: true };
+const NESTED_SHELLS: Record<string, true> = { bash: true, sh: true, zsh: true, pwsh: true, powershell: true, cmd: true };
+const NESTED_SHELL_FLAG_RE = /^(?:-[a-z]*c|-command|\/[ck])$/i;
+const SHELL_PREFIXES: Record<string, true> = { env: true, time: true, nohup: true, command: true, exec: true, sudo: true };
+const PATH_LIKE_RE = /[\\/]|^~|^\.{1,2}$|^[A-Za-z]:|\.[A-Za-z0-9]+$/;
+
+/** Inspecting git subcommands. Merging, worktree add/remove, commit, push ... are the Leader's integration steps, not investigating. */
+const GIT_INSPECT_SUBCOMMANDS: Record<string, true> = {
+  log: true,
+  status: true,
+  diff: true,
+  show: true,
+  blame: true,
+  grep: true,
+  "ls-files": true,
+  "ls-tree": true,
+  "rev-parse": true,
+  "rev-list": true,
+  shortlog: true,
+  reflog: true,
+  "cat-file": true,
+  describe: true,
+  "show-ref": true,
+  "for-each-ref": true,
+  "diff-tree": true,
+  whatchanged: true,
+};
+const GIT_OPTIONS_WITH_VALUE: Record<string, true> = { "-C": true, "-c": true, "--git-dir": true, "--work-tree": true, "--namespace": true, "--exec-path": true };
+const GIT_BRANCH_WRITE_FLAG_RE = /^-(?:[dDmMcCuf]|-(?:delete|move|copy|force|set-upstream-to|unset-upstream|edit-description))/;
+
+const EVAL_ARCHIVE_RE = /(?<![\w.$\\/-])archive\s*\.\s*[A-Za-z_]\w*\s*\(/;
+const SESSIONS_PATH_RE = /\.omp[\\/]+agent[\\/]+sessions/i;
+const EVAL_WEB_RE = /\btool\s*\.\s*web_search\s*\(/;
+const EVAL_READ_CALL_RE =
+  /\b(?:open|read|read_text|read_bytes|readlines|readFile|readFileSync|readdir|readdirSync|listdir|scandir|walk|glob|rglob|iterdir)\s*\(|\bBun\s*\.\s*(?:file|Glob)\b|\bfs\s*\.|\btool\s*\.\s*(?:read|grep|glob|lsp|ast_edit)\s*\(/;
+const ABSOLUTE_PATH_RE = /(?<!\w)(?:[A-Za-z]:[\\/]|~[\\/])[^\s"'`<>|?*)\]}]+/g;
+const EVAL_SHELL_VERB_RE = /(?:^|\s)(git|rg|grep|egrep|fgrep|cat|ls|find|fd|head|tail|findstr|get-content|get-childitem|select-string)(?=\s|$)/gi;
+
+function readRoots(env: Env): { allow: string[]; deny: string[] } {
+  const allow: string[] = [...LEADER_READ_ALLOW_ROOTS, leaderJobsRoot(env), path.join(os.homedir(), ".omp")];
+  const data = env.ANTIFAN_DATA_ROOT?.trim();
+  if (data) allow.push(data);
+  const deny = allow.filter((root) => path.basename(root) === ".omp").map((root) => path.join(root, "agent", "sessions"));
+  return { allow, deny };
+}
+
+function expandHome(target: string): string {
+  return /^~(?:[\\/]|$)/.test(target) ? path.join(os.homedir(), target.slice(1)) : target;
+}
+
+/** True when a Leader may read `target` (a path, a glob or a URL as a tool names it) without it counting. */
+function readFree(target: string, cwd: string, env: Env): boolean {
+  if (FREE_URI_RE.test(target)) return true;
+  if (ANY_URI_RE.test(target)) return false;
+  const base = expandHome(target.replace(/[*?[{].*$/, ""));
+  const abs = path.resolve(cwd, base.length > 0 ? base : ".");
+  const roots = readRoots(env);
+  if (roots.deny.some((root) => isInside(root, abs))) return false;
+  return roots.allow.some((root) => isInside(root, abs));
+}
+
+function pathEntries(value: unknown): string[] {
+  return typeof value === "string" ? value.split(";").map((entry) => entry.trim()).filter((entry) => entry.length > 0 && !entry.startsWith("!")) : [];
+}
+
+/** The files or folders an investigation tool looks into; the session cwd stands in where the tool defaults to it. */
+function investigateTargets(tool: string, input: Record<string, unknown>, cwd: string): string[] {
+  if (tool === "read") return extractTargetPaths(input);
+  if (tool === "grep" || tool === "glob") {
+    const entries = pathEntries(input.path);
+    return entries.length > 0 ? entries : [cwd];
+  }
+  if (tool === "lsp") {
+    const file = typeof input.file === "string" ? input.file.trim() : "";
+    return file === "*" ? [cwd] : file.length > 0 ? [file] : [];
+  }
+  return Array.isArray(input.paths)
+    ? input.paths.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0).map((entry) => entry.trim())
+    : [];
+}
+
+interface ShellStatement {
+  words: string[];
+  /** The stage filters the previous stage's output (it follows a `|`) instead of reading a file of its own. */
+  piped: boolean;
+}
+
+/** Splits a shell line into statements (`;` `&&` `||` `&` newline) and pipeline stages (`|`) outside quotes. */
+function shellStatements(line: string): ShellStatement[] {
+  const statements: ShellStatement[] = [];
+  let words: string[] = [];
+  let word = "";
+  let started = false;
+  let quote = "";
+  let piped = false;
+  const endWord = (): void => {
+    if (started) words.push(word);
+    word = "";
+    started = false;
+  };
+  const endStatement = (nextPiped: boolean): void => {
+    endWord();
+    if (words.length > 0) statements.push({ words, piped });
+    words = [];
+    piped = nextPiped;
+  };
+  for (let i = 0; i < line.length && statements.length < SHELL_TOKEN_LIMIT; i += 1) {
+    const ch = line.charAt(i);
+    if (quote.length > 0) {
+      if (ch === quote) quote = "";
+      else word += ch;
+    } else if (ch === '"' || ch === "'") {
+      quote = ch;
+      started = true;
+    } else if (ch === "\n" || ch === "\r" || ch === ";") {
+      endStatement(false);
+    } else if (ch === "|") {
+      const double = line.charAt(i + 1) === "|";
+      if (double) i += 1;
+      endStatement(!double);
+    } else if (ch === "&") {
+      const prev = line.charAt(i - 1);
+      const next = line.charAt(i + 1);
+      if (next === "&") {
+        i += 1;
+        endStatement(false);
+      } else if (prev === ">" || prev === "<" || next === ">") {
+        word += ch;
+        started = true;
+      } else if (words.length > 0 || started) {
+        endStatement(false);
+      }
+    } else if (/\s/.test(ch)) {
+      endWord();
+    } else {
+      word += ch;
+      started = true;
+    }
+  }
+  endStatement(false);
+  return statements;
+}
+
+function verbOf(word: string): string {
+  const base = word.replace(/\\/g, "/").split("/").pop() ?? word;
+  return base.toLowerCase().replace(/\.(?:exe|cmd|bat|ps1|com)$/, "");
+}
+
+/** The command of a statement: past `NAME=value` assignments and wrappers such as `env`, `time`, `sudo`. */
+function leadingCommand(words: string[]): string[] {
+  let i = 0;
+  while (i < words.length) {
+    const word = words[i] as string;
+    if (/^[A-Za-z_]\w*=/.test(word) || SHELL_PREFIXES[verbOf(word)] === true) i += 1;
+    else break;
+  }
+  return words.slice(i);
+}
+
+/** Drops redirections (`> file`, `>file`, `2>&1`, `<<EOF`) so their targets are not mistaken for operands. */
+function withoutRedirects(words: string[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < words.length; i += 1) {
+    const word = words[i] as string;
+    const redirect = /^(?:\d*[<>]{1,2}&?\d*|&>>?)(.*)$/.exec(word);
+    if (redirect === null) {
+      out.push(word);
+    } else if ((redirect[1] as string).length === 0 && !/&\d*$/.test(word)) {
+      i += 1;
+    }
+  }
+  return out;
+}
+
+function gitInvestigation(args: string[]): string | null {
+  let i = 0;
+  while (i < args.length) {
+    const arg = args[i] as string;
+    if (GIT_OPTIONS_WITH_VALUE[arg] === true) i += 2;
+    else if (arg.startsWith("-")) i += 1;
+    else break;
+  }
+  const sub = args[i];
+  if (sub === undefined) return null;
+  const rest = args.slice(i + 1);
+  const inspects =
+    GIT_INSPECT_SUBCOMMANDS[sub] === true ||
+    (sub === "worktree" && rest[0] === "list") ||
+    (sub === "stash" && (rest[0] === "list" || rest[0] === "show")) ||
+    (sub === "branch" && !rest.some((arg) => !arg.startsWith("-") || GIT_BRANCH_WRITE_FLAG_RE.test(arg)));
+  return inspects ? `git ${sub}` : null;
+}
+
+function fileReadInvestigation(verb: string, args: string[], cwd: string, env: Env): string | null {
+  if (FILE_READ_VERBS[verb] !== true) return null;
+  const words = withoutRedirects(args);
+  let operands: string[];
+  if (verb === "find") {
+    const end = words.findIndex((word) => word.startsWith("-") || word === "(" || word === "\\(" || word === "!");
+    operands = end < 0 ? words : words.slice(0, end);
+  } else {
+    operands = words.filter((word) => !word.startsWith("-"));
+    if (PATTERN_FIRST_VERBS[verb] === true && operands.length > 1) operands = operands.slice(1);
+  }
+  const targets = operands.filter((word) => PATH_LIKE_RE.test(word));
+  for (const target of targets.length > 0 ? targets : ["."]) {
+    if (!readFree(target, cwd, env)) return `${verb} ${target}`.slice(0, 160);
+  }
+  return null;
+}
+
+/**
+ * The investigation a shell line performs, or null. Only the first stage of a pipeline reads (a
+ * `| rg ok` filters another command's output), `cd` moves the directory later statements run in, and
+ * `bash -c` / `powershell -Command` bodies are read too.
+ */
+function shellInvestigation(line: string, cwd: string, env: Env, depth = 0): string | null {
+  let here = cwd;
+  for (const statement of shellStatements(line)) {
+    if (statement.piped) continue;
+    const words = leadingCommand(statement.words);
+    const head = words[0];
+    if (head === undefined) continue;
+    const verb = verbOf(head);
+    const args = words.slice(1);
+    if (CD_VERBS[verb] === true) {
+      const dest = args.find((arg) => !arg.startsWith("-") && arg.toLowerCase() !== "/d");
+      if (dest !== undefined) here = path.resolve(here, expandHome(dest));
+      continue;
+    }
+    if (NESTED_SHELLS[verb] === true) {
+      const flag = args.findIndex((arg) => NESTED_SHELL_FLAG_RE.test(arg));
+      if (flag >= 0 && depth < 2) {
+        const hit = shellInvestigation(args.slice(flag + 1).join(" "), here, env, depth + 1);
+        if (hit !== null) return hit;
+      }
+      continue;
+    }
+    const hit = verb === "git" ? gitInvestigation(args) : fileReadInvestigation(verb, args, here, env);
+    if (hit !== null) return hit;
+  }
+  return null;
+}
+
+/**
+ * The investigation an eval cell performs, or null: `archive.*`, past OMP sessions, a web search, a
+ * subprocess that runs a file-reading program, or a file read on a path literal outside the allow-list.
+ */
+function evalInvestigation(code: string, cwd: string, env: Env): string | null {
+  if (EVAL_ARCHIVE_RE.test(code)) return "eval archive.*";
+  if (SESSIONS_PATH_RE.test(code)) return "eval ~/.omp/agent/sessions";
+  if (EVAL_WEB_RE.test(code)) return "eval web_search";
+  if (SUBPROCESS_RE.test(code)) {
+    // Put every quote, bracket and comma between words, so ["git", "-C", p, "log"] and "git -C p log" read alike.
+    const flat = code.replace(/\b[rbfu]{1,2}(?=["'])/gi, "").replace(/[[\](){}'"`,!%]/g, " ");
+    for (const match of flat.matchAll(EVAL_SHELL_VERB_RE)) {
+      const start = (match.index ?? 0) + match[0].length - (match[1] as string).length;
+      const hit = shellInvestigation(flat.slice(start).split(/\r?\n/, 1)[0] ?? "", cwd, env);
+      if (hit !== null) return `eval ${hit}`;
+    }
+  }
+  if (EVAL_READ_CALL_RE.test(code)) {
+    for (const literal of code.match(ABSOLUTE_PATH_RE) ?? []) {
+      if (!readFree(literal, cwd, env)) return `eval reads ${literal}`.slice(0, 160);
+    }
+  }
+  return null;
+}
+
+/**
+ * What a call investigates, or null when it is not investigating: a native read-class tool (or its
+ * `write xd://` spelling) on a path outside `LEADER_READ_ALLOW_ROOTS`, a shell or eval line that looks
+ * into files or history, or a web search. Pure over the call plus the filesystem-free path rules.
+ */
+export function investigationLabel(
+  params: { toolName: string; input: Record<string, unknown>; cwd: string },
+  env: Env = process.env,
+): string | null {
+  const { tool, input } = resolveCall(params.toolName, record(params.input));
+  if (tool === "web_search") return "web_search";
+  if (INVESTIGATE_PATH_TOOLS[tool] === true) {
+    for (const target of investigateTargets(tool, input, params.cwd)) {
+      if (!readFree(target, params.cwd, env)) return `${tool} ${target}`.slice(0, 160);
+    }
+    return null;
+  }
+  if (tool === "bash") {
+    const command = typeof input.command === "string" ? input.command : "";
+    const cwd = typeof input.cwd === "string" && input.cwd.trim().length > 0 ? path.resolve(params.cwd, input.cwd.trim()) : params.cwd;
+    return shellInvestigation(command, cwd, env);
+  }
+  if (tool === "eval") return evalInvestigation(typeof input.code === "string" ? input.code : "", params.cwd, env);
+  return null;
+}
+
+function investigateRefusal(label: string, limit: number): LeaderRefusal {
+  return {
+    code: LEADER_GUARD_CODES.INVESTIGATE,
+    reason: `${LEADER_GUARD_CODES.INVESTIGATE}: ${INVESTIGATE_HAND_OFF} (${limit} lệnh điều tra đã dùng từ lần terminal.create/terminal.write gần nhất; lệnh bị chặn: ${label})`,
+  };
+}
+
+function createInvestigateBudget(limit: number = LEADER_INVESTIGATE_LIMIT): { spend(label: string | null): LeaderRefusal | null; reset(): void } {
+  let used = 0;
+  return {
+    spend(label) {
+      if (label === null) return null;
+      if (used >= limit) return investigateRefusal(label, limit);
+      used += 1;
+      return null;
+    },
+    reset() {
+      used = 0;
+    },
+  };
+}
+
+function contentText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content.map((part) => (typeof part === "string" ? part : String(record(part).text ?? ""))).join("\n");
+}
+
+/**
+ * A `tool_result` that shows the Leader handed work to a worker: a `terminal.create` or `terminal.write`
+ * that did not fail and, for a write, that the host confirmed (`written:false` means no shell took it).
+ */
+function isWorkerDispatch(event: Record<string, unknown>): boolean {
+  if (event.isError === true) return false;
+  const tool = resolveCall(String(event.toolName ?? ""), record(event.input)).tool;
+  if (tool !== "terminal_create" && tool !== "terminal_write") return false;
+  try {
+    return record(JSON.parse(contentText(event.content))).written !== false;
+  } catch {
+    return true;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // hook wiring
 // ---------------------------------------------------------------------------
 
@@ -465,6 +880,7 @@ function warnSafely(pi: GuardPi, message: string): void {
 
 export default function leaderGuardHook(pi: GuardPi): void {
   if (!pi || typeof pi.on !== "function") return;
+  const budget = createInvestigateBudget();
 
   pi.on("session_stop", async () => {
     try {
@@ -487,7 +903,12 @@ export default function leaderGuardHook(pi: GuardPi): void {
       const toolName = String(call.toolName ?? call.name ?? "");
       if (toolName.trim().length === 0) return undefined;
       if (!(await isLeaderTerminal())) return undefined;
-      const refusal = planLeaderToolCall({ toolName, input: record(call.input), cwd: cwdOf(ctx) });
+      const params = { toolName, input: record(call.input), cwd: cwdOf(ctx) };
+      // The write boundary first: a call refused there spends nothing and keeps its own code; the budget
+      // check and its count run in one synchronous step, so parallel calls cannot overdraw it. Only a
+      // session that reports a UI is the Leader's own; an unclassifiable context fails open.
+      const ownSession = record(ctx).hasUI === true;
+      const refusal = planLeaderToolCall(params) ?? (ownSession ? budget.spend(investigationLabel(params)) : null);
       if (refusal === null) return undefined;
       warnSafely(pi, refusal.reason);
       return { block: true, reason: refusal.reason };
@@ -496,5 +917,14 @@ export default function leaderGuardHook(pi: GuardPi): void {
       warnSafely(pi, `[leader-guard] tool_call check failed, call allowed: ${(err as Error)?.message ?? String(err)}`);
       return undefined;
     }
+  });
+
+  pi.on("tool_result", (event) => {
+    try {
+      if (isWorkerDispatch(record(event))) budget.reset();
+    } catch {
+      /* a result that cannot be read leaves the count as it is */
+    }
+    return undefined;
   });
 }

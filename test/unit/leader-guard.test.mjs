@@ -2,7 +2,8 @@
 //
 // A Leader may not end its turn while a dispatched job is open (session_stop) and may not do
 // worker work (tool_call): edit a theme, run a write-class theme CLI command, write the sheet,
-// or run a page-writing script. Everything runs against temp dirs; the real data root, the real
+// run a page-writing script, or investigate the work itself past a small budget of reads between
+// two worker dispatches. Everything runs against temp dirs; the real data root, the real
 // registry and the real ~/.omp are never touched.
 
 import assert from "node:assert/strict";
@@ -24,9 +25,8 @@ for (const name of UNIT) {
   const source = fs.readFileSync(path.join(SRC, `${name}.ts`), "utf8").replace(SPECIFIER_RE, 'from "./$1.mts"');
   fs.writeFileSync(path.join(TEMP, `${name}.mts`), source);
 }
-const { default: leaderGuardHook, findOpenJobs, canonicalTool } = await import(
-  pathToFileURL(path.join(TEMP, "leader-guard.mts")).href
-);
+const guard = await import(pathToFileURL(path.join(TEMP, "leader-guard.mts")).href);
+const { default: leaderGuardHook, findOpenJobs, canonicalTool, investigationLabel, LEADER_READ_ALLOW_ROOTS } = guard;
 
 const LEADER = "terminal-7";
 const OTHER_LEADER = "terminal-9";
@@ -74,7 +74,7 @@ beforeEach(() => {
   arm();
 });
 
-function makeHook() {
+function makeHook({ hasUI = true } = {}) {
   const handlers = new Map();
   const warnings = [];
   const pi = {
@@ -82,12 +82,23 @@ function makeHook() {
     logger: { info: () => {}, warn: (message) => warnings.push(message) },
   };
   leaderGuardHook(pi);
-  const ctx = { cwd: plainDir, sessionManager: { getSessionId: () => "omp-session" } };
+  const ctx = { cwd: plainDir, sessionManager: { getSessionId: () => "omp-session" }, hasUI };
   return {
     warnings,
     stop: () => handlers.get("session_stop")({ type: "session_stop", messages: [], stop_hook_active: false }, ctx),
     call: (toolName, input, cwd = plainDir) =>
       handlers.get("tool_call")({ type: "tool_call", toolName, input }, { ...ctx, cwd }),
+    through: (extraCtx) => ({
+      call: (toolName, input, cwd = plainDir) =>
+        handlers.get("tool_call")({ type: "tool_call", toolName, input }, { ...ctx, cwd, ...extraCtx }),
+    }),
+    /** The host's `tool_result` event for a finished tool call; `content` is serialised like an MCP reply. */
+    result: (toolName, content, { isError = false, input = {} } = {}) =>
+      handlers.get("tool_result")(
+        { type: "tool_result", toolName, toolCallId: "call-1", input, content: [{ type: "text", text: typeof content === "string" ? content : JSON.stringify(content) }], isError },
+        ctx,
+      ),
+    emit: (eventName, event) => handlers.get(eventName)(event, ctx),
   };
 }
 
@@ -403,4 +414,316 @@ test("a malformed event or empty tool name never throws and never blocks", async
   assert.equal(await hook.call("", {}), undefined);
   assert.equal(await hook.call("write", undefined), undefined);
   assert.equal(await hook.call("bash", { command: 42 }), undefined);
+});
+
+// ---------------------------------------------------------------------------
+// tool_call: investigation budget
+// ---------------------------------------------------------------------------
+
+const INVESTIGATE = "REFUSED_LEADER_INVESTIGATE";
+const slash = (target) => target.replace(/\\/g, "/");
+
+function assertInvestigateRefused(result) {
+  assert.ok(result, `expected a refusal ${INVESTIGATE}, got ${JSON.stringify(result)}`);
+  assert.equal(result.block, true);
+  assert.ok(result.reason.startsWith(`${INVESTIGATE}:`), `reason ${result.reason}`);
+  assert.match(result.reason, /Bạn là Leader \(điều phối\)/);
+  assert.match(result.reason, /Bước 0: điều tra và báo cáo/);
+  assert.match(result.reason, /`terminal\.create`/);
+}
+
+/** One investigation call per route (native tools, shell, eval, web), all outside the read allow-list. */
+function investigations() {
+  return [
+    ["read", { path: path.join(themeRoot, "sections", "hero.liquid") }],
+    ["grep", { pattern: "hero", path: themeRoot }],
+    ["glob", { path: `${slash(themeRoot)}/sections/*.liquid` }],
+    ["bash", { command: "git log --oneline -5" }],
+    ["eval", { code: "archive.recent_projects()" }],
+    ["web_search", { query: "liquid section schema" }],
+  ];
+}
+
+async function spendBudget(hook) {
+  for (const [tool, input] of investigations().slice(0, 4)) {
+    assert.equal(await hook.call(tool, input), undefined, `${tool} is within the budget`);
+  }
+}
+
+test("a Leader's fifth investigation call is refused with REFUSED_LEADER_INVESTIGATE and stays refused", async () => {
+  const hook = makeHook();
+  const calls = investigations();
+  await spendBudget(hook);
+  assertInvestigateRefused(await hook.call(...calls[4]));
+  assertInvestigateRefused(await hook.call(...calls[5]));
+  assertInvestigateRefused(await hook.call(...calls[0]));
+  assert.match(hook.warnings.at(-1), new RegExp(`^${INVESTIGATE}:`));
+});
+
+test("every route counts toward one budget: lsp, ast_edit, write xd://, eval subprocess, shell", async () => {
+  const hook = makeHook();
+  const hero = path.join(themeRoot, "sections", "hero.liquid");
+  assert.equal(await hook.call("lsp", { action: "diagnostics", file: hero }), undefined);
+  assert.equal(await hook.call("ast_edit", { ops: [{ pat: "a", out: "a" }], paths: [plainDir] }), undefined);
+  assert.equal(await hook.call("write", { path: "xd://lsp", content: JSON.stringify({ action: "symbols", file: hero }) }), undefined);
+  assert.equal(await hook.call("eval", { code: `import subprocess\nsubprocess.run(["git", "-C", r"${themeRoot}", "log"])` }), undefined);
+  assertInvestigateRefused(await hook.call("bash", { command: `rg -n hero ${slash(themeRoot)}` }));
+});
+
+test("a successful terminal.create or terminal.write resets the budget", async () => {
+  const created = { sessionId: "terminal-12", cwd: "E:/Work/scratch/leader/x", workerOf: LEADER };
+  const written = { written: true, woke: false, writtenAt: 1 };
+  const refusedCall = investigations()[4];
+  for (const dispatch of [
+    (hook) => hook.result("mcp__antifan_browser_terminal_create", created),
+    (hook) => hook.result("terminal.create", created),
+    (hook) => hook.result("mcp__antifan_browser_terminal_write", written),
+    (hook) => hook.result("write", written, { input: { path: "xd://mcp__antifan_browser_terminal_write", content: "{}" } }),
+  ]) {
+    const hook = makeHook();
+    await spendBudget(hook);
+    assertInvestigateRefused(await hook.call(...refusedCall));
+    await dispatch(hook);
+    await spendBudget(hook);
+    assertInvestigateRefused(await hook.call(...refusedCall));
+  }
+});
+
+test("only a successful dispatch resets: a request, an error, an unconfirmed write or another tool does not", async () => {
+  const hook = makeHook();
+  await spendBudget(hook);
+  assert.equal(await hook.call("mcp__antifan_browser_terminal_create", { cwd: slash(plainDir) }), undefined);
+  assert.equal(await hook.call("mcp__antifan_browser_terminal_write", { sessionId: "terminal-12", input: "x" }), undefined);
+  await hook.result("mcp__antifan_browser_terminal_create", "TERMINAL_FORBIDDEN: not a Leader", { isError: true });
+  await hook.result("mcp__antifan_browser_terminal_write", "POLICY_DENIED: refused", { isError: true });
+  await hook.result("mcp__antifan_browser_terminal_write", { written: false, woke: false });
+  for (const name of ["terminal_list", "terminal_wait", "terminal_close", "terminal_resize", "anti_browser_evaluate"]) {
+    await hook.result(`mcp__antifan_browser_${name}`, { written: true, closed: true });
+  }
+  assertInvestigateRefused(await hook.call(...investigations()[4]));
+});
+
+test("allow-listed reads and the Leader's own coordination calls never use the budget", async () => {
+  const hook = makeHook();
+  const job = path.join(jobsRoot, "261102-1017-demo");
+  fs.mkdirSync(job, { recursive: true });
+  const report = path.join(job, "dev.report.md");
+  fs.writeFileSync(report, "STATUS: DONE\n");
+  const free = [];
+  for (const root of LEADER_READ_ALLOW_ROOTS) {
+    free.push(["read", { path: path.join(root, "agent", "x.md") }]);
+    free.push(["grep", { pattern: "x", path: `${slash(root)}/**/*.md` }]);
+    free.push(["glob", { path: `${slash(root)}/*.json` }]);
+    free.push(["bash", { command: `cat ${slash(root)}/notes.md` }]);
+  }
+  free.push(
+    ["read", { path: report }],
+    ["read", { path: `${slash(report)}:1-40` }],
+    ["read", { path: slash(job) }],
+    ["grep", { pattern: "STATUS", path: slash(jobsRoot) }],
+    ["bash", { command: `cat ${slash(report)}` }],
+    ["bash", { command: `ls ${slash(jobsRoot)}` }],
+    ["bash", { command: `rg -n STATUS ${slash(jobsRoot)}` }],
+    ["bash", { command: `cd ${slash(job)} && ls` }],
+    ["bash", { command: `node scripts/leader/leader-job.mjs status --job ${slash(job)}` }],
+    ["bash", { command: "node E:/Work/apps/AntiFan/scripts/leader/wait-workers.mjs --w terminal-12,1700000000000,1 --all" }],
+    ["bash", { command: `node scripts/leader/leader-job.mjs verify-sheet --job ${slash(job)} --round 1 | rg -c ok` }],
+    ["bash", { command: "git merge leader-guard-investigate-budget" }],
+    ["bash", { command: "git worktree remove ../wt/x" }],
+    ["eval", { code: `print(open(r"${report}").read())` }],
+  );
+  for (const uri of [
+    "skill://antifan-leader",
+    "skill://antifan-leader/references/leader-discipline.md:1-30",
+    "memory://root",
+    "local://notes.md",
+    "out://",
+    "agent://0-Scout",
+    "proc://",
+    "history://1",
+    "artifact://8:34-64",
+    "xd://lsp",
+  ]) {
+    free.push(["read", { path: uri }]);
+  }
+  free.push(["glob", { path: "local://*.md" }]);
+  for (const name of [
+    "mcp__antifan_browser_terminal_list",
+    "mcp__antifan_browser_terminal_wait",
+    "mcp__antifan_browser_terminal_close",
+    "mcp__antifan_browser_terminal_create",
+    "mcp__antifan_browser_terminal_write",
+    "mcp__antifan_browser_core_query",
+    "mcp__antifan_browser_core_context_pack_v2",
+    "mcp__antifan_browser_anti_browser_evaluate",
+    "mcp__antifan_browser_anti_screenshot_viewport",
+    "todo",
+    "task",
+    "wait",
+    "ask",
+  ]) {
+    free.push([name, { expression: "document.title", sessionId: "terminal-12", cwd: slash(job) }]);
+  }
+  free.push(
+    ["write", { path: path.join(job, "dev.prompt.md"), content: "# prompt" }],
+    ["edit", { input: `[${slash(path.join(job, "dev.prompt.md"))}#ABCD]\nPUT 1:\n+x` }],
+  );
+  for (const [tool, input] of free) {
+    assert.equal(await hook.call(tool, input), undefined, `${tool} ${JSON.stringify(input)} must not count`);
+  }
+  await spendBudget(hook);
+  assertInvestigateRefused(await hook.call(...investigations()[4]));
+});
+
+test("classification: what counts as an investigation call and what does not", () => {
+  const label = (toolName, input) => investigationLabel({ toolName, input, cwd: plainDir });
+  const hero = path.join(themeRoot, "sections", "hero.liquid");
+  const sessions = path.join(os.homedir(), ".omp", "agent", "sessions", "proj", "a.jsonl");
+  const counted = [
+    ["read", { path: hero }],
+    ["read", { path: sessions }],
+    ["read", { path: "~/.omp/agent/sessions/x.jsonl" }],
+    ["read", { path: "https://example.com/docs" }],
+    ["read", { path: "pr://12" }],
+    ["grep", { pattern: "x", path: `${slash(jobsRoot)};${slash(themeRoot)}` }],
+    ["grep", { pattern: "x" }],
+    ["glob", { path: "**/*.liquid" }],
+    ["lsp", { action: "diagnostics", file: "*" }],
+    ["lsp", { action: "references", file: hero, symbol: "x" }],
+    ["ast_edit", { ops: [], paths: [plainDir] }],
+    ["web_search", { query: "x" }],
+    ["bash", { command: "git status" }],
+    ["bash", { command: "git -C E:/x log -3" }],
+    ["bash", { command: "git --no-pager diff HEAD~1" }],
+    ["bash", { command: "git worktree list" }],
+    ["bash", { command: "git branch -a" }],
+    ["bash", { command: `rg -n hero ${hero}` }],
+    ["bash", { command: "grep -rn hero ." }],
+    ["bash", { command: `cat ${hero}` }],
+    ["bash", { command: "ls" }],
+    ["bash", { command: `ls ${themeRoot}` }],
+    ["bash", { command: "find . -name '*.liquid'" }],
+    ["bash", { command: `Get-Content ${hero}` }],
+    ["bash", { command: `type ${hero}` }],
+    ["bash", { command: `powershell -NoProfile -Command "Get-ChildItem ${themeRoot}"` }],
+    ["bash", { command: `cd ${slash(themeRoot)} && rg hero` }],
+    ["bash", { command: "echo start; git log -1" }],
+    ["bash", { command: "ls", cwd: themeRoot }],
+    ["eval", { code: "archive.recent_projects()" }],
+    ["eval", { code: "await archive.search('x')" }],
+    ["eval", { code: `glob.glob(r"${sessions}")` }],
+    ["eval", { code: 'subprocess.run(["git", "log"])' }],
+    ["eval", { code: "!git log -3" }],
+    ["eval", { code: `print(open(r"${hero}").read())` }],
+    ["eval", { code: `await tool.grep({pattern: "x", path: "${slash(themeRoot)}"})` }],
+    ["eval", { code: 'await tool.web_search({query: "x"})' }],
+    ["write", { path: "xd://lsp", content: JSON.stringify({ action: "symbols", file: hero }) }],
+  ];
+  for (const [tool, input] of counted) assert.ok(label(tool, input), `${tool} ${JSON.stringify(input)} should count`);
+  const free = [
+    ["bash", { command: "git merge x" }],
+    ["bash", { command: "git commit -m x" }],
+    ["bash", { command: "git worktree add -b b ../wt/b" }],
+    ["bash", { command: "git branch -D old" }],
+    ["bash", { command: "git push origin x" }],
+    ["bash", { command: "node scripts/leader/leader-job.mjs status --job x" }],
+    ["bash", { command: "node scripts/leader/leader-job.mjs status --job x | rg ok | head -3" }],
+    ["bash", { command: "echo hello" }],
+    ["mcp__antifan_browser_anti_browser_evaluate", { expression: "document.title" }],
+    ["eval", { code: "print(1 + 1)" }],
+    ["eval", { code: "cat = 3\nprint(cat)" }],
+    ["eval", { code: "items.find(x => x.id === 3)" }],
+    ["read", {}],
+    ["read", { path: 42 }],
+    ["lsp", { action: "status" }],
+    ["ast_edit", { ops: [] }],
+    ["terminal.list", {}],
+  ];
+  for (const [tool, input] of free) assert.equal(label(tool, input), null, `${tool} ${JSON.stringify(input)} must not count`);
+});
+
+test("a call refused for another reason keeps its own code, spends nothing, and wins over an empty budget", async () => {
+  const hook = makeHook();
+  const hero = path.join(themeRoot, "sections", "hero.liquid");
+  for (let i = 0; i < 6; i += 1) {
+    assertRefused(await hook.call("write", { path: hero, content: "x" }), "REFUSED_LEADER_THEME_EDIT");
+  }
+  await spendBudget(hook);
+  assertRefused(await hook.call("write", { path: hero, content: "x" }), "REFUSED_LEADER_THEME_EDIT");
+  assertRefused(await hook.call("bash", { command: "git log; hrv theme push --only a" }), "REFUSED_LEADER_THEME_CLI");
+  assertInvestigateRefused(await hook.call(...investigations()[4]));
+});
+
+test("a terminal that is not a Leader never uses the budget", async () => {
+  for (const setup of [
+    () => arm({ leaders: [OTHER_LEADER] }),
+    () => delete process.env.ANTIFAN_TERMINAL_SESSION_ID,
+    () => fs.writeFileSync(path.join(configDir, "leader-terminals.json"), "{not json"),
+    () =>
+      fs.writeFileSync(
+        path.join(configDir, "leader-terminals.json"),
+        JSON.stringify({ schema: 1, leaders: [OTHER_LEADER], workers: { [LEADER]: { leaderId: OTHER_LEADER, assignedAt: 1 } } }),
+      ),
+  ]) {
+    arm();
+    setup();
+    const hook = makeHook();
+    for (let round = 0; round < 3; round += 1) {
+      for (const [tool, input] of investigations()) assert.equal(await hook.call(tool, input), undefined, `${tool} on a non-Leader`);
+    }
+  }
+});
+
+test("a call whose context has no UI, or does not say, is neither refused nor counted, and the write boundary still applies to it", async () => {
+  const hook = makeHook();
+  for (const hasUI of [false, undefined]) {
+    const headless = hook.through({ hasUI });
+    for (let round = 0; round < 3; round += 1) {
+      for (const [tool, input] of investigations()) assert.equal(await headless.call(tool, input), undefined, `${tool} with hasUI=${hasUI}`);
+    }
+    assertRefused(await headless.call("write", { path: path.join(themeRoot, "sections", "hero.liquid"), content: "x" }), "REFUSED_LEADER_THEME_EDIT");
+    assertRefused(await headless.call("bash", { command: "hrv theme push --only a" }), "REFUSED_LEADER_THEME_CLI");
+  }
+  await spendBudget(hook);
+  assertInvestigateRefused(await hook.call(...investigations()[4]));
+});
+
+test("a guard failure or a malformed event never blocks, never throws and never spends the budget", async () => {
+  const hook = makeHook();
+  const exploding = {};
+  Object.defineProperty(exploding, "path", {
+    enumerable: true,
+    get() {
+      throw new Error("state exploded");
+    },
+  });
+  assert.equal(await hook.call("read", exploding), undefined);
+  assert.match(hook.warnings.at(-1), /tool_call check failed, call allowed: state exploded/);
+  await spendBudget(hook);
+  assertInvestigateRefused(await hook.call(...investigations()[4]));
+
+  for (const [tool, input] of [
+    ["read", { path: 42 }],
+    ["read", undefined],
+    ["grep", { path: ["a"] }],
+    ["glob", { path: 7 }],
+    ["lsp", { file: {} }],
+    ["ast_edit", { paths: "x" }],
+    ["bash", { command: 42 }],
+    ["bash", { command: "\u0000'\"|&&;;|" }],
+    ["eval", { code: null }],
+  ]) {
+    assert.equal(await makeHook().call(tool, input), undefined, `${tool} ${JSON.stringify(input)}`);
+  }
+  for (const event of [
+    undefined,
+    null,
+    {},
+    { toolName: 42 },
+    { toolName: "mcp__antifan_browser_terminal_create", content: 7 },
+    { toolName: "mcp__antifan_browser_terminal_write", content: [{ type: "text", text: "{not json" }, null] },
+    { toolName: "write", input: { path: 5 }, content: [] },
+  ]) {
+    assert.equal(await hook.emit("tool_result", event), undefined);
+  }
 });
