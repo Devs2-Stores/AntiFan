@@ -143,6 +143,15 @@ test("stop is blocked for settled and reported jobs and names the round to valid
   assert.ok(result.reason.includes(`verify-sheet --job ${reported} --round 1`));
 });
 
+test("stop is blocked while a worker is dead and says to resume on a NEW terminal, not to wait again", async () => {
+  const dir = writeJob("job-dead", { state: "worker_dead", rounds: [{ n: 1 }] });
+  const result = await makeHook().stop();
+  assert.equal(result.decision, "block");
+  assert.ok(result.reason.includes(dir));
+  assert.match(result.reason, /NEW terminal/);
+  assert.ok(!result.reason.includes(`leader-job.mjs wait --job ${dir}`));
+});
+
 test("stop is allowed for needs_input, verified, user-approved, closed and open jobs", async () => {
   for (const state of ["needs_input", "verified", "user-approved", "closed", "open"]) {
     writeJob(`job-${state}`, { state });

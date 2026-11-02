@@ -482,6 +482,49 @@ describe("dispatch / wait / validate-report through the CLI", () => {
     assert.equal(j.job().state, "needs_input");
   });
 
+  test("wait exits 6 and marks worker_dead when the worker's run file is gone long after dispatch", () => {
+    const w = world();
+    const j = initJob(w, "whenever");
+    assert.equal(dispatch(w, j, "terminal-7").code, 0);
+    const aged = j.job();
+    aged.rounds[0].dispatchedAt = Date.now() - 10 * 60000;
+    fs.writeFileSync(path.join(j.dir, "job.json"), JSON.stringify(aged));
+    const r = cli(w, ["wait", "--job", j.dir, "--poll-ms", "20", "--timeout-min", "0.05"]);
+    assert.equal(r.code, 6);
+    assert.equal(r.last.event, "worker-dead");
+    assert.match(r.last.why, /run file gone/);
+    assert.equal(j.job().state, "worker_dead");
+    assert.equal(cli(w, ["wait", "--job", j.dir, "--timeout-min", "0.05"]).code, 6, "a second wait does not pretend the round settled");
+    const verdict = cli(w, ["validate-report", "--job", j.dir]);
+    assert.equal(verdict.code, 1);
+    assert.match(verdict.stderr, /worker died/);
+  });
+
+  test("wait does not call a fresh dispatch dead while its run file is still being written", () => {
+    const w = world();
+    const j = initJob(w, "whenever");
+    assert.equal(dispatch(w, j, "terminal-7").code, 0);
+    const r = cli(w, ["wait", "--job", j.dir, "--poll-ms", "20", "--timeout-min", "0.005"]);
+    assert.equal(r.code, 3);
+    assert.equal(r.last.event, "timeout");
+  });
+
+  test("a dead round can be followed by a new round to a fresh worker, which settles normally", () => {
+    const w = world();
+    const j = initJob(w, "whenever");
+    assert.equal(dispatch(w, j, "terminal-7").code, 0);
+    const aged = j.job();
+    aged.rounds[0].dispatchedAt = Date.now() - 10 * 60000;
+    fs.writeFileSync(path.join(j.dir, "job.json"), JSON.stringify(aged));
+    assert.equal(cli(w, ["wait", "--job", j.dir, "--timeout-min", "0.05"]).code, 6);
+    const retryPrompt = path.join(j.dir, "retry.prompt.md");
+    fs.writeFileSync(retryPrompt, "Tiep tuc viec cua vong 1 (issue 9282 Taiz whenever.myshopify.com SHEETWHEN), ghi report vao {{REPORT_PATH}}");
+    assert.equal(dispatch(w, j, "terminal-8", ["--prompt", retryPrompt]).code, 0);
+    const r = settle(w, j, "terminal-8");
+    assert.equal(r.code, 0);
+    assert.equal(j.job().state, "settled");
+  });
+
   test("validate-report rejects a report older than dispatchedAt, then accepts a fresh one", () => {
     const w = world();
     const j = initJob(w, "whenever");

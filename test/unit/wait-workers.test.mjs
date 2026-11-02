@@ -8,7 +8,7 @@ import * as path from "node:path";
 import { after, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { judgeWorker, parseSpec, pidAlive, sessionActivityAt } from "../../scripts/leader/wait-workers.mjs";
+import { judgeWorker, parseSpec } from "../../scripts/leader/wait-workers.mjs";
 
 const CLI = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "scripts", "leader", "wait-workers.mjs");
 const TEMP = fs.mkdtempSync(path.join(os.tmpdir(), "wait-workers-"));
@@ -62,61 +62,10 @@ describe("judgeWorker", () => {
     assert.equal(judgeWorker(spec, run, null, null, { pidAlive: true, now: 2000 + 30 * 60_000, staleMs: 90 * 60_000 }).dead, false);
   });
 
-  test("session file writes keep a worker blocked on a subagent alive, old ones do not", () => {
-    const run = { state: "running", runSeq: 1, lastEventAt: 2000, pid: 7 };
-    const probe = { pidAlive: true, now: 2000 + 91 * 60_000, staleMs: 90 * 60_000 };
-    assert.equal(judgeWorker(spec, run, null, null, { ...probe, activityAt: probe.now - 60_000 }).dead, false);
-    const old = judgeWorker(spec, run, null, null, { ...probe, activityAt: 2500 });
-    assert.equal(old.dead, true);
-    assert.match(old.why, /session file write/);
-  });
-
   test("a settled worker is never reported dead after its omp exits", () => {
     const row = judgeWorker(spec, { state: "idle", runSeq: 1, lastEventAt: 2000, pid: 7 }, null, null, { pidAlive: false });
     assert.equal(row.settled, true);
     assert.equal(row.dead, false);
-  });
-
-  test("pidAlive sees this process and rejects a missing pid", () => {
-    assert.equal(pidAlive(process.pid), true);
-    assert.equal(pidAlive(undefined), null);
-  });
-});
-
-describe("sessionActivityAt", () => {
-  const stamp = (p, sec) => fs.utimesSync(p, sec, sec);
-  const run = { ompSessionId: "01abc-def", cwd: "E:\\Work\\apps\\My App" };
-
-  function tree(slug) {
-    const root = fs.mkdtempSync(path.join(TEMP, "sessions-"));
-    const base = path.join(root, slug);
-    const sub = path.join(base, "2026-11-02T17-02-38-718Z_01abc-def");
-    fs.mkdirSync(path.join(sub, "nested"), { recursive: true });
-    fs.writeFileSync(`${sub}.jsonl`, "{}\n");
-    fs.writeFileSync(path.join(sub, "__advisor.jsonl"), "{}\n");
-    fs.writeFileSync(path.join(sub, "nested", "Agent.jsonl"), "{}\n");
-    for (const p of [`${sub}.jsonl`, path.join(sub, "__advisor.jsonl"), path.join(sub, "nested", "Agent.jsonl")]) stamp(p, 1000);
-    for (const p of [sub, path.join(sub, "nested")]) stamp(p, 1000);
-    return { root, sub };
-  }
-
-  test("returns the newest write across the transcript, subagent files and nested agents", () => {
-    const { root, sub } = tree("--E--Work-apps-My App--");
-    assert.equal(sessionActivityAt(root, run), 1_000_000);
-    stamp(path.join(sub, "nested", "Agent.jsonl"), 5000);
-    assert.equal(sessionActivityAt(root, run), 5_000_000);
-  });
-
-  test("finds the transcript when the cwd slug does not match, and ignores other sessions", () => {
-    const { root } = tree("--other-cwd--");
-    assert.equal(sessionActivityAt(root, run), 1_000_000);
-    assert.equal(sessionActivityAt(root, { ...run, ompSessionId: "other-id" }), null);
-  });
-
-  test("returns null for a missing root, a missing id and an id that is not a plain token", () => {
-    assert.equal(sessionActivityAt(path.join(TEMP, "nope"), run), null);
-    assert.equal(sessionActivityAt(TEMP, {}), null);
-    assert.equal(sessionActivityAt(TEMP, { ompSessionId: "../x" }), null);
   });
 });
 

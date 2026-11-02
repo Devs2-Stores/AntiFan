@@ -5,11 +5,13 @@
 // Plain Node ESM, no dependencies. Run with --help for commands and exit codes.
 
 import fs from "node:fs";
+import crypto from "node:crypto";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseCsv } from "./csv.mjs";
 import { normKey, outstandingDevRows, parseSheet, verifySheet } from "./sheet-diff.mjs";
 import { claimedCells, validateReportText } from "./report.mjs";
+import { defaultSessionsDir, judgeLiveness, pidAlive, sessionActivityAt, START_GRACE_MS } from "./worker-liveness.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_JOBS_ROOT = "E:/Work/scratch/leader";
@@ -21,7 +23,7 @@ const VERIFY_KINDS = ["sheet", "dashboard", "storefront"];
 const VERIFY_STATUSES = ["PASS", "WARN", "FAIL", "UNREADABLE"];
 const PROBES = { themeId: "themeId.js", overflow: "overflow.js", "element-rect": "element-rect.js", "dashboard-issue": "dashboard-issue.js" };
 
-export const EXIT = { OK: 0, CHECK_FAILED: 1, USAGE: 2, TIMEOUT: 3, REFUSED: 4, NEEDS_INPUT: 5 };
+export const EXIT = { OK: 0, CHECK_FAILED: 1, USAGE: 2, TIMEOUT: 3, REFUSED: 4, NEEDS_INPUT: 5, WORKER_DEAD: 6 };
 
 const HELP = `leader-job.mjs - Leader job ledger (feedback jobs for host ${HOST})
 
@@ -38,8 +40,11 @@ Commands
   dispatch --job DIR --worker TERMINAL [--prompt FILE] [--kind work|followup|close]
        [--mode auto|fresh|followup] [--allow-busy]
        Stamp dispatchedAt/preRunSeq, append a round, state=dispatched, print {input} for terminal.write.
-  wait --job DIR [--timeout-min N] [--poll-ms 5000]
-       Poll worker run files until every round is settled (state=settled) or a worker waits for the user.
+  wait --job DIR [--timeout-min N] [--poll-ms 5000] [--stale-min 90] [--sessions-dir DIR]
+       Poll worker run files until every round is settled (state=settled), a worker waits for the user, or a
+       worker is dead: run file gone (not counted in the first 3 minutes), OMP pid gone, or neither a run-file
+       event nor a write to its OMP session transcript (OMP_SESSIONS_DIR, default ~/.omp/agent/sessions) for
+       --stale-min minutes. A dead round is marked, state=worker_dead; dispatch a new round to a fresh worker.
   validate-report --job DIR [--round N]
        Check the round's report file; state=reported (needs_input for a NEEDS_INPUT report).
   verify-sheet --job DIR [--round N] [--current-file CSV]
@@ -51,15 +56,22 @@ Commands
   status [--leader TERMINAL] [--job DIR] [--all]    List open jobs and what blocks each.
   approve --job DIR [--allow-outstanding] [--force]  User said yes: state=user-approved.
   close --job DIR [--without-done] [--force]         state=closed (needs approval and a verified close round).
+  approve-push --worker TERMINAL --theme ID --cwd DIR --files "a b c" --quote "<the user's words>" [--ttl-min N] [--job DIR]
+       The user said yes to a push to the shop's LIVE theme: record a one-use approval (30 minutes at most) that
+       lets that worker's next, identical 'hrv theme push --only <files> --nodelete' through the gate. Only the
+       Leader that drives the worker can record one. --cwd is the theme folder, --theme the id it is bound to,
+       every file must exist there; --job ties the approval to a job of this Leader for the audit.
 
 Environment: LEADER_JOBS_ROOT (default ${DEFAULT_JOBS_ROOT}), LEADER_RUNS_DIR or ANTIFAN_DATA_ROOT
 (run files <dir>/<terminal>.json, default ${DEFAULT_DATA_ROOT}/runtime/runs), ANTIFAN_TERMINAL_SESSION_ID
-(the Leader's terminal). Flag --runs-dir overrides LEADER_RUNS_DIR.
+(the Leader's terminal). Flag --runs-dir overrides LEADER_RUNS_DIR. approve-push writes
+<LEADER_APPROVALS_DIR | ANTIFAN_DATA_ROOT/runtime/leader-push-approvals>/<id>.json (flag --approvals-dir) and reads
+the registry <ANTIFAN_CONFIG_DIR | ANTIFAN_DATA_ROOT/config>/leader-terminals.json.
 
 Output: one JSON object per line on stdout; human-readable errors on stderr.
 Exit codes: 0 ok | 1 check failed (invalid report, sheet FAIL/UNREADABLE) | 2 usage or I/O error
             3 wait timed out | 4 refused by policy (busy worker, unfilled prompt, no approval...)
-            5 worker is waiting for the user (wait)
+            5 worker is waiting for the user (wait) | 6 a worker is dead (wait)
 `;
 
 class CliError extends Error {
@@ -441,8 +453,7 @@ async function cmdDispatch(flags) {
   return EXIT.OK;
 }
 
-/** Decide whether a round's worker run has finished the dispatched turn. */
-export function judgeRound(round, run) {
+function settleVerdict(round, run) {
   if (!run) return { kind: "pending", why: "no run file" };
   if (run.unreadable) return { kind: "pending", why: "run file unreadable" };
   if (!(run.lastEventAt > round.dispatchedAt)) return { kind: "pending", why: "no OMP event since dispatch" };
@@ -453,29 +464,63 @@ export function judgeRound(round, run) {
   return { kind: "pending", why: `state ${run.state}` };
 }
 
+/**
+ * Decide whether a round's worker run has finished the dispatched turn. `live` is the judgeLiveness verdict
+ * and only turns an unfinished turn into "dead": a round the worker finished or handed to the user stays so.
+ */
+export function judgeRound(round, run, live = null) {
+  const verdict = settleVerdict(round, run);
+  return verdict.kind === "pending" && live?.dead ? { kind: "dead", why: live.why } : verdict;
+}
+
 async function cmdWait(flags) {
   const { dir } = loadJob(flags);
   const runsDir = runsDirOf(flags);
+  const sessionsDir = one(flags, "sessions-dir") || defaultSessionsDir();
   const pollMs = Math.max(10, Number(one(flags, "poll-ms") || 5000));
   const timeoutMs = one(flags, "timeout-min") !== undefined ? Number(one(flags, "timeout-min")) * 60000 : Infinity;
   if (Number.isNaN(timeoutMs)) throw new CliError(EXIT.USAGE, "--timeout-min must be a number");
+  const staleMin = one(flags, "stale-min") === undefined ? 90 : Number(one(flags, "stale-min"));
+  if (!(staleMin > 0)) throw new CliError(EXIT.USAGE, "--stale-min must be a number above 0");
   const started = Date.now();
   for (;;) {
     const { job } = loadJob(flags);
-    const open = job.rounds.filter((r) => !r.settledAt);
+    const open = job.rounds.filter((r) => !r.settledAt && !r.deadAt);
     if (!open.length) {
+      const last = job.rounds.at(-1);
+      if (last?.deadAt) {
+        emit({ cmd: "wait", event: "worker-dead", job: job.job, round: last.n, worker: last.worker.terminal, why: last.deadWhy ?? null, state: job.state });
+        return EXIT.WORKER_DEAD;
+      }
       emit({ cmd: "wait", event: "all-settled", job: job.job, state: job.state });
       return EXIT.OK;
     }
     let changed = false;
     for (const r of open) {
       const run = readRun(runsDir, r.worker.terminal);
-      const verdict = judgeRound(r, run);
+      const live = run?.unreadable
+        ? null
+        : judgeLiveness(run, r.dispatchedAt, {
+            now: Date.now(),
+            staleMs: staleMin * 60000,
+            graceMs: START_GRACE_MS,
+            pidAlive: run ? pidAlive(run.pid) : null,
+            activityAt: () => sessionActivityAt(sessionsDir, run),
+          });
+      const verdict = judgeRound(r, run, live);
       if (verdict.kind === "waiting_user") {
         job.state = "needs_input";
         saveJob(dir, job);
         emit({ cmd: "wait", event: "needs-input", job: job.job, round: r.n, worker: r.worker.terminal, lastTool: run?.lastTool ?? null, reason: verdict.why });
         return EXIT.NEEDS_INPUT;
+      }
+      if (verdict.kind === "dead") {
+        r.deadAt = Date.now();
+        r.deadWhy = verdict.why;
+        job.state = "worker_dead";
+        saveJob(dir, job);
+        emit({ cmd: "wait", event: "worker-dead", job: job.job, round: r.n, worker: r.worker.terminal, why: verdict.why, runState: run?.state ?? null, lastTool: run?.lastTool ?? null, state: job.state });
+        return EXIT.WORKER_DEAD;
       }
       if (verdict.kind === "settled") {
         r.settledAt = Date.now();
@@ -486,7 +531,7 @@ async function cmdWait(flags) {
       }
     }
     if (changed) {
-      if (job.rounds.every((r) => r.settledAt)) job.state = "settled";
+      if (job.rounds.every((r) => r.settledAt || r.deadAt)) job.state = "settled";
       saveJob(dir, job);
       if (job.state === "settled") {
         emit({ cmd: "wait", event: "all-settled", job: job.job, state: job.state });
@@ -525,7 +570,13 @@ function cmdValidateReport(flags) {
   } catch (e) {
     errors.push(e.code === "ENOENT" ? `report file missing: ${round.reportPath}` : `cannot read report: ${e.message}`);
   }
-  if (!round.settledAt) errors.push(`round ${round.n} is not settled yet (run wait first)`);
+  if (!round.settledAt) {
+    errors.push(
+      round.deadAt
+        ? `round ${round.n} has no usable report: its worker died (${round.deadWhy ?? "no reason recorded"}); inspect its repo and dispatch a new round to a fresh worker`
+        : `round ${round.n} is not settled yet (run wait first)`,
+    );
+  }
   let status = null;
   let json = null;
   if (text !== null) {
@@ -667,6 +718,8 @@ function blockingText(job) {
       const miss = (last?.report?.required ?? []).filter((k) => !["PASS", "WARN"].includes(last.verification[k]?.status));
       return `independent verification pending: ${miss.join(", ") || "none"}`;
     }
+    case "worker_dead":
+      return `worker ${last?.worker.terminal} died in round ${last?.n} (${last?.deadWhy ?? "no reason recorded"}): inspect its repo and dispatch a new round to a fresh worker`;
     case "needs_input":
       return "waiting for the user's answer";
     case "verified":
@@ -757,6 +810,187 @@ function cmdClose(flags) {
   return EXIT.OK;
 }
 
+// ---------------------------------------------------------------- live theme push approval
+// The record format and the matching rules live in src/omp-hooks/theme-push-approval.ts, which the
+// hook and the Manager read; test/unit/edit-guard.test.mjs runs this command against that reader.
+
+const APPROVAL_SCHEMA = "leader-push-approval/1";
+const APPROVAL_DIR_NAME = "leader-push-approvals";
+const APPROVAL_MAX_TTL_MIN = 30;
+const APPROVAL_MAX_FILES = 50;
+const APPROVAL_QUOTE_MAX = 500;
+const APPROVAL_KEEP_MS = 24 * 60 * 60_000;
+const PUSH_FILE_SEGMENT = String.raw`[A-Za-z0-9_][A-Za-z0-9_.@+-]*`;
+const PUSH_FILE_RE = new RegExp(`^${PUSH_FILE_SEGMENT}(?:/${PUSH_FILE_SEGMENT})*$`);
+const APPROVAL_FILE_RE = /^[A-Za-z0-9_-]{6,80}(?:\.used)?\.json(?:\.tmp-.*)?$/;
+
+const approvalsDirOf = (flags) =>
+  one(flags, "approvals-dir") ||
+  process.env.LEADER_APPROVALS_DIR ||
+  path.join(process.env.ANTIFAN_DATA_ROOT || DEFAULT_DATA_ROOT, "runtime", APPROVAL_DIR_NAME);
+
+/** A folder as the records and the gate compare it: absolute, forward slashes, case-folded on Windows. */
+function normalizeFolder(folder) {
+  const resolved = path.resolve(folder).replace(/\\/g, "/").replace(/\/+$/, "");
+  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+}
+
+/** The Manager's Leader registry; null when it cannot be read (a lock error is retried twice). */
+function readLeaderRegistry() {
+  const configDir = process.env.ANTIFAN_CONFIG_DIR || path.join(process.env.ANTIFAN_DATA_ROOT || DEFAULT_DATA_ROOT, "config");
+  const file = path.join(configDir, "leader-terminals.json");
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
+      return parsed && typeof parsed === "object" ? parsed : null;
+    } catch (e) {
+      if (attempt >= 2 || !["EBUSY", "EPERM", "EACCES"].includes(e.code)) return null;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+    }
+  }
+}
+
+/** The theme id a theme folder is bound to; the hook identifies a theme the same way. */
+function readThemeBinding(cwd) {
+  const file = path.join(cwd, ".haravan-cli_local.json");
+  let parsed;
+  try {
+    parsed = JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch {
+    throw new CliError(EXIT.USAGE, `no readable .haravan-cli_local.json in ${fwd(cwd)}: --cwd must be the theme folder that holds it`);
+  }
+  const orgId = parsed?.org_id == null ? "" : String(parsed.org_id).trim();
+  const themeId = parsed?.theme_id == null ? "" : String(parsed.theme_id).trim();
+  if (!orgId || !themeId) {
+    throw new CliError(EXIT.USAGE, `${fwd(file)} lacks org_id or theme_id: the hook could not identify the theme, so no approval would ever match`);
+  }
+  return themeId;
+}
+
+/** Records are only needed for the 30 minutes they live; the folder must stay small enough to scan. */
+function pruneApprovals(dir, now) {
+  let names;
+  try {
+    names = fs.readdirSync(dir);
+  } catch {
+    return;
+  }
+  for (const name of names) {
+    if (!APPROVAL_FILE_RE.test(name)) continue;
+    const file = path.join(dir, name);
+    try {
+      if (now - fs.statSync(file).mtimeMs > APPROVAL_KEEP_MS) fs.rmSync(file, { force: true });
+    } catch {}
+  }
+}
+
+function cmdApprovePush(flags) {
+  const leader = process.env.ANTIFAN_TERMINAL_SESSION_ID?.trim();
+  if (!leader) throw new CliError(EXIT.USAGE, "missing the Leader terminal: run this in the Leader's own terminal (ANTIFAN_TERMINAL_SESSION_ID is not set)");
+  validTerminalId(leader, "leader");
+  const worker = validTerminalId(req(flags, "worker"), "worker");
+
+  const registry = readLeaderRegistry();
+  if (!registry) {
+    throw new CliError(EXIT.REFUSED, `cannot read the Leader registry (leader-terminals.json): it cannot be confirmed that ${worker} is one of your workers`);
+  }
+  if (!Array.isArray(registry.leaders) || !registry.leaders.includes(leader)) {
+    throw new CliError(EXIT.REFUSED, `${leader} is not a marked Leader terminal: only the Leader of a worker records a live-push approval`);
+  }
+  const placed = registry.workers && typeof registry.workers === "object" && Object.hasOwn(registry.workers, worker) ? registry.workers[worker]?.leaderId : undefined;
+  if (placed !== leader) {
+    throw new CliError(EXIT.REFUSED, `${worker} is not one of your workers (the registry names ${typeof placed === "string" ? placed : "no Leader"} as its Leader)`);
+  }
+
+  const themeId = req(flags, "theme");
+  if (!/^\d+$/.test(themeId)) throw new CliError(EXIT.USAGE, `--theme must be the numeric theme id, got ${JSON.stringify(themeId)}`);
+  const quote = req(flags, "quote").trim();
+  if (quote.length === 0 || quote.length > APPROVAL_QUOTE_MAX || /[\x00-\x1f]/.test(quote)) {
+    throw new CliError(EXIT.USAGE, `--quote must be the user's own words on one line (1-${APPROVAL_QUOTE_MAX} characters)`);
+  }
+  const ttlRaw = one(flags, "ttl-min");
+  const ttlMin = ttlRaw === undefined ? APPROVAL_MAX_TTL_MIN : Number(ttlRaw);
+  if (!Number.isInteger(ttlMin) || ttlMin < 1 || ttlMin > APPROVAL_MAX_TTL_MIN) {
+    throw new CliError(EXIT.USAGE, `--ttl-min must be a whole number of minutes from 1 to ${APPROVAL_MAX_TTL_MIN}`);
+  }
+  const requested = many(flags, "files").flatMap((value) => value.split(/\s+/)).filter(Boolean);
+  if (requested.length === 0) throw new CliError(EXIT.USAGE, "missing required --files");
+  const files = [...new Set(requested)].sort();
+  if (files.length > APPROVAL_MAX_FILES) throw new CliError(EXIT.USAGE, `at most ${APPROVAL_MAX_FILES} files can be approved at once`);
+  for (const file of files) {
+    if (file.length > 200 || !PUSH_FILE_RE.test(file)) {
+      throw new CliError(EXIT.USAGE, `${JSON.stringify(file)} cannot be approved: name theme-relative files with plain segments (letters, digits, _ . @ + -), no .., no drive, no backslash, no quote, no wildcard`);
+    }
+  }
+
+  const cwd = path.resolve(req(flags, "cwd"));
+  const boundTheme = readThemeBinding(cwd);
+  if (boundTheme !== themeId) {
+    throw new CliError(EXIT.USAGE, `--theme ${themeId} is not the theme that ${fwd(cwd)} is bound to (${boundTheme})`);
+  }
+  for (const file of files) {
+    let isFile = false;
+    try {
+      isFile = fs.statSync(path.join(cwd, ...file.split("/"))).isFile();
+    } catch {}
+    if (!isFile) throw new CliError(EXIT.USAGE, `${file} is not a file of the theme folder ${fwd(cwd)}`);
+  }
+
+  let jobName = null;
+  if (one(flags, "job") !== undefined) {
+    const { job } = loadJob(flags);
+    if (job.state === "closed") throw new CliError(EXIT.REFUSED, `job ${job.job} is closed`);
+    if (job.leader?.terminal !== leader) {
+      throw new CliError(EXIT.REFUSED, `job ${job.job} belongs to the Leader ${job.leader?.terminal ?? "(unknown)"}, not to ${leader}`);
+    }
+    if (!job.rounds.some((round) => round.worker?.terminal === worker)) {
+      throw new CliError(EXIT.REFUSED, `${worker} is not a worker of job ${job.job}`);
+    }
+    jobName = job.job;
+  }
+
+  const now = Date.now();
+  const dir = approvalsDirOf(flags);
+  fs.mkdirSync(dir, { recursive: true });
+  pruneApprovals(dir, now);
+  const id = `${new Date(now).toISOString().replace(/\D/g, "").slice(0, 14)}-${crypto.randomBytes(4).toString("hex")}`;
+  const command = `hrv theme push --only ${files.join(" ")} --nodelete`;
+  const record = {
+    schema: APPROVAL_SCHEMA,
+    id,
+    leader,
+    worker,
+    job: jobName,
+    themeId,
+    cwd: normalizeFolder(cwd),
+    files,
+    command,
+    quote,
+    approvedAt: now,
+    expiresAt: now + ttlMin * 60_000,
+  };
+  const file = path.join(dir, `${id}.json`);
+  writeJsonAtomic(file, record);
+  emit({
+    cmd: "approve-push",
+    ok: true,
+    id,
+    file: fwd(file),
+    leader,
+    worker,
+    job: jobName,
+    themeId,
+    cwd: record.cwd,
+    files,
+    command,
+    approvedAt: now,
+    expiresAt: record.expiresAt,
+    ttlMin,
+    note: "one use: the worker's next line that is exactly this command passes; another file, --force, no --nodelete or a chained command is refused as before",
+  });
+  return EXIT.OK;
+}
+
 // ---------------------------------------------------------------- main
 
 const COMMANDS = {
@@ -770,6 +1004,7 @@ const COMMANDS = {
   status: cmdStatus,
   approve: cmdApprove,
   close: cmdClose,
+  "approve-push": cmdApprovePush,
 };
 
 export async function main(argv) {

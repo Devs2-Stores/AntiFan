@@ -67,7 +67,7 @@ const LEADER_REGISTRY_FILE = "leader-terminals.json";
 const DEFAULT_JOBS_ROOT = "E:/Work/scratch/leader";
 const JOB_FILE = "job.json";
 /** Job states in which the Leader still owes work: it must not end its turn. */
-const OPEN_JOB_STATES: Record<string, true> = { dispatched: true, settled: true, reported: true };
+const OPEN_JOB_STATES: Record<string, true> = { dispatched: true, settled: true, reported: true, worker_dead: true };
 const EXPRESSION_FILE_MAX_BYTES = 2 * 1024 * 1024;
 const SHELL_TOKEN_LIMIT = 60;
 
@@ -170,6 +170,9 @@ const CLI = "node scripts/leader/leader-job.mjs";
 function nextStep(job: OpenJob): string {
   if (job.state === "dispatched") {
     return `worker still running -> bash {async:true, timeout:0}: ${CLI} wait --job ${job.dir}  (its result wakes this session)`;
+  }
+  if (job.state === "worker_dead") {
+    return `worker died -> inspect its repo (git log/status, report file), then ${CLI} dispatch --job ${job.dir} --worker <NEW terminal> --prompt <resume prompt>; never re-wait the dead worker`;
   }
   if (job.state === "settled") {
     return `worker settled -> ${CLI} validate-report --job ${job.dir} --round ${job.lastRound}, then ${CLI} verify-sheet --job ${job.dir} --round ${job.lastRound}, then verify the storefront yourself`;
