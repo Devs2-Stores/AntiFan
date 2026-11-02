@@ -74,6 +74,12 @@ const GUI_SOURCES = [
 ];
 
 /**
+ * Statement keywords. They sit at the same indentation as class members (`    if (…)`), so the
+ * member patterns below read them as methods; none of them is one.
+ */
+const STATEMENT_KEYWORDS = ['if', 'for', 'while', 'switch', 'catch', 'with', 'return', 'function', 'typeof', 'await'];
+
+/**
  * Members that actually exist on TerminalManager, read from source.
  *
  * Without this, the collector is a name matcher: any local variable that happens to share a name
@@ -91,6 +97,7 @@ function collectManagerMembers() {
   for (const m of text.matchAll(/^\s{0,4}(?:(?:public|private|protected)\s+)?(?:readonly\s+)?([A-Za-z_$][\w$]*)\s*[:=]/gm)) {
     members.add(m[1]);
   }
+  for (const keyword of STATEMENT_KEYWORDS) members.delete(keyword);
   return members;
 }
 
@@ -114,10 +121,12 @@ function collectGuiCalls() {
     }
     if (holders.size === 0 && !text.includes('TerminalManager')) continue;
 
+    // Whitespace may precede the dot (a chain continued on the next line) but not follow it: prose
+    // such as "its own project's." with `if (…)` on the next line is not a call on a holder named `s`.
     const patterns = [
-      /\bTerminalManager\.getInstance\(\)\s*\??\.\s*([A-Za-z_$][\w$]*)\s*\(/g,
+      /\bTerminalManager\.getInstance\(\)\s*\??\.[ \t]*([A-Za-z_$][\w$]*)\s*\(/g,
       ...[...holders].map(
-        (h) => new RegExp(`\\b${h.replace('.', '\\.')}\\s*\\??\\.\\s*([A-Za-z_$][\\w$]*)\\s*\\(`, 'g'),
+        (h) => new RegExp(`\\b${h.replace('.', '\\.')}\\s*\\??\\.[ \\t]*([A-Za-z_$][\\w$]*)\\s*\\(`, 'g'),
       ),
     ];
     for (const p of patterns) {
