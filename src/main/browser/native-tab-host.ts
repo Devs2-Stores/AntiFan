@@ -42,7 +42,7 @@ import {
   IPHONE_USER_AGENT,
   MAC_DESKTOP_USER_AGENT,
 } from './device-presets';
-import { chromeSessionUserAgent, chromeUserAgentMetadata } from './google-auth-identity';
+import { chromeSessionUserAgent, chromeUserAgentMetadata, DEFAULT_ACCEPT_LANGUAGE } from './google-auth-identity';
 import { configureBrowserSessionPartition, deriveCapsulePartition, unconfigureBrowserSessionPartition, type BrowserSessionUserAgentMode } from './browser-session-partition';
 import { cookieJarNameOfPartition, deriveCookieJarPartition, isCookieJarPartition, isValidCookieJarName } from './cookie-jar';
 import { TabDiagnosticsManager, computeOrigin, normalizeConsoleLevel } from './tab-diagnostics';
@@ -178,6 +178,7 @@ import {
   migratePersistedTab,
 } from './split-review-coordinator';
 import { shouldHibernate, hibernationIdleMsForUrl, HIBERNATE_IDLE_MS, HIBERNATE_SWEEP_INTERVAL_MS, type HibernationContext } from './tab-hibernation';
+import { shouldPauseIdleMedia, MEDIA_FREEZE_CSS, MEDIA_PAUSE_SCRIPT, MEDIA_RESUME_SCRIPT, MEDIA_IDLE_MS } from './tab-media-idle';
 export interface NativeTabHostResourceStats {
   disposed: boolean;
   tabCount: number;
@@ -1512,6 +1513,14 @@ export class NativeTabHost extends EventEmitter {
   private hibernatingTabIds = new Set<string>();
   /** Tabs whose beforeunload vetoed a sleep probe in this cycle — never re-probed. */
   private unloadVetoedTabIds = new Set<string>();
+  /**
+   * Tabs whose media/animations the idle sweep froze, mapped to the CSS keys registered on each
+   * pane's WebContents. Hibernation refuses an audible tab, so without this a page playing media in
+   * a window nobody is looking at keeps a renderer (and the shared GPU process) busy forever.
+   */
+  private mediaFrozenTabs = new Map<string, string[]>();
+  /** Window-focus listener that thaws frozen tabs the instant the user comes back; installed once. */
+  private mediaFocusHandler: (() => void) | null = null;
   /** In-flight `ensureTabReady` waits, deduped per tab so a burst of MCP calls shares one wake. */
   private tabReadyWaits = new Map<string, Promise<boolean>>();
   private automationTabId: string | null = null;
@@ -9218,6 +9227,8 @@ export class NativeTabHost extends EventEmitter {
       // in setupTabWebContentsEvents does the other half), so the sweep measures
       // from the last time this tab was genuinely seen or touched.
       target.lastActiveAt = Date.now();
+      // A tab the idle sweep froze gets its animations and paused media back the moment it is shown.
+      this.resumeIdleMedia(targetId);
 
       // Whether these views were presented before this switch touched them. An already attached
       // view may be occluded or held by a capture, so the re-assert below still drops and re-adds
@@ -9463,6 +9474,9 @@ export class NativeTabHost extends EventEmitter {
     // ViewportGate per-tab lock cleanup (Phase 2 contract): ensures lock/poison state is scoped by target and cleaned up on tab destruction via this.viewportGate?.cleanupTab(tabId). Note for P5 owner: full distributed target lock release verified here.
     this.viewportGate?.cleanupTab(tabId);
     this.semanticRefRegistry?.invalidateTab(tabId);
+    // A frozen tab's CSS keys live on webContents that are about to be destroyed; dropping the
+    // record here keeps `mediaFrozenTabs` from naming tabs the host no longer has.
+    this.mediaFrozenTabs?.delete(tabId);
     if (this.semanticDocumentGenerations) {
       const prefix = `${String(tabId).trim()}:`;
       for (const key of Array.from(this.semanticDocumentGenerations.keys())) {
@@ -10133,12 +10147,153 @@ export class NativeTabHost extends EventEmitter {
   }
 
   /**
+   * Freeze media and CSS animations in tabs the user is not looking at, and thaw the ones that came
+   * back. Runs before the hibernation pass in the same sweep: a page pinned on an animation loop is
+   * exactly the kind hibernation can never take (audible/idle rules), so pausing it is the only way
+   * it gives its core back.
+   *
+   * Reversible by construction — the page is never unloaded, so no form, scroll or session state can
+   * be lost, and `resumeIdleMedia` plays back only the media this pass paused.
+   */
+  private async sweepIdleMedia(): Promise<void> {
+    const win = this.shell?.window;
+    // Returning to the window must thaw it at once, not up to 60 s later: a click on the toolbar's
+    // Scan runs against whatever state the page is in, so a still-frozen page would be captured.
+    if (win && !win.isDestroyed() && !this.mediaFocusHandler && typeof win.on === 'function') {
+      const handler = () => this.resumeAllFrozenMedia();
+      this.mediaFocusHandler = handler;
+      win.on('focus', handler);
+      win.on('restore', handler);
+      win.on('show', handler);
+    }
+    // Probed like the other window reads in this host: a harness window may model only part of it.
+    const focused = Boolean(
+      win && !win.isDestroyed()
+        && typeof win.isVisible === 'function' && win.isVisible()
+        && typeof win.isMinimized === 'function' && !win.isMinimized()
+        && typeof win.isFocused === 'function' && win.isFocused(),
+    );
+    const bound = this.hibernationBoundTabIds();
+    const cdpBound = this.hibernationCdpBoundTabIds();
+    for (const [id, tab] of [...this.tabs.entries()]) {
+      if (tab.state.hibernated === true) continue;
+      const panes = [tab.view, tab.mobileView].filter((pane): pane is NonNullable<typeof pane> => Boolean(pane?.webContents) && !pane!.webContents.isDestroyed());
+      if (panes.length === 0) continue;
+      const agentPlane = this.automationTabId === id
+        || bound.has(id)
+        || cdpBound.has(id)
+        || (tab.agentActivityAt || 0) > Date.now() - MEDIA_IDLE_MS;
+      const decision = shouldPauseIdleMedia({
+        presented: this.activeTabId === id,
+        windowVisibleAndFocused: focused,
+        idleMs: Date.now() - (tab.lastActiveAt || 0),
+        playing: panes.some((pane) => {
+          try { return pane.webContents.isCurrentlyAudible(); } catch { return false; }
+        }),
+        agentPlane,
+        unloadVetoed: this.unloadVetoedTabIds.has(id),
+      });
+      if (decision.pause) {
+        await this.pauseIdleMedia(id);
+      } else if (this.mediaFrozenTabs?.has(id) && (focused || this.activeTabId === id || decision.reason === 'window-in-use')) {
+        this.resumeIdleMedia(id);
+      }
+    }
+  }
+
+  private async pauseIdleMedia(tabId: string): Promise<void> {
+    if (this.mediaFrozenTabs?.has(tabId)) return;
+    const tab = this.tabs.get(tabId);
+    if (!tab) return;
+    const activeAtBeforeProbe = tab.lastActiveAt || 0;
+    const keys = new Map<number, string>();
+    let pausedMedia = 0;
+    for (const pane of [tab.view, tab.mobileView]) {
+      const wc = pane?.webContents;
+      if (!wc || wc.isDestroyed()) continue;
+      // Freeze first, pause second: a pane whose CSS failed to land is skipped entirely, so the
+      // policy never pauses media it has no recorded key to thaw.
+      let key: string;
+      try {
+        key = await wc.insertCSS(MEDIA_FREEZE_CSS);
+      } catch {
+        continue;
+      }
+      keys.set(wc.id, key);
+      const paused = await this.probePage(wc, MEDIA_PAUSE_SCRIPT);
+      if (typeof paused === 'number') pausedMedia += paused;
+    }
+    // The user can come back while the page is answering: a focus in that window, a switch to this
+    // tab or input in it already ran (or skipped) the thaw while there was nothing recorded yet. Undo
+    // the freeze we just applied instead of leaving the tab frozen in front of the user until the
+    // next sweep.
+    const win = this.shell?.window;
+    const touchedDuringProbe = (tab.lastActiveAt || 0) > activeAtBeforeProbe;
+    const stillOutOfSight = Boolean(win && !win.isDestroyed() && !win.isFocused())
+      && this.activeTabId !== tabId
+      && !touchedDuringProbe
+      && this.tabs.get(tabId) === tab;
+    if (keys.size === 0) return;
+    if (!stillOutOfSight) {
+      for (const [wcId, key] of keys) {
+        for (const pane of [tab.view, tab.mobileView]) {
+          const wc = pane?.webContents;
+          if (!wc || wc.isDestroyed() || wc.id !== wcId) continue;
+          try { wc.removeInsertedCSS(key); } catch {}
+          void this.probePage(wc, MEDIA_RESUME_SCRIPT);
+        }
+      }
+      return;
+    }
+    this.mediaFrozenTabs.set(tabId, [...keys.values()]);
+    recordLifecycleEvent('tabhost.mediaPaused', { tabId, pausedMedia, frozenPanes: keys.size });
+  }
+
+  /**
+   * Run a script in a page with the same 1500 ms bound `hibernateTab` uses. A wedged or hidden
+   * renderer must not hold the sweep that also drives hibernation.
+   */
+  private async probePage(wc: Electron.WebContents, script: string): Promise<unknown> {
+    try {
+      return await Promise.race([
+        wc.executeJavaScript(script),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 1500)),
+      ]);
+    } catch {
+      return null;
+    }
+  }
+
+  private resumeAllFrozenMedia(): void {
+    for (const tabId of [...(this.mediaFrozenTabs?.keys() ?? [])]) this.resumeIdleMedia(tabId);
+  }
+
+  private resumeIdleMedia(tabId: string): void {
+    // Optional like every other field this method reads: test harnesses build a host without running
+    // field initializers, and activation calls this on every tab switch.
+    const keys = this.mediaFrozenTabs?.get(tabId);
+    if (!keys) return;
+    this.mediaFrozenTabs?.delete(tabId);
+    const tab = this.tabs.get(tabId);
+    for (const pane of [tab?.view, tab?.mobileView]) {
+      const wc = pane?.webContents;
+      if (!wc || wc.isDestroyed()) continue;
+      for (const key of keys) {
+        try { wc.removeInsertedCSS(key); } catch {}
+      }
+      void this.probePage(wc, MEDIA_RESUME_SCRIPT);
+    }
+    recordLifecycleEvent('tabhost.mediaResumed', { tabId });
+  }
+
+  /**
    * One 60s sweep: for every tab that passes the pure policy, attempt the
    * unload-aware destroy. A beforeunload veto marks the tab and moves on — the
    * sweep never blocks waiting for a single tab's answer.
    */
   private async runHibernationSweep(): Promise<void> {
     if (this.isDisposed) return;
+    await this.sweepIdleMedia();
     const ctx: HibernationContext = {
       activeTabId: this.activeTabId,
       automationTabId: this.automationTabId,
@@ -10167,6 +10322,10 @@ export class NativeTabHost extends EventEmitter {
     const tab = this.tabs.get(tabId);
     if (!tab || tab.state.hibernated === true) return false;
     if (this.hibernatingTabIds.has(tabId)) return false;
+    // Freezing media clears `isCurrentlyAudible`, which is what otherwise keeps a playing tab alive.
+    // Without this refusal a tab the idle sweep just paused could be unloaded in the very same
+    // sweep, losing the playback position the freeze promised to keep.
+    if (this.mediaFrozenTabs?.has(tabId)) return false;
     const view = tab.view;
     const wc = view?.webContents;
     if (!view || !wc || wc.isDestroyed()) return false;
@@ -11888,6 +12047,7 @@ export class NativeTabHost extends EventEmitter {
           const userAgentMetadata = chromeUserAgentMetadata(this.defaultUserAgent);
           await devTools.sendCdpCommand(wc, 'Emulation.setUserAgentOverride', {
             userAgent: this.defaultUserAgent,
+            acceptLanguage: DEFAULT_ACCEPT_LANGUAGE,
             platform: 'Win32',
             ...(userAgentMetadata ? { userAgentMetadata } : {}),
           }).catch(() => {});
@@ -16567,6 +16727,18 @@ export class NativeTabHost extends EventEmitter {
     if (this.hibernationSweepTimer) {
       clearInterval(this.hibernationSweepTimer);
       this.hibernationSweepTimer = null;
+    }
+    this.mediaFrozenTabs?.clear();
+    if (this.mediaFocusHandler) {
+      const win = this.shell?.window;
+      try {
+        if (win && !win.isDestroyed()) {
+          win.removeListener('focus', this.mediaFocusHandler);
+          win.removeListener('restore', this.mediaFocusHandler);
+          win.removeListener('show', this.mediaFocusHandler);
+        }
+      } catch {}
+      this.mediaFocusHandler = null;
     }
     // A queued wake-and-wait must not hold a disposed host's promise open.
     this.tabReadyWaits?.clear();

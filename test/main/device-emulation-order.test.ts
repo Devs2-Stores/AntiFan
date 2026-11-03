@@ -4,6 +4,7 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { NativeTabHost } from '../../src/main/browser/native-tab-host';
+import { DEFAULT_ACCEPT_LANGUAGE } from '../../src/main/browser/google-auth-identity';
 
 describe('device emulation ordering', () => {
   it('applies emulation on one webContents strictly in call order', async () => {
@@ -32,6 +33,26 @@ describe('device emulation ordering', () => {
       'Emulation.clearDeviceMetricsOverride',
       'Emulation.setUserAgentOverride',
     ]);
+  });
+
+  it('gives the default (responsive) UA override the desktop Chrome language list, and keeps the preset list', async () => {
+    const uaCalls: Array<Record<string, unknown>> = [];
+    const raw = Object.create(NativeTabHost.prototype) as Record<string, unknown>;
+    raw.defaultUserAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.250 Safari/537.36';
+    raw.getDevToolsHost = () => ({
+      sendCdpCommand: async (_wc: unknown, method: string, params?: Record<string, unknown>) => {
+        if (method === 'Emulation.setUserAgentOverride' && params) uaCalls.push(params);
+      },
+    });
+    const wc = { isDestroyed: () => false, isCrashed: () => false, getURL: () => 'https://www.tiktok.com/', debugger: { isAttached: () => true } };
+    type EmulationHost = { applyCdpDeviceEmulationState: (w: unknown, preset: unknown) => Promise<void> };
+    // Private method on NativeTabHost exercised directly by this unit test.
+    const host = raw as unknown as EmulationHost;
+    await host.applyCdpDeviceEmulationState(wc, { id: 'custom-1440x900', name: 'w', width: 1440, height: 900, deviceScaleFactor: 1, mobile: false, category: 'desktop' });
+    await host.applyCdpDeviceEmulationState(wc, null);
+    assert.equal(uaCalls.length, 2);
+    assert.equal(uaCalls[0]!.acceptLanguage, 'vi-VN,vi,en-US,en');
+    assert.equal(uaCalls[1]!.acceptLanguage, DEFAULT_ACCEPT_LANGUAGE);
   });
 });
 

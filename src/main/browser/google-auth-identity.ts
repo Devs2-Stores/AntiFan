@@ -179,6 +179,14 @@ function hostArchitecture(): { architecture: string; bitness: string } {
 }
 
 /**
+ * Accept-Language list for the default (non-preset) `Emulation.setUserAgentOverride`. Chromium
+ * derives `navigator.languages` and the q-valued header from these bare tokens; without it the
+ * override left `navigator.languages` as `["en-US"]`, while desktop Chrome on the same host
+ * reports `["en-US","en"]` (measured 2026-11-03, Chrome 156, fresh profile).
+ */
+export const DEFAULT_ACCEPT_LANGUAGE = 'en-US,en';
+
+/**
  * Client Hints matching a Chromium-family UA string, with the same brand list the session's
  * `sec-ch-ua` rewrite sends, so headers and `navigator.userAgentData` agree. A UA for the host's
  * own OS reports the host's real platform version and architecture, as Chrome would. Returns
