@@ -6,6 +6,14 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 
 ## [v1.3.6] - Unreleased
 
+### Sửa — Chạy nhiều dự án cùng lúc: bớt CPU của main và ghi đĩa của terminal host
+
+- **Đo live (03/11/2026, 18 phiên terminal với 16 OMP đang chạy, 42 client MCP, 15 cửa sổ):** `scripts/bench-smoothness.mjs` cho main ≈50% một core; profile CPU 25 s của main (34% mẫu là bận) đặt 16,6% tổng số mẫu trong `BridgeServer.broadcastEvent`, và bọc hàm đo trực tiếp cho 148–195 ms CPU mỗi giây. Có 410–669 frame output/s, mỗi frame kiểm quyền với từng client, và mỗi client agent lại phân giải home terminal (registry → host của tab → terminal): 17.206–28.095 lần `attachmentHomeTerminal`/s. Terminal host ghi lại toàn bộ `config/terminal-sessions.json` (20,7 MB) mỗi ~5 s — đo bằng `WriteTransferCount`: 4,09 MB/s, tức ~353 GB/ngày.
+- **Broadcast:** quyền nhận frame terminal được quyết định một lần mỗi frame (`terminalFrameGate`, `src/main/bridge/bridge-server.ts`). Phần chỉ phụ thuộc session (`liveSplitParentOf`, `src/main/tools/terminal-capabilities.ts`) được probe một lần: frame của terminal gốc (nơi OMP chạy) bị loại với mọi attachment mà không cần phân giải home; frame của split phân giải home của mỗi attachment tối đa một lần. Cổng chỉ dựng khi có client đang mở, và frame không client nào nhận thì không `JSON.stringify`.
+- **Bằng chứng tương đương:** script differential sinh đồ thị session/client ngẫu nhiên (split, closed, disposed, id rỗng, mobile có/không `terminal.sync`, agent giữ terminal, socket CLOSED đứng đầu) và so cả `terminalFrameGate` lẫn đường giao thật `broadcastEvent` với oracle cũ: **26.620 ca cổng + 23.620 ca giao frame, 0 lệch**. Harness tổng hợp (42 client, 5% frame là split) cho 42 → 2,1 lần phân giải home mỗi frame và 33,7 → 13,9 µs/frame; ở lần đo live thứ hai thì 0% frame đến từ split, nên số lần phân giải home dự kiến về gần 0 — dự báo, chưa đo lại.
+- **Lưu transcript:** output đơn thuần chỉ làm file được ghi lại sau tối đa 60 s (`TRANSCRIPT_PERSIST_DELAY_MS`); thay đổi cấu trúc (tạo, đóng, đổi tên, owner, sleep, exit) và lệnh xoá màn hình (`cls`/Ctrl+L) vẫn xuống đĩa trong 5 s và kéo lần ghi đang chờ về sớm, không bao giờ đẩy lùi. Định dạng file và giới hạn 1 MB/phiên không đổi. Mức ghi khi có output liên tục giảm từ ~353 GB/ngày xuống ≤~30 GB/ngày (20,7 MB × 1440), thấp hơn nữa khi các phiên im.
+- **Đánh đổi và triển khai:** nếu terminal host chết cứng giữa cửa sổ đó, tối đa 60 s output cuối của phiên đang chạy không được khôi phục. Thoát app gửi yêu cầu flush và host cũng tự flush khi chính nó shutdown, nhưng lệnh flush từ phía app là bất đồng bộ. Thay đổi này nằm trong tiến trình terminal host, nên chỉ có hiệu lực khi host đó khởi động lại — restart app không đủ, mà restart host thì kết thúc mọi PTY đang chạy.
+
 ### Đổi — Công cụ MCP và QA (có thay đổi phá vỡ)
 
 - **BREAKING:** `theme.qa_validate` đổi tên tham số `viewports` thành `baselineViewports`; tên cũ giờ trả `INVALID_ARGUMENT` kèm `renamedField`.

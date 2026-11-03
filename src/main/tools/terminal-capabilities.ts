@@ -278,13 +278,29 @@ export function resolveHomeBaseTerminal(
 }
 
 /**
+ * The base terminal `terminalId` is a live split pane of, or undefined when it is not a live split
+ * (missing, disposed, closed, or a base terminal itself). It is the session half of the one relation
+ * that decides what an agent may see and drive, so a caller checking many homes against one terminal
+ * probes the terminal once.
+ */
+export function liveSplitParentOf(terminal: TerminalManager, terminalId: string): string | undefined {
+  const record = probeTerminalLifecycle(terminal, terminalId);
+  if (record === undefined || record.disposed === true || record.state === 'closed') return undefined;
+  return record.splitOf || undefined;
+}
+
+/**
  * Whether `terminalId` is a live split pane of `homeId`: the one relation that decides what an
  * agent may see and drive. Everything else (the home shell itself, other base terminals, panes of
  * other terminals, other projects) is outside it.
+ *
+ * `homeId` must name a terminal; the signature says so because every caller resolves it through
+ * `resolveHomeBaseTerminal`, which never returns an empty or undefined id. A caller that bypassed
+ * that guard would get `false` here, which is the fail-closed answer.
  */
 export function isLiveSplitOf(terminal: TerminalManager, homeId: string, terminalId: string): boolean {
-  const record = probeTerminalLifecycle(terminal, terminalId);
-  return record !== undefined && record.disposed !== true && record.state !== 'closed' && record.splitOf === homeId;
+  const parent = liveSplitParentOf(terminal, terminalId);
+  return parent !== undefined && parent === homeId;
 }
 
 /** Whether `terminalId` names a terminal that exists and is not closed or disposed. */

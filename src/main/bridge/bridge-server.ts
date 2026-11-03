@@ -35,7 +35,7 @@ import {
   emitBridgeHealthChanged,
 } from './bridge-health';
 import { CapabilityTransportAdapter, describeRelayedFailure } from '../tools/capability-transport';
-import { resolveHomeBaseTerminal, isLiveSplitOf } from '../tools/terminal-capabilities';
+import { resolveHomeBaseTerminal, isLiveSplitOf, liveSplitParentOf } from '../tools/terminal-capabilities';
 import { CapabilityRequestContext, CapabilityError, BrowserTarget, RuntimeLease, ArtifactRef, ClientInvocationIntent, makeControlPlaneId, hashSecret, verifySecret } from '../../shared/control-plane-contracts';
 import { AttachmentRegistry, type PageCloseAdmission } from '../run/attachment-registry';
 import { SessionCapabilityFilter, isCapabilityNamePermitted } from '../tools/capability-catalogue';
@@ -4437,24 +4437,36 @@ export class BridgeServer {
     this.sendEventFrame(ws, event, data);
   }
 
-  private isClientAuthorizedForTerminal(client: WebSocket, terminalSessionId?: string): boolean {
-    if (!terminalSessionId) return false;
-
-    // 1. Agent plane attachment: only the split panes of the terminal it runs in
-    const boundAttachmentId = this.socketAttachmentIds.get(client);
-    if (boundAttachmentId) {
-      return this.attachmentMayReachTerminal(boundAttachmentId, terminalSessionId);
-    }
-
-    // 2. Mobile companion client: requires terminal.sync scope and MUST NOT be an agent-owned terminal
-    const mobileGrant = this.socketMobileGrants.get(client);
-    if (mobileGrant) {
-      if (!mobileGrant.allowedScopes.includes('terminal.sync')) return false;
-      return !this.agentHoldsTerminal(terminalSessionId); // Agent terminal isolated from mobile
-    }
-
-    // 3. User plane Bridge client: isolated from agent-plane terminals
-    return !this.agentHoldsTerminal(terminalSessionId);
+  /**
+   * Who may receive frames of one terminal session. Everything that depends only on the session is
+   * read once here, so a broadcast to N clients does not re-probe it N times:
+   *
+   * 1. Agent plane attachment: only the live split panes of the terminal it runs in. A base terminal
+   *    (where every agent's own TUI runs, so nearly every frame) is refused to all attachments
+   *    without resolving any attachment's home; a split frame resolves each attachment's home at
+   *    most once.
+   * 2. Mobile companion: requires terminal.sync scope and never reaches an agent-owned terminal.
+   * 3. User plane bridge client: isolated from agent-plane terminals.
+   *
+   * The returned predicate is valid for one frame only: it caches homes and the agent hold.
+   */
+  private terminalFrameGate(terminalSessionId?: string): (client: WebSocket) => boolean {
+    if (!terminalSessionId) return () => false;
+    const splitParent = liveSplitParentOf(TerminalManager.getInstance(), terminalSessionId);
+    const homes = new Map<string, string | undefined>();
+    let agentHolds: boolean | undefined;
+    return (client) => {
+      const boundAttachmentId = this.socketAttachmentIds.get(client);
+      if (boundAttachmentId) {
+        if (splitParent === undefined) return false;
+        if (!homes.has(boundAttachmentId)) homes.set(boundAttachmentId, this.attachmentHomeTerminal(boundAttachmentId));
+        return homes.get(boundAttachmentId) === splitParent;
+      }
+      const mobileGrant = this.socketMobileGrants.get(client);
+      if (mobileGrant && !mobileGrant.allowedScopes.includes('terminal.sync')) return false;
+      agentHolds ??= this.agentHoldsTerminal(terminalSessionId);
+      return !agentHolds;
+    };
   }
 
   /**
@@ -4514,9 +4526,18 @@ export class BridgeServer {
       terminalSessionId = String(data.id ?? '');
     }
 
-    // Pre-serialize frame payload once for all clients and benchmark
-    const raw = JSON.stringify(payload);
-    const rawBytes = Buffer.byteLength(raw, 'utf8');
+    // Serialized once for all clients, and only when one receives the frame: most terminal frames
+    // reach nobody (agents see only their own split panes), so they never pay for JSON.stringify.
+    let frame: { raw: string; rawBytes: number } | undefined;
+    const frameOf = (): { raw: string; rawBytes: number } => {
+      if (!frame) {
+        const raw = JSON.stringify(payload);
+        frame = { raw, rawBytes: Buffer.byteLength(raw, 'utf8') };
+      }
+      return frame;
+    };
+    // Built on the first open client, so a frame nobody is connected for probes nothing.
+    let terminalGate: ((client: WebSocket) => boolean) | undefined;
 
     // A companion receives the user-plane view of a session state: the agent plane stays invisible
     // in the list, the active id, and the transcript snapshot that travels with it.
@@ -4548,6 +4569,7 @@ export class BridgeServer {
 
     let sent = 0;
     let congested = 0;
+    let sentBytes = 0;
     for (const client of this.clients) {
       if (client.readyState !== WebSocket.OPEN) continue;
       const boundAttachmentId = this.socketAttachmentIds.get(client);
@@ -4555,7 +4577,8 @@ export class BridgeServer {
 
       // Dual-plane isolation for events
       if (isTerminalData) {
-        if (!this.isClientAuthorizedForTerminal(client, terminalSessionId)) {
+        terminalGate ??= this.terminalFrameGate(terminalSessionId);
+        if (!terminalGate(client)) {
           continue;
         }
       } else if (isTerminalSession) {
@@ -4579,10 +4602,15 @@ export class BridgeServer {
       const state = this.clientCongestion.get(client);
       if (state && state.queue.length > 0) congested += 1;
       if (isTerminalData) {
+        const { raw, rawBytes } = frameOf();
+        sentBytes += rawBytes;
         this.sendEventFrame(client, event, data, terminalSessionId, raw, rawBytes, dataText, seq);
       } else if (isTerminalSession && mobileGrant && mobileSessionFrame) {
+        sentBytes += mobileSessionFrame.rawBytes;
         this.sendEventFrame(client, event, mobileSessionFrame.data, undefined, mobileSessionFrame.raw, mobileSessionFrame.rawBytes);
       } else {
+        const { raw, rawBytes } = frameOf();
+        sentBytes += rawBytes;
         this.sendEventFrame(client, event, data, undefined, raw, rawBytes);
       }
       sent += 1;
@@ -4592,7 +4620,7 @@ export class BridgeServer {
         surface: 'bridge',
         name: 'broadcast',
         value: performance.now() - broadcastStartMs,
-        extra: { event, clients: sent, congested, bytes: rawBytes },
+        extra: { event, clients: sent, congested, bytes: sentBytes },
       });
     }
   }

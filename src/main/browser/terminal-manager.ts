@@ -529,6 +529,13 @@ const MAX_PERSISTED_BYTES = 1024 * 1024; // 1MB per session on disk (restart rec
 // Re-slicing the transcript copies the whole retained tail, so only trim after a
 // generous overshoot instead of on every 64KB of new output.
 const TRANSCRIPT_TRIM_OVERSHOOT_BYTES = 256 * 1024;
+// The state file is rewritten whole on every persist (up to 1MB of tail per session), so how often
+// output alone may trigger a write is what bounds disk churn: 16 busy agent TUIs on a 5 s cadence
+// rewrote ~20MB every 5 s (~4MB/s). Structure (create/close/rename/owner/sleep/exit) still reaches
+// disk within 5 s; output alone waits up to 60 s, which is the most of a busy tail a hard kill of
+// the terminal host can lose. Shutdown and persistSync flush everything at once.
+const STRUCTURAL_PERSIST_DELAY_MS = 5_000;
+const TRANSCRIPT_PERSIST_DELAY_MS = 60_000;
 // The boundary stamped between the restored on-disk transcript and the live
 // shell output inside composeTranscript. Kept as a constant so the wire
 // preview builder slices the same seam the full composer inserts.
@@ -952,6 +959,12 @@ export class TerminalManager extends EventEmitter {
   /** The owner a record created right now belongs to. */
   private get effectiveCreationOwnerKey(): string { return this.creationOwnerKey || DEFAULT_TERMINAL_OWNER_KEY; }
   private persistTimer: NodeJS.Timeout | null = null;
+  /**
+   * Monotonic deadline of the armed persistTimer; meaningful only while persistTimer is set. Node
+   * timers run on the monotonic clock, so a wall-clock deadline could be defeated by a clock step:
+   * a forward step would swallow a structural write, a backward step would postpone one.
+   */
+  private persistDueAt = 0;
   private isPersisting = false;
   private hasPendingPersist = false;
   private activePersistPromise: Promise<void> | null = null;
@@ -1495,14 +1508,24 @@ export class TerminalManager extends EventEmitter {
     this.schedulePersist();
   }
 
-  private schedulePersist(sessionId?: string): void {
+  /**
+   * Arms the debounced write. An armed timer is only ever pulled earlier, never pushed later: output
+   * arriving every few ms must not postpone its own write forever, and a structural change made
+   * while a transcript-only write is pending must still land within STRUCTURAL_PERSIST_DELAY_MS.
+   */
+  private schedulePersist(sessionId?: string, delayMs = STRUCTURAL_PERSIST_DELAY_MS): void {
     if (this.isDisposed) return;
     if (sessionId) this.dirtySessionIds.add(sessionId);
-    if (this.persistTimer) return;
+    const dueAt = Date.now() + delayMs;
+    if (this.persistTimer) {
+      if (this.persistDueAt <= dueAt) return;
+      clearTimeout(this.persistTimer);
+    }
+    this.persistDueAt = dueAt;
     this.persistTimer = setTimeout(() => {
       this.persistTimer = null;
       this.persistAsync();
-    }, 5000);
+    }, delayMs);
     this.persistTimer.unref?.();
   }
 
@@ -2053,7 +2076,7 @@ export class TerminalManager extends EventEmitter {
         this.benchmarkChunkBytes += dataBytes;
         recordBenchmark({ surface: 'terminal', name: 'ptyData', value: dataBytes, extra: { sessionId: id, chunkSeq: this.benchmarkChunkSeq, totalBytes: this.benchmarkChunkBytes } });
       }
-      this.appendData(s, data, dataBytes);
+      this.appendData(s, data, dataBytes, TRANSCRIPT_PERSIST_DELAY_MS);
     });
     const exitSub = child.onExit(({ exitCode, signal }) => {
       if (s.disposed) return;
@@ -2079,7 +2102,7 @@ export class TerminalManager extends EventEmitter {
     this.sessions.set(id, s);
     return s;
   }
-  private appendData(s: Session, data: string, dataBytes = Buffer.byteLength(data, 'utf8')): void {
+  private appendData(s: Session, data: string, dataBytes = Buffer.byteLength(data, 'utf8'), persistDelayMs = STRUCTURAL_PERSIST_DELAY_MS): void {
     if (s.disposed) return;
     // Track the alternate screen buffer so full-screen TUIs (vim/htop/less)
     // are never mistaken for a clear-screen repaint. ConPTY splits chunks mid
@@ -2144,6 +2167,9 @@ export class TerminalManager extends EventEmitter {
       data = '\x1b[3J' + data;
       dataBytes += 4; // '\x1b[3J' is 4 bytes
       s.pendingClearScreen = false;
+      // A clear is a user action, not chatter: it must reach disk on the structural cadence, or a
+      // crash inside the transcript window would restore the scrollback the user just wiped.
+      persistDelayMs = STRUCTURAL_PERSIST_DELAY_MS;
     }
     s.lastSeq = (s.lastSeq || 0) + 1;
     s.deliveryJournal.append(s.sessionGeneration, s.lastSeq, data, dataBytes);
@@ -2151,7 +2177,7 @@ export class TerminalManager extends EventEmitter {
     if (s.bufferBytes > MAX_TRANSCRIPT_BYTES + TRANSCRIPT_TRIM_OVERSHOOT_BYTES) {
       s.trimTail(MAX_TRANSCRIPT_BYTES);
     }
-    this.schedulePersist(s.id);
+    this.schedulePersist(s.id, persistDelayMs);
     if (isBenchmarkEnabled()) {
       let stamps = this.emitTimeMs.get(s.id);
       if (!stamps) {

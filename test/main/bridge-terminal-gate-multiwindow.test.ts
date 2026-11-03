@@ -29,9 +29,30 @@ class GateHost extends EventEmitter {
 interface BridgeGateInternals {
   attachmentRegistry: { getRecord(id: string): { tabId: string; originTerminalSessionId?: string } | undefined };
   socketAttachmentIds: Map<unknown, string>;
+  socketMobileGrants: Map<unknown, { allowedScopes: string[] }>;
+  clients: Set<unknown>;
   terminalWriteForAttachment(sessionId: string, boundAttachmentId?: string): boolean;
-  isClientAuthorizedForTerminal(client: unknown, terminalSessionId?: string): boolean;
+  terminalFrameGate(terminalSessionId?: string): (client: unknown) => boolean;
   userPlaneMayReachTerminal(terminalSessionId?: string): boolean;
+}
+
+/** An open socket double that records the terminal sessions whose data frames reached it. */
+function recordingSocket(): { socket: unknown; sessions: string[] } {
+  const sessions: string[] = [];
+  const socket = {
+    readyState: 1,
+    bufferedAmount: 0,
+    send(raw: string | Buffer, _opts?: unknown, cb?: (err?: Error) => void) {
+      const frame = JSON.parse(String(raw)) as { event?: string; data?: { sessionId?: string } };
+      if (frame.event === 'antifan:terminal:data' && frame.data?.sessionId) sessions.push(frame.data.sessionId);
+      if (typeof cb === 'function') cb();
+    },
+    on() {},
+    once() {},
+    terminate() {},
+    close() {},
+  };
+  return { socket, sessions };
 }
 
 type SeededSession = { id: string; sessionGeneration: number; state: string; disposed: boolean; splitOf?: string };
@@ -83,9 +104,9 @@ describe('Bridge terminal gates across project windows', () => {
       // The same predicate decides which terminal data frames a bound client receives.
       const client = {};
       gate.socketAttachmentIds.set(client, 'att-b');
-      assert.strictEqual(gate.isClientAuthorizedForTerminal(client, 'gate-pane'), true);
-      assert.strictEqual(gate.isClientAuthorizedForTerminal(client, 'gate-home'), false);
-      assert.strictEqual(gate.isClientAuthorizedForTerminal(client, 'gate-other-pane'), false);
+      assert.strictEqual(gate.terminalFrameGate('gate-pane')(client), true);
+      assert.strictEqual(gate.terminalFrameGate('gate-home')(client), false);
+      assert.strictEqual(gate.terminalFrameGate('gate-other-pane')(client), false);
     } finally {
       server.dispose();
       restore();
@@ -144,6 +165,44 @@ describe('Bridge terminal gates across project windows', () => {
       assert.strictEqual(gate.userPlaneMayReachTerminal(undefined), false);
     } finally {
       server.dispose();
+    }
+  });
+
+  it('delivers each terminal data frame only to the clients its gate admits', () => {
+    const restore = seedSessions([
+      { id: 'fan-home' },
+      { id: 'fan-pane', splitOf: 'fan-home' },
+      { id: 'fan-other' },
+      { id: 'fan-other-pane', splitOf: 'fan-other' },
+      { id: 'fan-closed-pane', splitOf: 'fan-home', state: 'closed' },
+    ]);
+    const host = new GateHost({ 'tab-b': 'fan-home' });
+    const { server, gate } = makeBridge(host);
+    try {
+      server.setAgentTerminalHold((id) => id === 'fan-other');
+      const agent = recordingSocket();
+      const user = recordingSocket();
+      const phoneSync = recordingSocket();
+      const phoneNoSync = recordingSocket();
+      for (const s of [agent, user, phoneSync, phoneNoSync]) gate.clients.add(s.socket);
+      gate.socketAttachmentIds.set(agent.socket, 'att-b');
+      gate.socketMobileGrants.set(phoneSync.socket, { allowedScopes: ['terminal.sync'] });
+      gate.socketMobileGrants.set(phoneNoSync.socket, { allowedScopes: ['tabs.view'] });
+
+      for (const sessionId of ['fan-home', 'fan-pane', 'fan-other', 'fan-other-pane', 'fan-closed-pane', 'fan-missing']) {
+        server.broadcastEvent('antifan:terminal:data', { sessionId, data: 'x', seq: 1 });
+      }
+
+      assert.deepStrictEqual(agent.sessions, ['fan-pane'], 'an attachment reads only the live split panes of its home terminal');
+      // The user-plane predicate is `!agentHoldsTerminal(id)` (preserved from before `terminalFrameGate`),
+      // so closed, missing and split-of-held ids that carry no hold of their own pass through.
+      const userPlane = ['fan-home', 'fan-pane', 'fan-other-pane', 'fan-closed-pane', 'fan-missing'];
+      assert.deepStrictEqual(user.sessions, userPlane, 'the user plane reads every terminal no agent holds');
+      assert.deepStrictEqual(phoneSync.sessions, userPlane, 'a companion with terminal.sync sees the user plane');
+      assert.deepStrictEqual(phoneNoSync.sessions, [], 'a companion without terminal.sync receives no terminal data');
+    } finally {
+      server.dispose();
+      restore();
     }
   });
 });
