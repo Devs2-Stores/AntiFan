@@ -764,7 +764,11 @@ export function safeSliceTail(target: string | SessionRecord | Buffer[], maxByte
   }
 
   const chunks = Array.isArray(target) ? target : target.chunks;
-  if (!chunks || chunks.length === 0) return '';
+  if (!chunks || chunks.length === 0) {
+    // A record with no chunk array carries its transcript as the buffer string alone; the accessor
+    // is O(1) on an empty SessionRecord, so this never materializes a live transcript.
+    return Array.isArray(target) ? '' : safeSliceTail(target.buffer || '', maxBytes);
+  }
   const totalBytes = Array.isArray(target)
     ? chunks.reduce((acc, c) => acc + c.length, 0)
     : target.bufferBytes;
@@ -1343,7 +1347,7 @@ export class TerminalManager extends EventEmitter {
     for (const s of this.sessions.values()) {
       fragments.push(this.serializeSessionFragment(s));
     }
-    return this.assemblePersistPayload(fragments);
+    return Buffer.concat(this.assemblePersistPayload(fragments));
   }
 
   /**
@@ -1354,7 +1358,7 @@ export class TerminalManager extends EventEmitter {
    * A session closed during a yield is left out, and one opened during it is
    * picked up by the persist it scheduled itself.
    */
-  private async serializePersistPayloadAsync(): Promise<Buffer> {
+  private async serializePersistPayloadAsync(): Promise<Buffer[]> {
     const serialized: Array<{ session: Session; fragment: Buffer }> = [];
     for (const s of Array.from(this.sessions.values())) {
       if (this.sessions.get(s.id) !== s) continue;
@@ -1368,7 +1372,12 @@ export class TerminalManager extends EventEmitter {
     );
   }
 
-  private assemblePersistPayload(fragments: Buffer[]): Buffer {
+  /**
+   * The state-file body as ordered parts. The background write streams them to disk as they are,
+   * so it never allocates one copy of the whole file (tens of MB with many busy sessions) only to
+   * write it out once; the synchronous shutdown flush concatenates them.
+   */
+  private assemblePersistPayload(fragments: Buffer[]): Buffer[] {
     for (const id of this.persistedFragments.keys()) {
       if (!this.sessions.has(id)) this.persistedFragments.delete(id);
     }
@@ -1386,7 +1395,7 @@ export class TerminalManager extends EventEmitter {
       parts.push(fragment);
     });
     parts.push(Buffer.from(']}', 'utf8'));
-    return Buffer.concat(parts);
+    return parts;
   }
 
   /**
@@ -3605,12 +3614,14 @@ export class TerminalManager extends EventEmitter {
       } catch (err) {
         throw new CapabilityError('INVALID_ARGUMENT', `Invalid regex pattern: ${(err as Error).message}`);
       }
-      if (input.afterSeq === undefined && regex.test(safeSliceTail(s.buffer, WAIT_MATCH_WINDOW_BYTES))) {
+      // Sliced off the chunk array: the buffer getter concatenates and decodes the whole live
+      // transcript (up to 4MB, ~19ms) and every appended chunk drops that copy again.
+      if (input.afterSeq === undefined && regex.test(safeSliceTail(s, WAIT_MATCH_WINDOW_BYTES))) {
         return {
           satisfied: true,
           sessionGeneration: s.sessionGeneration,
           lastSeq: s.lastSeq || 0,
-          outputTail: safeSliceTail(s.buffer, 4096),
+          outputTail: safeSliceTail(s, 4096),
         };
       }
       if (input.afterSeq !== undefined && (s.lastSeq || 0) > input.afterSeq) {
@@ -3622,7 +3633,7 @@ export class TerminalManager extends EventEmitter {
               satisfied: true,
               sessionGeneration: s.sessionGeneration,
               lastSeq: delta.throughSeq,
-              outputTail: safeSliceTail(s.buffer, 4096),
+              outputTail: safeSliceTail(s, 4096),
             };
           }
         }
@@ -3650,7 +3661,7 @@ export class TerminalManager extends EventEmitter {
       // timed out or was aborted can then see whether the shell was still working.
       const waitProgressDetails = () => ({
         sessionId: input.sessionId,
-        outputTail: safeSliceTail(s.buffer, 4096),
+        outputTail: safeSliceTail(s, 4096),
         lastSeq: s.lastSeq || 0,
         sessionGeneration: s.sessionGeneration,
       });
@@ -3709,18 +3720,18 @@ export class TerminalManager extends EventEmitter {
                 satisfied: true,
                 sessionGeneration: s.sessionGeneration,
                 lastSeq: evt.seq,
-                outputTail: safeSliceTail(s.buffer, 4096),
+                outputTail: safeSliceTail(s, 4096),
               });
               return;
             }
           } else {
-            if (regex.test(evt.data) || regex.test(safeSliceTail(s.buffer, WAIT_MATCH_WINDOW_BYTES))) {
+            if (regex.test(evt.data) || regex.test(safeSliceTail(s, WAIT_MATCH_WINDOW_BYTES))) {
               cleanup();
               resolve({
                 satisfied: true,
                 sessionGeneration: s.sessionGeneration,
                 lastSeq: evt.seq,
-                outputTail: safeSliceTail(s.buffer, 4096),
+                outputTail: safeSliceTail(s, 4096),
               });
               return;
             }
