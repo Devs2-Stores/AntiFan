@@ -1594,7 +1594,14 @@ button {
 
 .standalone.tabs-sidebar {
   display: grid;
-  grid-template-columns: var(--term-sidebar-w, 220px) 5px minmax(0, 1fr);
+  /* minmax(0, …) lets the column shrink below the dragged width: in a window narrower than the
+     sidebar, a fixed track pushed the search row and the "+" button past the right edge and
+     clipped them, with no scroll to reach them. The cap keeps the terminal usable when the view is
+     dragged narrow (the sidebar view clamps to 260px): with a dragged 298px track the terminal fell
+     to 93px at 420 and 14px at 340. It leaves the terminal 200px while there is room for it, and
+     below that splits 45/55 so neither pane vanishes. A 700px view still honors the full 140–400px
+     drag range (100% - 205px is 471px there). */
+  grid-template-columns: minmax(0, min(var(--term-sidebar-w, 220px), max(45%, calc(100% - 205px)))) 5px minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr);
   gap: 8px 0;
 }
@@ -4041,4 +4048,45 @@ body.is-project-dragging .terminal-tab-category-header {
   object-fit: contain;
   background: #000;
   outline: none;
+}
+
+/* ---------------------------------------------------------------------------
+   NARROW WIDTHS
+   The manager is often dragged narrow and kept full height. Below these widths
+   the brand and the icon cluster no longer share one line, and the rows' fixed
+   chips (counts, status) would sit past the right edge, so the header wraps and
+   the tab rows keep their labels ellipsised instead of being clipped. Nothing is
+   hidden: every control and every count stays reachable.
+   --------------------------------------------------------------------------- */
+@media (max-width: 420px) {
+  header {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+  .header-actions {
+    margin-left: auto;
+    gap: 4px;
+  }
+  .standalone.tabs-sidebar > .controls {
+    /* A dragged width wider than the window leaves the pane 0px; keep the tab list usable. */
+    min-width: 0;
+  }
+  .tabs-sidebar-resizer {
+    width: 3px;
+  }
+}
+
+@media (max-width: 340px) {
+  .brand-wordmark {
+    font-size: 15px;
+    letter-spacing: .08em;
+  }
+  .brand-subtext {
+    font-size: 9px;
+    padding: 1px 4px;
+  }
+  .icon-button {
+    width: 24px;
+    height: 24px;
+  }
 }

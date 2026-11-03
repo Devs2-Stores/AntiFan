@@ -4588,6 +4588,16 @@ document.getElementById('menuItemFontFinder')?.addEventListener('click', (e) => 
   getApi()?.toggleFontFinder();
 });
 
+// Narrow-window entries: each stands in for a toolbar control a width rung hides, and clicks
+// that control, so the hidden button stays the one place its behaviour lives.
+document.querySelectorAll<HTMLElement>('#appDropdownMenu [data-click-target]').forEach((item) => {
+  item.addEventListener('click', (e) => {
+    e.stopPropagation();
+    closeAppMenu();
+    document.getElementById(item.dataset.clickTarget ?? '')?.click();
+  });
+});
+
 document.getElementById('menuItemGpuLens')?.addEventListener('click', (e) => {
   e.stopPropagation();
   closeAppMenu();

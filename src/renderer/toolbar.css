@@ -4057,6 +4057,84 @@ body, html {
   }
 }
 
+/* ---------------------------------------------------------------------------
+   NARROW WINDOWS (a window shrunk horizontally, or a project window beside an
+   open terminal sidebar). Below 1024px the fixed controls alone outgrow the row:
+   measured at 800px the omnibox was 73px wide, at 760px it was 0 and the ⋮ menu
+   started to leave the row. Each rung below hides the least-used controls so the
+   omnibox keeps a usable width, and every control it hides reappears in the ⋮
+   menu from the same rung (toolbar.html, `data-compact-from`), which clicks the
+   hidden control itself. Quick Inspect, Font Finder and the Chrome profiles are
+   already in that menu at every width.
+   --------------------------------------------------------------------------- */
+.app-menu-item[data-compact-from],
+.app-menu-divider[data-compact-from] {
+  display: none;
+}
+
+.omnibox-wrapper {
+  min-width: 120px;
+}
+
+@media (max-width: 900px) {
+  #btnQuickInspect,
+  #btnFontFinder,
+  .zoom-stepper .zoom-step-btn {
+    display: none;
+  }
+  .device-select {
+    max-width: 96px;
+  }
+  .split-device-select {
+    max-width: 64px !important;
+  }
+  .app-menu-item[data-compact-from="900"] {
+    display: flex;
+  }
+  .app-menu-divider[data-compact-from="900"] {
+    display: block;
+  }
+}
+
+@media (max-width: 760px) {
+  #btnFullPageCapture,
+  #btnWorkflowHub,
+  #btnPopoutTerminal,
+  .toolbar-divider {
+    display: none;
+  }
+  .app-menu-item[data-compact-from="760"] {
+    display: flex;
+  }
+}
+
+@media (max-width: 620px) {
+  #btnToggleSidebar,
+  .chrome-profile-wrap,
+  .zoom-stepper {
+    display: none;
+  }
+  .toolbar,
+  .toolbar-actions {
+    gap: var(--tb-gap);
+  }
+  .app-menu-item[data-compact-from="620"] {
+    display: flex;
+  }
+}
+
+@media (max-width: 520px) {
+  #btnThemeQa {
+    display: none;
+  }
+  .device-select {
+    max-width: 76px;
+  }
+  .app-menu-item[data-compact-from="520"] {
+    display: flex;
+  }
+}
+
 /* ==========================================================================
    CROSS-PROJECT TAB SEARCH
    ========================================================================== */
