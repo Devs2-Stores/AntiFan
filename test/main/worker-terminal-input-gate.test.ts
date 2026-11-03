@@ -16,6 +16,7 @@ import {
 } from '../../src/main/tools/terminal-capabilities';
 import { LeaderRegistry } from '../../src/main/leader/leader-registry';
 import { WorkerTerminalInputGate, lineContinues } from '../../src/main/tools/worker-terminal-input-gate';
+import { approvalsDirOf, normalizeRoot } from '../../src/omp-hooks/theme-push-approval';
 import { THEME_PUSH_CODES } from '../../src/omp-hooks/theme-push-policy';
 import {
   CapabilityError,
@@ -244,7 +245,7 @@ describe('A Leader worker typing through terminal.write', () => {
     installHrvStub('unpublished', 2_000);
     const { write, calls } = build({ probeTimeoutMs: 300 });
     const started = Date.now();
-    await assert.rejects(() => write('att-w', 'split-w', 'hrv theme push --only sections/header.liquid\r'), refusedWith('REFUSED_THEME_PUSH_UNVERIFIED'));
+    await assert.rejects(() => write('att-w', 'split-w', 'hrv theme push --only sections/header.liquid --nodelete\r'), refusedWith('REFUSED_THEME_PUSH_UNVERIFIED'));
     assert.ok(Date.now() - started < 1_500, 'the call answered at the probe budget, not when hrv finally returned');
     assert.deepStrictEqual(calls.writes, []);
   });
@@ -388,17 +389,12 @@ describe('A Leader worker typing through terminal.write', () => {
     assert.deepStrictEqual(calls.writes, [], 'a refused call writes none of its lines, including the harmless first one');
   });
 
-  it('is not slowed or changed for a caller with no worker record, nor for a Leader', async () => {
+  it('gates a caller with no worker record like a worker: a theme publish is refused, an ordinary line is delivered unchanged', async () => {
     installHrvStub('main');
     const { write, calls } = build();
-    // A plain agent in its own split pane: no worker record, so the line is its own business.
-    await write('att-plain', 'split-plain', 'hrv theme publish 1\r');
-    // A Leader driving a worker types whatever it decides to.
-    await write('att-lead', 'terminal-w', 'hrv theme publish 1\r');
-    assert.deepStrictEqual(calls.writes, [
-      { sessionId: 'split-plain', input: 'hrv theme publish 1\r' },
-      { sessionId: 'terminal-w', input: 'hrv theme publish 1\r' },
-    ]);
+    await assert.rejects(() => write('att-plain', 'split-plain', 'hrv theme publish 1\r'), refusedWith('REFUSED_THEME_REMOTE_OP'));
+    await write('att-plain', 'split-plain', 'echo ok\r');
+    assert.deepStrictEqual(calls.writes, [{ sessionId: 'split-plain', input: 'echo ok\r' }]);
   });
 
   it('keeps each target\'s line to itself: half a line in one pane is not continued by another pane', async () => {
@@ -478,6 +474,99 @@ describe('A Leader worker typing through terminal.write', () => {
     await assert.rejects(() => write('att-w', 'split-w', 'hrv theme push --only f\r'), refusedWith(THEME_PUSH_CODES.PUSH_UNVERIFIED));
     assert.deepStrictEqual(calls.writes, []);
     assert.strictEqual(stub.recorded().length, 0, 'no probe ran against a folder nobody knows');
+  });
+
+  describe('a push to the bound theme', () => {
+    const PUSH = 'hrv theme push --only assets/a.css sections/hero.liquid --nodelete';
+    const approvalsDir = (): string => approvalsDirOf(DATA_ROOT);
+    const kept = (): string[] => (fs.existsSync(approvalsDir()) ? fs.readdirSync(approvalsDir()).sort() : []);
+    const approve = (): string => {
+      fs.mkdirSync(approvalsDir(), { recursive: true });
+      const id = `appr-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const now = Date.now();
+      fs.writeFileSync(
+        path.join(approvalsDir(), `${id}.json`),
+        JSON.stringify({
+          schema: 'leader-push-approval/1',
+          id,
+          leader: 'terminal-lead',
+          worker: 'terminal-w',
+          job: null,
+          themeId: '1001507144',
+          cwd: normalizeRoot(THEME_ROOT),
+          files: ['assets/a.css', 'sections/hero.liquid'],
+          quote: 'ok, push lên đi',
+          approvedAt: now,
+          expiresAt: now + 30 * 60_000,
+        })
+      );
+      return id;
+    };
+
+    beforeEach(() => {
+      fs.rmSync(approvalsDir(), { recursive: true, force: true });
+    });
+
+    for (const role of ['main', 'unpublished'] as const) {
+      it(`is written as typed on a ${role === 'main' ? 'live' : 'copy'} theme once hrv theme info reports the bound id, with no approval spent`, async () => {
+        const stub = installHrvStub(role);
+        const { write, calls } = build();
+        const id = approve();
+        const lines = [PUSH, 'hrv theme push --nodelete -x config/settings_data.json', 'hrv theme push --only config/settings_data.json --nodelete'];
+        for (const line of lines) {
+          const result = await write('att-w', 'split-w', `${line}\r`);
+          assert.strictEqual(result.written, true, line);
+        }
+        assert.deepStrictEqual(calls.writes.map((w) => w.input), lines.map((line) => `${line}\r`));
+        assert.strictEqual(stub.recorded().length, lines.length, 'one probe per line, before its keystrokes went out');
+        assert.deepStrictEqual(kept(), [`${id}.json`], 'no push needs an approval');
+      });
+    }
+
+    it('stays refused on the live theme when the line leaves the rule, and nothing is written', async () => {
+      installHrvStub('main');
+      const { write, calls } = build();
+      for (const [line, code] of [
+        [`${PUSH} --force`, THEME_PUSH_CODES.PUSH_SCOPE],
+        [`${PUSH} --prune`, THEME_PUSH_CODES.PUSH_SCOPE],
+        ['hrv theme push --only assets/a.css', THEME_PUSH_CODES.PUSH_NODELETE],
+        ['hrv theme push', THEME_PUSH_CODES.PUSH_NODELETE],
+        ['hrv theme push --nodelete', THEME_PUSH_CODES.PUSH_SETTINGS_DATA],
+        ['hrv theme push 999 --only assets/a.css', THEME_PUSH_CODES.PUSH_FOREIGN_THEME],
+        [`${PUSH} && echo done`, THEME_PUSH_CODES.COMPLEX],
+        [`${PUSH}; echo done`, THEME_PUSH_CODES.COMPLEX],
+        ['hrv theme dev', THEME_PUSH_CODES.PUSH_LIVE],
+        ['hrv theme publish 1001507144', THEME_PUSH_CODES.REMOTE_OP],
+        ['shopify theme push', THEME_PUSH_CODES.PUSH_SCOPE],
+        ['sapo theme push', THEME_PUSH_CODES.REMOTE_OP],
+      ] as const) {
+        await assert.rejects(() => write('att-w', 'split-w', `${line}\r`), refusedWith(code), line);
+      }
+      assert.deepStrictEqual(calls.writes, []);
+    });
+
+    it('is refused when hrv theme info reports another theme id than the bound one', async () => {
+      const dir = fs.mkdtempSync(path.join(SCRATCH_DIR, 'hrv-other-'));
+      const script = path.join(dir, 'hrv.mjs');
+      fs.writeFileSync(script, `console.log(${JSON.stringify(JSON.stringify({ theme_id: 777, name: 'Other', role: 'unpublished', org_id: '200001' }))});`);
+      process.env[HRV_COMMAND_ENV] = `"${process.execPath}" "${script}"`;
+      const { write, calls } = build();
+      await assert.rejects(() => write('att-w', 'split-w', `${PUSH}\r`), refusedWith(THEME_PUSH_CODES.PUSH_UNVERIFIED));
+      assert.deepStrictEqual(calls.writes, []);
+    });
+
+    it('refuses a worker that tries to record an approval through the terminal, and writes nothing', async () => {
+      installHrvStub('main');
+      const { write, calls } = build();
+      for (const line of [
+        'node E:/Work/apps/AntiFan/scripts/leader/leader-job.mjs approve-push --worker terminal-w --theme 1001507144 --cwd . --files a --quote q',
+        'echo {} > %ANTIFAN_DATA_ROOT%\\runtime\\leader-push-approvals\\x.json',
+      ]) {
+        await assert.rejects(() => write('att-w', 'split-w', `${line}\r`), refusedWith('REFUSED_THEME_APPROVAL_SELF'), line);
+      }
+      assert.deepStrictEqual(calls.writes, []);
+      assert.deepStrictEqual(kept(), []);
+    });
   });
 
   describe('terminal.create from a worker', () => {

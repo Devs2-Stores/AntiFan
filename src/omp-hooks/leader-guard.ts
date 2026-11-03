@@ -10,14 +10,16 @@
  * - `session_stop`: blocks the Leader from ending its turn while a job it dispatched is still
  *   open (`state` dispatched | settled | reported in `<jobs root>/<job>/job.json`, written by
  *   `scripts/leader/leader-job.mjs`). The block is a continuation with the exact next command.
+ *   It also blocks while a worker terminal of one of its jobs is still open though nobody needs it
+ *   (every worker of a closed job, a worker a later round replaced); a run file present means open.
  *   It fails OPEN: an unreadable job file, a missing root or any error allows the stop, and
  *   OMP's own cap on session_stop continuations is a second fuse. Nothing here can trap a session.
  * - `tool_call`, write boundary: refuses (`REFUSED_LEADER_*`) the calls that would do worker work:
- *   theme-file writes (edit/write/ast_edit and best-effort shell writes into a theme workspace),
- *   write-class theme CLI commands, the AntiFan tools that mutate a page or the sheet, and an
- *   in-page evaluate whose script writes (quickUpdate, addNewComment, cart writes, POST/PUT/
- *   PATCH/DELETE fetches). The three ways to reach an MCP tool are covered: the native tool name,
- *   `write xd://<tool>`, and an `eval` / `bash` text that names the tool.
+ *   theme-file writes (edit/write/ast_edit, `theme.transaction.write_cas` and best-effort shell writes
+ *   into a theme workspace), write-class theme CLI commands and the sheet writers. Operating a page
+ *   (click, type, upload, an in-page script that writes) is NOT refused: the user (03/11/2026) wants a
+ *   Leader to be able to do that when it is needed. The three ways to reach an MCP tool are covered: the
+ *   native tool name, `write xd://<tool>`, and an `eval` / `bash` text that names the tool.
  * - `tool_call`, investigation budget: counts the calls that dig into the work - read/grep/glob/lsp/
  *   ast_edit on a path outside `LEADER_READ_ALLOW_ROOTS` (internal URIs are free), a shell or eval
  *   line that runs git (inspection subcommands), rg, grep, cat, ls, find and the like on such a path,
@@ -30,10 +32,9 @@
  *   Only a session with a UI is budgeted: a subagent the Leader spawns (no UI, same env) is not,
  *   though the write boundary above still applies to it.
  *
- * This is a guardrail for a cooperative Leader, not a sandbox. Known limits: a `.click()` on a
- * submit/buy element inside an evaluate script is not scanned; shell writes into a theme folder are
- * recognised by verb/redirect and path only, so a script that writes the files (`node x.js`,
- * `python -c`) is not seen; `anti.browser.navigate` to a state-changing GET is not seen. The budget
+ * This is a guardrail for a cooperative Leader, not a sandbox. Known limits: shell writes into a
+ * theme folder are recognised by verb/redirect and path only, so a script that writes the files
+ * (`node x.js`, `python -c`) is not seen, nor is a theme change made through a page. The budget
  * judges a shell or eval line by its verbs and path literals, so a script that reads files
  * (`node x.js`, `python -c`), a dispatch made from inside an eval, a path held in a variable and a
  * `task` subagent that does the looking-into are not seen; the count lives in the memory of the OMP
@@ -56,9 +57,6 @@ export const LEADER_GUARD_CODES = {
   THEME_EDIT: "REFUSED_LEADER_THEME_EDIT",
   THEME_CLI: "REFUSED_LEADER_THEME_CLI",
   SHEET_WRITE: "REFUSED_LEADER_SHEET_WRITE",
-  PAGE_ACTION: "REFUSED_LEADER_PAGE_ACTION",
-  PAGE_WRITE_SCRIPT: "REFUSED_LEADER_PAGE_WRITE_SCRIPT",
-  UNREADABLE: "REFUSED_LEADER_UNREADABLE",
   INVESTIGATE: "REFUSED_LEADER_INVESTIGATE",
 } as const;
 
@@ -66,9 +64,10 @@ export const LEADER_GUARD_CODES = {
 const LEADER_REGISTRY_FILE = "leader-terminals.json";
 const DEFAULT_JOBS_ROOT = "E:/Work/scratch/leader";
 const JOB_FILE = "job.json";
+const DEFAULT_DATA_ROOT = "E:/Work/.antifan-data";
+const TERMINAL_ID_RE = /^[A-Za-z0-9._-]+$/;
 /** Job states in which the Leader still owes work: it must not end its turn. */
 const OPEN_JOB_STATES: Record<string, true> = { dispatched: true, settled: true, reported: true, worker_dead: true };
-const EXPRESSION_FILE_MAX_BYTES = 2 * 1024 * 1024;
 const SHELL_TOKEN_LIMIT = 60;
 
 const TRANSIENT_READ_CODES: Record<string, true> = { EBUSY: true, EPERM: true, EACCES: true, EMFILE: true };
@@ -189,6 +188,97 @@ export function buildStopReason(open: OpenJob[]): string {
   ].join("\n");
 }
 
+export interface LeakedWorker {
+  terminal: string;
+  job: string;
+  why: "closed" | "replaced";
+  runState: string | null;
+}
+
+/** The per-terminal OMP run files; `LEADER_RUNS_DIR` is the test seam, as in `leader-job.mjs`. */
+export function leaderRunsDir(env: Env = process.env): string {
+  const override = env.LEADER_RUNS_DIR?.trim();
+  if (override) return path.resolve(override);
+  return path.join(path.resolve(env.ANTIFAN_DATA_ROOT?.trim() || DEFAULT_DATA_ROOT), "runtime", "runs");
+}
+
+/** `undefined`: no run file, so the terminal is closed. Otherwise its OMP state, `null` when the file cannot say. */
+function runStateOf(runsDir: string, terminal: string): string | null | undefined {
+  try {
+    const state = (JSON.parse(fs.readFileSync(path.join(runsDir, `${terminal}.json`), "utf8")) as { state?: unknown } | null)?.state;
+    return typeof state === "string" ? state : null;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException | undefined)?.code === "ENOENT" ? undefined : null;
+  }
+}
+
+/**
+ * Worker terminals of the Leader's jobs that are open and that nobody needs: every worker of a closed
+ * job and the workers a later round replaced. The latest round's worker of an unfinished job is needed,
+ * and so is any terminal another unfinished job of the same Leader still uses. Mirrors `liveWorkers` in
+ * `scripts/leader/leader-job.mjs`. A job file that cannot be read is skipped: the stop guard fails open.
+ */
+export function findLeakedWorkers(terminalId: string, env: Env = process.env): LeakedWorker[] {
+  const root = leaderJobsRoot(env);
+  const runsDir = leaderRunsDir(env);
+  let names: string[];
+  try {
+    names = fs.readdirSync(root, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+  } catch {
+    return [];
+  }
+  const jobs: Array<{ name: string; closed: boolean; terminals: string[] }> = [];
+  for (const name of names.sort()) {
+    try {
+      const job = JSON.parse(fs.readFileSync(path.join(root, name, JOB_FILE), "utf8")) as {
+        leader?: { terminal?: unknown };
+        state?: unknown;
+        workersKept?: unknown;
+        rounds?: Array<{ worker?: { terminal?: unknown } }>;
+      };
+      if (job?.leader?.terminal !== terminalId || typeof job.state !== "string" || job.workersKept === true) continue;
+      const rounds = Array.isArray(job.rounds) ? job.rounds : [];
+      const terminals = rounds
+        .map((round) => round?.worker?.terminal)
+        .filter((id): id is string => typeof id === "string" && TERMINAL_ID_RE.test(id));
+      jobs.push({ name, closed: job.state === "closed", terminals });
+    } catch {
+      /* unreadable or corrupt job.json: skipped */
+    }
+  }
+  const inUse = new Set<string>();
+  for (const job of jobs) {
+    const current = job.terminals[job.terminals.length - 1];
+    if (!job.closed && current !== undefined) inUse.add(current);
+  }
+  const leaked: LeakedWorker[] = [];
+  const seen = new Set<string>();
+  for (const job of jobs) {
+    for (const terminal of job.terminals) {
+      if (inUse.has(terminal) || seen.has(terminal)) continue;
+      const runState = runStateOf(runsDir, terminal);
+      if (runState === undefined) continue;
+      seen.add(terminal);
+      leaked.push({ terminal, job: job.name, why: job.closed ? "closed" : "replaced", runState });
+    }
+  }
+  return leaked;
+}
+
+export function buildLeakReason(leaked: LeakedWorker[]): string {
+  const lines = leaked.map((worker) => {
+    const why = worker.why === "closed" ? "its job is closed" : "a later round replaced it";
+    const busy = worker.runState === "running" ? "; still running: wait for it to settle first" : "";
+    return `- ${worker.terminal}: ${why}, OMP ${worker.runState ?? "state unknown"}${busy}`;
+  });
+  return [
+    "Do not end the turn: worker terminals of your jobs are still open and nobody needs them.",
+    "Close each with terminal.close {sessionId, removeMintedProject:true}, then confirm with terminal.list {includeBuffer:false} that none is left:",
+    ...lines,
+    `A terminal of a closed job that must stay open on purpose: ${CLI} close --job <JOB DIR> --keep-workers.`,
+  ].join("\n");
+}
+
 // ---------------------------------------------------------------------------
 // tool_call: Leader work boundary
 // ---------------------------------------------------------------------------
@@ -217,58 +307,19 @@ export function canonicalTool(name: string): string {
 }
 
 const SHEET_WRITERS = ["anti_sheet_write_cell", "anti_sheet_write_range"];
-/** Tools that click, type, drop, upload or otherwise act on a page or the theme through a session. */
-const PAGE_ACTORS = [
-  "anti_agent_cursor_click",
-  "anti_agent_cursor_type",
-  "anti_agent_sequence",
-  "anti_agent_file_upload",
-  "anti_agent_drop",
-  "anti_agent_drag",
-  "anti_agent_set_control",
-  "theme_transaction_write_cas",
-  "playwright_browser_click",
-  "playwright_browser_type",
-  "playwright_browser_fill_form",
-  "playwright_browser_select_option",
-  "playwright_browser_file_upload",
-  "playwright_browser_press_key",
-  "playwright_browser_drag",
-  "playwright_browser_drop",
-  "playwright_browser_run_code_unsafe",
-];
-const EVALUATORS = ["anti_browser_evaluate", "anti_browser_evaluate_frame", "playwright_browser_evaluate"];
+/** Tools that write theme files through a session; a Leader never edits a theme. */
+const THEME_WRITERS = ["theme_transaction_write_cas"];
 
 function toolsRegex(names: string[]): RegExp {
   const body = names.map((name) => name.split("_").join("[._]")).join("|");
   return new RegExp(`(?<![a-z0-9])(?:${body})(?![a-z0-9])`, "i");
 }
 const SHEET_WRITER_TEXT_RE = toolsRegex(SHEET_WRITERS);
-const PAGE_ACTOR_TEXT_RE = toolsRegex(PAGE_ACTORS);
-const EVALUATOR_TEXT_RE = toolsRegex(EVALUATORS);
-
-/**
- * Write patterns in an evaluate script. A `\\*` before a quote tolerates the script arriving as an
- * escaped JSON string. `.click()` on a submit/buy element is deliberately not scanned.
- */
-const PAGE_WRITE_PATTERNS: Array<{ re: RegExp; label: string }> = [
-  { re: /\bquickUpdate\s*\(/, label: "quickUpdate(" },
-  { re: /\baddNewComment\s*\(/, label: "addNewComment(" },
-  { re: /\/cart\/(?:add|change|update|clear)/i, label: "/cart/(add|change|update|clear)" },
-  { re: /method\s*:\s*\\*['"`](?:POST|PUT|PATCH|DELETE)\b/i, label: "method: POST|PUT|PATCH|DELETE" },
-  { re: /\.open\(\s*\\*['"`](?:POST|PUT|PATCH|DELETE)\b/i, label: "XMLHttpRequest.open(POST|PUT|PATCH|DELETE)" },
-];
-
-function pageWriteLabel(text: string): string | null {
-  for (const pattern of PAGE_WRITE_PATTERNS) if (pattern.re.test(text)) return pattern.label;
-  return null;
-}
+const THEME_WRITER_TEXT_RE = toolsRegex(THEME_WRITERS);
 
 interface ResolvedCall {
   tool: string;
   input: Record<string, unknown>;
-  /** The raw JSON body of a `write xd://<tool>` call; empty otherwise. */
-  rawBody: string;
 }
 
 /** A `write xd://<tool>` call is that tool: its name is in the path and its arguments are the JSON content. */
@@ -282,12 +333,12 @@ function resolveCall(toolName: string, input: Record<string, unknown>): Resolved
       try {
         parsed = record(JSON.parse(body));
       } catch {
-        /* a body that is not JSON is scanned as raw text */
+        /* a body that is not JSON carries no arguments */
       }
-      return { tool: canonicalTool(target), input: parsed, rawBody: body };
+      return { tool: canonicalTool(target), input: parsed };
     }
   }
-  return { tool, input, rawBody: "" };
+  return { tool, input };
 }
 
 function isDirectory(target: string): boolean {
@@ -373,40 +424,15 @@ function themeCliRefusal(text: string, kind: "bash" | "eval"): LeaderRefusal | n
   return null;
 }
 
-/** Names a mutating AntiFan tool, or an evaluate tool together with a write pattern, inside a bash/eval text. */
+/** Names a tool a Leader never uses (the sheet writers, the theme file writer) inside a bash/eval text. */
 function toolNameInTextRefusal(text: string): LeaderRefusal | null {
   if (SHEET_WRITER_TEXT_RE.test(text)) {
     return refuse(LEADER_GUARD_CODES.SHEET_WRITE, "this call writes a Google Sheet cell (anti.sheet.write_cell)");
   }
-  const actor = PAGE_ACTOR_TEXT_RE.exec(text);
-  if (actor) {
-    return refuse(LEADER_GUARD_CODES.PAGE_ACTION, `this call uses '${actor[0]}', which clicks, types or writes through a page or the theme`);
-  }
-  if (EVALUATOR_TEXT_RE.test(text)) {
-    const label = pageWriteLabel(text);
-    if (label !== null) {
-      return refuse(LEADER_GUARD_CODES.PAGE_WRITE_SCRIPT, `this in-page script contains a write (${label})`);
-    }
+  if (THEME_WRITER_TEXT_RE.test(text)) {
+    return refuse(LEADER_GUARD_CODES.THEME_EDIT, "this call writes a theme file (theme.transaction.write_cas)");
   }
   return null;
-}
-
-function expressionOf(call: ResolvedCall, cwd: string): { text: string } | { unreadable: string } {
-  const parts: string[] = [];
-  if (call.rawBody.length > 0) parts.push(call.rawBody);
-  if (typeof call.input.expression === "string") parts.push(call.input.expression);
-  const file = call.input.expressionFile;
-  if (typeof file === "string" && file.trim().length > 0) {
-    const abs = path.resolve(cwd, file.trim());
-    try {
-      const size = fs.statSync(abs).size;
-      if (size > EXPRESSION_FILE_MAX_BYTES) return { unreadable: `${abs} is larger than ${EXPRESSION_FILE_MAX_BYTES} bytes` };
-      parts.push(fs.readFileSync(abs, "utf8"));
-    } catch (err) {
-      return { unreadable: `${abs} (${(err as Error)?.message ?? "unreadable"})` };
-    }
-  }
-  return { text: parts.join("\n") };
 }
 
 /**
@@ -434,19 +460,8 @@ export function planLeaderToolCall(
   if (SHEET_WRITERS.includes(tool)) {
     return refuse(LEADER_GUARD_CODES.SHEET_WRITE, "anti.sheet.write_cell writes a cell of the customer's sheet; only a worker writes it (read it back with the leader-job verify-sheet command)");
   }
-  if (PAGE_ACTORS.includes(tool)) {
-    return refuse(LEADER_GUARD_CODES.PAGE_ACTION, `'${tool}' acts on a page or the theme; read with anti.browser.evaluate (read-only expressions) and screenshots instead`);
-  }
-  if (EVALUATORS.includes(tool)) {
-    const expression = expressionOf(call, params.cwd);
-    if ("unreadable" in expression) {
-      return refuse(LEADER_GUARD_CODES.UNREADABLE, `the evaluate script could not be read to check it for writes: ${expression.unreadable}`);
-    }
-    const label = pageWriteLabel(expression.text);
-    if (label !== null) {
-      return refuse(LEADER_GUARD_CODES.PAGE_WRITE_SCRIPT, `this in-page script contains a write (${label})`);
-    }
-    return null;
+  if (THEME_WRITERS.includes(tool)) {
+    return refuse(LEADER_GUARD_CODES.THEME_EDIT, `'${tool}' writes a theme file and a Leader never edits theme files`);
   }
 
   if (tool === "bash") {
@@ -890,9 +905,12 @@ export default function leaderGuardHook(pi: GuardPi): void {
       const terminalId = process.env.ANTIFAN_TERMINAL_SESSION_ID?.trim();
       if (!terminalId || !(await isLeaderTerminal())) return undefined;
       const open = findOpenJobs(terminalId);
-      if (open.length === 0) return undefined;
-      const reason = buildStopReason(open);
-      warnSafely(pi, `[leader-guard] session_stop blocked: ${open.length} open job(s)`);
+      const leaked = findLeakedWorkers(terminalId);
+      if (open.length === 0 && leaked.length === 0) return undefined;
+      const reason = [open.length > 0 ? buildStopReason(open) : "", leaked.length > 0 ? buildLeakReason(leaked) : ""]
+        .filter((part) => part.length > 0)
+        .join("\n\n");
+      warnSafely(pi, `[leader-guard] session_stop blocked: ${open.length} open job(s), ${leaked.length} leaked worker terminal(s)`);
       return { decision: "block", reason };
     } catch {
       return undefined; // fail open: never trap the session

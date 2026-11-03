@@ -333,11 +333,8 @@ function isPidAlive(pid: number): boolean {
     process.kill(pid, 0);
     return true;
   } catch (err: unknown) {
-    if (err && typeof err === "object" && "code" in err && typeof err.code === "string") {
-      if (err.code === "ESRCH") return false;
-      if (err.code === "EPERM") return true;
-    }
-    return false;
+    if (err && typeof err === "object" && "code" in err && err.code === "ESRCH") return false;
+    return true;
   }
 }
 

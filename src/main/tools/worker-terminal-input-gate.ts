@@ -1,6 +1,7 @@
 import * as path from 'node:path';
 import { gateThemeLine } from '../../omp-hooks/theme-draft-probe';
 import { startsDirChange, THEME_PUSH_CODES } from '../../omp-hooks/theme-push-policy';
+import { releasePushApprovals, type PushApprovalContext, type PushApprovalUse } from '../../omp-hooks/theme-push-approval';
 
 /**
  * The theme-push gate for what a Leader's worker types into a terminal through `terminal.write`.
@@ -24,6 +25,8 @@ const LINE_MAX_CHARS = 8 * 1024;
 const TARGET_CAP = 256;
 
 const BRACKETED_PASTE_MARKERS = /\x1b\[20[01]~/g;
+/** Cursor-key sequences and bare Esc: what a Leader types to move through or dismiss an OMP dialog. */
+const AGENT_NAVIGATION_KEYS = /\x1b\[[ABCD]|\x1b(?!\[20[01]~)/g;
 /** Control characters a worker's input may carry besides printable text and DEL (0x7f). */
 const MODELLED_CONTROL_CHARS = new Set(['\t', '\n', '\r', '\b', '\x03', '\x1b']);
 
@@ -41,6 +44,8 @@ interface TargetLine {
 export type WorkerInputVerdict =
   | {
       decision: 'allow';
+      /** Live-push approvals this input spent: the lines of it that a Leader's one-use approval let through. */
+      approved: PushApprovalUse[];
       /** The input was not handed to the shell: put the buffer back exactly as it was before this call. */
       revert: () => void;
       /**
@@ -153,17 +158,22 @@ export class WorkerTerminalInputGate {
     target: string,
     input: string,
     cwd: string | undefined,
-    options: { deadlineAt?: number } = {}
+    options: { deadlineAt?: number; approval?: PushApprovalContext; agentOwnsInput?: boolean } = {}
   ): Promise<WorkerInputVerdict> {
     const previous = this.lines.get(target);
     const before = previous ?? emptyLine();
     const state: TargetLine = { ...before };
+    const claimed: PushApprovalUse[] = [];
     const refuse = (code: string, reason: string, command: string): WorkerInputVerdict => {
+      // Nothing of this input reaches the shell, so an approval an earlier line of it spent was never used.
+      releasePushApprovals(claimed);
       this.store(target, { ...emptyLine(), cwdUntrusted: before.cwdUntrusted });
       return { decision: 'block', code, reason, command, interruptPending: holdsText(before) };
     };
 
-    const typed = input.replace(BRACKETED_PASTE_MARKERS, '');
+    // The keys a Leader sends to close or answer an OMP dialog (Esc, the arrows) act on the agent's own screen: when an
+    // OMP is alive in the terminal they say nothing about a shell line, so they must not taint the next line.
+    const typed = (options.agentOwnsInput === true ? input.replace(AGENT_NAVIGATION_KEYS, '') : input).replace(BRACKETED_PASTE_MARKERS, '');
     for (const ch of typed) {
       if (ch.charCodeAt(0) < 0x20 && !MODELLED_CONTROL_CHARS.has(ch)) {
         return refuse(
@@ -217,8 +227,10 @@ export class WorkerTerminalInputGate {
             cwd: cwd ?? path.parse(process.cwd()).root,
             assumeDirChanged: state.cwdUntrusted || cwd === undefined,
             timeoutMs: Math.max(1, Math.min(this.options.probeTimeoutMs, left)),
+            ...(options.approval ? { approval: options.approval } : {}),
           });
           if (outcome.decision === 'block') return refuse(outcome.code, outcome.reason, outcome.command);
+          if (outcome.decision === 'allow' && outcome.approved) claimed.push(...outcome.approved);
           if (startsDirChange(text)) state.cwdUntrusted = true;
           break;
         }
@@ -231,7 +243,11 @@ export class WorkerTerminalInputGate {
     this.store(target, state);
     return {
       decision: 'allow',
-      revert: () => this.store(target, previous ?? emptyLine()),
+      approved: claimed,
+      revert: () => {
+        releasePushApprovals(claimed);
+        this.store(target, previous ?? emptyLine());
+      },
       undelivered: () =>
         this.store(target, {
           ...emptyLine(),

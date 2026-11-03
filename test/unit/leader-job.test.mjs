@@ -56,7 +56,7 @@ function cli(w, args, envOverride = {}) {
 const writeRun = (w, terminal, patch) =>
   fs.writeFileSync(
     path.join(w.runs, `${terminal}.json`),
-    JSON.stringify({ schema: 1, terminalSessionId: terminal, ompSessionId: "omp-old", state: "idle", runSeq: 0, lastEventAt: 1, updatedAt: 1, ...patch }),
+    JSON.stringify({ schema: 1, terminalSessionId: terminal, ompSessionId: "omp-old", state: "idle", runSeq: 0, lastEventAt: 1, updatedAt: Date.now(), ...patch }),
   );
 
 function initJob(w, which, extra = []) {
@@ -461,14 +461,59 @@ describe("dispatch / wait / validate-report through the CLI", () => {
   test("a fresh OMP session restarts runSeq: settles at runSeq 1 even when the old file had runSeq 6", () => {
     const round = { dispatchedAt: 1000, preRunSeq: 6, preOmpSessionId: "omp-old" };
     const run = (o) => ({ state: "idle", runSeq: 1, ompSessionId: "omp-new", lastEventAt: 2000, ...o });
-    assert.equal(judgeRound(round, run()).kind, "settled");
-    assert.equal(judgeRound(round, run({ runSeq: 0 })).kind, "pending", "new session that has not started a turn");
-    assert.equal(judgeRound(round, run({ ompSessionId: "omp-old", runSeq: 6 })).kind, "pending", "same session needs preRunSeq + 1");
-    assert.equal(judgeRound(round, run({ ompSessionId: "omp-old", runSeq: 7 })).kind, "settled");
-    assert.equal(judgeRound(round, run({ state: "ended" })).kind, "settled");
-    assert.equal(judgeRound(round, run({ state: "waiting_user" })).kind, "waiting_user");
-    assert.equal(judgeRound(round, run({ lastEventAt: 1000 })).kind, "pending", "event must be strictly after dispatch");
-    assert.equal(judgeRound(round, null).kind, "pending");
+    const soon = round.dispatchedAt + 1000;
+    const judge = (r, live = null) => judgeRound(round, r, live, soon);
+    assert.equal(judge(run()).kind, "settled");
+    assert.equal(judge(run({ runSeq: 0 })).kind, "pending", "new session that has not started a turn");
+    assert.equal(judge(run({ ompSessionId: "omp-old", runSeq: 6 })).kind, "pending", "same session needs preRunSeq + 1");
+    assert.equal(judge(run({ ompSessionId: "omp-old", runSeq: 7 })).kind, "settled");
+    assert.equal(judge(run({ state: "ended" })).kind, "settled");
+    assert.equal(judge(run({ state: "waiting_user" })).kind, "waiting_user");
+    assert.equal(judge(run({ lastEventAt: 1000 })).kind, "pending", "event must be strictly after dispatch");
+    assert.equal(judge(null).kind, "pending");
+  });
+
+  test("an idle OMP that started no run 90 s after the dispatch is undelivered, whatever lastEventAt did", () => {
+    // lastEventAt moved after the dispatch (the previous turn closing) but runSeq did not grow: no run began.
+    const round = { dispatchedAt: 1793727333305, preRunSeq: 1, preOmpSessionId: "omp-a" };
+    const run = { state: "idle", runSeq: 1, ompSessionId: "omp-a", lastEventAt: 1793727335820, updatedAt: 1793727333305 + 60_000 };
+    assert.equal(judgeRound(round, run, null, round.dispatchedAt + 89_000).kind, "pending", "not before 90 s");
+    const late = judgeRound(round, run, null, round.dispatchedAt + 91_000);
+    assert.equal(late.kind, "undelivered");
+    assert.match(late.why, /never took the prompt/);
+    assert.equal(judgeRound(round, run, null, round.dispatchedAt + 30_000, 20_000).kind, "undelivered", "the window is configurable");
+    assert.equal(judgeRound(round, { ...run, state: "running" }, null, round.dispatchedAt + 200_000).kind, "pending", "a running OMP is not undelivered");
+    assert.equal(judgeRound(round, run, { dead: true, why: "gone" }, round.dispatchedAt + 200_000).kind, "dead", "a dead worker stays dead, not undelivered");
+    assert.equal(judgeRound(round, { ...run, runSeq: 2, lastEventAt: round.dispatchedAt + 5000 }, null, round.dispatchedAt + 200_000).kind, "settled", "a run that started and finished is settled");
+  });
+
+  test("wait exits 7 when the worker is alive and idle but never took the follow-up, and marks the round", () => {
+    const w = world();
+    const j = initJob(w, "whenever");
+    writeRun(w, "terminal-7", { state: "idle", runSeq: 2, pid: process.pid });
+    assert.equal(dispatch(w, j, "terminal-7", ["--mode", "followup"]).code, 0);
+    // The previous turn closing 2.5 s after the write moves lastEventAt but starts no run (runSeq stays 2).
+    writeRun(w, "terminal-7", { state: "idle", runSeq: 2, pid: process.pid, lastEventAt: Date.now() + 2500 });
+    const waited = cli(w, ["wait", "--job", j.dir, "--poll-ms", "30", "--timeout-min", "0.5", "--undelivered-sec", "0.3"]);
+    assert.equal(waited.code, 7, waited.stderr);
+    assert.equal(waited.last.event, "worker-undelivered");
+    assert.match(waited.last.why, /never took the prompt/);
+    assert.equal(j.job().state, "worker_dead");
+    assert.match(j.job().rounds[0].deadWhy, /^undelivered:/);
+    assert.equal(cli(w, ["wait", "--job", j.dir]).code, 7, "a later wait reports the same verdict");
+  });
+
+  test("wait calls a follow-up dead at once when the OMP pid is gone though the run file still says idle", () => {
+    const w = world();
+    const j = initJob(w, "whenever");
+    const gone = spawnSync(process.execPath, ["-e", ""]);
+    assert.equal(gone.status, 0);
+    writeRun(w, "terminal-7", { state: "idle", runSeq: 2, pid: gone.pid });
+    assert.equal(dispatch(w, j, "terminal-7", ["--mode", "followup"]).code, 0);
+    const waited = cli(w, ["wait", "--job", j.dir, "--poll-ms", "30", "--timeout-min", "0.5"]);
+    assert.equal(waited.code, 6, waited.stderr);
+    assert.equal(waited.last.event, "worker-dead");
+    assert.match(waited.last.why, /no longer exists/);
   });
 
   test("wait exits 5 and marks needs_input when the worker waits for the user", () => {
@@ -711,6 +756,11 @@ describe("full lifecycle: verify, approve, close round, close", () => {
     const rec2 = cli(w, ["record", "--job", j.dir, "--round", "2", "--kind", "dashboard", "--status", "PASS", "--note", "Stage Done by id"]);
     assert.equal(rec2.last.state, "user-approved");
     assert.ok(j.job().closeVerifiedAt > 0);
+    const stuck = cli(w, ["close", "--job", j.dir]);
+    assert.equal(stuck.code, 4, "the worker terminal is still open");
+    assert.match(stuck.stderr, /terminal-7/);
+    assert.equal(j.job().state, "user-approved");
+    fs.rmSync(path.join(w.runs, "terminal-7.json"));
     const closed = cli(w, ["close", "--job", j.dir]);
     assert.equal(closed.code, 0, closed.stderr);
     assert.equal(j.job().state, "closed");
@@ -760,6 +810,107 @@ describe("full lifecycle: verify, approve, close round, close", () => {
     assert.equal(cli(w, ["close", "--job", a.dir, "--force"]).code, 0);
     assert.equal(cli(w, ["status"]).lines.filter((l) => l.job).length, 0, "closed jobs are hidden");
     assert.equal(cli(w, ["status", "--all"]).lines.filter((l) => l.job).length, 1);
+  });
+});
+
+describe("worker terminals are not left behind", () => {
+  const runFile = (w, terminal) => path.join(w.runs, `${terminal}.json`);
+
+  /** Round n to `worker` with a throwaway followup prompt; mode followup so the guard values are not demanded. */
+  function dispatchTo(w, j, worker) {
+    const prompt = path.join(j.dir, `r${j.job().rounds.length + 1}.test.md`);
+    fs.writeFileSync(prompt, "Làm tiếp. Report: {{REPORT_PATH}}\n");
+    return cli(w, ["dispatch", "--job", j.dir, "--worker", worker, "--kind", "followup", "--mode", "followup", "--prompt", prompt]);
+  }
+
+  /** Round 1 settled on terminal-7, whose OMP stays open and idle. */
+  function settledOnSeven(w) {
+    const j = initJob(w, "whenever");
+    assert.equal(dispatch(w, j, "terminal-7").code, 0);
+    assert.equal(settle(w, j, "terminal-7").code, 0);
+    return j;
+  }
+
+  test("a round sent to a new terminal names the replaced worker that is still open", () => {
+    const w = world();
+    const j = settledOnSeven(w);
+    const d = dispatchTo(w, j, "terminal-8");
+    assert.equal(d.code, 0, d.stderr);
+    assert.deepEqual(d.last.closeNow, ["terminal-7"]);
+    assert.deepEqual(d.last.replacedStillRunning, []);
+    assert.match(d.last.note, /terminal\.close/);
+  });
+
+  test("a replaced worker that is still running is not offered for closing yet", () => {
+    const w = world();
+    const j = settledOnSeven(w);
+    writeRun(w, "terminal-7", { state: "running", runSeq: 2, ompSessionId: "omp-new", lastEventAt: Date.now() + 6000 });
+    const d = dispatchTo(w, j, "terminal-8");
+    assert.equal(d.code, 0, d.stderr);
+    assert.deepEqual(d.last.closeNow, []);
+    assert.deepEqual(d.last.replacedStillRunning, ["terminal-7"]);
+  });
+
+  test("a round sent to the same terminal replaces nobody", () => {
+    const w = world();
+    const j = settledOnSeven(w);
+    const d = dispatchTo(w, j, "terminal-7");
+    assert.equal(d.code, 0, d.stderr);
+    assert.equal("closeNow" in d.last, false);
+  });
+
+  test("status flags a replaced worker as leaked and never the worker the job still talks to", () => {
+    const w = world();
+    const j = settledOnSeven(w);
+    assert.equal(dispatchTo(w, j, "terminal-8").code, 0);
+    writeRun(w, "terminal-8", { state: "running", runSeq: 1, ompSessionId: "omp-8", lastEventAt: Date.now() + 7000 });
+    const s = cli(w, ["status"]);
+    const row = s.lines.find((l) => l.job);
+    assert.deepEqual(row.leakedWorkers, ["terminal-7"]);
+    assert.deepEqual(row.liveWorkers.map((x) => [x.terminal, x.current]), [["terminal-7", false], ["terminal-8", true]]);
+    assert.equal(s.last.leakedWorkers, 1);
+    assert.match(s.last.note, /terminal\.close/);
+  });
+
+  test("a closed job whose worker terminal is still open stays in status until that terminal closes", () => {
+    const w = world();
+    const j = initJob(w, "whenever");
+    assert.equal(dispatch(w, j, "terminal-7").code, 0);
+    assert.equal(cli(w, ["close", "--job", j.dir, "--force"]).code, 0, "no run file yet, so no live worker");
+    writeRun(w, "terminal-7", { state: "idle", runSeq: 1 });
+    const row = cli(w, ["status"]).lines.find((l) => l.job);
+    assert.equal(row.state, "closed");
+    assert.deepEqual(row.leakedWorkers, ["terminal-7"]);
+    assert.match(row.blocking, /terminal-7/);
+    fs.rmSync(runFile(w, "terminal-7"));
+    assert.equal(cli(w, ["status"]).lines.filter((l) => l.job).length, 0);
+  });
+
+  test("close refuses while any earlier worker of the job is open, and --keep-workers records the choice", () => {
+    const w = world();
+    const j = settledOnSeven(w);
+    assert.equal(dispatchTo(w, j, "terminal-8").code, 0);
+    const refused = cli(w, ["close", "--job", j.dir, "--force"]);
+    assert.equal(refused.code, 4);
+    assert.match(refused.stderr, /terminal-7/);
+    assert.equal(j.job().state, "dispatched");
+    const kept = cli(w, ["close", "--job", j.dir, "--force", "--keep-workers"]);
+    assert.equal(kept.code, 0, kept.stderr);
+    assert.deepEqual(kept.last.leftOpen, ["terminal-7"]);
+    assert.equal(j.job().workersKept, true);
+    assert.equal(cli(w, ["status"]).lines.filter((l) => l.job).length, 0, "a worker kept on purpose is not a leak");
+  });
+
+  test("a terminal that another unfinished job of the same Leader still uses is neither a leak nor a close blocker", () => {
+    const w = world();
+    const a = settledOnSeven(w);
+    const b = initJob(w, "seahorse");
+    assert.equal(dispatch(w, b, "terminal-7").code, 0, "the idle worker is reused for the second job");
+    const d = dispatchTo(w, a, "terminal-8");
+    assert.equal(d.code, 0, d.stderr);
+    assert.equal("closeNow" in d.last, false, "terminal-7 still serves job b");
+    assert.deepEqual(cli(w, ["status", "--job", a.dir]).lines.find((l) => l.job).leakedWorkers, []);
+    assert.equal(cli(w, ["close", "--job", a.dir, "--force"]).code, 0);
   });
 });
 

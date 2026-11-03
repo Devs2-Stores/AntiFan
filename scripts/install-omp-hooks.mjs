@@ -9,6 +9,7 @@
  *
  *   node scripts/install-omp-hooks.mjs --check      # hash comparison, no writes
  *   node scripts/install-omp-hooks.mjs --install    # atomic replace + manifest
+ *   --hook <id>                                     # with --check/--install: only that hook (edit-guard, run-state, leader-guard, theme-qa-gate)
  *   node scripts/install-omp-hooks.mjs --rollback   # restore the previous files
  *
  * Discovery rule (omp://hooks.md): `<agentDir>/hooks/{pre,post}/*.{ts,js}`, where
@@ -140,7 +141,7 @@ async function bundleHook(hook) {
 /** Bundles every hook first so a build failure never leaves a half-installed set. */
 async function bundleAll() {
   const bundled = [];
-  for (const hook of HOOKS) {
+  for (const hook of HOOKS.filter((entry) => onlyHook === null || entry.id === onlyHook)) {
     const entry = await bundleHook(hook);
     if (entry === null) {
       console.log(`${hook.id.padEnd(16)} SKIPPED_ABSENT   (${hook.source} not present)`);
@@ -205,7 +206,9 @@ async function install() {
     node: process.version,
     hooks: records,
   };
-  fs.writeFileSync(MANIFEST, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+  // A single-hook install keeps the manifest rows of the hooks it did not touch.
+  const kept = onlyHook === null ? [] : (readManifest()?.hooks ?? []).filter((entry) => !records.some((record) => record.id === entry.id));
+  fs.writeFileSync(MANIFEST, `${JSON.stringify({ ...manifest, hooks: [...kept, ...records] }, null, 2)}\n`, "utf8");
   console.log(`\nmanifest: ${MANIFEST}`);
   return 0;
 }
@@ -248,6 +251,17 @@ const mode = process.argv.includes("--install")
   : process.argv.includes("--rollback")
     ? "rollback"
     : "check";
+
+const hookFlagAt = process.argv.indexOf("--hook");
+const onlyHook = hookFlagAt === -1 ? null : (process.argv[hookFlagAt + 1] ?? "");
+if (onlyHook !== null && !HOOKS.some((hook) => hook.id === onlyHook)) {
+  console.error(`[install-omp-hooks] --hook needs one of: ${HOOKS.map((hook) => hook.id).join(", ")}`);
+  process.exit(2);
+}
+if (onlyHook !== null && mode === "rollback") {
+  console.error("[install-omp-hooks] --hook works with --check and --install, not --rollback");
+  process.exit(2);
+}
 
 try {
   const code = mode === "install" ? await install() : mode === "rollback" ? rollback() : await check();

@@ -3,9 +3,11 @@
  *
  * A worker is an OMP session the Leader started in another terminal; it runs
  * unattended, so the only thing that keeps it off a live storefront is code, not
- * its prompt. The rule the user set: a worker may sync its bound draft Haravan theme by
- * itself, may push scoped files to one verified unpublished Shopify theme, and everything else
- * that changes a theme on the shop waits for the user.
+ * its prompt. The rule the user set (03/11/2026): a worker may push to the theme id its `hrv`
+ * workspace is bound to (`.haravan-cli_local.json`), live or copy alike, as long as `hrv theme info`
+ * there succeeds and reports that same id, and the push carries `--nodelete` (a bare push deletes every
+ * remote file the folder does not hold); it may push scoped files to one verified unpublished
+ * Shopify theme; everything else that changes a theme on the shop waits for the user.
  *
  * Pure decision logic over the shell command text, kept free of fs/env/spawn so
  * it is testable as a table. `edit-guard.ts` decides whether the caller is a
@@ -17,13 +19,17 @@ import * as path from "node:path";
 export const THEME_PUSH_CODES = {
   /** publish / delete / rename / duplicate / share, any Shopify write, or an unknown action. */
   REMOTE_OP: "REFUSED_THEME_REMOTE_OP",
-  /** `hrv theme push` without `--only`, or any `--force`. */
+  /** `--force` or `--prune`, or a Shopify push that is not scoped to named files. */
   PUSH_SCOPE: "REFUSED_THEME_PUSH_SCOPE",
+  /** `hrv theme push` without `--nodelete`: the CLI would delete every remote file this folder does not hold. Fix: add `--nodelete`. */
+  PUSH_NODELETE: "REFUSED_THEME_PUSH_NODELETE",
+  /** `hrv theme push` that would send `config/settings_data.json` without naming it: add `--ignore config/settings_data.json` or name the files with `--only`. */
+  PUSH_SETTINGS_DATA: "REFUSED_THEME_PUSH_SETTINGS_DATA",
   /** The command names a theme id other than the bound `.haravan-cli_local.json` one. */
   PUSH_FOREIGN_THEME: "REFUSED_THEME_PUSH_FOREIGN_THEME",
-  /** The bound theme is the shop's live (`main`) theme. */
+  /** `hrv theme dev` (a watcher that keeps writing) on the shop's live (`main`) theme, or a Shopify push with a live flag. */
   PUSH_LIVE: "REFUSED_THEME_PUSH_LIVE",
-  /** No binding, or `hrv theme info` could not prove the bound theme is a draft. */
+  /** No binding, or `hrv theme info` could not prove it reports the bound theme id. */
   PUSH_UNVERIFIED: "REFUSED_THEME_PUSH_UNVERIFIED",
   /** An `eval` cell names the theme CLI: a subprocess there escapes the shell-line checks. */
   VIA_EVAL: "REFUSED_THEME_VIA_EVAL",
@@ -40,6 +46,8 @@ export interface ThemeCommand {
   flags: string[];
   /** A `cd` / `pushd` / `Set-Location` ran earlier in the same command line. */
   dirChanged: boolean;
+  /** The shell line holds more than one command (`;`, `&&`, `||`, `|`, `&`, line break), so this one is not alone on its line. */
+  chained: boolean;
   /** The command text from the CLI word on, for refusals and the audit row. */
   text: string;
 }
@@ -145,6 +153,7 @@ export function parseThemeCommands(command: string): ThemeCommand[] {
   if (typeof command !== "string" || command.length === 0) return [];
   const found: ThemeCommand[] = [];
   const segments = parserSegments(command);
+  const chained = segments.filter((segment) => segment.trim().length > 0).length > 1;
   let dirChanged = false;
   for (const segment of segments) {
     const tokens = segment.split(/\s+/).filter(Boolean);
@@ -172,6 +181,7 @@ export function parseThemeCommands(command: string): ThemeCommand[] {
         themeId,
         flags: rest.filter((token) => token.startsWith("-")).map((token) => token.toLowerCase()),
         dirChanged,
+        chained,
         text: tokens.slice(i).join(" "),
       });
       i = tokens.length;
@@ -183,7 +193,7 @@ export function parseThemeCommands(command: string): ThemeCommand[] {
 export type ThemeCommandPlan =
   | { decision: "allow" }
   | { decision: "block"; code: string; reason: string }
-  /** Allowed only if `hrv theme info -j` in the theme root reports `themeId` with a non-`main` role. */
+  /** Allowed only if `hrv theme info -j` in the theme root succeeds and reports `themeId`; `hrv theme dev` also needs a non-`main` role. */
   | { decision: "verify-draft"; themeId: string }
   /**
    * A scoped `shopify theme push` at one numeric theme of one store. Allowed only if
@@ -201,6 +211,15 @@ const ASK =
  */
 export function planThemeCommand(cmd: ThemeCommand, boundThemeId: string | null): ThemeCommandPlan {
   const action = cmd.action;
+  if (cmd.cli === "hrv" && cmd.flags.some((flag) => flag === "--prune" || flag.startsWith("--prune="))) {
+    if (!cmd.flags.some((flag) => flag === "--help" || flag === "-h")) {
+      return {
+        decision: "block",
+        code: THEME_PUSH_CODES.PUSH_SCOPE,
+        reason: `${THEME_PUSH_CODES.PUSH_SCOPE}: '${cmd.text}' uses --prune, which deletes local files that are not on the remote theme. ${ASK}`,
+      };
+    }
+  }
   if (action === "" || (cmd.cli === "hrv" ? HRV_READ_ACTIONS : SHOPIFY_READ_ACTIONS)[action] === true) {
     return { decision: "allow" };
   }
@@ -234,7 +253,7 @@ export function planThemeCommand(cmd: ThemeCommand, boundThemeId: string | null)
     return {
       decision: "block",
       code: THEME_PUSH_CODES.REMOTE_OP,
-      reason: `${THEME_PUSH_CODES.REMOTE_OP}: '${cmd.text}' changes a theme on the shop, and a Leader worker may only sync its own bound draft Haravan theme (hrv theme push --only <files> / hrv theme dev) or push scoped files to one unpublished Shopify theme (shopify theme push --theme <id> --store <store> --only <files> --nodelete). ${ASK}`,
+      reason: `${THEME_PUSH_CODES.REMOTE_OP}: '${cmd.text}' changes a theme on the shop, and a Leader worker may only sync its own bound Haravan theme (hrv theme push [--only <files>] --nodelete / hrv theme dev on a non-live theme) or push scoped files to one unpublished Shopify theme (shopify theme push --theme <id> --store <store> --only <files> --nodelete). ${ASK}`,
     };
   }
   if (cmd.flags.some((flag) => flag === "--force" || flag.startsWith("--force=") || isShortBundleWith(flag, "f"))) {
@@ -244,18 +263,18 @@ export function planThemeCommand(cmd: ThemeCommand, boundThemeId: string | null)
       reason: `${THEME_PUSH_CODES.PUSH_SCOPE}: '${cmd.text}' uses --force, which overwrites changes made on the shop. ${ASK}`,
     };
   }
-  if (action === "push" && !cmd.flags.some((flag) => flag === "--only" || flag.startsWith("--only=") || isShortBundleWith(flag, "o"))) {
-    return {
-      decision: "block",
-      code: THEME_PUSH_CODES.PUSH_SCOPE,
-      reason: `${THEME_PUSH_CODES.PUSH_SCOPE}: '${cmd.text}' pushes the whole theme. Push only the files you changed: hrv theme push --only <file> [<file> ...].`,
-    };
-  }
   if (cmd.dirChanged) {
     return {
       decision: "block",
       code: THEME_PUSH_CODES.PUSH_UNVERIFIED,
       reason: `${THEME_PUSH_CODES.PUSH_UNVERIFIED}: '${cmd.text}' may not run in the folder that was checked: a cd, pushd, Set-Location or script ran before it in this line or earlier in this terminal, so the theme it targets cannot be verified. Run it alone from a new terminal whose folder is the theme folder.`,
+    };
+  }
+  if (action === "push" && cmd.chained) {
+    return {
+      decision: "block",
+      code: THEME_PUSH_CODES.COMPLEX,
+      reason: `${THEME_PUSH_CODES.COMPLEX}: '${cmd.text}' is chained with another command on the same line (;, &&, ||, |, &, line break, or a redirect such as 2>&1). A push must be one plain command alone on its line, so what it runs after and before cannot hide a second push. ${ASK}`,
     };
   }
   if (boundThemeId === null) {
@@ -270,6 +289,20 @@ export function planThemeCommand(cmd: ThemeCommand, boundThemeId: string | null)
       decision: "block",
       code: THEME_PUSH_CODES.PUSH_FOREIGN_THEME,
       reason: `${THEME_PUSH_CODES.PUSH_FOREIGN_THEME}: '${cmd.text}' targets theme ${cmd.themeId}, but this workspace is bound to theme ${boundThemeId} (.haravan-cli_local.json). ${ASK}`,
+    };
+  }
+  if (action === "push" && !hasNodeleteFlag(cmd.flags)) {
+    return {
+      decision: "block",
+      code: THEME_PUSH_CODES.PUSH_NODELETE,
+      reason: `${THEME_PUSH_CODES.PUSH_NODELETE}: '${cmd.text}' has no --nodelete, so hrv would delete every file on theme ${boundThemeId} that this folder does not hold (snippets and assets other apps installed included). Add --nodelete and run it again: hrv theme push [--only <files>] --nodelete.`,
+    };
+  }
+  if (action === "push" && pushSendsSettingsUnnamed(cmd.text)) {
+    return {
+      decision: "block",
+      code: THEME_PUSH_CODES.PUSH_SETTINGS_DATA,
+      reason: `${THEME_PUSH_CODES.PUSH_SETTINGS_DATA}: '${cmd.text}' would also push ${SETTINGS_DATA_KEY}, and hrv does not compare that file with the shop (the admin rewrites it whenever the merchant saves), so it would overwrite settings saved there. Add --ignore ${SETTINGS_DATA_KEY} (or -x ${SETTINGS_DATA_KEY}), or name the files you changed with --only. To push that file itself: run hrv theme fetch ${boundThemeId} --only ${SETTINGS_DATA_KEY}, edit the fetched copy, then hrv theme push --only ${SETTINGS_DATA_KEY} --nodelete.`,
     };
   }
   return { decision: "verify-draft", themeId: boundThemeId };
@@ -427,6 +460,81 @@ function planShopifyPush(cmd: ThemeCommand): ThemeCommandPlan {
 /** `-f`, `-nf`, `-fo`: a single-dash flag or a bundle of short flags that includes `letter`. */
 function isShortBundleWith(flag: string, letter: string): boolean {
   return /^-[a-z]+$/.test(flag) && flag.includes(letter);
+}
+
+/**
+ * `--nodelete`, or a short bundle in which `n` comes before any value-taking letter (`-n`, `-jn`,
+ * `-nb`, `-nx <pattern>`): the only spellings the CLI reads as "do not delete remote files". In
+ * `-on` the `n` is the value of `-o` (`--only n`), and `--nodelete=<value>` is not a spelling the
+ * CLI documents.
+ */
+function hasNodeleteFlag(flags: string[]): boolean {
+  return flags.some((flag) => {
+    if (flag === "--nodelete") return true;
+    if (flag.startsWith("--") || !flag.startsWith("-")) return false;
+    for (const letter of flag.slice(1)) {
+      if (letter === "n") return true;
+      if (letter !== "j" && letter !== "b") return false;
+    }
+    return false;
+  });
+}
+
+const SETTINGS_DATA_KEY = "config/settings_data.json";
+
+/** One glob (`*`, `**`, `?`) against a theme key; null for syntax this reader does not model (`{}`, `[]`, `!`, `()`). */
+function globMatch(pattern: string, key: string): boolean | null {
+  if (/[{}[\]!()]/.test(pattern)) return null;
+  const body = pattern
+    .split("**")
+    .map((part) =>
+      part
+        .split("*")
+        .map((piece) => piece.replace(/[.+^$|\\]/g, "\\$&").replace(/\?/g, "[^/]"))
+        .join("[^/]*"),
+    )
+    .join(".*");
+  return new RegExp(`^${body}$`).test(key);
+}
+
+/**
+ * True when an `hrv theme push` line would send `config/settings_data.json` without that file being
+ * named: no file selection at all, or a selection some pattern of which could match it, and no
+ * `--ignore`/`-x` pattern that certainly excludes it. Files are named by `--only`/`-o`, by a
+ * positional comma list (`hrv theme push a.liquid,b.liquid`; a numeric positional is no file), and
+ * excluded by `--ignore`/`-x`. Naming the file exactly is the deliberate way to push it.
+ */
+function pushSendsSettingsUnnamed(text: string): boolean {
+  const tokens = text.split(/\s+/).filter(Boolean);
+  const named: string[] = [];
+  const ignore: string[] = [];
+  const clean = (value: string): string => value.replace(/^["']+|["']+$/g, "").replace(/\\/g, "/").replace(/^\.\//, "");
+  let into: string[] | null = null;
+  for (const token of tokens.slice(tokens.findIndex((word) => word.toLowerCase() === "push") + 1)) {
+    if (!token.startsWith("-") || token === "-") {
+      if (into !== null) into.push(clean(token));
+      else for (const file of token.split(",")) if (file.length > 0 && !/^\d+$/.test(file)) named.push(clean(file));
+      continue;
+    }
+    into = null;
+    const long = /^--(only|ignore)(?:=(.*))?$/i.exec(token);
+    if (long !== null) {
+      into = long[1]?.toLowerCase() === "only" ? named : ignore;
+      if (long[2] !== undefined && long[2].length > 0) into.push(clean(long[2]));
+      continue;
+    }
+    if (token.startsWith("--")) continue;
+    for (let i = 1; i < token.length; i += 1) {
+      const letter = token[i]?.toLowerCase();
+      if (letter !== "o" && letter !== "x") continue;
+      into = letter === "o" ? named : ignore;
+      const rest = token.slice(i + 1).replace(/^=/, "");
+      if (rest.length > 0) into.push(clean(rest));
+      break;
+    }
+  }
+  if (ignore.some((pattern) => pattern === SETTINGS_DATA_KEY || globMatch(pattern, SETTINGS_DATA_KEY) === true)) return false;
+  return named.length === 0 || named.some((pattern) => pattern !== SETTINGS_DATA_KEY && globMatch(pattern, SETTINGS_DATA_KEY) !== false);
 }
 
 const CLI_WORD = String.raw`(?:hrv|haravan-cli|haravan|shopify|sapo)(?:\.(?:cmd|exe|ps1|bat|js|mjs|cjs))?`;
@@ -694,14 +802,14 @@ export function draftVerdict(
     return {
       decision: "block",
       code: THEME_PUSH_CODES.PUSH_UNVERIFIED,
-      reason: `${THEME_PUSH_CODES.PUSH_UNVERIFIED}: could not prove theme ${boundThemeId} is a draft before '${cmd.text}' (hrv theme info -j: ${seen}). ${ASK}`,
+      reason: `${THEME_PUSH_CODES.PUSH_UNVERIFIED}: could not prove this workspace is logged in to its bound theme ${boundThemeId} before '${cmd.text}' (hrv theme info -j: ${seen}). ${ASK}`,
     };
   }
-  if (info.role === "main") {
+  if (info.role === "main" && cmd.action === "dev") {
     return {
       decision: "block",
       code: THEME_PUSH_CODES.PUSH_LIVE,
-      reason: `${THEME_PUSH_CODES.PUSH_LIVE}: theme ${boundThemeId} is the shop's LIVE theme (role main), and '${cmd.text}' would change what customers see. ${ASK}`,
+      reason: `${THEME_PUSH_CODES.PUSH_LIVE}: theme ${boundThemeId} is the shop's LIVE theme (role main), and '${cmd.text}' keeps writing local edits to it as they happen. Push the files you changed instead. ${ASK}`,
     };
   }
   return { decision: "allow" };

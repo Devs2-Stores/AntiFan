@@ -3,6 +3,7 @@ import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import type { TerminalManager } from '../../src/main/browser/terminal-manager';
 import { CapabilityCatalogue } from '../../src/main/tools/capability-catalogue';
 import {
@@ -188,7 +189,7 @@ describe('Leader scope of the terminal capabilities', () => {
       hostEpoch: 1,
       getActiveLease: () => lease,
     });
-    registerTerminalCapabilities(catalogue, facade, ownership, deps);
+    registerTerminalCapabilities(catalogue, facade, ownership, { deliveryWaitMs: 150, ...deps });
     return { rows, calls, catalogue };
   };
 
@@ -470,6 +471,34 @@ describe('Leader scope of the terminal capabilities', () => {
       }
     });
 
+    it('terminal.write gates a Leader relay into its own Space pane, which is not a worker: a push line is refused and never reaches the pane', async () => {
+      LeaderRegistry.getInstance().setLeader('terminal-lead', true);
+      const rows: FakeRow[] = [
+        ...rowsOf(),
+        { id: 'split-space', cwd: 'E:/Work/lead', state: 'running', ownerKey: 'project:p0', splitOf: 'terminal-lead' },
+      ];
+      const { catalogue, calls } = build(rows);
+      await assert.rejects(
+        () => catalogue.dispatch('terminal.write', { sessionId: 'split-space', input: 'hrv theme push --nodelete\r' }, ctx()),
+        (err: unknown) => err instanceof CapabilityError && err.code === 'POLICY_DENIED' && /REFUSED_THEME_PUSH_/.test(err.message)
+      );
+      assert.deepStrictEqual(calls.writes.map((w) => w.input), [], 'a refused push line never reaches the pane');
+      await catalogue.dispatch('terminal.write', { sessionId: 'split-space', input: 'echo ok\r' }, ctx());
+      assert.deepStrictEqual(calls.writes.map((w) => w.input), ['echo ok\r']);
+    });
+
+    it('terminal.write gates a Leader relay into a worker pane: the push rules hold whoever types the line', async () => {
+      const registry = LeaderRegistry.getInstance();
+      registry.setLeader('terminal-lead', true);
+      assert.strictEqual(registry.assignWorker('terminal-w1', 'terminal-lead', 'Row 1'), true);
+      const { catalogue, calls } = build();
+      await assert.rejects(
+        () => catalogue.dispatch('terminal.write', { sessionId: 'terminal-w1', input: 'hrv theme push --nodelete\r' }, ctx()),
+        (err: unknown) => err instanceof CapabilityError && err.code === 'POLICY_DENIED' && /REFUSED_THEME_PUSH_/.test(err.message)
+      );
+      assert.deepStrictEqual(calls.writes.map((w) => w.input), [], 'a refused push line never reaches the worker pane');
+    });
+
     it('terminal.write reports written:false when the facade says no session took the input, and claims no worker for it', async () => {
       LeaderRegistry.getInstance().setLeader('terminal-lead', true);
       const { catalogue, calls } = build();
@@ -595,7 +624,7 @@ describe('Leader scope of the terminal capabilities', () => {
       assert.strictEqual('daemonOutdated' in unbound, false, 'a caller with no attachment cannot restart or relay about the daemon either');
     });
 
-    it('terminal.write refuses a running target with TERMINAL_BUSY, allows force, and allows idle, waiting, ended and run-less targets', async () => {
+    it('terminal.write refuses a running target with TERMINAL_BUSY, allows force, and allows idle, waiting and run-less targets, but not one whose OMP is gone', async () => {
       LeaderRegistry.getInstance().setLeader('terminal-lead', true);
       const { catalogue, calls } = build();
 
@@ -615,12 +644,161 @@ describe('Leader scope of the terminal capabilities', () => {
       writeRun('terminal-w1', 'waiting_user', 2);
       await catalogue.dispatch('terminal.write', { sessionId: 'terminal-w1', input: 'waiting\r' }, ctx());
       writeRun('terminal-w1', 'running', 2, { pid: 0 });
-      await catalogue.dispatch('terminal.write', { sessionId: 'terminal-w1', input: 'dead\r' }, ctx());
+      await assert.rejects(
+        () => catalogue.dispatch('terminal.write', { sessionId: 'terminal-w1', input: 'dead\r' }, ctx()),
+        (err: unknown) => err instanceof CapabilityError && err.code === 'OMP_NOT_RUNNING' && /shell/.test(err.message),
+      );
       await catalogue.dispatch('terminal.write', { sessionId: 'terminal-plain', input: 'plain\r' }, ctx());
-      assert.deepStrictEqual(calls.writes.map((w) => w.input), ['forced\r', 'idle\r', 'waiting\r', 'dead\r', 'plain\r']);
+      assert.deepStrictEqual(calls.writes.map((w) => w.input), ['forced\r', 'idle\r', 'waiting\r', 'plain\r']);
 
       assert.strictEqual(LeaderRegistry.getInstance().workerOf('terminal-w1')?.leaderId, 'terminal-lead', 'a successful write registers the worker');
       assert.strictEqual(LeaderRegistry.getInstance().workerOf('terminal-plain')?.leaderId, 'terminal-lead');
+    });
+
+    it('terminal.write refuses a terminal whose OMP is gone (OMP_NOT_RUNNING) instead of typing into the shell, unless the input starts OMP or shell:true says so', async () => {
+      LeaderRegistry.getInstance().setLeader('terminal-lead', true);
+      const gone = spawnSync(process.execPath, ['-e', '']);
+      assert.strictEqual(gone.status, 0);
+      const { catalogue, calls } = build();
+      // The file still says idle, but the OMP process behind it is gone.
+      writeRun('terminal-w1', 'idle', 1, { pid: gone.pid });
+      await assert.rejects(
+        () => catalogue.dispatch('terminal.write', { sessionId: 'terminal-w1', input: 'follow-up prompt\r' }, ctx()),
+        (err: unknown) => err instanceof CapabilityError && err.code === 'OMP_NOT_RUNNING' && /go to the shell/.test(err.message) && /shell:true/.test(err.message)
+      );
+      assert.strictEqual(calls.writes.length, 0, 'a refused write never reaches the PTY');
+      assert.strictEqual(LeaderRegistry.getInstance().workerOf('terminal-w1'), undefined, 'a refused write claims nothing');
+
+      // A state the OMP wrote itself on the way out is just as final.
+      writeRun('terminal-w1', 'ended', 1);
+      await assert.rejects(() => catalogue.dispatch('terminal.write', { sessionId: 'terminal-w1', input: 'again\r' }, ctx()), code('OMP_NOT_RUNNING'));
+
+      // On purpose: a new OMP, or the shell.
+      await catalogue.dispatch('terminal.write', { sessionId: 'terminal-w1', input: 'omp "@E:/Work/scratch/p.md"\r' }, ctx());
+      await catalogue.dispatch('terminal.write', { sessionId: 'terminal-w1', input: 'cd ..\r', shell: true }, ctx());
+      assert.deepStrictEqual(calls.writes.map((w) => w.input), ['omp "@E:/Work/scratch/p.md"\r', 'cd ..\r']);
+
+      // Waking a sleeping terminal is not typing into a dead agent.
+      const asleep = build(rowsOf().map((row) => (row.id === 'terminal-w1' ? { ...row, state: 'sleeping' } : row)));
+      await asleep.catalogue.dispatch('terminal.write', { sessionId: 'terminal-w1', input: 'echo wake\r' }, ctx());
+      assert.deepStrictEqual(asleep.calls.writes.map((w) => w.input), ['echo wake\r']);
+    });
+
+    it('terminal.write sends Enter, Esc, Ctrl-C and the arrows as key / keys, and refuses whitespace-only input, both forms at once, an unknown key and a non-Leader caller', async () => {
+      LeaderRegistry.getInstance().setLeader('terminal-lead', true);
+      const { catalogue, calls } = build();
+      writeRun('terminal-w1', 'waiting_user', 2);
+
+      await catalogue.dispatch('terminal.write', { sessionId: 'terminal-w1', key: 'esc' }, ctx());
+      await catalogue.dispatch('terminal.write', { sessionId: 'terminal-w1', keys: ['down', 'down', 'enter'] }, ctx());
+      assert.deepStrictEqual(calls.writes.map((w) => w.input), ['\x1b', '\x1b[B\x1b[B\r']);
+
+      // A bare Enter or blank input is no usable value for input: key is the way to press Enter.
+      await assert.rejects(() => catalogue.dispatch('terminal.write', { sessionId: 'terminal-w1', input: '\r' }, ctx()), code('INVALID_ARGUMENT'));
+      await assert.rejects(() => catalogue.dispatch('terminal.write', { sessionId: 'terminal-w1', input: '  ' }, ctx()), code('INVALID_ARGUMENT'));
+      await assert.rejects(() => catalogue.dispatch('terminal.write', { sessionId: 'terminal-w1', input: 'x', key: 'enter' }, ctx()), code('INVALID_ARGUMENT'));
+      await assert.rejects(() => catalogue.dispatch('terminal.write', { sessionId: 'terminal-w1', key: 'enter', keys: ['enter'] }, ctx()), code('INVALID_ARGUMENT'));
+      await assert.rejects(() => catalogue.dispatch('terminal.write', { sessionId: 'terminal-w1', key: 'f13' }, ctx()), code('INVALID_ARGUMENT'));
+      await assert.rejects(() => catalogue.dispatch('terminal.write', { sessionId: 'terminal-w1', keys: [] }, ctx()), code('INVALID_ARGUMENT'));
+      await assert.rejects(
+        () => catalogue.dispatch('terminal.write', { sessionId: 'terminal-w1', keys: ['esc', 'enter'] }, ctx()),
+        (err: unknown) => err instanceof CapabilityError && err.code === 'INVALID_ARGUMENT' && /own call/.test(err.message)
+      );
+      assert.strictEqual(calls.writes.length, 2, 'refused calls reach no PTY');
+      await catalogue.dispatch('terminal.write', { sessionId: 'terminal-w1', keys: ['down', 'esc'] }, ctx());
+      assert.strictEqual(calls.writes.at(-1)?.input, '\x1b[B\x1b', 'an Esc as the last key is allowed');
+
+      const rows = rowsOf();
+      rows.push({ id: 'split-mine', cwd: 'E:/Work/third', state: 'running', ownerKey: 'project:p3', splitOf: 'terminal-plain' });
+      await assert.rejects(
+        () => build(rows).catalogue.dispatch('terminal.write', { sessionId: 'split-mine', key: 'enter' }, attachmentContext('att-plain')),
+        (err: unknown) => err instanceof CapabilityError && err.code === 'INVALID_ARGUMENT' && /Leader/.test(err.message)
+      );
+    });
+
+    it('terminal.write: an Esc or arrow key sent into a live OMP does not make the next plain line unreadable, while a shell still treats Esc as unfollowable', async () => {
+      LeaderRegistry.getInstance().setLeader('terminal-lead', true);
+      const { catalogue, calls } = build();
+
+      // Closing an ask dialog with Esc, then a plain follow-up line: the same terminal, the OMP is alive.
+      writeRun('terminal-w1', 'waiting_user', 2);
+      await catalogue.dispatch('terminal.write', { sessionId: 'terminal-w1', key: 'esc' }, ctx());
+      await catalogue.dispatch('terminal.write', { sessionId: 'terminal-w1', keys: ['up', 'enter'] }, ctx());
+      writeRun('terminal-w1', 'idle', 2);
+      await catalogue.dispatch('terminal.write', { sessionId: 'terminal-w1', input: 'plain follow-up\r', deliveryWaitMs: 0 }, ctx());
+      assert.deepStrictEqual(calls.writes.map((w) => w.input), ['\x1b', '\x1b[A\r', 'plain follow-up\r']);
+
+      // No OMP behind the pane (a shell): Esc changes the shell line in ways nobody can follow, so the next line is refused.
+      await catalogue.dispatch('terminal.write', { sessionId: 'terminal-plain', key: 'esc' }, ctx());
+      await assert.rejects(
+        () => catalogue.dispatch('terminal.write', { sessionId: 'terminal-plain', input: 'echo hi\r' }, ctx()),
+        (err: unknown) => err instanceof CapabilityError && err.code === 'POLICY_DENIED' && /REFUSED_THEME_COMPLEX/.test(err.message)
+      );
+      assert.strictEqual(calls.writes.some((w) => w.input.includes('echo hi')), false, 'the refused line reached no PTY');
+    });
+
+    // The delivery check polls the real run file, so these tests move the file on a real timer.
+    it('terminal.write tells a Leader whether an idle OMP started a run: started when runSeq grows, pending (never a failure) when only lastEventAt moves', async () => {
+      LeaderRegistry.getInstance().setLeader('terminal-lead', true);
+      const { catalogue } = build(undefined, undefined, {}, { deliveryWaitMs: 600 });
+
+      // Taken: the OMP starts a run shortly after the input.
+      writeRun('terminal-w1', 'idle', 1, { lastEventAt: 1_000 });
+      const start = setTimeout(() => writeRun('terminal-w1', 'running', 2, { lastEventAt: Date.now() }), 100);
+      const taken = (await catalogue.dispatch('terminal.write', { sessionId: 'terminal-w1', input: 'go\r' }, ctx())) as { delivery?: string; deliveryRun?: { runSeq: number; state: string }; message?: string };
+      clearTimeout(start);
+      assert.strictEqual(taken.delivery, 'started');
+      assert.strictEqual(taken.deliveryRun?.runSeq, 2);
+      assert.strictEqual(taken.message, undefined);
+
+      // A run that began and already finished (idle again, runSeq grew) counts as started.
+      writeRun('terminal-w1', 'idle', 2, { lastEventAt: 1_000 });
+      const quick = setTimeout(() => writeRun('terminal-w1', 'idle', 3, { lastEventAt: Date.now() }), 100);
+      const fast = (await catalogue.dispatch('terminal.write', { sessionId: 'terminal-w1', input: 'quick\r' }, ctx())) as { delivery?: string };
+      clearTimeout(quick);
+      assert.strictEqual(fast.delivery, 'started');
+
+      // Not taken yet: the previous turn closing moves lastEventAt after the write, runSeq does not move inside the wait.
+      writeRun('terminal-w1', 'idle', 3, { lastEventAt: 1_000 });
+      const closing = setTimeout(() => writeRun('terminal-w1', 'idle', 3, { lastEventAt: Date.now() + 2_500 }), 100);
+      const startedAt = Date.now();
+      const lost = (await catalogue.dispatch('terminal.write', { sessionId: 'terminal-w1', input: 'lost\r' }, ctx())) as {
+        written: boolean; delivery?: string; deliveryRun?: { runSeq: number; state: string }; message?: string;
+      };
+      clearTimeout(closing);
+      assert.strictEqual(lost.written, true, 'the input was handed to the PTY');
+      assert.strictEqual(lost.delivery, 'pending');
+      assert.strictEqual(lost.deliveryRun?.runSeq, 3);
+      assert.strictEqual(lost.deliveryRun?.state, 'idle');
+      assert.match(lost.message ?? '', /PENDING/);
+      assert.match(lost.message ?? '', /--min-run-seq 4/);
+      assert.match(lost.message ?? '', /only after 90 s/);
+      assert.doesNotMatch(lost.message ?? '', /recycle|not reach|did not reach/i, 'a soft verdict never tells the Leader to recycle a worker that may just be slow');
+      assert.ok(Date.now() - startedAt >= 550, 'it waited out deliveryWaitMs before saying so');
+    });
+
+    it('terminal.write says the OMP is gone when it ends during the delivery wait, and skips the check for no Enter, deliveryWaitMs 0 and non-idle targets', async () => {
+      LeaderRegistry.getInstance().setLeader('terminal-lead', true);
+      const { catalogue } = build();
+
+      writeRun('terminal-w1', 'idle', 1);
+      const exit = setTimeout(() => writeRun('terminal-w1', 'ended', 1), 30);
+      const gone = (await catalogue.dispatch('terminal.write', { sessionId: 'terminal-w1', input: 'bye\r' }, ctx())) as { delivery?: string; message?: string };
+      clearTimeout(exit);
+      assert.strictEqual(gone.delivery, 'not_running');
+      assert.match(gone.message ?? '', /no longer has an OMP/);
+
+      writeRun('terminal-w1', 'idle', 1);
+      const half = (await catalogue.dispatch('terminal.write', { sessionId: 'terminal-w1', input: 'half a line' }, ctx())) as { delivery?: string };
+      assert.strictEqual(half.delivery, undefined, 'no Enter, no prompt, nothing to confirm');
+      const skipped = (await catalogue.dispatch('terminal.write', { sessionId: 'terminal-w1', input: 'x\r', deliveryWaitMs: 0 }, ctx())) as { delivery?: string };
+      assert.strictEqual(skipped.delivery, undefined);
+      writeRun('terminal-w1', 'waiting_user', 1);
+      const answer = (await catalogue.dispatch('terminal.write', { sessionId: 'terminal-w1', input: 'yes\r' }, ctx())) as { delivery?: string };
+      assert.strictEqual(answer.delivery, undefined, 'an answer to a question is not a new run');
+      const plain = (await catalogue.dispatch('terminal.write', { sessionId: 'terminal-plain', input: 'ls\r' }, ctx())) as { delivery?: string };
+      assert.strictEqual(plain.delivery, undefined, 'a terminal with no run file has nothing to confirm');
+      await assert.rejects(() => catalogue.dispatch('terminal.write', { sessionId: 'terminal-w1', input: 'x\r', deliveryWaitMs: -1 }, ctx()), code('INVALID_ARGUMENT'));
     });
 
     it('terminal.wait run-idle is satisfied when the run file flips to idle, and honours minRunSeq', async () => {

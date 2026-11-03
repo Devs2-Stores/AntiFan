@@ -19,6 +19,16 @@ import {
   shopifyDraftVerdict,
   THEME_PUSH_CODES,
 } from "./theme-push-policy";
+import {
+  APPROVAL_SELF_CODE,
+  APPROVAL_SELF_REASON,
+  approvalHint,
+  claimPushApproval,
+  namesApprovalStore,
+  parseApprovedPush,
+  type PushApprovalContext,
+  type PushApprovalUse,
+} from "./theme-push-approval";
 
 /** Shell command prefix that runs the Haravan CLI; tests and non-PATH installs override it. */
 export const HRV_COMMAND_ENV = "ANTIFAN_HRV_COMMAND";
@@ -174,8 +184,8 @@ export function lastOutputLine(output: string): string {
 export type ThemeGateOutcome =
   /** The line names no theme CLI. */
   | { decision: "pass" }
-  /** Every theme command in the line may run; `verified` lists the sync commands the draft check (`hrv theme info -j` / `shopify theme list`) cleared. */
-  | { decision: "allow"; verified: string[] }
+  /** Every theme command in the line may run; `verified` lists the sync commands the login check (`hrv theme info -j` reported the bound theme id / `shopify theme list` proved a draft) cleared. */
+  | { decision: "allow"; verified: string[]; approved?: PushApprovalUse[] }
   | { decision: "block"; code: string; reason: string; command: string };
 
 /**
@@ -183,13 +193,21 @@ export type ThemeGateOutcome =
  * `assumeDirChanged` says the shell was moved by an earlier line, so the binding found
  * from `cwd` cannot be trusted and any sync action is unverifiable. `timeoutMs` bounds each
  * draft probe (`hrv theme info -j`, `shopify theme list`); a probe that cannot answer in time is a refusal, never a pass.
+ * `approval` is the older Leader approval of a push to the LIVE theme (`theme-push-approval.ts`).
+ * A push to the bound theme no longer draws `REFUSED_THEME_PUSH_LIVE` (live or copy alike), so
+ * the claim below is not reached by today's rules and a recorded approval simply expires
+ * unspent; the branch stays so an old `approve-push` record and its audit rows keep working.
  */
 export async function gateThemeLine(o: {
   text: string;
   cwd: string;
   timeoutMs: number;
   assumeDirChanged?: boolean;
+  approval?: PushApprovalContext;
 }): Promise<ThemeGateOutcome> {
+  if (namesApprovalStore(o.text)) {
+    return { decision: "block", code: APPROVAL_SELF_CODE, reason: APPROVAL_SELF_REASON, command: o.text.slice(0, 200) };
+  }
   const line = classifyThemeLine(o.text, { assumeDirChanged: o.assumeDirChanged });
   if (line.decision === "none") return { decision: "pass" };
   if (line.decision === "block") {
@@ -198,13 +216,15 @@ export async function gateThemeLine(o: {
   const bindingRoot = findBindingRoot(o.cwd);
   const boundThemeId = bindingRoot === null ? null : (resolveShopIdentity(bindingRoot)?.themeId ?? null);
   const verified: string[] = [];
+  const approved: PushApprovalUse[] = [];
   for (const cmd of line.commands) {
     const plan = planThemeCommand(cmd, boundThemeId);
     let verdict: { decision: "allow" } | { decision: "block"; code: string; reason: string };
     if (plan.decision === "verify-draft" && bindingRoot !== null) {
       const run = await runHrv(bindingRoot, "theme info -j", o.timeoutMs);
-      const info = run.output === null ? null : parseThemeInfo(run.output);
-      const detail = run.output === null ? run.failure : lastOutputLine(run.output);
+      const info = run.output === null || run.exitCode !== 0 ? null : parseThemeInfo(run.output);
+      const detail =
+        run.output === null ? run.failure : run.exitCode !== 0 ? `exit ${run.exitCode ?? "null"}: ${lastOutputLine(run.output)}` : lastOutputLine(run.output);
       verdict = draftVerdict(cmd, plan.themeId, info, detail);
       if (verdict.decision === "allow") verified.push(cmd.text);
     } else if (plan.decision === "verify-draft") {
@@ -229,8 +249,19 @@ export async function gateThemeLine(o: {
       verdict = plan;
     }
     if (verdict.decision === "block") {
+      if (verdict.code === THEME_PUSH_CODES.PUSH_LIVE && o.approval !== undefined && cmd.cli === "hrv" && bindingRoot !== null && boundThemeId !== null) {
+        const files = line.commands.length === 1 ? parseApprovedPush(o.text) : null;
+        if (files !== null) {
+          const claim = claimPushApproval(o.approval, { themeId: boundThemeId, root: bindingRoot, files }, o.text.trim());
+          if (claim.status === "claimed") {
+            approved.push(claim.use);
+            continue;
+          }
+          return { decision: "block", code: verdict.code, reason: `${verdict.reason}\n${approvalHint(claim.miss, files)}`, command: cmd.text };
+        }
+      }
       return { decision: "block", code: verdict.code, reason: verdict.reason, command: cmd.text };
     }
   }
-  return { decision: "allow", verified };
+  return approved.length > 0 ? { decision: "allow", verified, approved } : { decision: "allow", verified };
 }

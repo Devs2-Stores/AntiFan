@@ -16,11 +16,13 @@
  *
  * In a Leader's worker terminal (its id is under `workers` in the Manager's
  * `leader-terminals.json`), a shell call that would change a theme on the shop is
- * gated in every mode: only `hrv theme push --only ...` / `hrv theme dev` against
- * the bound theme pass, and only after `hrv theme info -j` reports that theme is not
- * the live (`main`) one. Publish, delete, Shopify writes, `--force` and whole-theme
- * pushes are refused, and so is any line that names the theme CLI in a shape the rules
- * cannot read (wrapper, subshell, quoted CLI word; `REFUSED_THEME_COMPLEX`). The decision
+ * gated in every mode: `hrv theme push [--only ...] --nodelete` (a push without `--nodelete` is
+ * `REFUSED_THEME_PUSH_NODELETE`) and a
+ * `hrv theme dev` on a non-live theme pass against the bound theme id, and only after
+ * `hrv theme info -j` in that folder succeeds and reports that same id (live or copy alike
+ * for a push; `dev` is refused on the live `main` theme). Publish, delete, Shopify writes,
+ * `--force` and `--prune` are refused, and so is any line that names the theme CLI in a
+ * shape the rules cannot read (wrapper, subshell, quoted CLI word; `REFUSED_THEME_COMPLEX`). The decision
  * is `gateThemeLine` in `theme-draft-probe.ts`, shared with the Manager's `terminal.write`.
  *
  * Nothing in here throws: a hook that throws turns a policy into an outage, so
@@ -54,6 +56,13 @@ import {
 import { resolveShopIdentity, resolveWorkspaceShape, type WorkspaceShape } from "./theme-paths";
 import { describeError, gateThemeLine, lastOutputLine, runHrv } from "./theme-draft-probe";
 import { mentionsThemeCli, planEvalThemeCode } from "./theme-push-policy";
+import {
+  THEME_PUSH_LIVE_APPROVED,
+  APPROVAL_SELF_CODE,
+  APPROVAL_SELF_REASON,
+  approvalsDirOf,
+  namesApprovalStore,
+} from "./theme-push-approval";
 
 export const GUARD_ENTRY_TYPE = "antifan.edit-mode";
 export const LOG_DIR_PARTS = [".antifan", "edit-guard"];
@@ -62,7 +71,7 @@ const LOG_ROTATE_BYTES = 2 * 1024 * 1024;
 const SETTINGS_DATA_RE = /(^|[/\\])config[/\\]settings_data\.json$/i;
 const SETTINGS_DATA_FETCH_TIMEOUT_MS = 90_000;
 const THEME_INFO_TIMEOUT_MS = 30_000;
-/** Audit code of a worker push/dev the guard let through after `hrv theme info` proved a draft. */
+/** Audit code of a worker push/dev the guard let through after `hrv theme info` reported the bound theme id. */
 const THEME_DRAFT_VERIFIED = "THEME_SYNC_DRAFT_VERIFIED";
 /** The Manager's Leader registry under the config dir (`src/main/leader/leader-registry.ts`). */
 const LEADER_REGISTRY_FILE = "leader-terminals.json";
@@ -77,6 +86,8 @@ export interface AuditRow {
   code: string;
   terminalSessionId: string | null;
   ompSessionId: string;
+  /** Free text for a row whose code needs more than the tool and path: the approval a live push used. */
+  detail?: string;
 }
 
 interface GuardSession {
@@ -300,41 +311,48 @@ const TRANSIENT_READ_CODES: Record<string, true> = { EBUSY: true, EPERM: true, E
 const REGISTRY_READ_RETRIES = 2;
 const REGISTRY_RETRY_DELAY_MS = 50;
 
+type WorkerLookup = { worker: false } | { worker: true; leaderId: string | null };
+
 /**
- * True when the terminal this OMP runs in is a Leader's worker. Read fresh per call:
- * the Leader can take a worker on or hand it over at any time, and the registry the
- * Manager writes is the only record of it.
+ * Whether the terminal this OMP runs in is a Leader's worker, and the Leader that drives it.
+ * Read fresh per call: the Leader can take a worker on or hand it over at any time, and the
+ * registry the Manager writes is the only record of it.
  *
  * The Manager replaces the file atomically (temp file + rename), and on Windows a reader
  * can hit EBUSY/EPERM/EACCES/EMFILE during that swap. Those lock errors are retried, and
- * if the file still cannot be read the answer is "worker": a wrong "worker" only costs a
- * refused theme remote operation, while a wrong "not a worker" lets a push through. A
- * missing file, a directory in its place or unparsable JSON are not lock errors: there is
- * no record that could name this terminal, so it is not a worker.
+ * if the file still cannot be read the answer is "worker" of an unknown Leader: a wrong
+ * "worker" only costs a refused theme remote operation, while a wrong "not a worker" lets a
+ * push through. A missing file, a directory in its place or unparsable JSON are not lock
+ * errors: there is no record that could name this terminal, so it is not a worker.
  */
-async function isLeaderWorker(env: Record<string, string | undefined> = process.env): Promise<boolean> {
+async function lookupLeaderWorker(env: Record<string, string | undefined> = process.env): Promise<WorkerLookup> {
   const terminalId = env.ANTIFAN_TERMINAL_SESSION_ID?.trim();
-  if (!terminalId) return false;
+  if (!terminalId) return { worker: false };
   const dataRoot = env.ANTIFAN_DATA_ROOT?.trim();
   const configDir = env.ANTIFAN_CONFIG_DIR?.trim() || (dataRoot ? path.join(dataRoot, "config") : "");
-  if (!configDir) return false;
+  if (!configDir) return { worker: false };
   const registryPath = path.join(configDir, LEADER_REGISTRY_FILE);
   for (let attempt = 0; ; attempt += 1) {
     try {
       const file = JSON.parse(fs.readFileSync(registryPath, "utf8")) as {
         workers?: Record<string, { leaderId?: unknown } | undefined>;
       };
-      const record = file?.workers?.[terminalId];
-      return typeof record?.leaderId === "string" && record.leaderId.length > 0;
+      const leaderId = file?.workers?.[terminalId]?.leaderId;
+      return typeof leaderId === "string" && leaderId.length > 0 ? { worker: true, leaderId } : { worker: false };
     } catch (err) {
       const code = (err as NodeJS.ErrnoException | undefined)?.code;
-      if (typeof code !== "string" || TRANSIENT_READ_CODES[code] !== true) return false;
-      if (attempt >= REGISTRY_READ_RETRIES) return true;
+      if (typeof code !== "string" || TRANSIENT_READ_CODES[code] !== true) return { worker: false };
+      if (attempt >= REGISTRY_READ_RETRIES) return { worker: true, leaderId: null };
       const { promise, resolve } = Promise.withResolvers<void>();
       setTimeout(resolve, REGISTRY_RETRY_DELAY_MS);
       await promise;
     }
   }
+}
+
+/** True when the terminal this OMP runs in is a Leader's worker; see `lookupLeaderWorker`. */
+async function isLeaderWorker(env: Record<string, string | undefined> = process.env): Promise<boolean> {
+  return (await lookupLeaderWorker(env)).worker;
 }
 
 /** Longest command text an audit row keeps in its `path` column. */
@@ -344,16 +362,22 @@ const AUDIT_COMMAND_MAX = 200;
  * The refusal for a worker's shell call that would change a theme on the shop, or
  * null when the call may run. Calls that name no theme CLI pass untouched, without
  * touching the registry; so do non-worker sessions, without a probe. A worker may
- * only sync its own bound draft theme, as one plain command (see `theme-draft-probe.ts`).
+ * only sync its own bound theme id, as one plain command (see `theme-draft-probe.ts`).
  */
 async function gateThemeCommand(session: GuardSession, input: Record<string, unknown>): Promise<string | null> {
   const text = typeof input.command === "string" ? input.command : "";
-  if (!mentionsThemeCli(text) || !(await isLeaderWorker())) return null;
+  if (!mentionsThemeCli(text)) return null;
+  const lookup = await lookupLeaderWorker();
+  if (!lookup.worker) return null;
   const cwd =
     typeof input.cwd === "string" && input.cwd.trim().length > 0
       ? path.resolve(session.shape.cwd, input.cwd.trim())
       : session.shape.cwd;
-  const outcome = await gateThemeLine({ text, cwd, timeoutMs: THEME_INFO_TIMEOUT_MS });
+  const terminalId = process.env.ANTIFAN_TERMINAL_SESSION_ID?.trim();
+  const dataRoot = process.env.ANTIFAN_DATA_ROOT?.trim();
+  const approval =
+    terminalId && dataRoot ? { dir: approvalsDirOf(dataRoot), worker: terminalId, leader: lookup.leaderId, via: "hook:bash" } : undefined;
+  const outcome = await gateThemeLine({ text, cwd, timeoutMs: THEME_INFO_TIMEOUT_MS, ...(approval ? { approval } : {}) });
   if (outcome.decision === "pass") return null;
   if (outcome.decision === "block") {
     appendRows(session, [rowFor(session, "bash", outcome.command.slice(0, AUDIT_COMMAND_MAX), "block", outcome.code)]);
@@ -362,7 +386,38 @@ async function gateThemeCommand(session: GuardSession, input: Record<string, unk
   // The path stays empty on purpose: the Manager counts every allow row with a path as a
   // changed file, and a verified sync is not one.
   appendRows(session, outcome.verified.map(() => rowFor(session, "bash", "", "allow", THEME_DRAFT_VERIFIED)));
+  appendRows(
+    session,
+    (outcome.approved ?? []).map((use) => ({
+      ...rowFor(session, "bash", "", "allow", THEME_PUSH_LIVE_APPROVED),
+      detail: `${use.id} leader=${use.leader} ${use.command}`.slice(0, AUDIT_COMMAND_MAX),
+    })),
+  );
   return null;
+}
+
+/**
+ * The refusal for a worker's call that would create, change or delete a live-push approval, or
+ * null. Only the Leader records one (`theme-push-approval.ts`); this refuses the plain ways a
+ * worker could give itself one: a shell line or eval cell that names the approvals folder or
+ * runs `leader-job approve-push`, and a write tool aimed into that folder. It is a rail, not a
+ * seal: a worker with a shell can still build the file by hand.
+ */
+async function gateApprovalTampering(
+  session: GuardSession,
+  tool: string,
+  input: Record<string, unknown>,
+  targets: string[],
+): Promise<string | null> {
+  const text = tool === "bash" ? input.command : tool === "eval" ? input.code : undefined;
+  const named =
+    typeof text === "string"
+      ? namesApprovalStore(text)
+      : WRITE_TOOLS[tool] === true && targets.some((target) => namesApprovalStore(target));
+  if (!named || !(await isLeaderWorker())) return null;
+  const shown = typeof text === "string" ? text : (targets[0] ?? "");
+  appendRows(session, [rowFor(session, tool, shown.slice(0, AUDIT_COMMAND_MAX), "block", APPROVAL_SELF_CODE)]);
+  return APPROVAL_SELF_REASON;
 }
 
 /**
@@ -538,6 +593,12 @@ export default function editGuardHook(pi: GuardPi): void {
         // into a guard error (or into a pass-through).
         warnSafely(pi, plan.reason);
         return { block: true, reason: plan.reason };
+      }
+
+      const tampering = await gateApprovalTampering(session, normalizedTool, input, targets);
+      if (tampering !== null) {
+        warnSafely(pi, tampering);
+        return { block: true, reason: tampering };
       }
 
       if (normalizedTool === "bash") {

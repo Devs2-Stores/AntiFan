@@ -7,6 +7,7 @@
 // registry and the real ~/.omp are never touched.
 
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -15,6 +16,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const SRC = path.join(REPO, "src", "omp-hooks");
+const CLI = path.join(REPO, "scripts", "leader", "leader-job.mjs");
 
 // The hook imports its siblings by extensionless relative specifier, which Node's ESM
 // resolver rejects: copy the unit into a temp tree as .mts with the specifiers rewritten.
@@ -26,11 +28,11 @@ for (const name of UNIT) {
   fs.writeFileSync(path.join(TEMP, `${name}.mts`), source);
 }
 const guard = await import(pathToFileURL(path.join(TEMP, "leader-guard.mts")).href);
-const { default: leaderGuardHook, findOpenJobs, canonicalTool, investigationLabel, LEADER_READ_ALLOW_ROOTS } = guard;
+const { default: leaderGuardHook, findOpenJobs, findLeakedWorkers, canonicalTool, investigationLabel, LEADER_READ_ALLOW_ROOTS } = guard;
 
 const LEADER = "terminal-7";
 const OTHER_LEADER = "terminal-9";
-const ENV_KEYS = ["ANTIFAN_TERMINAL_SESSION_ID", "ANTIFAN_CONFIG_DIR", "ANTIFAN_DATA_ROOT", "LEADER_JOBS_ROOT"];
+const ENV_KEYS = ["ANTIFAN_TERMINAL_SESSION_ID", "ANTIFAN_CONFIG_DIR", "ANTIFAN_DATA_ROOT", "LEADER_JOBS_ROOT", "LEADER_RUNS_DIR"];
 const ENV_AT_LOAD = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]));
 const made = [];
 
@@ -49,6 +51,7 @@ function tempDir(prefix) {
 }
 
 let jobsRoot;
+let runsDir;
 let configDir;
 let themeRoot;
 let plainDir;
@@ -58,12 +61,14 @@ function arm({ terminal = LEADER, leaders = [LEADER] } = {}) {
   process.env.ANTIFAN_TERMINAL_SESSION_ID = terminal;
   process.env.ANTIFAN_CONFIG_DIR = configDir;
   process.env.LEADER_JOBS_ROOT = jobsRoot;
+  process.env.LEADER_RUNS_DIR = runsDir;
   fs.writeFileSync(path.join(configDir, "leader-terminals.json"), JSON.stringify({ schema: 1, leaders, workers: {} }));
 }
 
 beforeEach(() => {
   for (const key of ENV_KEYS) delete process.env[key];
   jobsRoot = tempDir("leader-jobs-");
+  runsDir = tempDir("leader-runs-");
   configDir = tempDir("leader-config-");
   themeRoot = tempDir("leader-theme-");
   for (const dir of ["layout", "templates", "sections", "snippets", "assets", "config"]) {
@@ -102,15 +107,30 @@ function makeHook({ hasUI = true } = {}) {
   };
 }
 
-function writeJob(name, { terminal = LEADER, state = "dispatched", rounds = [{ n: 1 }] } = {}) {
+function writeJob(name, { terminal = LEADER, state = "dispatched", rounds = [{ n: 1 }], ...extra } = {}) {
   const dir = path.join(jobsRoot, name);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(
     path.join(dir, "job.json"),
-    JSON.stringify({ schema: "leader-job/1", job: name, leader: { terminal, ompSessionId: "s" }, state, rounds }),
+    JSON.stringify({
+      schema: "leader-job/1",
+      job: name,
+      leader: { terminal, ompSessionId: "s" },
+      subject: { kind: "feedback", issueId: "1", host: "Taiz", shop: "shop.example", sheetId: "S" },
+      state,
+      rounds,
+      ...extra,
+    }),
   );
   return dir.replace(/\\/g, "/");
 }
+
+/** One round per terminal, in order: the last one is the worker the job still talks to. */
+const workerRounds = (...terminals) => terminals.map((worker, index) => ({ n: index + 1, worker: { terminal: worker } }));
+
+/** The Manager keeps a run file for every open terminal and removes it when the terminal closes. */
+const openTerminal = (terminal, state = "idle") =>
+  fs.writeFileSync(path.join(runsDir, `${terminal}.json`), JSON.stringify({ schema: 1, terminalSessionId: terminal, state, runSeq: 1 }));
 
 function assertRefused(result, code) {
   assert.ok(result, `expected a refusal ${code}, got ${JSON.stringify(result)}`);
@@ -196,6 +216,96 @@ test("a corrupt job file does not hide another open job of the same Leader", asy
   assert.equal(result.decision, "block");
   assert.ok(result.reason.includes(live));
   assert.deepEqual(findOpenJobs(LEADER, process.env).map((job) => job.state), ["dispatched"]);
+});
+
+test("stop is blocked while a worker terminal of a closed job is still open, naming the terminal and the close call", async () => {
+  writeJob("job-closed", { state: "closed", rounds: workerRounds("terminal-85") });
+  openTerminal("terminal-85");
+  const result = await makeHook().stop();
+  assert.equal(result.decision, "block");
+  assert.match(result.reason, /terminal-85: its job is closed, OMP idle/);
+  assert.match(result.reason, /terminal\.close \{sessionId, removeMintedProject:true\}/);
+  assert.deepEqual(findLeakedWorkers(LEADER, process.env).map((worker) => worker.terminal), ["terminal-85"]);
+});
+
+test("stop is blocked for a worker a later round replaced, never for the worker the job still talks to", async () => {
+  writeJob("job-replaced", { state: "needs_input", rounds: workerRounds("terminal-82", "terminal-103") });
+  openTerminal("terminal-82");
+  openTerminal("terminal-103");
+  const result = await makeHook().stop();
+  assert.equal(result.decision, "block");
+  assert.match(result.reason, /terminal-82: a later round replaced it/);
+  assert.ok(!result.reason.includes("terminal-103"), "the current worker is still needed");
+});
+
+test("a replaced worker that is still running is told to settle first", async () => {
+  writeJob("job-replaced", { state: "needs_input", rounds: workerRounds("terminal-82", "terminal-103") });
+  openTerminal("terminal-82", "running");
+  const result = await makeHook().stop();
+  assert.equal(result.decision, "block");
+  assert.match(result.reason, /terminal-82: .*still running: wait for it to settle first/);
+});
+
+test("stop is allowed once the replaced worker's terminal is closed, and only the current one is open", async () => {
+  writeJob("job-replaced", { state: "needs_input", rounds: workerRounds("terminal-82", "terminal-103") });
+  openTerminal("terminal-103");
+  assert.equal(await makeHook().stop(), undefined);
+});
+
+test("a terminal another unfinished job of the same Leader still uses is not a leak", async () => {
+  writeJob("job-a", { state: "needs_input", rounds: workerRounds("terminal-82", "terminal-103") });
+  writeJob("job-b", { state: "needs_input", rounds: workerRounds("terminal-82") });
+  openTerminal("terminal-82");
+  openTerminal("terminal-103");
+  assert.equal(await makeHook().stop(), undefined);
+});
+
+test("a worker kept on purpose (workersKept) and another Leader's workers are not this Leader's leak", async () => {
+  writeJob("job-kept", { state: "closed", workersKept: true, rounds: workerRounds("terminal-85") });
+  writeJob("job-other", { terminal: OTHER_LEADER, state: "closed", rounds: workerRounds("terminal-86") });
+  openTerminal("terminal-85");
+  openTerminal("terminal-86");
+  assert.equal(await makeHook().stop(), undefined);
+});
+
+test("an open job and a leaked worker are reported together in one block", async () => {
+  const live = writeJob("job-live", { state: "dispatched", rounds: workerRounds("terminal-90") });
+  writeJob("job-closed", { state: "closed", rounds: workerRounds("terminal-85") });
+  openTerminal("terminal-85");
+  const result = await makeHook().stop();
+  assert.equal(result.decision, "block");
+  assert.ok(result.reason.includes(`leader-job.mjs wait --job ${live}`));
+  assert.match(result.reason, /terminal-85: its job is closed/);
+});
+
+test("a missing run file directory is no leak: the stop guard fails open", async () => {
+  writeJob("job-closed", { state: "closed", rounds: workerRounds("terminal-85") });
+  process.env.LEADER_RUNS_DIR = path.join(runsDir, "absent");
+  assert.equal(await makeHook().stop(), undefined);
+});
+
+test("the hook and `leader-job.mjs status` name the same leaked workers", () => {
+  writeJob("job-closed", { state: "closed", rounds: workerRounds("terminal-85", "terminal-86") });
+  writeJob("job-closed-gone", { state: "closed", rounds: workerRounds("terminal-87") });
+  writeJob("job-replaced", { state: "needs_input", rounds: workerRounds("terminal-82", "terminal-103") });
+  writeJob("job-shared-a", { state: "verified", rounds: workerRounds("terminal-60", "terminal-61") });
+  writeJob("job-shared-b", { state: "needs_input", rounds: workerRounds("terminal-60") });
+  writeJob("job-kept", { state: "closed", workersKept: true, rounds: workerRounds("terminal-95") });
+  writeJob("job-other", { terminal: OTHER_LEADER, state: "closed", rounds: workerRounds("terminal-96") });
+  for (const terminal of ["terminal-85", "terminal-86", "terminal-82", "terminal-103", "terminal-60", "terminal-61", "terminal-95", "terminal-96"]) {
+    openTerminal(terminal);
+  }
+  const hook = findLeakedWorkers(LEADER, process.env).map((worker) => worker.terminal).sort();
+  const run = spawnSync(process.execPath, [CLI, "status", "--leader", LEADER, "--all"], { encoding: "utf8", env: { ...process.env } });
+  assert.equal(run.status, 0, run.stderr);
+  const cli = run.stdout
+    .split("\n")
+    .filter((line) => line.startsWith("{"))
+    .map((line) => JSON.parse(line))
+    .filter((row) => row.job)
+    .flatMap((row) => row.leakedWorkers);
+  assert.deepEqual([...new Set(cli)].sort(), hook);
+  assert.deepEqual(hook, ["terminal-82", "terminal-85", "terminal-86"]);
 });
 
 // ---------------------------------------------------------------------------
@@ -315,60 +425,39 @@ test("the sheet write tool is refused through the native name, write xd:// and e
   );
 });
 
-test("page-mutating AntiFan tools are refused on every route", async () => {
+// The user (03/11/2026) lets a Leader operate a page itself: clicks, typing, uploads and in-page
+// scripts that write all pass, on the native name, write xd://, eval and Playwright alike. Theme
+// files, the theme CLI and the sheet writers stay refused (tests above).
+test("a Leader may operate a page: page tools pass on every route", async () => {
   const hook = makeHook();
   for (const name of ["anti_agent_cursor_click", "anti_agent_cursor_type", "anti_agent_sequence", "anti_agent_file_upload", "anti_agent_drop", "anti_agent_drag", "anti_agent_set_control"]) {
-    assertRefused(await hook.call(`mcp__antifan_browser_${name}`, { selector: "#x" }), "REFUSED_LEADER_PAGE_ACTION");
+    assert.equal(await hook.call(`mcp__antifan_browser_${name}`, { selector: "#x" }), undefined, name);
   }
-  assertRefused(
-    await hook.call("write", { path: "xd://mcp__antifan_browser_anti_agent_cursor_click", content: '{"selector":"#save"}' }),
-    "REFUSED_LEADER_PAGE_ACTION",
-  );
-  assertRefused(
-    await hook.call("eval", { code: "await tool.mcp__antifan_browser_anti_agent_sequence({steps: []})" }),
-    "REFUSED_LEADER_PAGE_ACTION",
-  );
-  assertRefused(await hook.call("mcp__playwright_browser_click", { ref: "e1" }), "REFUSED_LEADER_PAGE_ACTION");
+  assert.equal(await hook.call("write", { path: "xd://mcp__antifan_browser_anti_agent_cursor_click", content: '{"selector":"#save"}' }), undefined);
+  assert.equal(await hook.call("eval", { code: "await tool.mcp__antifan_browser_anti_agent_sequence({steps: []})" }), undefined);
+  assert.equal(await hook.call("mcp__playwright_browser_click", { ref: "e1" }), undefined);
 });
 
-test("an evaluate script with a write is refused through the native name, write xd:// and eval", async () => {
-  const hook = makeHook();
-  const write = "quickUpdate(288, 'Done')";
-  assertRefused(await hook.call("mcp__antifan_browser_anti_browser_evaluate", { expression: write }), "REFUSED_LEADER_PAGE_WRITE_SCRIPT");
-  assertRefused(
-    await hook.call("write", { path: "xd://mcp__antifan_browser_anti_browser_evaluate", content: JSON.stringify({ expression: write }) }),
-    "REFUSED_LEADER_PAGE_WRITE_SCRIPT",
-  );
-  assertRefused(
-    await hook.call("eval", { code: `await tool.mcp__antifan_browser_anti_browser_evaluate({expression: "${write}"})` }),
-    "REFUSED_LEADER_PAGE_WRITE_SCRIPT",
-  );
-});
-
-test("every write pattern is refused in an evaluate expression", async () => {
+test("a Leader may run an in-page script that writes, inline or from a file, on every route", async () => {
   const hook = makeHook();
   for (const expression of [
+    "quickUpdate(288, 'Done')",
     "addNewComment(12, 'ok')",
     "fetch('/cart/add.js', {body: 'id=1'})",
-    "fetch('/cart/update.js')",
-    "fetch('/cart/clear.js')",
     "fetch(u, { method: 'POST' })",
-    'fetch(u, {method:"delete"})',
     "x.open('PUT', u)",
   ]) {
-    assertRefused(await hook.call("mcp__antifan_browser_anti_browser_evaluate", { expression }), "REFUSED_LEADER_PAGE_WRITE_SCRIPT");
+    assert.equal(await hook.call("mcp__antifan_browser_anti_browser_evaluate", { expression }), undefined, expression);
   }
-});
-
-test("an evaluate expressionFile is scanned; an unreadable one is refused", async () => {
-  const hook = makeHook();
-  const bad = path.join(plainDir, "bad.js");
-  fs.writeFileSync(bad, "const r = await fetch('/x', { method: 'PATCH' }); r.ok");
-  const good = path.join(plainDir, "good.js");
-  fs.writeFileSync(good, "originalFeedback.filter((f) => f.id === '288').length");
-  assertRefused(await hook.call("mcp__antifan_browser_anti_browser_evaluate", { expressionFile: "bad.js" }), "REFUSED_LEADER_PAGE_WRITE_SCRIPT");
-  assert.equal(await hook.call("mcp__antifan_browser_anti_browser_evaluate", { expressionFile: "good.js" }), undefined);
-  assertRefused(await hook.call("mcp__antifan_browser_anti_browser_evaluate", { expressionFile: "missing.js" }), "REFUSED_LEADER_UNREADABLE");
+  const write = "quickUpdate(288, 'Done')";
+  assert.equal(
+    await hook.call("write", { path: "xd://mcp__antifan_browser_anti_browser_evaluate", content: JSON.stringify({ expression: write }) }),
+    undefined,
+  );
+  assert.equal(await hook.call("eval", { code: `await tool.mcp__antifan_browser_anti_browser_evaluate({expression: "${write}"})` }), undefined);
+  const file = path.join(plainDir, "write.js");
+  fs.writeFileSync(file, "const r = await fetch('/x', { method: 'PATCH' }); r.ok");
+  assert.equal(await hook.call("mcp__antifan_browser_anti_browser_evaluate", { expressionFile: "write.js" }), undefined);
 });
 
 test("read-only evaluate and screenshots pass on every route", async () => {

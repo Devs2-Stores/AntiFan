@@ -1328,6 +1328,57 @@ test("suspension: stale/dead bridge record => one suspension notice and no secon
   }
 });
 
+test("liveness: only ESRCH marks the recorded pid dead; other kill errors defer to freshness", () => {
+  const scratchDataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "antifan-data-"));
+  const configDir = path.join(scratchDataRoot, "config");
+  fs.mkdirSync(configDir, { recursive: true });
+  scratchDirs.push(scratchDataRoot);
+
+  const prevDataRoot = process.env.ANTIFAN_DATA_ROOT;
+  const prevConfigDir = process.env.ANTIFAN_CONFIG_DIR;
+  const realKill = process.kill;
+  const probePid = 424242;
+  process.env.ANTIFAN_DATA_ROOT = scratchDataRoot;
+  process.env.ANTIFAN_CONFIG_DIR = configDir;
+  fs.writeFileSync(
+    path.join(configDir, "bridge.json"),
+    JSON.stringify({ pid: probePid, health: "listening", updatedAt: Date.now(), heartbeatMs: 5000 }),
+    "utf8"
+  );
+
+  try {
+    let killCode = "EINVAL";
+    process.kill = (pid, signal) => {
+      if (pid !== probePid) return realKill.call(process, pid, signal);
+      throw Object.assign(new Error("kill failed"), { code: killCode });
+    };
+
+    const { handlers, entries } = loadHook();
+    const ctx = { cwd: makeWorkspace() };
+    writeCall(handlers, ctx, "sections/header.liquid");
+
+    const other = handlers.get("context")({ messages: [] }, ctx);
+    assert.ok(
+      !other || !other.messages.some((m) => m.details?.kind === "bridge-suspended"),
+      "a non-ESRCH kill error does not mark a live-looking record down"
+    );
+    assert.equal(entries.filter((e) => e.customType === "antifan-bridge-suspension").length, 0, "no suspension entry for a non-ESRCH kill error");
+
+    killCode = "ESRCH";
+    const dead = handlers.get("context")({ messages: [] }, ctx);
+    assert.ok(
+      dead && dead.messages.some((m) => m.details?.kind === "bridge-suspended" && m.details?.code === "HEALTH_PID_DEAD"),
+      "ESRCH marks the recorded pid dead"
+    );
+  } finally {
+    process.kill = realKill;
+    if (prevDataRoot !== undefined) process.env.ANTIFAN_DATA_ROOT = prevDataRoot;
+    else delete process.env.ANTIFAN_DATA_ROOT;
+    if (prevConfigDir !== undefined) process.env.ANTIFAN_CONFIG_DIR = prevConfigDir;
+    else delete process.env.ANTIFAN_CONFIG_DIR;
+  }
+});
+
 test("suspension: observed-marker lane suspends while record reads listening and with no record", () => {
   const scratchDataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "antifan-data-"));
   const configDir = path.join(scratchDataRoot, "config");

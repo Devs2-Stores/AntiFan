@@ -11,19 +11,21 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseCsv } from "./csv.mjs";
 import { normKey, outstandingDevRows, parseSheet, verifySheet } from "./sheet-diff.mjs";
 import { claimedCells, validateReportText } from "./report.mjs";
-import { defaultSessionsDir, judgeLiveness, pidAlive, sessionActivityAt, START_GRACE_MS } from "./worker-liveness.mjs";
+import { defaultSessionsDir, judgeLiveness, pidAlive, sessionActivityAt, START_GRACE_MS, UNDELIVERED_AFTER_MS, undeliveredWhy } from "./worker-liveness.mjs";
+import { FALLBACK_TICK_MS, nextRunChange } from "./event-wait.mjs";
+import { pendingAskOf } from "./ask-dialog.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_JOBS_ROOT = "E:/Work/scratch/leader";
 const DEFAULT_DATA_ROOT = "E:/Work/.antifan-data";
 const JOB_SCHEMA = "leader-job/1";
 const HOST = "Taiz";
-const BOOL_FLAGS = new Set(["help", "allow-busy", "allow-low-memory", "force", "all", "allow-outstanding", "without-done", "no-sheet"]);
+const BOOL_FLAGS = new Set(["help", "allow-busy", "allow-low-memory", "force", "all", "allow-outstanding", "without-done", "no-sheet", "keep-workers"]);
 const VERIFY_KINDS = ["sheet", "dashboard", "storefront"];
 const VERIFY_STATUSES = ["PASS", "WARN", "FAIL", "UNREADABLE"];
 const PROBES = { themeId: "themeId.js", overflow: "overflow.js", "element-rect": "element-rect.js", "dashboard-issue": "dashboard-issue.js" };
 
-export const EXIT = { OK: 0, CHECK_FAILED: 1, USAGE: 2, TIMEOUT: 3, REFUSED: 4, NEEDS_INPUT: 5, WORKER_DEAD: 6 };
+export const EXIT = { OK: 0, CHECK_FAILED: 1, USAGE: 2, TIMEOUT: 3, REFUSED: 4, NEEDS_INPUT: 5, WORKER_DEAD: 6, UNDELIVERED: 7 };
 
 const HELP = `leader-job.mjs - Leader job ledger (feedback jobs for host ${HOST})
 
@@ -39,14 +41,18 @@ Commands
        (never PASS) and the sheet is not a required verification.
   dispatch --job DIR --worker TERMINAL [--prompt FILE] [--kind work|followup|close]
        [--mode auto|fresh|followup] [--allow-busy] [--allow-low-memory]
-       Stamp dispatchedAt/preRunSeq, append a round, state=dispatched, print {input} for terminal.write.
+       Stamp dispatchedAt/preRunSeq, append a round, state=dispatched, print {input} for terminal.write. closeNow lists
+       worker terminals of earlier rounds that are still open (a replaced worker): terminal.close each right away.
        A fresh round (a new omp.exe) is refused (exit 4) while AntiFan reports Windows commit headroom under its
        floor; --allow-low-memory overrides that only on the user's say-so.
-  wait --job DIR [--timeout-min N] [--poll-ms 5000] [--stale-min 90] [--sessions-dir DIR]
+  wait --job DIR [--timeout-min N] [--poll-ms 2000] [--stale-min 90] [--undelivered-sec 90] [--sessions-dir DIR]
        Poll worker run files until every round is settled (state=settled), a worker waits for the user, or a
-       worker is dead: run file gone (not counted in the first 3 minutes), OMP pid gone, or neither a run-file
-       event nor a write to its OMP session transcript (OMP_SESSIONS_DIR, default ~/.omp/agent/sessions) for
-       --stale-min minutes. A dead round is marked, state=worker_dead; dispatch a new round to a fresh worker.
+       worker is dead: run file gone (not counted in the first 3 minutes), OMP pid gone, OMP session ended before
+       it took the input, an idle run that stopped heartbeating, or neither a run-file event nor a write to its OMP
+       session transcript (OMP_SESSIONS_DIR, default ~/.omp/agent/sessions) for --stale-min minutes. A dead round
+       is marked, state=worker_dead; dispatch a new round to a fresh worker. A worker whose OMP is alive and idle but
+       started no run within --undelivered-sec seconds of the dispatch never took the prompt: event worker-undelivered,
+       exit 7, round marked like a dead one (state=worker_dead, deadWhy starts "undelivered:"); recycle the worker.
   validate-report --job DIR [--round N]
        Check the round's report file; state=reported (needs_input for a NEEDS_INPUT report).
   verify-sheet --job DIR [--round N] [--current-file CSV]
@@ -55,14 +61,22 @@ Commands
        Store the Leader's own measurement; state=verified once all required kinds pass.
   probe --name themeId|overflow|element-rect|dashboard-issue [--selector CSS] [--id ID] [--limit N]
        Print the read-only expression to pass to anti.browser.evaluate.
-  status [--leader TERMINAL] [--job DIR] [--all]    List open jobs and what blocks each.
+  status [--leader TERMINAL] [--job DIR] [--all]    List open jobs and what blocks each. liveWorkers = worker terminals still
+       open (run file present), leakedWorkers = those nobody needs (every one once the job is closed, else a replaced
+       worker). A closed job that still has a live worker is listed too: close those terminals.
   approve --job DIR [--allow-outstanding] [--force]  User said yes: state=user-approved.
-  close --job DIR [--without-done] [--force]         state=closed (needs approval and a verified close round).
+  close --job DIR [--without-done] [--force] [--keep-workers]  state=closed (needs approval and a verified close round).
+       Refused (exit 4) while any worker terminal of the job is still open: terminal.close each first, then close.
+       --keep-workers leaves them open on purpose; job.json then records workersKept, so status and the stop hook stop flagging them.
   approve-push --worker TERMINAL --theme ID --cwd DIR --files "a b c" --quote "<the user's words>" [--ttl-min N] [--job DIR]
-       The user said yes to a push to the shop's LIVE theme: record a one-use approval (30 minutes at most) that
-       lets that worker's next, identical 'hrv theme push --only <files> --nodelete' through the gate. Only the
+  approve-push --worker TERMINAL --theme ID --cwd DIR --files "a b c" --quote-file FILE [--ttl-min N] [--job DIR]
+       Legacy: records a one-use approval (30 minutes at most) for a push to a LIVE theme. Since 2026-11-03 no push needs
+       one (a worker pushes to its bound theme id, live or copy, once 'hrv theme info -j' reports that id), so a record is
+       never spent. Only the
        Leader that drives the worker can record one. --cwd is the theme folder, --theme the id it is bound to,
        every file must exist there; --job ties the approval to a job of this Leader for the audit.
+       --quote-file reads the same words from a file: use it when the words themselves name the theme CLI, because
+       the Leader's own bash line may not carry them. One line, 1-500 characters, stored exactly as written.
 
 Environment: LEADER_JOBS_ROOT (default ${DEFAULT_JOBS_ROOT}), LEADER_RUNS_DIR or ANTIFAN_DATA_ROOT
 (run files <dir>/<terminal>.json, default ${DEFAULT_DATA_ROOT}/runtime/runs), ANTIFAN_TERMINAL_SESSION_ID
@@ -74,7 +88,7 @@ the registry <ANTIFAN_CONFIG_DIR | ANTIFAN_DATA_ROOT/config>/leader-terminals.js
 Output: one JSON object per line on stdout; human-readable errors on stderr.
 Exit codes: 0 ok | 1 check failed (invalid report, sheet FAIL/UNREADABLE) | 2 usage or I/O error
             3 wait timed out | 4 refused by policy (busy worker, unfilled prompt, no approval...)
-            5 worker is waiting for the user (wait) | 6 a worker is dead (wait)
+            5 worker is waiting for the user (wait) | 6 a worker is dead (wait) | 7 a worker never took the prompt (wait)
 `;
 
 class CliError extends Error {
@@ -150,7 +164,6 @@ function readCommitPressure(file, now = Date.now()) {
 }
 
 const gb = (bytes) => `${(bytes / 1024 ** 3).toFixed(1)} GB`;
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function emit(obj) {
   process.stdout.write(`${JSON.stringify(obj)}\n`);
@@ -190,6 +203,64 @@ function readRun(runsDir, terminal) {
     return { unreadable: true };
   }
 }
+
+/** Every job of one Leader as it is on disk. A job file that cannot be read is skipped. */
+function readLeaderJobs(leader) {
+  const jobs = [];
+  if (!leader) return jobs;
+  const root = jobsRoot();
+  let names = [];
+  try {
+    names = fs.readdirSync(root);
+  } catch {}
+  for (const name of names) {
+    const dir = path.join(root, name);
+    try {
+      const job = JSON.parse(fs.readFileSync(path.join(dir, "job.json"), "utf8"));
+      if (job.schema === JOB_SCHEMA && job.leader?.terminal === leader) jobs.push({ dir, job });
+    } catch {}
+  }
+  return jobs;
+}
+
+/** The terminal of a job's latest round: the one worker the job still talks to. */
+const currentWorkerOf = (job) => job.rounds.at(-1)?.worker?.terminal ?? null;
+
+/** Terminals that another unfinished job of the same Leader still uses as its current worker: in use, never a leak. */
+function inUseElsewhere(peers, selfJob) {
+  const used = new Set();
+  for (const { job } of peers) {
+    if (job.job === selfJob.job || job.state === "closed") continue;
+    const terminal = currentWorkerOf(job);
+    if (terminal) used.add(terminal);
+  }
+  return used;
+}
+
+/**
+ * The worker terminals of a job that are still open: a run file exists for them (the Manager removes it
+ * when the terminal closes). `current` marks the terminal of the latest round. The same rule is mirrored
+ * by `findLeakedWorkers` in src/omp-hooks/leader-guard.ts; test/unit/leader-guard.test.mjs runs both.
+ */
+function liveWorkers(job, runsDir, inUse = new Set()) {
+  const lastTerminal = currentWorkerOf(job);
+  const roundsOf = new Map();
+  for (const r of job.rounds) {
+    const terminal = r.worker?.terminal;
+    if (typeof terminal === "string" && /^[A-Za-z0-9._-]+$/.test(terminal) && !inUse.has(terminal)) {
+      roundsOf.set(terminal, [...(roundsOf.get(terminal) ?? []), r.n]);
+    }
+  }
+  const live = [];
+  for (const [terminal, rounds] of roundsOf) {
+    const run = readRun(runsDir, terminal);
+    if (run) live.push({ terminal, rounds, runState: run.unreadable ? "unreadable" : (run.state ?? null), current: terminal === lastTerminal });
+  }
+  return live;
+}
+
+/** Live workers nobody needs any more: every one once the job is closed (unless kept on purpose), else those a later round replaced. */
+const leakedWorkers = (job, live) => (job.workersKept === true ? [] : job.state === "closed" ? live : live.filter((w) => !w.current));
 
 function resolveJobDir(arg) {
   const dir = path.isAbsolute(arg) ? arg : path.join(jobsRoot(), arg);
@@ -482,10 +553,33 @@ async function cmdDispatch(flags) {
     report: null,
     verification: {},
   };
+  const replaced = liveWorkers(job, runsDir, inUseElsewhere(readLeaderJobs(job.leader?.terminal), job)).filter((w) => w.terminal !== worker);
   job.rounds.push(round);
   job.state = "dispatched";
   saveJob(dir, job);
-  emit({ cmd: "dispatch", ok: true, job: job.job, round: n, kind, mode, worker, state: job.state, input, promptPath, reportPath, dispatchedAt: round.dispatchedAt, preRunSeq: round.preRunSeq, ...(commit ? { commitHeadroomBytes: commit.headroomBytes, commitFloorBytes: commit.floorBytes } : {}) });
+  emit({
+    cmd: "dispatch",
+    ok: true,
+    job: job.job,
+    round: n,
+    kind,
+    mode,
+    worker,
+    state: job.state,
+    input,
+    promptPath,
+    reportPath,
+    dispatchedAt: round.dispatchedAt,
+    preRunSeq: round.preRunSeq,
+    ...(commit ? { commitHeadroomBytes: commit.headroomBytes, commitFloorBytes: commit.floorBytes } : {}),
+    ...(replaced.length
+      ? {
+          closeNow: replaced.filter((w) => w.runState !== "running").map((w) => w.terminal),
+          replacedStillRunning: replaced.filter((w) => w.runState === "running").map((w) => w.terminal),
+          note: "earlier workers of this job are still open and nobody needs them: terminal.close {sessionId, removeMintedProject:true} each one in closeNow now, a replacedStillRunning one once it settles",
+        }
+      : {}),
+  });
   return EXIT.OK;
 }
 
@@ -504,20 +598,26 @@ function settleVerdict(round, run) {
  * Decide whether a round's worker run has finished the dispatched turn. `live` is the judgeLiveness verdict
  * and only turns an unfinished turn into "dead": a round the worker finished or handed to the user stays so.
  */
-export function judgeRound(round, run, live = null) {
+export function judgeRound(round, run, live = null, now = Date.now(), undeliveredMs = UNDELIVERED_AFTER_MS) {
   const verdict = settleVerdict(round, run);
-  return verdict.kind === "pending" && live?.dead ? { kind: "dead", why: live.why } : verdict;
+  if (verdict.kind !== "pending") return verdict;
+  if (live?.dead) return { kind: "dead", why: live.why };
+  // Pending with an idle run: the dispatched turn has not started (settleVerdict already counted runSeq and events).
+  const why = run && !run.unreadable ? undeliveredWhy(run.state, false, round.dispatchedAt, now, undeliveredMs) : null;
+  return why ? { kind: "undelivered", why } : verdict;
 }
 
 async function cmdWait(flags) {
   const { dir } = loadJob(flags);
   const runsDir = runsDirOf(flags);
   const sessionsDir = one(flags, "sessions-dir") || defaultSessionsDir();
-  const pollMs = Math.max(10, Number(one(flags, "poll-ms") || 5000));
+  const pollMs = Math.max(10, Number(one(flags, "poll-ms") || FALLBACK_TICK_MS));
   const timeoutMs = one(flags, "timeout-min") !== undefined ? Number(one(flags, "timeout-min")) * 60000 : Infinity;
   if (Number.isNaN(timeoutMs)) throw new CliError(EXIT.USAGE, "--timeout-min must be a number");
   const staleMin = one(flags, "stale-min") === undefined ? 90 : Number(one(flags, "stale-min"));
   if (!(staleMin > 0)) throw new CliError(EXIT.USAGE, "--stale-min must be a number above 0");
+  const undeliveredSec = one(flags, "undelivered-sec") === undefined ? UNDELIVERED_AFTER_MS / 1000 : Number(one(flags, "undelivered-sec"));
+  if (!(undeliveredSec > 0)) throw new CliError(EXIT.USAGE, "--undelivered-sec must be a number above 0");
   const started = Date.now();
   for (;;) {
     const { job } = loadJob(flags);
@@ -525,8 +625,9 @@ async function cmdWait(flags) {
     if (!open.length) {
       const last = job.rounds.at(-1);
       if (last?.deadAt) {
-        emit({ cmd: "wait", event: "worker-dead", job: job.job, round: last.n, worker: last.worker.terminal, why: last.deadWhy ?? null, state: job.state });
-        return EXIT.WORKER_DEAD;
+        const event = last.undelivered ? "worker-undelivered" : "worker-dead";
+        emit({ cmd: "wait", event, job: job.job, round: last.n, worker: last.worker.terminal, why: last.deadWhy ?? null, state: job.state });
+        return last.undelivered ? EXIT.UNDELIVERED : EXIT.WORKER_DEAD;
       }
       emit({ cmd: "wait", event: "all-settled", job: job.job, state: job.state });
       return EXIT.OK;
@@ -539,15 +640,16 @@ async function cmdWait(flags) {
         : judgeLiveness(run, r.dispatchedAt, {
             now: Date.now(),
             staleMs: staleMin * 60000,
-            graceMs: START_GRACE_MS,
+            // A follow-up goes to an OMP that already runs: no new OMP is starting, so a dead pid is dead at once.
+            graceMs: r.mode === "followup" ? 0 : START_GRACE_MS,
             pidAlive: run ? pidAlive(run.pid) : null,
             activityAt: () => sessionActivityAt(sessionsDir, run),
           });
-      const verdict = judgeRound(r, run, live);
+      const verdict = judgeRound(r, run, live, Date.now(), undeliveredSec * 1000);
       if (verdict.kind === "waiting_user") {
         job.state = "needs_input";
         saveJob(dir, job);
-        emit({ cmd: "wait", event: "needs-input", job: job.job, round: r.n, worker: r.worker.terminal, lastTool: run?.lastTool ?? null, reason: verdict.why });
+        emit({ cmd: "wait", event: "needs-input", job: job.job, round: r.n, worker: r.worker.terminal, lastTool: run?.lastTool ?? null, reason: verdict.why, ask: pendingAskOf(sessionsDir, run) });
         return EXIT.NEEDS_INPUT;
       }
       if (verdict.kind === "dead") {
@@ -557,6 +659,15 @@ async function cmdWait(flags) {
         saveJob(dir, job);
         emit({ cmd: "wait", event: "worker-dead", job: job.job, round: r.n, worker: r.worker.terminal, why: verdict.why, runState: run?.state ?? null, lastTool: run?.lastTool ?? null, state: job.state });
         return EXIT.WORKER_DEAD;
+      }
+      if (verdict.kind === "undelivered") {
+        r.deadAt = Date.now();
+        r.deadWhy = `undelivered: ${verdict.why}`;
+        r.undelivered = true;
+        job.state = "worker_dead";
+        saveJob(dir, job);
+        emit({ cmd: "wait", event: "worker-undelivered", job: job.job, round: r.n, worker: r.worker.terminal, why: verdict.why, runState: run?.state ?? null, runSeq: run?.runSeq ?? null, state: job.state });
+        return EXIT.UNDELIVERED;
       }
       if (verdict.kind === "settled") {
         r.settledAt = Date.now();
@@ -578,7 +689,7 @@ async function cmdWait(flags) {
       emit({ cmd: "wait", event: "timeout", job: job.job, pending: open.filter((r) => !r.settledAt).map((r) => ({ round: r.n, worker: r.worker.terminal })) });
       return EXIT.TIMEOUT;
     }
-    await sleep(pollMs);
+    await nextRunChange(runsDir, { fallbackMs: pollMs, names: new Set(open.map((r) => `${r.worker.terminal}.json`)) });
   }
 }
 
@@ -775,20 +886,18 @@ function cmdStatus(flags) {
   } else {
     const leader = one(flags, "leader") || process.env.ANTIFAN_TERMINAL_SESSION_ID;
     if (!leader) throw new CliError(EXIT.USAGE, "pass --leader TERMINAL or --job DIR (ANTIFAN_TERMINAL_SESSION_ID is not set)");
-    const root = jobsRoot();
-    let names = [];
-    try {
-      names = fs.readdirSync(root);
-    } catch {}
-    for (const name of names) {
-      const dir = path.join(root, name);
-      try {
-        const job = JSON.parse(fs.readFileSync(path.join(dir, "job.json"), "utf8"));
-        if (job.schema === JOB_SCHEMA && job.leader?.terminal === leader && (one(flags, "all") || job.state !== "closed")) jobs.push({ dir, job });
-      } catch {}
-    }
+    jobs.push(...readLeaderJobs(leader));
   }
+  const runsDir = runsDirOf(flags);
+  const peers = one(flags, "job") ? readLeaderJobs(jobs[0]?.job.leader?.terminal) : jobs;
+  let listed = 0;
+  let leaked = 0;
   for (const { dir, job } of jobs) {
+    const live = liveWorkers(job, runsDir, inUseElsewhere(peers, job));
+    const leaks = leakedWorkers(job, live);
+    if (!one(flags, "job") && !one(flags, "all") && job.state === "closed" && leaks.length === 0) continue;
+    listed += 1;
+    leaked += leaks.length;
     const last = job.rounds.at(-1);
     emit({
       cmd: "status",
@@ -800,12 +909,20 @@ function cmdStatus(flags) {
       rounds: job.rounds.length,
       lastSettledAt: [...job.rounds].reverse().find((r) => r.settledAt)?.settledAt ?? null,
       lastWorker: last?.worker.terminal ?? null,
-      blocking: blockingText(job),
+      blocking: job.state === "closed" && leaks.length ? `close the leaked worker terminals: ${leaks.map((w) => w.terminal).join(", ")}` : blockingText(job),
       nextReportPath: reportPathFor(dir, job, job.rounds.length + 1),
       outstandingDevRows: latestSheet(job)?.outstandingDevRows?.length ?? null,
+      liveWorkers: live,
+      leakedWorkers: leaks.map((w) => w.terminal),
     });
   }
-  emit({ cmd: "status", ok: true, jobs: jobs.length });
+  emit({
+    cmd: "status",
+    ok: true,
+    jobs: listed,
+    leakedWorkers: leaked,
+    ...(leaked ? { note: "terminal.close {sessionId} each leaked worker: a job is not finished while its worker terminals are open" } : {}),
+  });
   return EXIT.OK;
 }
 
@@ -839,10 +956,20 @@ function cmdClose(flags) {
       throw new CliError(EXIT.REFUSED, "no verified close round (dispatch --kind close and verify the dashboard Stage), or pass --without-done");
     }
   }
+  const live = liveWorkers(job, runsDirOf(flags), inUseElsewhere(readLeaderJobs(job.leader?.terminal), job));
+  const keep = one(flags, "keep-workers") === true;
+  if (live.length && !keep) {
+    throw new CliError(
+      EXIT.REFUSED,
+      `worker terminals of this job are still open: ${live.map((w) => w.terminal).join(", ")}. terminal.close {sessionId, removeMintedProject:true} each, then run close again (--keep-workers leaves them open on purpose)`,
+      { liveWorkers: live },
+    );
+  }
+  if (live.length) job.workersKept = true;
   job.state = "closed";
   job.closedAt = Date.now();
   saveJob(dir, job);
-  emit({ cmd: "close", ok: true, job: job.job, state: job.state });
+  emit({ cmd: "close", ok: true, job: job.job, state: job.state, ...(live.length ? { leftOpen: live.map((w) => w.terminal) } : {}) });
   return EXIT.OK;
 }
 
@@ -920,6 +1047,16 @@ function pruneApprovals(dir, now) {
   }
 }
 
+/** The user's words from a file: a quote that names the theme CLI cannot ride in the Leader's own bash line. */
+function readQuoteFile(specified) {
+  const file = path.resolve(specified);
+  try {
+    return fs.readFileSync(file, "utf8");
+  } catch (e) {
+    throw new CliError(EXIT.USAGE, `--quote-file cannot be read: ${fwd(file)} (${e.code ?? e.message})`);
+  }
+}
+
 function cmdApprovePush(flags) {
   const leader = process.env.ANTIFAN_TERMINAL_SESSION_ID?.trim();
   if (!leader) throw new CliError(EXIT.USAGE, "missing the Leader terminal: run this in the Leader's own terminal (ANTIFAN_TERMINAL_SESSION_ID is not set)");
@@ -940,9 +1077,10 @@ function cmdApprovePush(flags) {
 
   const themeId = req(flags, "theme");
   if (!/^\d+$/.test(themeId)) throw new CliError(EXIT.USAGE, `--theme must be the numeric theme id, got ${JSON.stringify(themeId)}`);
-  const quote = req(flags, "quote").trim();
+  const quoteFile = one(flags, "quote-file");
+  const quote = (quoteFile === undefined ? req(flags, "quote") : readQuoteFile(quoteFile)).trim();
   if (quote.length === 0 || quote.length > APPROVAL_QUOTE_MAX || /[\x00-\x1f]/.test(quote)) {
-    throw new CliError(EXIT.USAGE, `--quote must be the user's own words on one line (1-${APPROVAL_QUOTE_MAX} characters)`);
+    throw new CliError(EXIT.USAGE, `--quote/--quote-file must be the user's own words on one line (1-${APPROVAL_QUOTE_MAX} characters)`);
   }
   const ttlRaw = one(flags, "ttl-min");
   const ttlMin = ttlRaw === undefined ? APPROVAL_MAX_TTL_MIN : Number(ttlRaw);

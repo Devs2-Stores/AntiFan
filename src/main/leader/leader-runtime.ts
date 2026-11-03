@@ -5,6 +5,7 @@ import { StorageLocations } from '../config/storage-locations';
 import { readTerminalRunSnapshot, type TerminalRunSnapshotOptions } from '../run/run-state-service';
 import type { TerminalRunSnapshot } from '../../shared/contracts';
 import { CapabilityError } from '../../shared/control-plane-contracts';
+import { APPROVAL_DIR_NAME } from '../../omp-hooks/theme-push-approval';
 
 /** Where a Leader asked a worker terminal to be minted. */
 export interface LeaderPlacementRequest {
@@ -125,6 +126,11 @@ export function isUnderLeaderScratchRoot(folder: string): boolean {
 /** `<runtime dir>/runs`, resolved on every call so an isolated data root is honoured. */
 export function leaderRunsDir(): string {
   return path.join(StorageLocations.getRuntimeDir(), 'runs');
+}
+
+/** `<runtime dir>/leader-push-approvals`: where a Leader records the user's one-use approval of a live theme push. */
+export function leaderPushApprovalsDir(): string {
+  return path.join(StorageLocations.getRuntimeDir(), APPROVAL_DIR_NAME);
 }
 
 /**
