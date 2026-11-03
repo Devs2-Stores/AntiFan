@@ -94,7 +94,7 @@ import {
   type RoutedSurface,
 } from './browser/ipc-router';
 import { BridgeServer, DEFAULT_EXTENSION_ALLOWED_DOMAINS, redactCredentials, type BridgeMintHostResolver } from './bridge/bridge-server';
-import { TerminalManager, DEFAULT_TERMINAL_CAPSULE_ID } from './browser/terminal-manager';
+import { TerminalManager, DEFAULT_TERMINAL_CAPSULE_ID, type SessionSummary } from './browser/terminal-manager';
 import { ensureDaemon } from './terminal-daemon/daemon-spawner';
 import { DaemonTerminalProxy } from './terminal-daemon/daemon-client';
 import { TerminalOutputRouter } from './browser/terminal-output-router';
@@ -149,7 +149,8 @@ import {
 } from './diagnostics/main-lifecycle-log';
 import { pruneOldCrashDumps } from './diagnostics/crash-dump-retention';
 import { intakeCrashReports } from './diagnostics/crash-report-intake';
-import { startCommitPressureWatch, formatGb, type CommitReading } from './diagnostics/commit-pressure';
+import { startCommitPressureWatch, formatGb, commitPressureStateBody, COMMIT_PRESSURE_STATE_FILE, type CommitReading } from './diagnostics/commit-pressure';
+import { rankTerminalHolders, snapshotProcessMemory, type TerminalMemoryHolder } from './diagnostics/memory-holders';
 import { IssueRegister } from './session/issue-register';
 
 // Fail-closed boot guard (`AP-DEADLINE-001`): the request deadline chain must strictly
@@ -4884,9 +4885,28 @@ function startLifecycleHeartbeat(): void {
   lifecycleHeartbeat.unref?.();
 }
 
+/** How many terminals the commit warning names: enough to pick from, short enough to read. */
+const COMMIT_ALARM_HOLDERS = 5;
+
+/**
+ * The running terminals holding the most private memory, read from the process table when the
+ * alarm fires; null when the table could not be read. Each shell's whole tree counts, so an agent
+ * terminal carries its `omp.exe` and whatever that agent started.
+ */
+async function terminalMemoryHolders(): Promise<TerminalMemoryHolder[] | null> {
+  const rows = await snapshotProcessMemory().catch(() => null);
+  if (!rows) return null;
+  const sessions = TerminalManager.getInstance().listSessions() as SessionSummary[];
+  const roots = sessions.flatMap((s) => (s.state === 'running' && typeof s.shellPid === 'number'
+    ? [{ id: s.id, name: s.name, shellPid: s.shellPid }]
+    : []));
+  return rankTerminalHolders(rows, roots, COMMIT_ALARM_HOLDERS);
+}
+
 /**
  * Warns while the user can still act when Windows is about to run out of commit: the terminal
  * daemon holding every shell is often the process an exhausted system ends (see commit-pressure.ts).
+ * The warning names the terminals worth closing, largest first.
  */
 function startCommitPressureAlarm(): void {
   const detail = (r: CommitReading) => ({
@@ -4895,23 +4915,53 @@ function startCommitPressureAlarm(): void {
     maxLimitBytes: r.maxLimitBytes,
     headroomBytes: r.headroomBytes,
   });
+  const showAlarm = async (r: CommitReading): Promise<void> => {
+    const holders = await terminalMemoryHolders();
+    recordLifecycleEvent('commitPressure.holders', {
+      readable: holders !== null,
+      holders: (holders ?? []).map((h) => ({ id: h.id, privateBytes: h.privateBytes, agents: h.agents, processes: h.processes })),
+    });
+    const list = (holders ?? []).map((h) => `• ${h.name} (${h.id}): ${formatGb(h.privateBytes)}${h.agents > 0 ? `, ${h.agents} omp.exe` : ''}`);
+    await dialog.showMessageBox({
+      type: 'warning',
+      title: 'AntiFan — Máy sắp hết bộ nhớ',
+      message: `Windows đã cấp ${formatGb(r.chargeBytes)} trên tối đa ${formatGb(r.maxLimitBytes)} bộ nhớ (RAM + pagefile).`,
+      detail: 'Khi hết hẳn, Windows sẽ tắt một tiến trình bất kỳ; nếu đó là tiến trình giữ terminal thì mọi phiên terminal mất theo. '
+        + (list.length > 0
+          ? `Terminal giữ nhiều bộ nhớ nhất (cả cây tiến trình):\n${list.join('\n')}\n\nHãy đóng bớt các phiên này, job Whisper/python hoặc tab nặng ngay bây giờ.`
+          : 'Hãy đóng bớt phiên agent, job Whisper/python hoặc tab nặng ngay bây giờ.'),
+      buttons: ['Đã hiểu'],
+    });
+  };
   startCommitPressureWatch({
     readMemory: () => process.getSystemMemoryInfo(),
     onAlarm: (r) => {
       recordLifecycleEvent('commitPressure.alarm', detail(r));
       console.warn(`[index] system commit nearly exhausted: ${formatGb(r.chargeBytes)} of ${formatGb(r.maxLimitBytes)}`);
-      void dialog.showMessageBox({
-        type: 'warning',
-        title: 'AntiFan — Máy sắp hết bộ nhớ',
-        message: `Windows đã cấp ${formatGb(r.chargeBytes)} trên tối đa ${formatGb(r.maxLimitBytes)} bộ nhớ (RAM + pagefile).`,
-        detail: 'Khi hết hẳn, Windows sẽ tắt một tiến trình bất kỳ; nếu đó là tiến trình giữ terminal thì mọi phiên terminal mất theo. '
-          + 'Hãy đóng bớt phiên agent, job Whisper/python hoặc tab nặng ngay bây giờ.',
-        buttons: ['Đã hiểu'],
-      }).catch(() => {});
+      showAlarm(r).catch(() => {});
     },
     onClear: (r) => recordLifecycleEvent('commitPressure.clear', detail(r)),
     onUnavailable: (reason) => recordLifecycleEvent('commitPressure.unavailable', { reason }),
+    onSample: publishCommitPressure,
   });
+}
+
+let commitPressureWriteInFlight = false;
+/**
+ * Leaves the latest reading where processes outside Main can read it (a Leader's dispatch refuses
+ * to start another agent session while headroom is under the floor). A write never throws into the
+ * sampler, and a sample arriving while the previous write is still going is skipped: the next one
+ * comes 10 s later.
+ */
+function publishCommitPressure(reading: CommitReading, alarmed: boolean): void {
+  if (commitPressureWriteInFlight) return;
+  commitPressureWriteInFlight = true;
+  const file = path.join(StorageLocations.getRuntimeDir(), COMMIT_PRESSURE_STATE_FILE);
+  const tmp = `${file}.tmp-${process.pid}`;
+  fs.promises.writeFile(tmp, commitPressureStateBody(reading, alarmed, Date.now()))
+    .then(() => fs.promises.rename(tmp, file))
+    .catch(() => fs.promises.unlink(tmp).catch(() => {}))
+    .finally(() => { commitPressureWriteInFlight = false; });
 }
 
 let shutdownPromise: Promise<void> | null = null;

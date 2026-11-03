@@ -18,7 +18,7 @@ const DEFAULT_JOBS_ROOT = "E:/Work/scratch/leader";
 const DEFAULT_DATA_ROOT = "E:/Work/.antifan-data";
 const JOB_SCHEMA = "leader-job/1";
 const HOST = "Taiz";
-const BOOL_FLAGS = new Set(["help", "allow-busy", "force", "all", "allow-outstanding", "without-done", "no-sheet"]);
+const BOOL_FLAGS = new Set(["help", "allow-busy", "allow-low-memory", "force", "all", "allow-outstanding", "without-done", "no-sheet"]);
 const VERIFY_KINDS = ["sheet", "dashboard", "storefront"];
 const VERIFY_STATUSES = ["PASS", "WARN", "FAIL", "UNREADABLE"];
 const PROBES = { themeId: "themeId.js", overflow: "overflow.js", "element-rect": "element-rect.js", "dashboard-issue": "dashboard-issue.js" };
@@ -38,8 +38,10 @@ Commands
        issue that has no Google Sheet: a header-only stub snapshot is written, verify-sheet reports N/A
        (never PASS) and the sheet is not a required verification.
   dispatch --job DIR --worker TERMINAL [--prompt FILE] [--kind work|followup|close]
-       [--mode auto|fresh|followup] [--allow-busy]
+       [--mode auto|fresh|followup] [--allow-busy] [--allow-low-memory]
        Stamp dispatchedAt/preRunSeq, append a round, state=dispatched, print {input} for terminal.write.
+       A fresh round (a new omp.exe) is refused (exit 4) while AntiFan reports Windows commit headroom under its
+       floor; --allow-low-memory overrides that only on the user's say-so.
   wait --job DIR [--timeout-min N] [--poll-ms 5000] [--stale-min 90] [--sessions-dir DIR]
        Poll worker run files until every round is settled (state=settled), a worker waits for the user, or a
        worker is dead: run file gone (not counted in the first 3 minutes), OMP pid gone, or neither a run-file
@@ -64,7 +66,8 @@ Commands
 
 Environment: LEADER_JOBS_ROOT (default ${DEFAULT_JOBS_ROOT}), LEADER_RUNS_DIR or ANTIFAN_DATA_ROOT
 (run files <dir>/<terminal>.json, default ${DEFAULT_DATA_ROOT}/runtime/runs), ANTIFAN_TERMINAL_SESSION_ID
-(the Leader's terminal). Flag --runs-dir overrides LEADER_RUNS_DIR. approve-push writes
+(the Leader's terminal). Flag --runs-dir overrides LEADER_RUNS_DIR. dispatch reads AntiFan's commit reading from
+commit-pressure.json next to the runs dir (default ${DEFAULT_DATA_ROOT}/runtime/commit-pressure.json). approve-push writes
 <LEADER_APPROVALS_DIR | ANTIFAN_DATA_ROOT/runtime/leader-push-approvals>/<id>.json (flag --approvals-dir) and reads
 the registry <ANTIFAN_CONFIG_DIR | ANTIFAN_DATA_ROOT/config>/leader-terminals.json.
 
@@ -124,6 +127,29 @@ const runsDirOf = (flags) =>
   one(flags, "runs-dir") ||
   process.env.LEADER_RUNS_DIR ||
   path.join(process.env.ANTIFAN_DATA_ROOT || DEFAULT_DATA_ROOT, "runtime", "runs");
+
+/** A reading older than this comes from a Main that stopped sampling: no reading at all. */
+const COMMIT_READING_MAX_AGE_MS = 60_000;
+/** Main writes its commit reading into the runtime dir that also holds the runs dir. */
+const commitFileOf = (flags) => path.join(path.dirname(path.resolve(runsDirOf(flags))), "commit-pressure.json");
+
+/**
+ * AntiFan Main's latest Windows commit reading (written every 10 s), or null when there is none
+ * recent enough to act on: no AntiFan running, an old file, or one this script cannot read.
+ */
+function readCommitPressure(file, now = Date.now()) {
+  let j;
+  try {
+    j = JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch {
+    return null;
+  }
+  if (j?.schema !== 1 || typeof j.at !== "number" || typeof j.headroomBytes !== "number" || typeof j.floorBytes !== "number") return null;
+  if (Math.abs(now - j.at) > COMMIT_READING_MAX_AGE_MS) return null;
+  return j;
+}
+
+const gb = (bytes) => `${(bytes / 1024 ** 3).toFixed(1)} GB`;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function emit(obj) {
@@ -420,6 +446,16 @@ async function cmdDispatch(flags) {
   let mode = one(flags, "mode") || "auto";
   if (!["auto", "fresh", "followup"].includes(mode)) throw new CliError(EXIT.USAGE, "--mode must be auto, fresh or followup");
   if (mode === "auto") mode = run && run.ompSessionId && run.state !== "ended" ? "followup" : "fresh";
+  // A fresh round starts another omp.exe (hundreds of MB to GBs of private memory). When Windows
+  // runs out of commit it ends a process at random, and the terminal host takes every session with it.
+  const commit = mode === "fresh" ? readCommitPressure(commitFileOf(flags)) : null;
+  if (commit && !one(flags, "allow-low-memory") && (commit.alarmed === true || commit.headroomBytes < commit.floorBytes)) {
+    throw new CliError(
+      EXIT.REFUSED,
+      `memory is short: Windows commit headroom is ${gb(commit.headroomBytes)}, under the ${gb(commit.floorBytes)} floor, and a fresh worker starts another omp.exe. Close idle workers (terminal.close) or let running ones finish, then dispatch again; pass --allow-low-memory only on the user's say-so`,
+      { headroomBytes: commit.headroomBytes, floorBytes: commit.floorBytes, alarmed: commit.alarmed === true },
+    );
+  }
   if (mode === "fresh") {
     const s = job.subject;
     const missing = [["issueId", String(s.issueId)], ["host", s.host], ["shop", s.shop], ["sheetId", s.sheetId]].filter(([, v]) => !rendered.includes(v)).map(([k]) => k);
@@ -449,7 +485,7 @@ async function cmdDispatch(flags) {
   job.rounds.push(round);
   job.state = "dispatched";
   saveJob(dir, job);
-  emit({ cmd: "dispatch", ok: true, job: job.job, round: n, kind, mode, worker, state: job.state, input, promptPath, reportPath, dispatchedAt: round.dispatchedAt, preRunSeq: round.preRunSeq });
+  emit({ cmd: "dispatch", ok: true, job: job.job, round: n, kind, mode, worker, state: job.state, input, promptPath, reportPath, dispatchedAt: round.dispatchedAt, preRunSeq: round.preRunSeq, ...(commit ? { commitHeadroomBytes: commit.headroomBytes, commitFloorBytes: commit.floorBytes } : {}) });
   return EXIT.OK;
 }
 

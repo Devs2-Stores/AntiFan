@@ -106,6 +106,30 @@ export interface CommitPressureWatchOptions {
   onAlarm: (reading: CommitReading) => void;
   onClear: (reading: CommitReading) => void;
   onUnavailable: (detail: string) => void;
+  /** Every reading, after the hysteresis has seen it; `alarmed` is the state that step left. */
+  onSample?: (reading: CommitReading, alarmed: boolean) => void;
+}
+
+/**
+ * Name of the file in the runtime dir that carries the latest reading to processes outside Main:
+ * a Leader's `leader-job.mjs dispatch` reads it before starting another agent session.
+ */
+export const COMMIT_PRESSURE_STATE_FILE = 'commit-pressure.json';
+
+/**
+ * The state file's body. `floorBytes` is the headroom below which starting more work is refused;
+ * it is the alarm's clear line, so the reader never carries a threshold of its own.
+ */
+export function commitPressureStateBody(reading: CommitReading, alarmed: boolean, at: number): string {
+  return `${JSON.stringify({
+    schema: 1,
+    at,
+    chargeBytes: reading.chargeBytes,
+    maxLimitBytes: reading.maxLimitBytes,
+    headroomBytes: reading.headroomBytes,
+    floorBytes: COMMIT_CLEAR_HEADROOM_BYTES,
+    alarmed,
+  })}\n`;
 }
 
 function readPagingFiles(): Promise<string> {
@@ -150,6 +174,7 @@ export function startCommitPressureWatch(options: CommitPressureWatchOptions): (
         state = step.state;
         if (step.transition === 'alarm') options.onAlarm(reading);
         if (step.transition === 'clear') options.onClear(reading);
+        options.onSample?.(reading, state.alarmed);
       } catch (err) {
         options.onUnavailable(String(err));
         stop();
