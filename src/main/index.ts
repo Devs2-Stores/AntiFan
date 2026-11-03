@@ -149,6 +149,7 @@ import {
 } from './diagnostics/main-lifecycle-log';
 import { pruneOldCrashDumps } from './diagnostics/crash-dump-retention';
 import { intakeCrashReports } from './diagnostics/crash-report-intake';
+import { startCommitPressureWatch, formatGb, type CommitReading } from './diagnostics/commit-pressure';
 import { IssueRegister } from './session/issue-register';
 
 // Fail-closed boot guard (`AP-DEADLINE-001`): the request deadline chain must strictly
@@ -1054,6 +1055,57 @@ function stopProcessMetricsSampling(): void {
   if (!processMetricsTimer) return;
   clearInterval(processMetricsTimer);
   processMetricsTimer = null;
+}
+
+/**
+ * Which page is burning a core, always answered.
+ *
+ * With dozens of project windows the usual "the app is slow" is one tab: a page that never throttles
+ * (video, an animation loop, a runaway dashboard) keeps its renderer busy and, through it, the GPU
+ * process every window composites with. Benchmark mode has recorded the pid -> role/url map, but it
+ * is off by default, so the one line that identifies the culprit was never there when it mattered.
+ * This samples app metrics once a minute and writes a `perf.hotProcess` line per process above the
+ * thresholds: a sampled value, no listener, no polling of WebContents.
+ *
+ * `ProcessMetric.cpu.percentCPUUsage` is normalized to the WHOLE machine (measured with
+ * `E:/tmp/af-cpu-scale.cjs`: one core pinned for 3 s on an 8-core box reads 11.2, i.e. 100/8), while
+ * every other CPU number this project prints is per core. Comparing the raw value against a 50/40
+ * threshold meant "half of the entire machine" and the line never fired for the very tabs that pin a
+ * core, so the scale is converted once here and the thresholds keep their documented meaning.
+ */
+const HOT_PROCESS_INTERVAL_MS = 60_000;
+const HOT_PROCESS_CPU_PCT = 50;
+const HOT_GPU_CPU_PCT = 40;
+const HOT_CPU_CORES = Math.max(1, os.cpus().length);
+let hotProcessTimer: NodeJS.Timeout | null = null;
+function startHotProcessReporting(): void {
+  if (hotProcessTimer) return;
+  hotProcessTimer = setInterval(() => {
+    let metrics: Electron.ProcessMetric[];
+    try {
+      metrics = app.getAppMetrics();
+    } catch {
+      return;
+    }
+    const perCore = (metric: Electron.ProcessMetric): number => (metric.cpu?.percentCPUUsage ?? 0) * HOT_CPU_CORES;
+    const hot = metrics.filter((m) => {
+      const cpu = perCore(m);
+      return cpu >= (m.type === 'GPU' ? Math.min(HOT_PROCESS_CPU_PCT, HOT_GPU_CPU_PCT) : HOT_PROCESS_CPU_PCT);
+    });
+    if (hot.length === 0) return;
+    const roles = describeLiveWebContentsRoles();
+    for (const metric of hot) {
+      recordLifecycleEvent('perf.hotProcess', {
+        pid: metric.pid,
+        type: metric.type,
+        cpuPct: Math.round(perCore(metric) * 10) / 10,
+        privateMB: Math.round((metric.memory?.privateBytes ?? 0) / 1024),
+        role: roles.get(metric.pid)?.role ?? '',
+        url: roles.get(metric.pid)?.url ?? '',
+      });
+    }
+  }, HOT_PROCESS_INTERVAL_MS);
+  hotProcessTimer.unref?.();
 }
 
 /** Per-window wiring outcome. `created` distinguishes a new window from a join. */
@@ -4192,6 +4244,8 @@ async function createWindow(): Promise<void> {
   }
   await initDone.promise;
   startLifecycleHeartbeat();
+  startHotProcessReporting();
+  startCommitPressureAlarm();
   // The bootstrap host got everything that existed when it was built; the control plane
   // only exists now, so this is where it (and the phone status behind it) reaches the
   // window. Later windows get both from the same helper (see `attachSharedServices`).
@@ -4798,9 +4852,17 @@ let lifecycleHeartbeat: NodeJS.Timeout | null = null;
  * names the step it was inside. Every line carries `ts` in epoch milliseconds so the
  * gap is computable without guessing a timezone.
  */
+const LIFECYCLE_HEARTBEAT_MS = 5000;
 function startLifecycleHeartbeat(): void {
   if (lifecycleHeartbeat) return;
+  // The gap between beats is measured, not assumed: a 5 s timer that fires late is the GUI's main
+  // thread being busy, and that is exactly what "the app feels stuck" is. `beatLagMs` is the
+  // overshoot in ms, so a benchmark reads jank straight off the log instead of inferring it.
+  let lastBeatAt = 0;
   const beat = (): void => {
+    const now = Date.now();
+    const lagMs = lastBeatAt === 0 ? 0 : now - lastBeatAt - LIFECYCLE_HEARTBEAT_MS;
+    lastBeatAt = now;
     let tabCount: number | null = null;
     let webContentsCount: number | null = null;
     try {
@@ -4814,11 +4876,42 @@ function startLifecycleHeartbeat(): void {
       heapUsed: memory.heapUsed,
       tabCount,
       webContentsCount,
+      beatLagMs: lagMs,
     });
   };
   beat();
-  lifecycleHeartbeat = setInterval(beat, 5000);
+  lifecycleHeartbeat = setInterval(beat, LIFECYCLE_HEARTBEAT_MS);
   lifecycleHeartbeat.unref?.();
+}
+
+/**
+ * Warns while the user can still act when Windows is about to run out of commit: the terminal
+ * daemon holding every shell is often the process an exhausted system ends (see commit-pressure.ts).
+ */
+function startCommitPressureAlarm(): void {
+  const detail = (r: CommitReading) => ({
+    chargeBytes: r.chargeBytes,
+    limitBytes: r.limitBytes,
+    maxLimitBytes: r.maxLimitBytes,
+    headroomBytes: r.headroomBytes,
+  });
+  startCommitPressureWatch({
+    readMemory: () => process.getSystemMemoryInfo(),
+    onAlarm: (r) => {
+      recordLifecycleEvent('commitPressure.alarm', detail(r));
+      console.warn(`[index] system commit nearly exhausted: ${formatGb(r.chargeBytes)} of ${formatGb(r.maxLimitBytes)}`);
+      void dialog.showMessageBox({
+        type: 'warning',
+        title: 'AntiFan — Máy sắp hết bộ nhớ',
+        message: `Windows đã cấp ${formatGb(r.chargeBytes)} trên tối đa ${formatGb(r.maxLimitBytes)} bộ nhớ (RAM + pagefile).`,
+        detail: 'Khi hết hẳn, Windows sẽ tắt một tiến trình bất kỳ; nếu đó là tiến trình giữ terminal thì mọi phiên terminal mất theo. '
+          + 'Hãy đóng bớt phiên agent, job Whisper/python hoặc tab nặng ngay bây giờ.',
+        buttons: ['Đã hiểu'],
+      }).catch(() => {});
+    },
+    onClear: (r) => recordLifecycleEvent('commitPressure.clear', detail(r)),
+    onUnavailable: (reason) => recordLifecycleEvent('commitPressure.unavailable', { reason }),
+  });
 }
 
 let shutdownPromise: Promise<void> | null = null;

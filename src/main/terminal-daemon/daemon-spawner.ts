@@ -22,7 +22,7 @@
  * still be job-bound, which only shows up when the GUI exits — too late. IsProcessInJob is queried
  * up front so the chain picks the surviving mechanism on the first try.
  */
-import { spawn, execFileSync } from 'node:child_process';
+import { spawn, execFile } from 'node:child_process';
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -33,6 +33,12 @@ const HOST = '127.0.0.1';
 const HANDSHAKE_TIMEOUT_MS = 15000;
 const HEALTH_TIMEOUT_MS = 5000;
 const POLL_MS = 250;
+/**
+ * Bound on the PowerShell that runs Win32_Process.Create. Normally ~1-2 s; on 02/11/2026, with the
+ * system out of commit, it took longer than the former 15 s and the spawner fell back to a detached
+ * child of the GUI. The call is asynchronous, so a long bound costs boot time, not a frozen GUI.
+ */
+const WMI_SPAWN_TIMEOUT_MS = 60_000;
 
 export type SpawnMode = 'attached' | 'detached' | 'wmi' | 'in-process';
 
@@ -182,36 +188,45 @@ function clearLiveRecord(): void {
  * dies with the GUI under KILL_ON_JOB_CLOSE — so L1 is skipped and the chain goes straight to the
  * WMI escape. Returns 'in-job' | 'free' | 'unknown' (unknown is treated as free: L1 is tried, and
  * the post-spawn survival check still catches a hidden job).
+ *
+ * Asynchronous because the answer costs one PowerShell start (1-8 s on a loaded machine): run
+ * synchronously it held the GUI's main thread for the whole of it at boot, and every window waits
+ * on that thread. The boolean is cached, and a concurrent second call joins the first.
  */
 let cachedJobMembership: 'in-job' | 'free' | 'unknown' | null = null;
+let jobMembershipInFlight: Promise<'in-job' | 'free' | 'unknown'> | null = null;
 export function resetJobMembershipCacheForTesting(): void {
   cachedJobMembership = null;
+  jobMembershipInFlight = null;
 }
 
-function detectJobMembership(): 'in-job' | 'free' | 'unknown' {
+async function detectJobMembership(): Promise<'in-job' | 'free' | 'unknown'> {
   if (process.platform !== 'win32') return 'free';
   if (cachedJobMembership !== null) return cachedJobMembership;
-  const script = [
-    '$sig = "[DllImport(\\"kernel32.dll\\")] public static extern bool IsProcessInJob(System.IntPtr h, System.IntPtr j, out bool r);"',
-    '$t = Add-Type -MemberDefinition $sig -Name J -Namespace W -PassThru',
-    '$r = $false',
-    '$null = $t::IsProcessInJob((Get-Process -Id ' + process.pid + ').Handle, [System.IntPtr]::Zero, [ref]$r)',
-    'if ($r) { "in-job" } else { "free" }',
-  ].join('; ');
-  try {
-    const out = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
+  jobMembershipInFlight ??= (async () => {
+    const script = [
+      '$sig = "[DllImport(\\"kernel32.dll\\")] public static extern bool IsProcessInJob(System.IntPtr h, System.IntPtr j, out bool r);"',
+      '$t = Add-Type -MemberDefinition $sig -Name J -Namespace W -PassThru',
+      '$r = $false',
+      '$null = $t::IsProcessInJob((Get-Process -Id ' + process.pid + ').Handle, [System.IntPtr]::Zero, [ref]$r)',
+      'if ($r) { "in-job" } else { "free" }',
+    ].join('; ');
+    const { promise, resolve, reject } = Promise.withResolvers<string>();
+    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
       windowsHide: true,
       encoding: 'utf8',
       timeout: 8000,
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
-    const result = out === 'in-job' ? 'in-job' : out === 'free' ? 'free' : 'unknown';
-    cachedJobMembership = result;
-    return result;
-  } catch {
-    cachedJobMembership = 'unknown';
-    return 'unknown';
-  }
+    }, (err, stdout) => (err ? reject(err) : resolve(String(stdout).trim())));
+    try {
+      const out = (await promise).trim();
+      cachedJobMembership = out === 'in-job' ? 'in-job' : out === 'free' ? 'free' : 'unknown';
+    } catch {
+      cachedJobMembership = 'unknown';
+    }
+    jobMembershipInFlight = null;
+    return cachedJobMembership;
+  })();
+  return jobMembershipInFlight;
 }
 
 /**
@@ -271,7 +286,7 @@ export function quoteWindowsArg(arg: string): string {
  * Win32_ProcessStartup.EnvironmentVariables. That block and the argv reach PowerShell over stdin,
  * so the host token never appears on any process command line.
  */
-function spawnViaWmi(entry: string, handshake: string, logFile: string, cwd: string, env: Record<string, string>): number {
+async function spawnViaWmi(entry: string, handshake: string, logFile: string, cwd: string, env: Record<string, string>): Promise<number> {
   const commandLine = [process.execPath, entry, '--handshake', handshake, '--log', logFile, '--cwd', cwd, '--port', '0']
     .map(quoteWindowsArg)
     .join(' ');
@@ -284,13 +299,14 @@ function spawnViaWmi(entry: string, handshake: string, logFile: string, cwd: str
     '$p = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = [string]$in.commandLine; CurrentDirectory = [string]$in.cwd; ProcessStartupInformation = $si }',
     'if ($p.ReturnValue -eq 0) { $p.ProcessId } else { "ERR:$($p.ReturnValue)" }',
   ].join('; ');
-  const out = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', ps], {
+  const { promise, resolve, reject } = Promise.withResolvers<string>();
+  const child = execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', ps], {
     windowsHide: true,
     encoding: 'utf8',
-    timeout: 15000,
-    input: JSON.stringify({ commandLine, cwd, env: environment }),
-    stdio: ['pipe', 'pipe', 'ignore'],
-  }).trim();
+    timeout: WMI_SPAWN_TIMEOUT_MS,
+  }, (err, stdout) => (err ? reject(err) : resolve(String(stdout).trim())));
+  child.stdin?.end(JSON.stringify({ commandLine, cwd, env: environment }));
+  const out = await promise;
   const pid = Number(out);
   // `ERR:<n>` is Win32_Process.Create's own return code (2 access denied, 9 path not found, ...).
   if (!Number.isFinite(pid) || pid <= 0) throw new Error(`Win32_Process.Create answered ${JSON.stringify(out.slice(0, 120))}`);
@@ -397,7 +413,7 @@ export async function ensureDaemon(opts: { cwd?: string; onlyIfDead?: boolean } 
     return { mode: 'in-process', reason: 'no staged daemon bundle (run scripts/stage-daemon-host.mjs)' };
   }
 
-  const job = detectJobMembership();
+  const job = await detectJobMembership();
   const token = crypto.randomBytes(24).toString('hex');
   const handshakePath = path.join(hostRoot(), 'daemon-handshake.json');
   const logFile = path.join(hostRoot(), 'daemon.log');
@@ -411,7 +427,7 @@ export async function ensureDaemon(opts: { cwd?: string; onlyIfDead?: boolean } 
   // detached child is kept only as a fallback, and dropped when the GUI's job would kill it anyway.
   const wmi = { mode: 'wmi' as const, run: () => spawnViaWmi(staged.entry, handshakePath, logFile, cwd, env) };
   const detached = { mode: 'detached' as const, run: () => spawnDetached(staged.entry, handshakePath, logFile, cwd, env) };
-  const mechanisms: Array<{ mode: 'detached' | 'wmi'; run: () => number }> =
+  const mechanisms: Array<{ mode: 'detached' | 'wmi'; run: () => number | Promise<number> }> =
     process.platform !== 'win32' ? [detached] : job === 'in-job' ? [wmi] : [wmi, detached];
 
   // Every failed mechanism is written to the host log the moment it fails, so a fallback to the
@@ -425,20 +441,29 @@ export async function ensureDaemon(opts: { cwd?: string; onlyIfDead?: boolean } 
 
   for (const mech of mechanisms) {
     let spawnedPid = 0;
+    let timedOut = false;
     try {
-      spawnedPid = mech.run();
+      spawnedPid = await mech.run();
     } catch (err) {
-      fail(mech.mode, `spawn threw: ${err instanceof Error ? err.message.split('\n')[0] : String(err)}`);
-      continue;
+      // execFile marks the child it killed at the timeout bound.
+      timedOut = err instanceof Error && 'killed' in err && err.killed === true;
+      fail(mech.mode, timedOut
+        ? `spawn timed out after ${WMI_SPAWN_TIMEOUT_MS}ms`
+        : `spawn threw: ${err instanceof Error ? err.message.split('\n')[0] : String(err)}`);
+      // A PowerShell killed at the bound may already have called Win32_Process.Create: wait for
+      // that host's handshake before starting a second one that would race it for the record.
+      if (!timedOut) continue;
     }
-    if (!spawnedPid) {
+    if (!spawnedPid && !timedOut) {
       fail(mech.mode, 'spawn returned no pid');
       continue;
     }
 
     const rec = await waitForHandshake(handshakePath, spawnedPid);
     if (!rec) {
-      fail(mech.mode, `pid ${spawnedPid} died or published no handshake within ${HANDSHAKE_TIMEOUT_MS}ms`);
+      fail(mech.mode, spawnedPid
+        ? `pid ${spawnedPid} died or published no handshake within ${HANDSHAKE_TIMEOUT_MS}ms`
+        : `no host published a handshake within ${HANDSHAKE_TIMEOUT_MS}ms after the timeout`);
       continue;
     }
     if (!(await probeHealth(rec.port, rec.token))) {

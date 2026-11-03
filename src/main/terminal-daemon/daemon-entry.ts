@@ -114,6 +114,21 @@ function main(): void {
   process.on('uncaughtExceptionMonitor', (err) => log(`uncaughtException: ${err && err.stack ? err.stack : String(err)}`));
   process.on('unhandledRejection', (reason) => log(`unhandledRejection: ${String(reason)}`));
   process.on('exit', (code) => log(`exit code=${code}`));
+  // The host died twice on 02/11/2026 when Windows ran out of commit, at 1.2-1.3 GB, with no record
+  // of what that memory was. Each new 128 MiB high-water mark of RSS writes one breakdown line, so the
+  // next big host says whether it is JS heap, external Buffers, or neither (worker threads, native).
+  let memoryMark = 0;
+  const MEMORY_STEP = 128 * 1024 * 1024;
+  const memoryWatch = setInterval(() => {
+    const m = process.memoryUsage();
+    const mark = Math.floor(m.rss / MEMORY_STEP);
+    if (mark <= memoryMark) return;
+    memoryMark = mark;
+    const mb = (n: number) => Math.round(n / (1024 * 1024));
+    log(`memory rss=${mb(m.rss)}MB heapUsed=${mb(m.heapUsed)}MB heapTotal=${mb(m.heapTotal)}MB external=${mb(m.external)}MB `
+      + `arrayBuffers=${mb(m.arrayBuffers)}MB sessions=${tm.listSessions().length}`);
+  }, 60_000);
+  memoryWatch.unref();
 
   const tm = TerminalManager.getInstance();
   tm.usePtyWorker(log);
