@@ -9,6 +9,7 @@ import {
   COMMIT_CLEAR_HEADROOM_BYTES,
   INITIAL_COMMIT_PRESSURE,
   maxCommitBytes,
+  reachableCommitBytes,
   parsePagingFiles,
   stepCommitPressure,
   type CommitPressureState,
@@ -47,6 +48,26 @@ describe('maxCommitBytes', () => {
   it('adds fixed maxima as configured', () => {
     const max = maxCommitBytes(16 * GIB, [{ drive: 'E', maxBytes: 24 * GIB }], () => { throw new Error('not consulted'); });
     assert.equal(max, 40 * GIB);
+  });
+});
+
+describe('reachableCommitBytes', () => {
+  const specs = [{ drive: 'C', maxBytes: 'system' as const }, { drive: 'E', maxBytes: 24 * GIB }];
+
+  it('lets the limit grow only into free space on the pagefile volumes', () => {
+    // Configured maxima allow 72 GB, but C: and E: have 10 + 2 GB free: the limit reaches 40 + 12.
+    const free: Record<string, number> = { C: 10 * GIB, E: 2 * GIB };
+    assert.equal(reachableCommitBytes(40 * GIB, 72 * GIB, specs, (d) => free[d] ?? 0), 52 * GIB);
+  });
+
+  it('keeps the configured maximum when the disks have room, and never drops under the current limit', () => {
+    assert.equal(reachableCommitBytes(40 * GIB, 72 * GIB, specs, () => 100 * GIB), 72 * GIB);
+    assert.equal(reachableCommitBytes(40 * GIB, 30 * GIB, specs, () => 0), 40 * GIB);
+  });
+
+  it('counts a volume holding two pagefiles once', () => {
+    const twoOnC = [{ drive: 'C', maxBytes: 'system' as const }, { drive: 'C', maxBytes: 8 * GIB }];
+    assert.equal(reachableCommitBytes(40 * GIB, 72 * GIB, twoOnC, () => 5 * GIB), 45 * GIB);
   });
 });
 

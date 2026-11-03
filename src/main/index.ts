@@ -4887,14 +4887,22 @@ function startLifecycleHeartbeat(): void {
 
 /** How many terminals the commit warning names: enough to pick from, short enough to read. */
 const COMMIT_ALARM_HOLDERS = 5;
+/**
+ * Longest the warning waits for the process table. Under commit exhaustion a PowerShell probe has
+ * taken over 15 s (daemon-spawner.ts), so past this the warning shows without the list.
+ */
+const COMMIT_ALARM_HOLDERS_DEADLINE_MS = 5_000;
 
 /**
  * The running terminals holding the most private memory, read from the process table when the
- * alarm fires; null when the table could not be read. Each shell's whole tree counts, so an agent
- * terminal carries its `omp.exe` and whatever that agent started.
+ * alarm fires; null when the table could not be read in time. Each shell's whole tree counts, so an
+ * agent terminal carries its `omp.exe` and whatever that agent started.
  */
 async function terminalMemoryHolders(): Promise<TerminalMemoryHolder[] | null> {
-  const rows = await snapshotProcessMemory().catch(() => null);
+  const { promise: deadline, resolve: expire } = Promise.withResolvers<null>();
+  const timer = setTimeout(() => expire(null), COMMIT_ALARM_HOLDERS_DEADLINE_MS);
+  const rows = await Promise.race([snapshotProcessMemory(COMMIT_ALARM_HOLDERS_DEADLINE_MS).catch(() => null), deadline]);
+  clearTimeout(timer);
   if (!rows) return null;
   const sessions = TerminalManager.getInstance().listSessions() as SessionSummary[];
   const roots = sessions.flatMap((s) => (s.state === 'running' && typeof s.shellPid === 'number'

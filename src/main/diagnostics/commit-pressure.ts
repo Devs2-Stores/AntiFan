@@ -64,6 +64,28 @@ export function maxCommitBytes(ramBytes: number, specs: PagefileSpec[], volumeBy
   return total;
 }
 
+/**
+ * The commit limit the pagefiles can actually reach now: a pagefile grows only into free space on
+ * its volume, so the limit can rise above today's by at most the free bytes of the volumes that hold
+ * pagefiles (each volume counted once), whatever the configured maxima allow.
+ */
+export function reachableCommitBytes(
+  limitBytes: number,
+  configuredMaxBytes: number,
+  specs: PagefileSpec[],
+  freeBytes: (drive: string) => number,
+): number {
+  const drives = new Set(specs.map((spec) => systemDriveOf(spec.drive)));
+  let growth = 0;
+  for (const drive of drives) growth += freeBytes(drive);
+  return Math.max(limitBytes, Math.min(configuredMaxBytes, limitBytes + growth));
+}
+
+/** `?` is Windows' automatic placement, which is the system drive. */
+function systemDriveOf(drive: string): string {
+  return drive === '?' ? (process.env.SystemDrive || 'C:').charAt(0).toUpperCase() : drive;
+}
+
 export interface CommitPressureState {
   alarmed: boolean;
   lowStreak: number;
@@ -141,9 +163,13 @@ function readPagingFiles(): Promise<string> {
 }
 
 function volumeBytes(drive: string): number {
-  const letter = drive === '?' ? (process.env.SystemDrive || 'C:').charAt(0) : drive;
-  const stat = fs.statfsSync(`${letter}:\\`);
+  const stat = fs.statfsSync(`${systemDriveOf(drive)}:\\`);
   return stat.blocks * stat.bsize;
+}
+
+function volumeFreeBytes(drive: string): number {
+  const stat = fs.statfsSync(`${systemDriveOf(drive)}:\\`);
+  return stat.bavail * stat.bsize;
 }
 
 /** Starts sampling; returns a stop function. A no-op off Windows, where swap is not commit. */
@@ -168,13 +194,18 @@ export function startCommitPressureWatch(options: CommitPressureWatchOptions): (
         if (typeof info.swapTotal !== 'number' || typeof info.swapFree !== 'number') return;
         const limitBytes = info.swapTotal * 1024;
         const chargeBytes = (info.swapTotal - info.swapFree) * 1024;
-        const maxLimitBytes = Math.max(limitBytes, maxCommitBytes(info.total * 1024, specs, volumeBytes));
+        const maxLimitBytes = reachableCommitBytes(limitBytes, maxCommitBytes(info.total * 1024, specs, volumeBytes), specs, volumeFreeBytes);
         const reading: CommitReading = { chargeBytes, limitBytes, maxLimitBytes, headroomBytes: maxLimitBytes - chargeBytes };
         const step = stepCommitPressure(state, reading.headroomBytes);
         state = step.state;
         if (step.transition === 'alarm') options.onAlarm(reading);
         if (step.transition === 'clear') options.onClear(reading);
-        options.onSample?.(reading, state.alarmed);
+        // A consumer of the reading (the state file) failing must not end the watch itself.
+        try {
+          options.onSample?.(reading, state.alarmed);
+        } catch (err) {
+          options.onUnavailable(`onSample failed: ${String(err)}`);
+        }
       } catch (err) {
         options.onUnavailable(String(err));
         stop();
