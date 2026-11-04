@@ -3077,7 +3077,47 @@ async function probeCatalogueOnce() {
   }
 }
 
+// Parameter aliases: field names agents routinely guess for these tools (audited
+// INVALID_ARGUMENT refusals) map onto the advertised field, in order, and only
+// when the advertised field is absent. A usable value is a non-empty string, or
+// a non-empty array for list fields; anything else is left for the capability
+// to refuse, so an alias never turns a malformed call into an acting one. Every
+// applied alias is reported back as `aliasApplied` so a typo is never hidden.
+const PARAMETER_ALIASES = Object.freeze({
+  'terminal.write': [['text', 'input']],
+  'anti.agent.file_upload': [['files', 'filePaths'], ['ref', 'refOrSelector'], ['selector', 'refOrSelector']],
+  'anti.agent.drop': [['files', 'filePaths'], ['ref', 'refOrSelector'], ['selector', 'refOrSelector']],
+});
+function usableAliasValue(value) {
+  if (typeof value === 'string') return value.trim() !== '';
+  return Array.isArray(value) && value.length > 0;
+}
+function normalizeParameterAliases(method, params) {
+  const aliases = PARAMETER_ALIASES[method];
+  const source = params && typeof params === 'object' && !Array.isArray(params) ? params : {};
+  if (!aliases) return { params: source, aliasApplied: [] };
+  const next = { ...source };
+  const aliasApplied = [];
+  for (const [from, to] of aliases) {
+    if (usableAliasValue(next[to]) || !usableAliasValue(next[from])) continue;
+    next[to] = next[from];
+    delete next[from];
+    aliasApplied.push({ from, to });
+  }
+  return { params: aliasApplied.length > 0 ? next : source, aliasApplied };
+}
+function attachAliasApplied(result, aliasApplied) {
+  if (!aliasApplied || aliasApplied.length === 0) return result;
+  if (!result || typeof result !== 'object' || Array.isArray(result)) return result;
+  return { ...result, aliasApplied };
+}
 async function invoke(method, params = {}, callerRequestId, meta) {
+  const { params: normalized, aliasApplied } = normalizeParameterAliases(method, params);
+  const result = await invokeResolved(method, normalized, callerRequestId, meta);
+  return attachAliasApplied(result, aliasApplied);
+}
+
+async function invokeResolved(method, params = {}, callerRequestId, meta) {
   // Per-call view of the recovery state: a refusal only counts when a recovery run begun after this
   // call started produced it, so an old refusal never relabels an unrelated failure.
   const healRunAtStart = autohealRun;
@@ -4014,6 +4054,8 @@ module.exports = {
   autoBindCandidateOf,
   CORE_DISPATCH,
   invoke,
+  normalizeParameterAliases,
+  attachAliasApplied,
   invokeCore,
   DEFAULT_CLIENT_TIMEOUT_MS,
   isEvaluateTool,
