@@ -13,6 +13,27 @@ export { CORE_NAMESPACES, CoreNamespace };
 const id = (s: string) => crypto.createHash('sha1').update(s).digest('hex').slice(0, 20);
 const uuid = () => crypto.randomUUID();
 const now = () => new Date().toISOString();
+
+/**
+ * Stamp written to `PRAGMA user_version` once a store has been fully prepared: DDL applied,
+ * migrations run, backfills done and principles consolidated. It is derived from the text of
+ * everything the preparation executes, so any schema or migration change yields a new stamp and
+ * the next open prepares the store again. A store carrying the current stamp is opened without
+ * a single write — every proxy and the desktop app open the same file, and the preparation
+ * (a WAL commit plus a scan of every principle) used to cost several hundred ms per open.
+ * Bump PREPARE_REV when the preparation itself changes in a way the SQL text does not show.
+ */
+const PREPARE_REV = 1;
+const PREPARED_STAMP = (() => {
+  const h = crypto.createHash('sha1');
+  h.update(`${PREPARE_REV}|${SCHEMA_VERSION}|`);
+  h.update(DDL);
+  h.update(POST_SCHEMA_SQL);
+  h.update(PLATFORM_BACKFILL_SQL);
+  h.update(NAMESPACE_BACKFILL_SQL);
+  h.update(JSON.stringify(MIGRATIONS));
+  return (h.digest().readUInt32BE(0) & 0x7fffffff) || 1;
+})();
 // §3 Zero Silent Skip: an artifact is terminal only when it reached a real
 // analyzed/excluded state. BLOCKED is terminal only with a recorded reason.
 const TERMINAL_DISPOSITIONS = new Set(['ANALYZED_NO_CLAIM', 'ANALYZED_WITH_CLAIMS', 'EXCLUDED']);
@@ -193,6 +214,8 @@ export class Core {
     fs.mkdirSync(path.dirname(dbPath), { recursive: true });
     this.db = new DatabaseSync(dbPath);
     this.db.exec('PRAGMA busy_timeout = 5000');
+    const stamped = this.db.prepare('PRAGMA user_version').get();
+    if (Number(stamped?.user_version) === PREPARED_STAMP) return;
     this.db.exec(DDL);
     const row = this.db.prepare("SELECT value FROM meta WHERE key = 'schemaVersion'").get() as { value: string } | undefined;
     let v = row ? parseInt(row.value, 10) : SCHEMA_VERSION;
@@ -222,6 +245,7 @@ export class Core {
     this.db.prepare('INSERT OR REPLACE INTO meta(key,value) VALUES (?,?)').run('schemaVersion', String(v));
     this.db.exec(POST_SCHEMA_SQL);
     this.consolidatePrinciples();
+    this.db.exec(`PRAGMA user_version = ${PREPARED_STAMP}`);
   }
 
   close() { this.db.close(); }
