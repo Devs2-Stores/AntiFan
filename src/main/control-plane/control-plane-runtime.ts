@@ -343,14 +343,10 @@ export class ControlPlaneRuntime {
     const t0 = performance.now();
     await this.runs.attachments.initialize(this.leaseState.runtimeId);
     const t1 = performance.now();
-    await this.ledger.initialize();
+    // Dead partitions are pruned inside initialize(), before replay, so ledgerMs covers both.
+    await this.ledger.initialize(this.runs.attachments.getActiveRecordIds());
     const t2 = performance.now();
-    try {
-      const activeIds = this.runs.attachments.getActiveRecordIds();
-      await this.ledger.pruneDeadPartitions(activeIds);
-    } catch {}
-    const t3 = performance.now();
-    recordBenchmark({ surface: 'startup', name: 'cpInitBreakdown', extra: { attachmentsMs: Math.round(t1 - t0), ledgerMs: Math.round(t2 - t1), pruneMs: Math.round(t3 - t2) } });
+    recordBenchmark({ surface: 'startup', name: 'cpInitBreakdown', extra: { attachmentsMs: Math.round(t1 - t0), ledgerMs: Math.round(t2 - t1) } });
   }
   public getResourceStats(): ControlPlaneResourceStats {
     return {

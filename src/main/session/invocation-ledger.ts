@@ -123,10 +123,20 @@ export class InvocationLedger {
     this.maxFrameBytes = options.maxFrameBytes ?? DEFAULT_MAX_INVOCATION_FRAME_BYTES;
   }
 
-  public async initialize(): Promise<void> {
+  /**
+   * Replay every partition on disk. With `activeAttachmentIds`, partitions of attachments that
+   * no longer exist are deleted first, so their frames are never read into memory only to be
+   * dropped a moment later.
+   */
+  public async initialize(activeAttachmentIds?: Set<string>): Promise<void> {
     if (!fs.existsSync(this.partitionsDir)) {
       fs.mkdirSync(this.partitionsDir, { recursive: true });
       return;
+    }
+    if (activeAttachmentIds) {
+      try {
+        await this.pruneDeadPartitions(activeAttachmentIds);
+      } catch {}
     }
     const files = fs.readdirSync(this.partitionsDir).filter((f) => f.endsWith('.jsonl'));
     let fileIdx = 0;

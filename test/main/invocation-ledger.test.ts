@@ -745,3 +745,73 @@ describe('InvocationLedger - Main Serialization & Deduplication', () => {
     }
   });
 });
+
+describe('InvocationLedger - startup retention', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-ledger-retention-'));
+  });
+
+  afterEach(() => {
+    try {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    } catch {}
+  });
+
+  function authorityFor(attachmentId: string): MainResolvedAuthority {
+    return {
+      attachmentId,
+      authorityRevision: 'rev-test-1',
+      revisionNumber: 1,
+      projectId: 'proj-1',
+      workspaceId: 'ws-1',
+      runId: 'run-1',
+      attemptId: 'att-1',
+      backendId: 'test-backend',
+      grant: 'write',
+      hostEpoch: 1,
+      runtimePid: process.pid,
+      runtimeLeaseToken: 'lease-tok-1',
+      leaseExpiresAt: Date.now() + 3600_000,
+      issuedAt: Date.now(),
+    };
+  }
+
+  async function settleOne(ledger: InvocationLedger, attachmentId: string, result: unknown): Promise<string> {
+    const intent: ClientInvocationIntent = {
+      requestId: `req-${attachmentId}`,
+      idempotencyKey: `idem-${attachmentId}`,
+      attachmentId,
+      attachmentSecret: 'sec-1',
+      authorityRevision: 'rev-test-1',
+      name: 'browser.evaluate',
+      params: { expression: '1' },
+    };
+    const claim = await ledger.claimOrObserve(intent, authorityFor(attachmentId), 'digest', 1, 'public');
+    await ledger.settle(claim.invocationId, 'completed', result);
+    await ledger.drain(attachmentId);
+    return claim.invocationId;
+  }
+
+  it('18. Startup drops the partitions of attachments that are gone without replaying them, and keeps live ones intact', async () => {
+    const live = makeControlPlaneId('attachment');
+    const dead = makeControlPlaneId('attachment');
+    const writer = new InvocationLedger({ dataRoot: tmpDir });
+    await writer.initialize();
+    const liveInvocation = await settleOne(writer, live, { value: 'kept in full', big: 'x'.repeat(4096) });
+    const deadInvocation = await settleOne(writer, dead, { value: 'gone' });
+
+    const restarted = new InvocationLedger({ dataRoot: tmpDir });
+    await restarted.initialize(new Set([live]));
+
+    const files = fs.readdirSync(path.join(tmpDir, 'invocations')).sort();
+    assert.deepStrictEqual(files, [`${live}.jsonl`], 'only the live partition stays on disk');
+    assert.strictEqual(restarted.getRecord(deadInvocation), undefined, 'a dead partition is not loaded into memory');
+    assert.deepStrictEqual(
+      restarted.getRecord(liveInvocation)?.result,
+      { value: 'kept in full', big: 'x'.repeat(4096) },
+      'a live partition replays with its stored result untouched'
+    );
+  });
+});
