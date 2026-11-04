@@ -851,6 +851,47 @@ describe('A burst of read-only commands on a background tab shares one attach', 
     await settle();
     assert.ok(t.children.includes(t.background.tab.view), 'the tab the user is looking at is never detached by a release');
   });
+
+  // The host double is built without running field initializers, so the teardown collaborators a
+  // real close and dispose reach are stubbed; what the tests pin is the linger timer's fate.
+  function stubTeardown({ host }: { host: any }) {
+    host.recentlyClosedTabs = [];
+    host.tabPreviewUnsubscribers = new Map();
+    host.tombstoneTerminalAgentAffinity = () => {};
+    host.rememberClosedTab = () => {};
+    host.unindexTabWebContents = () => {};
+    host.recordTabClosedTelemetry = () => {};
+    host.clearTabAgentWorking = () => {};
+    host.reassertPresentedView = () => {};
+    let releases = 0;
+    const releaseOriginal = host.releaseTemporaryAttach.bind(host);
+    host.releaseTemporaryAttach = (...args: unknown[]) => {
+      releases += 1;
+      return releaseOriginal(...args);
+    };
+    return { releases: () => releases };
+  }
+
+  it('closing the tab a view lingers on cancels the pending release and takes the view out of the window', async () => {
+    const t = setup();
+    const spy = stubTeardown(t);
+    await t.host.runWithAttachedTabView(t.background.tab.view, async () => undefined, false, { lingerMs: LINGER_MS });
+    assert.strictEqual(t.host.isTabViewAttached(t.background.tab.view), true);
+    assert.strictEqual(t.host.closeTab('tab-bg'), true);
+    assert.ok(!t.children.includes(t.background.tab.view), 'the closed tab keeps no pane in the window');
+    await settle();
+    assert.strictEqual(spy.releases(), 0, 'the timer of a closed tab must not release a view that is already gone');
+  });
+
+  it('disposing the host cancels the pending linger release of every view it tears down', async () => {
+    const t = setup();
+    const spy = stubTeardown(t);
+    await t.host.runWithAttachedTabView(t.background.tab.view, async () => undefined, false, { lingerMs: LINGER_MS });
+    t.host.disposeChildViewContents();
+    await settle();
+    assert.strictEqual(spy.releases(), 0, 'a disposed host must not touch its window from a timer');
+    assert.ok(!t.children.includes(t.background.tab.view));
+  });
 });
 
 after(async () => {

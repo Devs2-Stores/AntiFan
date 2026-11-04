@@ -6419,6 +6419,24 @@ export class NativeTabHost extends EventEmitter {
   }
 
   /**
+   * Ends the linger a read-only command left on a view, when the tab that owns the view is closed or
+   * the host is torn down: the timer would otherwise fire later against a view that is gone, and
+   * detach or re-assert a window that has moved on. The view leaves the window here, as it must
+   * anyway once its tab is gone. A view with no pending linger is left alone.
+   */
+  private cancelAttachLinger(view: WebContentsView | null | undefined): void {
+    if (!view) return;
+    const state = this.temporaryViewAttachCounts?.get(view);
+    if (!state || state.lingerTimer === undefined) return;
+    clearTimeout(state.lingerTimer);
+    state.lingerTimer = undefined;
+    this.temporaryViewAttachCounts.delete(view);
+    try {
+      if (this.isTabViewAttached(view)) this.shell.window.contentView.removeChildView(view);
+    } catch {}
+  }
+
+  /**
    * A tab view that is in the window but is neither the presented tab nor held by
    * an in-flight attach-for-capture paints over the user's tab (measured: a white
    * background pane covering the content area while MCP runs). Detach those.
@@ -9640,6 +9658,8 @@ export class NativeTabHost extends EventEmitter {
         } catch {}
       }
     }
+    this.cancelAttachLinger(target.view);
+    this.cancelAttachLinger(target.mobileView);
     try {
       this.destroyOwnedWebContents(target.view?.webContents);
     } catch {}
@@ -16950,6 +16970,8 @@ export class NativeTabHost extends EventEmitter {
       // emitted directly here instead of routing through the full teardown (which
       // would touch shell/views mid-dispose).
       this.recordTabClosedTelemetry(id, tab, 'host-dispose');
+      this.cancelAttachLinger(tab.view);
+      this.cancelAttachLinger(tab.mobileView);
       try {
         if (tab.view) this.shell.window.contentView.removeChildView(tab.view);
       } catch {}
