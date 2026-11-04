@@ -55,7 +55,7 @@ export interface ControlPlaneRuntimeOptions {
   /** Diagnostic only: why a tab is (not) among the tabs the session bound to `primaryTabId` may drive. */
   describeTabOwnership?: (boundTabId: string, targetTabId: string) => Record<string, unknown> | undefined;
   /** Diagnostic only: the tabs the session bound to `boundTabId` may address, shown by refusals about the wrong tab. */
-  listUsableTabs?: (boundTabId: string) => UsableTab[];
+  listUsableTabs?: (boundTabId: string) => UsableTab[] | undefined;
   /** Whether the tab is in split review mode (has a mobile pane). */
   isTabSplit?: (tabId: string) => boolean | undefined;
   resolveTabId?: (tabIdOrIdentifier: string) => string | undefined;

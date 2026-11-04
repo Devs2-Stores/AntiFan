@@ -57,3 +57,25 @@ export function describeUsableTabs(tabs: readonly UsableTab[]): string {
   if (!list) return `This session has no live tab it may use: ${open}, or rebind to a live one with anti.browser.rebind_target.`;
   return `Tabs this session may use: ${list}. Pass one of them as tabId on every call, or ${open}.`;
 }
+
+/** The hosts a session's tabs may live on, as a refusal sees them. */
+export interface UsableTabsDirectory {
+  /** The host-level reader for a tab, or undefined when no live host owns it (the tab is dead). */
+  sourceForTab(tabId: string): UsableTabsSource | undefined;
+  /** The live tab the host names as the survivor of a closed bound tab the same session owned. */
+  failoverOf(staleTabId: string): string | undefined;
+}
+
+/**
+ * The usable tabs of the session bound to `boundTabId`. A binding whose tab is gone has no host to
+ * ask, yet the session may well hold other live tabs: they are found through the failover the
+ * retarget gate already uses, which only names tabs the stale session owns. Undefined when neither
+ * the binding nor a survivor can be asked, so a refusal never claims "no tab" on no evidence.
+ */
+export function listUsableTabsForSession(boundTabId: string, directory: UsableTabsDirectory, max = USABLE_TABS_SAMPLE_MAX): UsableTab[] | undefined {
+  const direct = directory.sourceForTab(boundTabId);
+  if (direct) return listUsableTabs(boundTabId, direct, max);
+  const survivor = directory.failoverOf(boundTabId);
+  const survivorSource = survivor ? directory.sourceForTab(survivor) : undefined;
+  return survivor && survivorSource ? listUsableTabs(survivor, survivorSource, max) : undefined;
+}

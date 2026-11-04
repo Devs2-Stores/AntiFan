@@ -215,7 +215,7 @@ export interface CapabilityCatalogueOptions {
    * checks, bound tab first). Diagnostic only: refusals about the wrong tab list them so the caller
    * can pick a right one; it never feeds an authorization decision.
    */
-  listUsableTabs?: (boundTabId: string) => UsableTab[];
+  listUsableTabs?: (boundTabId: string) => UsableTab[] | undefined;
 }
 
 export class CapabilityCatalogue {
