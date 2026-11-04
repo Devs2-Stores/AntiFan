@@ -13,6 +13,55 @@ import { ChromeProfileSyncManager } from './chrome-profile-sync';
 import { TerminalManager } from './terminal-manager';
 import { LocalSessionVault } from './local-session-vault';
 import { LocalCredentialVault } from './local-credential-vault';
+import { StorageLocations } from '../config/storage-locations';
+import { listLiveRuns } from '../run/live-runs';
+import { LiveRunsError, describeLiveRuns } from '../terminal-daemon/protocol';
+import type { LiveRunSummary } from '../terminal-daemon/protocol';
+
+/** Ask the owner before "quit everything" ends OMP runs that are still alive. True = go ahead. */
+async function confirmEndLiveRuns(runs: readonly LiveRunSummary[]): Promise<boolean> {
+  const { response } = await dialog.showMessageBox({
+    type: 'warning',
+    title: 'Thoát hoàn toàn',
+    message: `Còn ${runs.length} phiên OMP đang chạy. Thoát hoàn toàn sẽ ngắt chúng giữa chừng.`,
+    detail: runs.map((run) => `${describeLiveRuns([run])}${run.promptHead ? ` - ${run.promptHead}` : ''}`).join('\n'),
+    buttons: ['Hủy', 'Thoát và ngắt các phiên'],
+    defaultId: 0,
+    cancelId: 0,
+    noLink: true,
+  });
+  return response === 1;
+}
+
+/**
+ * Stops the terminal host (every PTY with it). A live OMP run needs the owner's confirmation first;
+ * the host refuses without `force` even if this check misses a run. Returns false when the owner
+ * cancels, so the caller keeps the app and the host running.
+ */
+async function shutdownTerminalHostWithConfirmation(): Promise<boolean> {
+  const tm: unknown = TerminalManager.getInstance();
+  const stop = async (force: boolean): Promise<void> => {
+    if (tm && typeof tm === 'object' && 'shutdownHost' in tm && typeof tm.shutdownHost === 'function') {
+      await (tm.shutdownHost as (options: { force: boolean }) => Promise<void>)({ force });
+    } else if (tm && typeof tm === 'object' && 'dispose' in tm && typeof tm.dispose === 'function') {
+      await (tm.dispose as () => Promise<void>)();
+    }
+  };
+  let force = false;
+  const live = listLiveRuns(path.join(StorageLocations.getRuntimeDir(), 'runs'));
+  if (live.length > 0) {
+    if (!(await confirmEndLiveRuns(live))) return false;
+    force = true;
+  }
+  try {
+    await stop(force);
+  } catch (err) {
+    if (!(err instanceof LiveRunsError)) return true; // as before: a failed stop does not keep the app open
+    if (!(await confirmEndLiveRuns(err.runs))) return false;
+    try { await stop(true); } catch {}
+  }
+  return true;
+}
 function getPendingSourceModifications(srcDir: string, compiledDir: string): string[] {
   const modifiedFiles: string[] = [];
   if (!fs.existsSync(srcDir)) return modifiedFiles;
@@ -535,15 +584,7 @@ export function buildApplicationMenu(mainWindow: BrowserWindow, tabHost?: Native
         {
           label: 'Thoát hoàn toàn (Dừng cả GUI và Terminal Host)',
           click: async () => {
-            try {
-              const tm: unknown = TerminalManager.getInstance();
-              if (tm && typeof tm === 'object' && 'shutdownHost' in tm && typeof tm.shutdownHost === 'function') {
-                await (tm.shutdownHost as () => Promise<void>)();
-              } else if (tm && typeof tm === 'object' && 'dispose' in tm && typeof tm.dispose === 'function') {
-                await (tm.dispose as () => Promise<void>)();
-              }
-            } catch {}
-            app.quit();
+            if (await shutdownTerminalHostWithConfirmation()) app.quit();
           },
         },
         isMac ? { role: 'close' } : { role: 'quit', label: 'Exit' },

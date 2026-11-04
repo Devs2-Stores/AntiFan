@@ -21,7 +21,8 @@
 import { EventEmitter } from 'node:events';
 import WebSocket from 'ws';
 import { HOST_METHOD, HOST_EVENT, HOST_EVENT_TO_LOCAL } from './protocol';
-import type { HostNewSessionParams, HostNewSessionResult, HostRestartParams, HostStartParams, HostStartResult, HostTransferOwnerParams } from './protocol';
+import { LIVE_RUNS_CODE, LiveRunsError } from './protocol';
+import type { HostNewSessionParams, HostNewSessionResult, HostRestartParams, HostShutdownParams, HostStartParams, HostStartResult, HostTransferOwnerParams } from './protocol';
 import type { BridgeRequestPayload, BridgeResponsePayload, BridgeEventPayload, TerminalAckPayload, TerminalSleepResult, TerminalRoleMeta } from '../../shared/contracts';
 import { CapabilityError } from '../../shared/control-plane-contracts';
 import type { TerminalWaitInput, TerminalWaitResult } from '../../shared/control-plane-contracts';
@@ -730,12 +731,32 @@ export class DaemonTerminalProxy extends EventEmitter {
   }
 
   /**
-   * Kills every PTY on the host and exits it. The ONLY legitimate caller is the explicit
-   * "quit everything" menu action. Never call this from GUI shutdown: the host outliving the GUI is
-   * the point of the host, so a shutdown-path call would silently delete the feature.
+   * Kills every PTY on the host and exits it. The ONLY legitimate callers are the explicit
+   * "quit everything" menu action and an owner-approved restart. Never call this from GUI shutdown:
+   * the host outliving the GUI is the point of the host, so a shutdown-path call would silently
+   * delete the feature.
+   *
+   * The host refuses while an OMP run is alive (`LiveRunsError`, carrying the runs) unless
+   * `force: true` (the caller just showed the owner the live runs) or every live run is listed in
+   * `allowRuns` (the owner approved ending exactly those). A transport drop or timeout is not a
+   * refusal: the host closes its sockets as it exits.
    */
-  async shutdownHost(): Promise<void> {
-    await this.client.call(HOST_METHOD.shutdown).catch(() => undefined);
+  async shutdownHost(options: { force?: boolean; allowRuns?: string[] } = {}): Promise<void> {
+    const params: HostShutdownParams = {};
+    if (options.force === true) params.force = true;
+    if (options.allowRuns?.length) params.allowRuns = options.allowRuns;
+    try {
+      await this.client.call(HOST_METHOD.shutdown, params);
+    } catch (err) {
+      // Only a daemon-side answer (`rpcFailure`) is a refusal; a dropped socket or timeout is the host exiting.
+      if (!(err instanceof Error) || !('rpcFailure' in err)) return;
+      const failure = err.rpcFailure;
+      const data = failure && typeof failure === 'object' && 'data' in failure ? failure.data : undefined;
+      if (data && typeof data === 'object' && 'code' in data && data.code === LIVE_RUNS_CODE && 'runs' in data && Array.isArray(data.runs)) {
+        throw new LiveRunsError(data.runs);
+      }
+      throw err;
+    }
   }
 
   async getDiagnostics(): Promise<unknown> {

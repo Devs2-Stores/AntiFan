@@ -16,7 +16,9 @@ import * as crypto from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { WebSocketServer, WebSocket } from 'ws';
 import { TerminalManager, safeSliceTail } from '../browser/terminal-manager';
-import { HOST_METHOD, HOST_EVENT } from './protocol';
+import { HOST_METHOD, HOST_EVENT, LIVE_RUNS_CODE, describeLiveRuns } from './protocol';
+import type { HostShutdownRefusal } from './protocol';
+import { listLiveRuns } from '../run/live-runs';
 import { OutputBatcher } from './output-batcher';
 import type { BridgeRequestPayload, BridgeResponsePayload, BridgeEventPayload, TerminalDataPayload } from '../../shared/contracts';
 
@@ -500,6 +502,20 @@ function main(): void {
             // shutdown-grade path: it persists once, then tears down EVERY session's PTY —
             // tm.kill() only releases the active session and its split, which orphaned the
             // other N-1 shells on every daemon exit.
+            //
+            // Ending every PTY also ends every OMP session running in them, mid-turn. A shutdown
+            // therefore needs `force:true`, or every live run (run file not `ended`, pid alive) named
+            // in `allowRuns`. Approval of a list is not approval of a run that starts later: that run
+            // still refuses (2026-11-03: a scripted restart cut a worker that started after the
+            // approval). The refusal carries the runs so the caller can show them.
+            const allowRuns = Array.isArray(p.allowRuns) ? p.allowRuns.filter((id): id is string => typeof id === 'string') : [];
+            const liveRuns = p.force === true ? [] : listLiveRuns(tm.runsDirPath(), { allowRuns });
+            if (liveRuns.length > 0) {
+              log(`shutdown refused: ${liveRuns.length} live OMP run(s): ${describeLiveRuns(liveRuns)}`);
+              const refusal: HostShutdownRefusal = { code: LIVE_RUNS_CODE, runs: liveRuns };
+              respond(false, refusal, `${LIVE_RUNS_CODE}: ${liveRuns.length} live OMP run(s): ${describeLiveRuns(liveRuns)}`);
+              break;
+            }
             respond(true, { shuttingDown: true });
             log('shutdown requested by client');
             // A PTY backend that wedges during teardown (ConPTY has hung process exit before)
