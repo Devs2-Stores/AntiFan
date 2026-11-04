@@ -10331,9 +10331,13 @@ export class BrowserControlPort {
     }
     const expectContains = normalizeCdnExpectations(params.expectContains, 'expectContains');
     const expectNotContains = normalizeCdnExpectations(params.expectNotContains, 'expectNotContains');
-    // Only the reload moves the tab; a CDN hash poll on its own reads the page and the file, so the
-    // document generation fence applies exactly when the call will reload.
-    const tabId = this.resolveTargetTab(target, params.tabId, params.reloadOnMatch === false ? 'read' : 'write');
+    // The call exists to poll the CDN and then reload the tab, and a tab that is about to be
+    // reloaded has usually already changed document (the last reload, a page that refreshes itself,
+    // a theme dev watcher). A generation fence made for DOM refs would refuse the call before it
+    // polls, so the target is rebased onto the tab's live generation (and says so); the tab
+    // authority check of an effectful call stays.
+    const fenced = this.rebaseUnlessSemanticRef(target, { tabId: params.tabId });
+    const tabId = this.resolveTargetTab(fenced.target, params.tabId, params.reloadOnMatch === false ? 'read' : 'write');
     const paneId = params.paneId || 'desktop';
     const rawAsset = params.assetPath.trim().replace(/\\/g, '/').replace(/^\/+/, '');
     const isLiquidSource = /\.liquid$/i.test(rawAsset);
@@ -10427,10 +10431,12 @@ export class BrowserControlPort {
             unmet = missing.length > 0 || forbidden.length > 0 ? { missing, forbidden } : null;
             if (contentMatches && !unmet) {
               const shouldReload = params.reloadOnMatch !== false;
+              const generationBeforeReload = this.host.getDocumentGeneration ? this.host.getDocumentGeneration(tabId) : undefined;
+              let generationAfterReload: number | undefined;
               if (shouldReload) {
-                await this.reload(target, tabId);
+                generationAfterReload = (await this.reload(target, tabId)).target.documentGeneration;
               }
-              return {
+              return this.withRebase({
                 ok: true,
                 synced: true,
                 assetPath: resolvedRel,
@@ -10441,7 +10447,8 @@ export class BrowserControlPort {
                 attempts,
                 durationMs: Date.now() - startTime,
                 reloaded: shouldReload,
-              };
+                ...(shouldReload ? { reloadedFromGeneration: generationBeforeReload, toGeneration: generationAfterReload } : {}),
+              }, fenced);
             }
           }
         } catch (err) {
