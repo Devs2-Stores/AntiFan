@@ -1934,6 +1934,17 @@ const TARGET_RECOVERY_BUDGET_MS = 25_000;
  * evaluations on one tab would otherwise pay it every time.
  */
 const EVAL_SURFACE_CACHE_MS = 4_000;
+
+/**
+ * What an evaluation hands back: the value, whether the in-page serializer cut it, and
+ * `surface.probeTimedOut` when the tab never answered its render-surface probe.
+ */
+export interface CheckedEvalResult {
+  value: unknown;
+  truncated: boolean;
+  truncatedReasons: EvalTruncationReason[];
+  surface?: { probeTimedOut: true };
+}
 /** Upper bound a caller may request for a navigation wait, whatever `timeoutMs` it passes. */
 const NAVIGATE_TIMEOUT_CEILING_MS = 60_000;
 const REVERSIBLE_DOM_TXN_GLOBAL = '__antifan_compare_txn__';
@@ -4471,7 +4482,7 @@ export class BrowserControlPort {
     explicitTabId?: string,
     paneId?: 'desktop' | 'mobile',
     options?: { requireRenderSurface?: boolean; allowDegradedSurface?: boolean; timeoutMs?: number }
-  ): Promise<{ value: unknown; truncated: boolean; truncatedReasons: EvalTruncationReason[]; surface?: { probeTimedOut: true } }> {
+  ): Promise<CheckedEvalResult> {
     const { value, surface } = await this.evalWithSurface(target, expression, explicitTabId, paneId, options);
     const truncatedReasons = findEvalTruncation(value);
     return { value, truncated: truncatedReasons.length > 0, truncatedReasons, ...(surface ? { surface } : {}) };

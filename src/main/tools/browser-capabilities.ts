@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { BrowserTarget, CapabilityRequestContext, AuthenticatedCapabilityContext, CapabilityError, CapabilityEffectPolicyInput, CapabilityRisk, ReceiptBinding, digestText } from '../../shared/control-plane-contracts';
 import { parseCookieJarParam } from '../browser/cookie-jar';
 import { BrowserControlPort, BrowserWaitCondition, BrowserWaitParams, buildRefLookupExpression, ResponsiveBreakpointOption, VISUAL_COMPARE_EXECUTION_BUDGET_MS, VISUAL_COMPARE_CANCELLATION_ACK_MS, FULL_PAGE_CAPTURE_EXECUTION_BUDGET_MS, FULL_PAGE_CAPTURE_CANCELLATION_ACK_MS, VIEWPORT_CAPTURE_EXECUTION_BUDGET_MS, VIEWPORT_CAPTURE_CANCELLATION_ACK_MS, REFERENCE_CAPTURE_EXECUTION_BUDGET_MS, REFERENCE_CAPTURE_CANCELLATION_ACK_MS, BROWSER_WAIT_INVOCATION_BUDGET_MS, BROWSER_WAIT_MAX_TIMEOUT_MS, BROWSER_EVAL_INVOCATION_BUDGET_MS, BROWSER_EVAL_MAX_TIMEOUT_MS } from './browser-control-port';
+import type { CheckedEvalResult } from './browser-control-port';
 import { CapabilityCatalogue } from './capability-catalogue';
 import { resolveCallerWorkspaceRoot } from './file-capabilities';
 import { PlatformDetector } from '../qa/scanners/platform-detector';
@@ -1242,6 +1243,11 @@ async function compareAndMintReceipt(
  * answered its render-surface probe. Then the value travels inside `{ value, truncated: true,
  * truncatedReasons }` and/or `{ value, surface: { probeTimedOut: true } }`, so a caller never
  * mistakes a clipped result for the whole one, nor a layout read on an unmeasured tab for a measured one.
+ *
+ * A script that moved the page (location.assign, a submitted form) has no value to return: the
+ * document that held it was replaced. That is an outcome, not a failure, so the answer is
+ * `{ navigated: true, newUrl, scriptMayHaveRun: true }`. Only this agent-facing path says so; the
+ * port's own `eval` keeps throwing, because internal measurements parse its value as data.
  */
 async function evaluateForCaller(
   browser: BrowserControlPort,
@@ -1251,7 +1257,16 @@ async function evaluateForCaller(
   paneId: 'desktop' | 'mobile' | undefined,
   options: { requireRenderSurface?: boolean; allowDegradedSurface?: boolean; timeoutMs?: number }
 ): Promise<unknown> {
-  const checked = await browser.evalChecked(target, expression, tabId, paneId, options);
+  let checked: CheckedEvalResult;
+  try {
+    checked = await browser.evalChecked(target, expression, tabId, paneId, options);
+  } catch (err) {
+    if (err instanceof CapabilityError && err.code === 'TARGET_STALE' && err.details?.cause === 'navigated-away') {
+      const newUrl = err.details.newUrl;
+      return { navigated: true, ...(typeof newUrl === 'string' && newUrl ? { newUrl } : {}), scriptMayHaveRun: true };
+    }
+    throw err;
+  }
   if (!checked.truncated && !checked.surface) return checked.value;
   return {
     value: checked.value,
