@@ -249,6 +249,18 @@ describe('the transport at the capability boundary', () => {
     return { catalogue, registry, transport, launch, intent, liveTabs };
   }
 
+  it('await_cdn_sync dispatched through the attachment reloads a tab that drifted after the attach, with no second fence in the transport', async () => {
+    const live = { value: 1 };
+    const { transport, intent } = await harness(live);
+    live.value = 3;
+    const res = await transport.dispatchIntent(intent('anti.theme.await_cdn_sync', { assetPath: 'assets/theme.css.liquid', expectContains: ['color:red'], allowNonTheme: true, timeoutMs: 200, pollIntervalMs: 50 }));
+    assert.strictEqual(res.ok, true, JSON.stringify(res.error));
+    const data = res.data as Record<string, unknown>;
+    assert.strictEqual(data.synced, true);
+    assert.strictEqual(data.reloaded, true);
+    assert.strictEqual(data.reloadedFromGeneration, 3);
+  });
+
   it('a catalogue miss is typed so the proxy can tell it from a host gap', async () => {
     const { transport, intent } = await harness({ value: 1 });
     const res = await transport.dispatchIntent(intent('anti.theme.not_registered', {}));

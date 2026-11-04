@@ -2895,7 +2895,11 @@ export class BrowserControlPort {
     } catch {
       managed = [];
     }
-    return [...new Set([boundTabId, ...managed])].slice(0, SESSION_TAB_QUOTA_SAMPLE_MAX).map((id) => {
+    const allowed = (id: string): boolean => {
+      if (id === boundTabId) return true;
+      try { return this.host.isTabAllowed ? this.host.isTabAllowed(boundTabId, id) : true; } catch { return false; }
+    };
+    return [...new Set([boundTabId, ...managed])].filter(allowed).slice(0, SESSION_TAB_QUOTA_SAMPLE_MAX).map((id) => {
       const url = this.safeTabUrl(id);
       return url ? { id, url } : { id };
     });
