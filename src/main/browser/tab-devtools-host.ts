@@ -256,7 +256,7 @@ export interface TabDevToolsContext {
   getDiagnostics?: (tabId: string, level?: string) => { console?: Array<{ message: string; source?: string; line?: number; level?: number }>; failures?: Array<{ validatedURL?: string; errorDescription?: string; errorCode?: number }> } | null;
   createTab: (url?: string, activate?: boolean) => string;
   withTabAgentWorking: <T>(tabId: string, action: () => Promise<T>) => Promise<T>;
-  runWithAttachedTabView?: <T>(view: Electron.WebContentsView | null | undefined, action: () => Promise<T>, isMobile?: boolean) => Promise<T>;
+  runWithAttachedTabView?: <T>(view: Electron.WebContentsView | null | undefined, action: () => Promise<T>, isMobile?: boolean, options?: { lingerMs?: number }) => Promise<T>;
   getTabContentBounds?: (tabId: string, paneId?: SplitPaneId) => { width: number; height: number } | undefined;
   switchTab?: (tabId: string, opts?: SwitchTabOptions) => boolean;
   getSemanticDocumentGeneration?: (tabId: string, paneId?: SplitPaneId) => number;
@@ -320,6 +320,13 @@ export interface TabDevToolsStats {
  * reference materialization walk) pass their own through `timeoutMs`.
  */
 const EVAL_JS_DEFAULT_TIMEOUT_MS = 15_000;
+/**
+ * How long a background tab's view stays attached after a read-only command (render-surface probe,
+ * evaluation, DOM dump), so the next command of a burst reuses the attach instead of paying the
+ * attach, release and re-assert of the presented layer again. Short on purpose: the view is held
+ * unthrottled for as long as it lingers.
+ */
+const READ_COMMAND_ATTACH_LINGER_MS = 750;
 /** How long a CDP command frozen by a JavaScript dialog is watched for the dialog to close. */
 const FROZEN_COMMAND_DIALOG_WAIT_MS = 10 * 60_000;
 /** After its dialog closes, a frozen command that still has not settled within this is drained. */
@@ -1976,7 +1983,7 @@ export class TabDevToolsHost {
     const isActiveTarget = targetId === this.ctx.getActiveTabId();
     if (!isActiveTarget && paneView && this.ctx.runWithAttachedTabView) {
       const isMobilePane = effectivePane === 'mobile' && Boolean(target.mobileView);
-      return await this.ctx.runWithAttachedTabView(paneView, measure, isMobilePane);
+      return await this.ctx.runWithAttachedTabView(paneView, measure, isMobilePane, { lingerMs: READ_COMMAND_ATTACH_LINGER_MS });
     }
     return await measure();
   }
@@ -3815,7 +3822,7 @@ export class TabDevToolsHost {
       const isActiveTarget = targetId === this.ctx.getActiveTabId();
       if (!isActiveTarget && paneView && this.ctx.runWithAttachedTabView) {
         const isMobilePane = effectivePane === 'mobile' && Boolean(target.mobileView);
-        return await this.ctx.runWithAttachedTabView(paneView, execute, isMobilePane);
+        return await this.ctx.runWithAttachedTabView(paneView, execute, isMobilePane, { lingerMs: READ_COMMAND_ATTACH_LINGER_MS });
       }
       return await execute();
     });
@@ -3962,7 +3969,7 @@ export class TabDevToolsHost {
           const isActiveTarget = targetId === this.ctx.getActiveTabId();
           if (!isActiveTarget && paneView && this.ctx.runWithAttachedTabView) {
             const isMobilePane = effectivePane === 'mobile' && Boolean(target.mobileView);
-            return await this.ctx.runWithAttachedTabView(paneView, execute, isMobilePane);
+            return await this.ctx.runWithAttachedTabView(paneView, execute, isMobilePane, { lingerMs: READ_COMMAND_ATTACH_LINGER_MS });
           }
           return await execute();
         };

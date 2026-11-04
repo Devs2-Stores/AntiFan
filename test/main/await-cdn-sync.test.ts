@@ -12,7 +12,7 @@ import { registerBrowserCapabilities } from '../../src/main/tools/browser-capabi
 import { BrowserControlPort, BrowserHostPort } from '../../src/main/tools/browser-control-port';
 import { CapabilityTransportAdapter } from '../../src/main/tools/capability-transport';
 import { AttachmentRegistry } from '../../src/main/run/attachment-registry';
-import { BrowserTarget, issueRuntimeLease, makeControlPlaneId } from '../../src/shared/control-plane-contracts';
+import { BrowserTarget, CapabilityError, issueRuntimeLease, makeControlPlaneId } from '../../src/shared/control-plane-contracts';
 
 const CSS = 'body{color:red}';
 
@@ -82,22 +82,42 @@ describe('await_cdn_sync and the document generation fence', () => {
     assert.strictEqual(reloads, 0);
   });
 
-  it('keeps the fence when the call reloads the tab', async () => {
+  it('reloads on the live generation when the tab drifted since it was bound, and says which generations it crossed', async () => {
+    let live = 5;
     let reloads = 0;
-    const port = new BrowserControlPort(host({ getDocumentGeneration: () => 3, reload: () => { reloads += 1; return true; } }));
-    await assert.rejects(
-      port.awaitCdnSync(makeTarget('tab-1', 1), { assetPath: 'theme.css', workspaceRoot: workspace(), reloadOnMatch: true, timeoutMs: 200, pollIntervalMs: 50 }),
-      (err: unknown) => code(err) === 'TARGET_STALE'
-    );
-    assert.strictEqual(reloads, 0);
+    const port = new BrowserControlPort(host({ getDocumentGeneration: () => live, reload: () => { reloads += 1; live = 6; return true; } }));
+    const res = await port.awaitCdnSync(makeTarget('tab-1', 1), { assetPath: 'theme.css', workspaceRoot: workspace(), reloadOnMatch: true, timeoutMs: 200, pollIntervalMs: 50 });
+    assert.strictEqual(res.synced, true);
+    assert.strictEqual(res.reloaded, true);
+    assert.strictEqual(reloads, 1);
+    assert.strictEqual(res.reloadedFromGeneration, 5);
+    assert.strictEqual(res.toGeneration, 6);
+    assert.deepStrictEqual(res.documentGenerationRebased, { from: 1, to: 5 });
   });
 
-  it('keeps the fence by default, because the default reloads', async () => {
-    const port = new BrowserControlPort(host({ getDocumentGeneration: () => 3 }));
+  it('reloads by default on a drifted generation, because the default reloads', async () => {
+    let reloads = 0;
+    const port = new BrowserControlPort(host({ getDocumentGeneration: () => 3, reload: () => { reloads += 1; return true; } }));
+    const res = await port.awaitCdnSync(makeTarget('tab-1', 1), { assetPath: 'theme.css', workspaceRoot: workspace(), timeoutMs: 200, pollIntervalMs: 50 });
+    assert.strictEqual(res.reloaded, true);
+    assert.strictEqual(reloads, 1);
+  });
+
+  it('does not reload a tab the session may not touch, even when the generation drifted', async () => {
+    let reloads = 0;
+    const port = new BrowserControlPort(host({
+      getDocumentGeneration: () => 3,
+      reload: () => { reloads += 1; return true; },
+      getTabList: () => [{ id: 'tab-1' }, { id: 'tab-user' }],
+      hasTab: () => true,
+      resolveTargetTabId: (id: string) => id,
+      isTabAllowed: (bound: string, candidate: string) => bound === candidate,
+    }));
     await assert.rejects(
-      port.awaitCdnSync(makeTarget('tab-1', 1), { assetPath: 'theme.css', workspaceRoot: workspace(), timeoutMs: 200, pollIntervalMs: 50 }),
-      (err: unknown) => code(err) === 'TARGET_STALE'
+      port.awaitCdnSync(makeTarget('tab-1', 1), { assetPath: 'theme.css', workspaceRoot: workspace(), tabId: 'tab-user', timeoutMs: 200, pollIntervalMs: 50 }),
+      (err: unknown) => code(err) === 'TARGET_MISMATCH'
     );
+    assert.strictEqual(reloads, 0);
   });
 });
 
@@ -143,11 +163,16 @@ describe('a dead bound tab says it no longer exists and names the rebind tool, b
     );
   });
 
-  it('rebindTarget onto a foreign tab under a dead prior binding stays an isolation refusal', () => {
+  it('rebindTarget onto a foreign tab under a dead prior binding stays an isolation refusal and does not offer the dead tab', () => {
     const port = new BrowserControlPort(dead());
     assert.throws(
       () => port.rebindTarget({ tabId: 'tab-user' }, makeTarget('tab-1', 1)),
-      (err: unknown) => code(err) === 'TARGET_MISMATCH'
+      (err: unknown) => {
+        if (code(err) !== 'TARGET_MISMATCH') return false;
+        const e = err as CapabilityError;
+        const usable = (e.details as { usableTabs?: Array<{ id: string }> } | undefined)?.usableTabs ?? [];
+        return !usable.some((tab) => tab.id === 'tab-1') && !/may use: tab-1/.test(e.message);
+      }
     );
   });
 
@@ -228,6 +253,18 @@ describe('the transport at the capability boundary', () => {
     });
     return { catalogue, registry, transport, launch, intent, liveTabs };
   }
+
+  it('await_cdn_sync dispatched through the attachment reloads a tab that drifted after the attach, with no second fence in the transport', async () => {
+    const live = { value: 1 };
+    const { transport, intent } = await harness(live);
+    live.value = 3;
+    const res = await transport.dispatchIntent(intent('anti.theme.await_cdn_sync', { assetPath: 'assets/theme.css.liquid', expectContains: ['color:red'], allowNonTheme: true, timeoutMs: 200, pollIntervalMs: 50 }));
+    assert.strictEqual(res.ok, true, JSON.stringify(res.error));
+    const data = res.data as Record<string, unknown>;
+    assert.strictEqual(data.synced, true);
+    assert.strictEqual(data.reloaded, true);
+    assert.strictEqual(data.reloadedFromGeneration, 3);
+  });
 
   it('a catalogue miss is typed so the proxy can tell it from a host gap', async () => {
     const { transport, intent } = await harness({ value: 1 });
@@ -435,15 +472,13 @@ describe('await_cdn_sync on a Liquid source', () => {
     assert.deepStrictEqual(res.unmetExpectations, { missing: ['.never-there'], forbidden: [] });
   });
 
-  it('keeps the generation fence when it reloads and drops it when it does not', async () => {
-    const drifted = liquidHost({ getDocumentGeneration: () => 3 });
-    const port = new BrowserControlPort(drifted);
-    await assert.rejects(
-      port.awaitCdnSync(makeTarget('tab-1', 1), { assetPath: 'assets/theme.css.liquid', expectContains: ['color:red'], timeoutMs: 200, pollIntervalMs: 50 }),
-      (err: unknown) => code(err) === 'TARGET_STALE'
-    );
-    const res = await port.awaitCdnSync(makeTarget('tab-1', 1), { assetPath: 'assets/theme.css.liquid', expectContains: ['color:red'], ...poll });
+  it('reloads a Liquid-source wait on the live generation of a drifted tab', async () => {
+    let reloads = 0;
+    const port = new BrowserControlPort(liquidHost({ getDocumentGeneration: () => 3, reload: () => { reloads += 1; return true; } }));
+    const res = await port.awaitCdnSync(makeTarget('tab-1', 1), { assetPath: 'assets/theme.css.liquid', expectContains: ['color:red'], timeoutMs: 200, pollIntervalMs: 50 });
     assert.strictEqual(res.synced, true);
+    assert.strictEqual(res.reloaded, true);
+    assert.strictEqual(reloads, 1);
   });
 
   it('refuses malformed expectations', async () => {

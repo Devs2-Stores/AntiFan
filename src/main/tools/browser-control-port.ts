@@ -1928,6 +1928,23 @@ const NORMALIZATION_BOUND_MS = 15_000;
 const NORMALIZATION_RESTORE_BOUND_MS = 15_000;
 const STAGE_BOUND_MS = 30_000;
 const TARGET_RECOVERY_BUDGET_MS = 25_000;
+/**
+ * How long a successful render-surface reading of a tab stands in for a fresh probe before an
+ * evaluation. Each probe is a CDP round trip (and an attach for a background tab), and a burst of
+ * evaluations on one tab would otherwise pay it every time.
+ */
+const EVAL_SURFACE_CACHE_MS = 4_000;
+
+/**
+ * What an evaluation hands back: the value, whether the in-page serializer cut it, and
+ * `surface.probeTimedOut` when the tab never answered its render-surface probe.
+ */
+export interface CheckedEvalResult {
+  value: unknown;
+  truncated: boolean;
+  truncatedReasons: EvalTruncationReason[];
+  surface?: { probeTimedOut: true };
+}
 /** Upper bound a caller may request for a navigation wait, whatever `timeoutMs` it passes. */
 const NAVIGATE_TIMEOUT_CEILING_MS = 60_000;
 const REVERSIBLE_DOM_TXN_GLOBAL = '__antifan_compare_txn__';
@@ -2552,6 +2569,8 @@ export class BrowserControlPort {
    * bounds; the verified geometry is the only size a bounded re-apply may restore.
    */
   private readonly verifiedTabGeometry = new Map<string, { width: number; height: number; mobile?: boolean }>();
+  /** Per tab and pane: when a successful render-surface reading stops standing in for a probe before an evaluation. */
+  private readonly evalSurfaceMeasuredUntil = new Map<string, number>();
   public readonly baselineAuthority: BaselineAuthority;
   constructor(private readonly host: BrowserHostPort, public readonly artifacts?: BrowserArtifactSink) {
     this.baselineAuthority = new BaselineAuthority({ artifactStore: this.artifacts as any });
@@ -2860,8 +2879,40 @@ export class BrowserControlPort {
       cause: 'not-in-session-pool',
       ...(managed ? { managedTabIds: [...managed].slice(0, 5), managedTotal: managed.size } : {}),
       ...(ownership ? { ownership } : {}),
+      usableTabs: this.usableTabs(boundTabId),
       shareRecovery: SHARE_TAB_GUIDANCE,
     };
+  }
+
+  /**
+   * The tabs this session may address, bound tab first, bounded: what a refusal about the wrong
+   * tab has to show so the caller can pick a right one instead of guessing.
+   */
+  private usableTabs(boundTabId: string): Array<{ id: string; url?: string }> {
+    let managed: Iterable<string> = [];
+    try {
+      managed = this.host.getManagedTabIds?.(boundTabId) ?? [];
+    } catch {
+      managed = [];
+    }
+    const allowed = (id: string): boolean => {
+      // A tab that no longer exists would send the caller straight into a stale-target refusal.
+      if (!this.isTabLive(id)) return false;
+      if (id === boundTabId) return true;
+      try { return this.host.isTabAllowed ? this.host.isTabAllowed(boundTabId, id) : true; } catch { return false; }
+    };
+    return [...new Set([boundTabId, ...managed])].filter(allowed).slice(0, SESSION_TAB_QUOTA_SAMPLE_MAX).map((id) => {
+      const url = this.safeTabUrl(id);
+      return url ? { id, url } : { id };
+    });
+  }
+
+  /** Sentence naming the usable tabs and the call that opens one of the session's own. */
+  private usableTabsNote(boundTabId: string): string {
+    const list = this.usableTabs(boundTabId).map((tab) => (tab.url ? `${tab.id} (${tab.url})` : tab.id)).join(', ');
+    const open = 'open your own with anti.browser.tabs.create {url, bind: false} and use the tabId it returns';
+    if (!list) return `This session has no live tab it may use: ${open}, or rebind to a live one with anti.browser.rebind_target.`;
+    return `Tabs this session may use: ${list}. Pass one of them as tabId on every call, or ${open}.`;
   }
 
   private safeTabUrl(tabId: string): string | undefined {
@@ -3483,13 +3534,13 @@ export class BrowserControlPort {
    * other failure is final. The first probe is short so an absent surface fails fast; a heavy page
    * that was merely slow gets the retry window to answer.
    */
-  private async readRenderSurfaceRetryingTimeout(tabId: string, paneId: 'desktop' | 'mobile' | undefined): Promise<RenderSurfaceSnapshot> {
+  private async readRenderSurfaceRetryingTimeout(tabId: string, paneId: 'desktop' | 'mobile' | undefined, retryOnTimeout = true): Promise<RenderSurfaceSnapshot> {
     const probe = this.host.readRenderSurface;
     if (typeof probe !== 'function') throw new CapabilityError('CAPABILITY_NOT_FOUND', 'readRenderSurface is not supported by host');
     try {
       return await probe.call(this.host, tabId, paneId, RENDER_SURFACE_PROBE_BOUND_MS);
     } catch (err) {
-      if (!this.isRenderSurfaceTimeout(err)) throw err;
+      if (!retryOnTimeout || !this.isRenderSurfaceTimeout(err)) throw err;
       try {
         return await probe.call(this.host, tabId, paneId, RENDER_SURFACE_PROBE_RETRY_BOUND_MS);
       } catch (retryErr) {
@@ -3508,17 +3559,23 @@ export class BrowserControlPort {
    * the capability would consume its whole bound before the caller learned the
    * tab cannot render. Returns the measured surface so a caller can reuse it as
    * its pre-capture baseline.
+   *
+   * A caller that passes `tolerance` runs work with its own watchdog (an evaluation): the probe is
+   * attempted once, and one that outlives its bound no longer refuses the call - it sets
+   * `tolerance.probeTimedOut` and returns no reading. A probe that answered with no surface, or
+   * could not run at all, still refuses.
    */
   private async assertRenderSurface(
     tabId: string,
     paneId: 'desktop' | 'mobile' | undefined,
     operation: string,
-    allowDegraded = false
+    allowDegraded = false,
+    tolerance?: { probeTimedOut: boolean }
   ): Promise<RenderSurfaceSnapshot | undefined> {
     if (typeof this.host.readRenderSurface !== 'function') return undefined;
     let snapshot: RenderSurfaceSnapshot | undefined;
     try {
-      snapshot = await this.readRenderSurfaceRetryingTimeout(tabId, paneId);
+      snapshot = await this.readRenderSurfaceRetryingTimeout(tabId, paneId, tolerance === undefined);
     } catch (err) {
       const code = err instanceof Error && 'code' in err ? String((err as { code?: unknown }).code) : undefined;
       if (code === 'TARGET_BUSY_DRAINING') {
@@ -3526,6 +3583,10 @@ export class BrowserControlPort {
         // refusal itself, carrying its own retryAfterMs.
         if (allowDegraded) return undefined;
         throw this.drainRefusal(err, tabId, paneId, operation);
+      }
+      if (tolerance && this.isRenderSurfaceTimeout(err)) {
+        tolerance.probeTimedOut = true;
+        return undefined;
       }
       if (allowDegraded) return undefined;
       // A probe that outlived its bound twice is a hung renderer the caller may retry; a probe
@@ -4381,6 +4442,22 @@ export class BrowserControlPort {
     };
   }
   async eval(target: BrowserTarget, expression: string, explicitTabId?: string, paneId?: 'desktop' | 'mobile', options?: { requireRenderSurface?: boolean; allowDegradedSurface?: boolean; timeoutMs?: number }): Promise<unknown> {
+    return (await this.evalWithSurface(target, expression, explicitTabId, paneId, options)).value;
+  }
+
+  /**
+   * `eval` plus what its surface gate learned. The gate probes the tab once, remembers a successful
+   * reading for a few seconds, and treats a probe that outlived its bound as unknown rather than
+   * absent: the evaluation has a watchdog of its own, so it runs and the result says
+   * `surface.probeTimedOut`. A reading of no surface still refuses, and is never remembered.
+   */
+  private async evalWithSurface(
+    target: BrowserTarget,
+    expression: string,
+    explicitTabId?: string,
+    paneId?: 'desktop' | 'mobile',
+    options?: { requireRenderSurface?: boolean; allowDegradedSurface?: boolean; timeoutMs?: number }
+  ): Promise<{ value: unknown; surface?: { probeTimedOut: true } }> {
     if (!expression.trim()) throw new CapabilityError('INVALID_ARGUMENT', 'JavaScript expression is required');
     // A caller-declared budget must fit under the capability's invocation
     // budget so the in-page guard — not the platform's execution timeout —
@@ -4406,10 +4483,23 @@ export class BrowserControlPort {
         })();
     const tabId = this.resolveTargetTab(target, explicitTabId);
     return this.passivePool.execute(tabId, async () => {
+      let surface: { probeTimedOut: true } | undefined;
       if (options?.requireRenderSurface === true) {
-        await this.assertRenderSurface(tabId, paneId, 'anti.browser.evaluate', options.allowDegradedSurface === true);
+        const cacheKey = `${tabId}:${paneId ?? 'desktop'}`;
+        const now = Date.now();
+        if ((this.evalSurfaceMeasuredUntil.get(cacheKey) ?? 0) <= now) {
+          const tolerance = { probeTimedOut: false };
+          const reading = await this.assertRenderSurface(tabId, paneId, 'anti.browser.evaluate', options.allowDegradedSurface === true, tolerance);
+          if (tolerance.probeTimedOut) {
+            surface = { probeTimedOut: true };
+          } else if (reading && reading.vw >= 1 && reading.vh >= 1) {
+            for (const [key, until] of this.evalSurfaceMeasuredUntil) if (until <= now) this.evalSurfaceMeasuredUntil.delete(key);
+            this.evalSurfaceMeasuredUntil.set(cacheKey, now + EVAL_SURFACE_CACHE_MS);
+          }
+        }
       }
-      return this.host.evalJs(expression, tabId, paneId, false, evalBudgetMs);
+      const value = await this.host.evalJs(expression, tabId, paneId, false, evalBudgetMs);
+      return surface ? { value, surface } : { value };
     });
   }
 
@@ -4424,10 +4514,10 @@ export class BrowserControlPort {
     explicitTabId?: string,
     paneId?: 'desktop' | 'mobile',
     options?: { requireRenderSurface?: boolean; allowDegradedSurface?: boolean; timeoutMs?: number }
-  ): Promise<{ value: unknown; truncated: boolean; truncatedReasons: EvalTruncationReason[] }> {
-    const value = await this.eval(target, expression, explicitTabId, paneId, options);
+  ): Promise<CheckedEvalResult> {
+    const { value, surface } = await this.evalWithSurface(target, expression, explicitTabId, paneId, options);
     const truncatedReasons = findEvalTruncation(value);
-    return { value, truncated: truncatedReasons.length > 0, truncatedReasons };
+    return { value, truncated: truncatedReasons.length > 0, truncatedReasons, ...(surface ? { surface } : {}) };
   }
 
   async evalInFrame(target: BrowserTarget, expression: string, frame: ChildFrameSelector, explicitTabId?: string, paneId?: 'desktop' | 'mobile'): Promise<unknown> {
@@ -5076,7 +5166,13 @@ export class BrowserControlPort {
       const currentTabs = this.host.getManagedTabIds(boundTabId);
       if (currentTabs && currentTabs.size >= SESSION_TAB_LIMIT) {
         const closableTabIds = this.closableTabIds(boundTabId, currentTabs);
-        throw new CapabilityError('POLICY_DENIED', `Browser tab limit reached (${currentTabs.size}/${SESSION_TAB_LIMIT} tabs in this session). Close a tab this session owns${closableTabIds.length > 0 ? ` (closable: ${closableTabIds.join(', ')})` : ''}, then retry.`, {
+        const ownedByThisAgent = [...currentTabs].slice(0, SESSION_TAB_LIMIT).map((id) => {
+          const url = this.safeTabUrl(id);
+          return { id, ...(url ? { url } : {}), closable: closableTabIds.includes(id) };
+        });
+        const ownedList = ownedByThisAgent.map((tab) => (tab.url ? `${tab.id} (${tab.url})` : tab.id)).join(', ');
+        throw new CapabilityError('POLICY_DENIED', `Browser tab limit reached (${currentTabs.size}/${SESSION_TAB_LIMIT} tabs in this session). Close a tab this session owns${closableTabIds.length > 0 ? ` (closable: ${closableTabIds.join(', ')})` : ''}, then retry. Tabs counted: ${ownedList}.`, {
+          ownedByThisAgent,
           tabId: boundTabId,
           used: currentTabs.size,
           limit: SESSION_TAB_LIMIT,
@@ -5215,7 +5311,7 @@ export class BrowserControlPort {
       if (!allowed) {
         throw new CapabilityError(
           'TARGET_MISMATCH',
-          `Cannot retarget to tab "${cleanId}". This session is isolated to tab "${liveBoundId.trim()}" and its managed tabs. ${SHARE_TAB_GUIDANCE}`,
+          `Cannot retarget to tab "${cleanId}". This session is isolated to tab "${liveBoundId.trim()}" and its managed tabs. ${this.usableTabsNote(liveBoundId.trim())} ${SHARE_TAB_GUIDANCE}`,
           {
             ...this.tabMismatchDetails(liveBoundId.trim(), cleanId, {}),
             tabId: cleanId,
@@ -5303,7 +5399,7 @@ export class BrowserControlPort {
         if (!allowed && !sameProjectScope && !sharedByUser) {
           throw new CapabilityError(
             'TARGET_MISMATCH',
-            `Cannot rebind to tab "${effectiveTabId}". This session is isolated to tab "${priorBoundId.trim()}" and its managed tabs. ${SHARE_TAB_GUIDANCE}`,
+            `Cannot rebind to tab "${effectiveTabId}". This session is isolated to tab "${priorBoundId.trim()}" and its managed tabs. ${this.usableTabsNote(priorBoundId.trim())} ${SHARE_TAB_GUIDANCE}`,
             {
               ...this.tabMismatchDetails(priorBoundId.trim(), effectiveTabId, {}),
               boundTabId: priorBoundId.trim(),
@@ -5396,7 +5492,7 @@ export class BrowserControlPort {
     if (boundId && targetId.trim() !== boundId.trim() && !authorizedByCreator) {
       const isAllowed = this.host.isTabAllowed ? this.host.isTabAllowed(boundId.trim(), targetId.trim()) : false;
       if (!isAllowed) {
-        throw new CapabilityError('TARGET_MISMATCH', `Cannot close tab "${targetId}". This session is isolated to tab "${boundId}" and its managed tabs. ${SHARE_TAB_GUIDANCE}`, {
+        throw new CapabilityError('TARGET_MISMATCH', `Cannot close tab "${targetId}". This session is isolated to tab "${boundId}" and its managed tabs. ${this.usableTabsNote(boundId.trim())} ${SHARE_TAB_GUIDANCE}`, {
           ...this.tabMismatchDetails(boundId.trim(), targetId.trim(), {}),
           tabId: targetId,
           boundTabId: boundId,
@@ -5512,7 +5608,7 @@ export class BrowserControlPort {
       if (!isAllowed) {
         throw new CapabilityError(
           'TARGET_MISMATCH',
-          `Cannot switch to tab '${tabId}'. This session is isolated to tab '${boundId}'. ${SHARE_TAB_GUIDANCE}`,
+          `Cannot switch to tab '${tabId}'. This session is isolated to tab '${boundId}'. ${this.usableTabsNote(boundId)} ${SHARE_TAB_GUIDANCE}`,
           {
             ...this.tabMismatchDetails(boundId, targetId, {}),
             tabId,
@@ -10130,7 +10226,7 @@ export class BrowserControlPort {
               if (!params.paneId) params.paneId = 'mobile';
             }
           } else {
-            throw new CapabilityError('TARGET_MISMATCH', `Explicit tabId "${explicitTabId}" does not match target tabId "${target.tabId}".${splitReviewNote(this.host.isTabSplit?.(target.tabId))} ${SHARE_TAB_GUIDANCE}`, {
+            throw new CapabilityError('TARGET_MISMATCH', `Explicit tabId "${explicitTabId}" does not match target tabId "${target.tabId}".${splitReviewNote(this.host.isTabSplit?.(target.tabId))} ${this.usableTabsNote(target.tabId.trim())} ${SHARE_TAB_GUIDANCE}`, {
               ...this.tabMismatchDetails(target.tabId.trim(), candidate, {}),
               tabId: explicitTabId,
               boundTabId: target.tabId,
@@ -10273,9 +10369,13 @@ export class BrowserControlPort {
     }
     const expectContains = normalizeCdnExpectations(params.expectContains, 'expectContains');
     const expectNotContains = normalizeCdnExpectations(params.expectNotContains, 'expectNotContains');
-    // Only the reload moves the tab; a CDN hash poll on its own reads the page and the file, so the
-    // document generation fence applies exactly when the call will reload.
-    const tabId = this.resolveTargetTab(target, params.tabId, params.reloadOnMatch === false ? 'read' : 'write');
+    // The call exists to poll the CDN and then reload the tab, and a tab that is about to be
+    // reloaded has usually already changed document (the last reload, a page that refreshes itself,
+    // a theme dev watcher). A generation fence made for DOM refs would refuse the call before it
+    // polls, so the target is rebased onto the tab's live generation (and says so); the tab
+    // authority check of an effectful call stays.
+    const fenced = this.rebaseUnlessSemanticRef(target, { tabId: params.tabId });
+    const tabId = this.resolveTargetTab(fenced.target, params.tabId, params.reloadOnMatch === false ? 'read' : 'write');
     const paneId = params.paneId || 'desktop';
     const rawAsset = params.assetPath.trim().replace(/\\/g, '/').replace(/^\/+/, '');
     const isLiquidSource = /\.liquid$/i.test(rawAsset);
@@ -10369,10 +10469,12 @@ export class BrowserControlPort {
             unmet = missing.length > 0 || forbidden.length > 0 ? { missing, forbidden } : null;
             if (contentMatches && !unmet) {
               const shouldReload = params.reloadOnMatch !== false;
+              const generationBeforeReload = this.host.getDocumentGeneration ? this.host.getDocumentGeneration(tabId) : undefined;
+              let generationAfterReload: number | undefined;
               if (shouldReload) {
-                await this.reload(target, tabId);
+                generationAfterReload = (await this.reload(target, tabId)).target.documentGeneration;
               }
-              return {
+              return this.withRebase({
                 ok: true,
                 synced: true,
                 assetPath: resolvedRel,
@@ -10383,7 +10485,8 @@ export class BrowserControlPort {
                 attempts,
                 durationMs: Date.now() - startTime,
                 reloaded: shouldReload,
-              };
+                ...(shouldReload ? { reloadedFromGeneration: generationBeforeReload, toGeneration: generationAfterReload } : {}),
+              }, fenced);
             }
           }
         } catch (err) {

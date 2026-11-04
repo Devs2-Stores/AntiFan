@@ -5,7 +5,7 @@ import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { CapabilityCatalogue } from '../../src/main/tools/capability-catalogue';
 import { registerBrowserCapabilities } from '../../src/main/tools/browser-capabilities';
-import type { BrowserControlPort } from '../../src/main/tools/browser-control-port';
+import { LIST_TAB_FIELDS, type BrowserControlPort } from '../../src/main/tools/browser-control-port';
 import { BrowserTarget, CapabilityError } from '../../src/shared/control-plane-contracts';
 
 const TARGET: BrowserTarget = {
@@ -33,7 +33,10 @@ function makeHarness() {
     sequence: record('sequence'),
     jsDialog: record('jsDialog'),
     switchTab: record('switchTab'),
-    listTabs: record('listTabs'),
+    listTabs: async (...args: unknown[]) => {
+      calls.push({ method: 'listTabs', args });
+      return [{ id: 'tab-1', url: 'https://shop.example/' }];
+    },
   } as unknown as BrowserControlPort;
   const catalogue = new CapabilityCatalogue({
     runtime: { mode: 'standalone', lifecycle: 'active' },
@@ -71,6 +74,33 @@ describe('tabs.list fields accepts tabId as an alias of id', () => {
     const h = makeHarness();
     await assert.rejects(async () => h.run('anti.browser.tabs.list', { fields: [] }), invalid(/fields must be a non-empty array/));
   });
+
+  for (const name of ['anti.browser.tabs.list', 'browser.list-tabs']) {
+    it(`${name} lists the columns it knows and reports the names it did not recognise`, async () => {
+      const h = makeHarness();
+      const result = await h.run(name, { fields: ['id', 'url', 'active', 'viewport'] });
+      assert.deepStrictEqual((h.last('listTabs').args[0] as { fields?: string[] }).fields, ['id', 'url']);
+      assert.deepStrictEqual(result, {
+        tabs: [{ id: 'tab-1', url: 'https://shop.example/' }],
+        ignoredFields: ['active', 'viewport'],
+        validFields: LIST_TAB_FIELDS,
+      });
+    });
+
+    it(`${name} returns whole rows when every requested field is unknown`, async () => {
+      const h = makeHarness();
+      const result = await h.run(name, { fields: ['active'] }) as { tabs: unknown[]; ignoredFields: string[] };
+      assert.strictEqual((h.last('listTabs').args[0] as { fields?: string[] }).fields, undefined);
+      assert.deepStrictEqual(result.ignoredFields, ['active']);
+      assert.strictEqual(result.tabs.length, 1);
+    });
+
+    it(`${name} keeps the plain row list when every field is known`, async () => {
+      const h = makeHarness();
+      const result = await h.run(name, { fields: ['tabId', 'url'] });
+      assert.deepStrictEqual(result, [{ id: 'tab-1', url: 'https://shop.example/' }]);
+    });
+  }
 });
 
 describe('agent.sequence accepts action as an alias of a step type', () => {

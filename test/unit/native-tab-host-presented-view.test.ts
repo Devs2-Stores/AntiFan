@@ -1,4 +1,4 @@
-import { after, describe, it, mock } from 'node:test';
+import { after, afterEach, describe, it, mock } from 'node:test';
 import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -755,6 +755,101 @@ describe('Background throttling never reaches a view outside the window', () => 
     assert.strictEqual(duringHold, false, 'the held pane stays unthrottled through the pass');
     assert.strictEqual(cThrottled(), true, 'released, it is throttled again');
     assert.deepStrictEqual(log, ['c:false:attached', 'c:true:attached'], 'the pass itself never re-throttled the held pane');
+  });
+});
+
+describe('A burst of read-only commands on a background tab shares one attach', () => {
+  const LINGER_MS = 40;
+  const settle = () => mock.timers.tick(LINGER_MS * 4);
+  afterEach(() => mock.timers.reset());
+
+  function setup() {
+    mock.timers.enable({ apis: ['setTimeout'] });
+    const presented = createTestTab('tab-visible');
+    const background = createTestTab('tab-bg');
+    const harness = createPresentedHost({ tabs: [presented, background], activeTabId: 'tab-visible', attached: [presented.tab.view] });
+    const { host } = harness;
+    let attaches = 0;
+    const attachOriginal = host.attachTabView.bind(host);
+    host.attachTabView = (view: unknown, isMobile?: boolean) => {
+      if (view === background.tab.view) attaches += 1;
+      attachOriginal(view, isMobile);
+    };
+    // The presented layer is dropped and re-inserted by every re-assert that recycles it.
+    let presentedRecycles = 0;
+    const recycleOriginal = host.recyclePresentedLayer.bind(host);
+    host.recyclePresentedLayer = (view: unknown, isMobile: boolean) => {
+      if (view === presented.tab.view) presentedRecycles += 1;
+      recycleOriginal(view, isMobile);
+    };
+    return { ...harness, presented, background, attaches: () => attaches, presentedRecycles: () => presentedRecycles };
+  }
+
+  it('without a linger every hold pays the whole attach, release and re-assert cycle', async () => {
+    const t = setup();
+    for (let i = 0; i < 3; i += 1) await t.host.runWithAttachedTabView(t.background.tab.view, async () => undefined);
+    assert.strictEqual(t.attaches(), 3);
+    assert.strictEqual(t.presentedRecycles(), 3);
+    assert.deepStrictEqual(t.children, [t.presented.tab.view]);
+  });
+
+  it('back-to-back holds with a linger attach once, recycle the presented layer once, and leave the window as found', async () => {
+    const t = setup();
+    for (let i = 0; i < 3; i += 1) {
+      await t.host.runWithAttachedTabView(t.background.tab.view, async () => undefined, false, { lingerMs: LINGER_MS });
+      assert.strictEqual(t.host.isTabViewAttached(t.background.tab.view), true, 'the view stays in the window between commands of a burst');
+    }
+    assert.strictEqual(t.attaches(), 1);
+    assert.strictEqual(t.presentedRecycles(), 0, 'nothing is re-asserted while the burst is still going');
+    await settle();
+    assert.deepStrictEqual(t.children, [t.presented.tab.view], 'the lingering view is released once the burst ends');
+    assert.strictEqual(t.presentedRecycles(), 1);
+  });
+
+  it('a detach sweep leaves a lingering view alone, as it does a view an action holds', async () => {
+    const t = setup();
+    await t.host.runWithAttachedTabView(t.background.tab.view, async () => undefined, false, { lingerMs: LINGER_MS });
+    t.host.detachUnpresentedTabViews();
+    assert.strictEqual(t.host.isTabViewAttached(t.background.tab.view), true);
+    await settle();
+    assert.deepStrictEqual(t.children, [t.presented.tab.view]);
+  });
+
+  it('a hold that asks for no linger takes over a lingering one and releases the view when it ends', async () => {
+    const t = setup();
+    await t.host.runWithAttachedTabView(t.background.tab.view, async () => undefined, false, { lingerMs: LINGER_MS });
+    await t.host.runWithAttachedTabView(t.background.tab.view, async () => undefined);
+    assert.deepStrictEqual(t.children, [t.presented.tab.view], 'no wait needed: the capture-style caller releases at once');
+    assert.strictEqual(t.attaches(), 1);
+    await settle();
+    assert.deepStrictEqual(t.children, [t.presented.tab.view], 'the cancelled linger must not release a second time');
+    assert.strictEqual(t.presentedRecycles(), 1);
+  });
+
+  it('a lingering view that left the window is attached again by the next hold, so the command never runs on a detached pane', async () => {
+    const t = setup();
+    await t.host.runWithAttachedTabView(t.background.tab.view, async () => undefined, false, { lingerMs: LINGER_MS });
+    // A capture lift, a layer recycle or a window move can take the pane out while it lingers.
+    t.children.splice(t.children.indexOf(t.background.tab.view), 1);
+
+    let attachedDuringHold: boolean | undefined;
+    await t.host.runWithAttachedTabView(t.background.tab.view, async () => {
+      attachedDuringHold = t.host.isTabViewAttached(t.background.tab.view);
+    }, false, { lingerMs: LINGER_MS });
+
+    assert.strictEqual(attachedDuringHold, true);
+    assert.strictEqual(t.attaches(), 2);
+    await settle();
+    assert.deepStrictEqual(t.children, [t.presented.tab.view], 'the re-attached pane is released like any other');
+    assert.strictEqual(t.presentedRecycles(), 1, 'a release that changed the window tree re-asserts the presented layer');
+  });
+
+  it('a view that became the presented one during the linger stays in the window when the linger ends', async () => {
+    const t = setup();
+    await t.host.runWithAttachedTabView(t.background.tab.view, async () => undefined, false, { lingerMs: LINGER_MS });
+    t.host.activeTabId = 'tab-bg';
+    await settle();
+    assert.ok(t.children.includes(t.background.tab.view), 'the tab the user is looking at is never detached by a release');
   });
 });
 

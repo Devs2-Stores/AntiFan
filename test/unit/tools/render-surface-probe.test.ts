@@ -31,6 +31,9 @@ function makePort(probe: (call: number) => Promise<unknown>): { port: BrowserCon
       bounds.push(boundMs);
       return probe(++probeCalls);
     },
+    captureVerificationScreenshot: async () => {
+      throw new Error('capture reached');
+    },
     evalJs: async () => {
       evals++;
       return 'ran';
@@ -40,25 +43,36 @@ function makePort(probe: (call: number) => Promise<unknown>): { port: BrowserCon
 }
 
 describe('render surface probe failures say whether the surface is absent or the probe was slow', () => {
-  it('retries a timed-out probe once with the larger bound and proceeds when the second answers', async () => {
-    const { port, probeCalls, evals, bounds } = makePort(async (call) => {
-      if (call === 1) throw codedError('CAPTURE_TIMEOUT', 'Render-surface probe on tab timed out after 3000ms');
-      return surface;
+  const capture = (port: BrowserControlPort) => port.screenshot(target, 'run-1', 'attempt-1', 'tab-1', 'desktop');
+
+  it('an evaluation runs after one timed-out probe: the probe is attempted once, with the short bound', async () => {
+    const { port, probeCalls, evals, bounds } = makePort(async () => {
+      throw codedError('CAPTURE_TIMEOUT', 'Render-surface probe on tab timed out after 3000ms');
     });
     const result = await port.eval(target, '1', undefined, undefined, { requireRenderSurface: true });
     assert.equal(result, 'ran');
-    assert.equal(probeCalls(), 2);
-    assert.deepEqual(bounds, [RENDER_SURFACE_PROBE_BOUND_MS, RENDER_SURFACE_PROBE_RETRY_BOUND_MS]);
-    assert.ok(RENDER_SURFACE_PROBE_RETRY_BOUND_MS > RENDER_SURFACE_PROBE_BOUND_MS);
+    assert.equal(probeCalls(), 1);
+    assert.deepEqual(bounds, [RENDER_SURFACE_PROBE_BOUND_MS]);
     assert.equal(evals(), 1);
   });
 
-  it('reports PROBE_TIMEOUT as retryable after the probe times out twice', async () => {
-    const { port, probeCalls, evals } = makePort(async () => {
+  it('a capture retries a timed-out probe once with the larger bound and proceeds when the second answers', async () => {
+    const { port, bounds } = makePort(async (call) => {
+      if (call === 1) throw codedError('CAPTURE_TIMEOUT', 'Render-surface probe on tab timed out after 3000ms');
+      return surface;
+    });
+    await assert.rejects(capture(port), /capture reached/);
+    // The capture itself re-measures after it fails; the gate's own two probes come first.
+    assert.deepEqual(bounds.slice(0, 2), [RENDER_SURFACE_PROBE_BOUND_MS, RENDER_SURFACE_PROBE_RETRY_BOUND_MS]);
+    assert.ok(RENDER_SURFACE_PROBE_RETRY_BOUND_MS > RENDER_SURFACE_PROBE_BOUND_MS);
+  });
+
+  it('a capture reports PROBE_TIMEOUT as retryable after the probe times out twice', async () => {
+    const { port, probeCalls } = makePort(async () => {
       throw codedError('CAPTURE_TIMEOUT', 'Render-surface probe on tab timed out after 3000ms');
     });
     await assert.rejects(
-      port.eval(target, '1', undefined, undefined, { requireRenderSurface: true }),
+      capture(port),
       (err: unknown) => err instanceof CapabilityError
         && err.code === 'NO_RENDER_SURFACE'
         && err.details?.cause === 'PROBE_TIMEOUT'
@@ -66,23 +80,21 @@ describe('render surface probe failures say whether the surface is absent or the
         && err.details?.probeTimedOut === true
     );
     assert.equal(probeCalls(), 2, 'a timeout is retried exactly once');
-    assert.equal(evals(), 0);
   });
 
-  it('reports PROBE_TIMEOUT when the retry is refused because the first probe still drains', async () => {
-    const { port, probeCalls, evals } = makePort(async (call) => {
+  it('a capture reports PROBE_TIMEOUT when the retry is refused because the first probe still drains', async () => {
+    const { port, probeCalls } = makePort(async (call) => {
       if (call === 1) throw codedError('CAPTURE_TIMEOUT', 'Render-surface probe on tab timed out after 3000ms');
       throw codedError('TARGET_BUSY_DRAINING', 'Cannot admit CDP command Runtime.evaluate; target 25 is draining timed-out command Runtime.evaluate');
     });
     await assert.rejects(
-      port.eval(target, '1', undefined, undefined, { requireRenderSurface: true }),
+      capture(port),
       (err: unknown) => err instanceof CapabilityError
         && err.code === 'NO_RENDER_SURFACE'
         && err.details?.cause === 'PROBE_TIMEOUT'
         && err.details?.retryable === true
     );
     assert.equal(probeCalls(), 2);
-    assert.equal(evals(), 0);
   });
 
   it('reports ABSENT_SURFACE as not retryable and does not retry a probe that answered', async () => {

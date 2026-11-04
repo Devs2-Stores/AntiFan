@@ -1866,7 +1866,7 @@ export class NativeTabHost extends EventEmitter {
         getDiagnostics: (tabId, level) => (this.diagnosticsManager && typeof this.diagnosticsManager.getDiagnostics === 'function') ? this.diagnosticsManager.getDiagnostics(tabId, level as any) : null,
         createTab: (url, activate) => this.createTab(url, activate),
         withTabAgentWorking: (tabId, action) => this.withTabAgentWorking(tabId, action),
-        runWithAttachedTabView: (view, action, isMobile) => this.runWithAttachedTabView(view, action, isMobile),
+        runWithAttachedTabView: (view, action, isMobile, options) => this.runWithAttachedTabView(view, action, isMobile, options),
         getTabContentBounds: (tabId, paneId) => this.getTabContentBounds(tabId, paneId),
         // Declared 'user' so the seam is unambiguous: a capture never switches
         // tabs, and anything this host activates is for the person watching.
@@ -6253,7 +6253,7 @@ export class NativeTabHost extends EventEmitter {
     return this.isBookmarkBarVisible;
   }
 
-  private temporaryViewAttachCounts = new WeakMap<WebContentsView, { count: number; attachedByHelper: boolean }>();
+  private temporaryViewAttachCounts = new WeakMap<WebContentsView, { count: number; attachedByHelper: boolean; lingerTimer?: ReturnType<typeof setTimeout> }>();
 
   public isTabViewAttached(view: WebContentsView | null | undefined): boolean {
     if (!view) return false;
@@ -6438,19 +6438,54 @@ export class NativeTabHost extends EventEmitter {
     }
   }
 
-  public async runWithAttachedTabView<T>(view: WebContentsView | null | undefined, action: () => Promise<T>, isMobile = false): Promise<T> {
+  /**
+   * Holds a pane on screen while `action` runs, then hands the window back.
+   *
+   * `lingerMs` is for read-only commands that arrive in bursts (a render-surface probe followed by
+   * an evaluation, a loop of evaluations): the last hold of a burst keeps the pane attached for
+   * that long instead of releasing at once, and the next hold of the same view takes the linger
+   * over, so the attach, the layout, the release and the re-assert of the presented layer are paid
+   * once per burst and not once per command. A hold that asks for no linger releases when it ends,
+   * linger or not. The lingering pane counts as held, so the detach sweeps leave it alone exactly as
+   * they do for a view an action is holding.
+   *
+   * With benchmarks on, each hold reports its steps (row `attach-hold-steps`) so the cost of the
+   * attach, layout, throttling, invalidate, release and re-assert can be read off a live run.
+   */
+  public async runWithAttachedTabView<T>(view: WebContentsView | null | undefined, action: () => Promise<T>, isMobile = false, options: { lingerMs?: number } = {}): Promise<T> {
     if (!view || !this.shell.window || (typeof this.shell.window.isDestroyed === 'function' && this.shell.window.isDestroyed()) || !this.shell.window.contentView) {
       return action();
     }
     if (!this.temporaryViewAttachCounts) {
       this.temporaryViewAttachCounts = new WeakMap();
     }
+    const steps = isBenchmarkEnabled() ? ({} as Record<string, number>) : null;
+    const holdStartMs = performance.now();
+    let mark = holdStartMs;
     const state = this.temporaryViewAttachCounts.get(view);
-    if (!state || state.count === 0) {
+    let tookOverLinger = false;
+    if (state && state.lingerTimer !== undefined) {
+      // The hold the linger kept becomes this call's. A capture lift, a layer recycle or a window
+      // move may have taken the pane out of the window meanwhile, and a command run against a pane
+      // outside it waits out the whole eval ceiling: it is attached and laid out again, and the
+      // release that follows has changed the window tree, so it re-asserts the presented layer.
+      clearTimeout(state.lingerTimer);
+      state.lingerTimer = undefined;
+      tookOverLinger = true;
+      if (!this.isTabViewAttached(view)) {
+        this.attachTabView(view, isMobile);
+        mark = markSwitchStep(steps, 'attach', mark);
+        this.layOutDetachedView(view);
+        mark = markSwitchStep(steps, 'layout', mark);
+        state.attachedByHelper = true;
+      }
+    } else if (!state || state.count === 0) {
       const wasAttached = this.isTabViewAttached(view);
       if (!wasAttached) {
         this.attachTabView(view, isMobile);
+        mark = markSwitchStep(steps, 'attach', mark);
         this.layOutDetachedView(view);
+        mark = markSwitchStep(steps, 'layout', mark);
       }
       this.temporaryViewAttachCounts.set(view, { count: 1, attachedByHelper: !wasAttached });
     } else {
@@ -6459,45 +6494,72 @@ export class NativeTabHost extends EventEmitter {
     const wc = view.webContents;
     const wasThrottled = (wc && this.readBackgroundThrottling(wc)) ?? true;
     this.setWebContentsThrottling(wc, false);
+    mark = markSwitchStep(steps, 'throttle', mark);
     if (wc && typeof wc.invalidate === 'function') {
       try { wc.invalidate(); } catch {}
     }
+    mark = markSwitchStep(steps, 'invalidate', mark);
     try {
       return await action();
     } finally {
+      mark = markSwitchStep(steps, 'action', mark);
       this.setWebContentsThrottling(wc, wasThrottled);
+      mark = markSwitchStep(steps, 'restoreThrottle', mark);
       const current = this.temporaryViewAttachCounts.get(view);
-      if (current) {
-        current.count--;
-        if (current.count <= 0) {
-          this.temporaryViewAttachCounts.delete(view);
-          const activeTab = this.activeTabId ? this.tabs.get(this.activeTabId) : null;
-          const isActiveView = activeTab && (activeTab.view === view || activeTab.mobileView === view);
-          // Detach whenever this view is no longer the presented tab. `attachedByHelper`
-          // is false when the view was already attached at entry (it was the active tab).
-          // A switch during the probe leaves that view in the tree — switchTab will not
-          // detach a temporarily-held view — and skipping the detach here is what leaves
-          // a second full-size pane painted over the tab the user is looking at.
-          if (!isActiveView) {
-            try {
-              if (this.shell.window && (typeof this.shell.window.isDestroyed !== 'function' || !this.shell.window.isDestroyed()) && this.shell.window.contentView && this.isTabViewAttached(view)) {
-                this.shell.window.contentView.removeChildView(view);
-              }
-            } catch {}
-          }
-          // Releasing a temporary attach must not leave the presented tab outside the
-          // window. The release used to invalidate the active view only, and an invalidate
-          // on a detached view repaints nothing, so the pane stayed blank until something
-          // else happened to activate that tab again. A helper that attached nothing — the
-          // view was already presented and is still the active one — mutated no view stack,
-          // and re-asserting there recycles the layer the user is looking at and relays it
-          // out under them, so only a release that changed the tree re-asserts the invariant.
-          if (current.attachedByHelper || !isActiveView) {
-            this.reassertPresentedView();
-          }
-        }
+      const lingerMs = options.lingerMs;
+      if (current && current.count === 1 && typeof lingerMs === 'number' && lingerMs > 0 && !this.isDisposed) {
+        const timer = setTimeout(() => {
+          current.lingerTimer = undefined;
+          if (this.temporaryViewAttachCounts.get(view) === current) this.releaseTemporaryAttach(view, current, null);
+        }, lingerMs);
+        timer.unref?.();
+        current.lingerTimer = timer;
+      } else if (current) {
+        this.releaseTemporaryAttach(view, current, steps);
+      }
+      if (steps) {
+        recordBenchmark({
+          surface: 'tabs',
+          name: 'attach-hold-steps',
+          value: Number((performance.now() - holdStartMs).toFixed(3)),
+          extra: { ...steps, lingerTookOver: tookOverLinger ? 1 : 0, lingerArmed: current?.lingerTimer !== undefined ? 1 : 0 },
+        });
       }
     }
+  }
+
+  /** Drops one hold on a temporarily attached view and, when it was the last, hands the window back. */
+  private releaseTemporaryAttach(view: WebContentsView, current: { count: number; attachedByHelper: boolean }, steps: Record<string, number> | null): void {
+    current.count--;
+    if (current.count > 0) return;
+    let mark = performance.now();
+    this.temporaryViewAttachCounts.delete(view);
+    const activeTab = this.activeTabId ? this.tabs.get(this.activeTabId) : null;
+    const isActiveView = activeTab && (activeTab.view === view || activeTab.mobileView === view);
+    // Detach whenever this view is no longer the presented tab. `attachedByHelper`
+    // is false when the view was already attached at entry (it was the active tab).
+    // A switch during the probe leaves that view in the tree — switchTab will not
+    // detach a temporarily-held view — and skipping the detach here is what leaves
+    // a second full-size pane painted over the tab the user is looking at.
+    if (!isActiveView) {
+      try {
+        if (this.shell.window && (typeof this.shell.window.isDestroyed !== 'function' || !this.shell.window.isDestroyed()) && this.shell.window.contentView && this.isTabViewAttached(view)) {
+          this.shell.window.contentView.removeChildView(view);
+        }
+      } catch {}
+    }
+    mark = markSwitchStep(steps, 'detach', mark);
+    // Releasing a temporary attach must not leave the presented tab outside the
+    // window. The release used to invalidate the active view only, and an invalidate
+    // on a detached view repaints nothing, so the pane stayed blank until something
+    // else happened to activate that tab again. A helper that attached nothing — the
+    // view was already presented and is still the active one — mutated no view stack,
+    // and re-asserting there recycles the layer the user is looking at and relays it
+    // out under them, so only a release that changed the tree re-asserts the invariant.
+    if (current.attachedByHelper || !isActiveView) {
+      this.reassertPresentedView();
+    }
+    markSwitchStep(steps, 'reassert', mark);
   }
 
   /**
