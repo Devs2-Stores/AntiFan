@@ -579,7 +579,7 @@ describe('MCP proxy bound-tab default follows the authority', { concurrency: 4 }
       assert.equal(typing.required, undefined, 'text is no longer unconditionally required');
       assert.equal(typing.oneOf, undefined, 'a top-level oneOf would hide every argument from some MCP clients');
       assert.equal(typing.anyOf, undefined);
-      assert.match(byName.get('anti.agent.cursor.type')!.description, /Provide exactly one of: text \| fromEnv\./);
+      assert.match(byName.get('anti.agent.cursor.type')!.description, /Provide at least one of: text \| fromEnv \| clear\./);
 
       const frame = byName.get('anti.browser.evaluate_frame')!.inputSchema;
       for (const field of ['frameUrl', 'frameId', 'frameIndex', 'frameSelector']) assert.ok(field in frame.properties, field);

@@ -108,7 +108,7 @@ test('listTools never emits a top-level oneOf/anyOf and states the alternatives 
   const sequence = tools.find((tool) => tool.name === 'anti.agent.sequence');
   assert.match(sequence.description, /Provide exactly one of: actions \| steps\./);
   const wait = tools.find((tool) => tool.name === 'browser.wait');
-  assert.match(wait.description, /Provide at least one of: condition \| type \| selector \| ref \| urlPattern \| url \| minGeneration\./);
+  assert.match(wait.description, /Provide at least one of: condition \| type \| selector \| ref \| urlPattern \| url \| minGeneration \| timeout \| ms\./);
   const evaluate = tools.find((tool) => tool.name === 'anti.browser.evaluate');
   assert.match(evaluate.description, /Provide exactly one of: expression \| expressionFile\./);
 });
