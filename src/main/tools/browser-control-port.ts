@@ -2879,8 +2879,32 @@ export class BrowserControlPort {
       cause: 'not-in-session-pool',
       ...(managed ? { managedTabIds: [...managed].slice(0, 5), managedTotal: managed.size } : {}),
       ...(ownership ? { ownership } : {}),
+      usableTabs: this.usableTabs(boundTabId),
       shareRecovery: SHARE_TAB_GUIDANCE,
     };
+  }
+
+  /**
+   * The tabs this session may address, bound tab first, bounded: what a refusal about the wrong
+   * tab has to show so the caller can pick a right one instead of guessing.
+   */
+  private usableTabs(boundTabId: string): Array<{ id: string; url?: string }> {
+    let managed: Iterable<string> = [];
+    try {
+      managed = this.host.getManagedTabIds?.(boundTabId) ?? [];
+    } catch {
+      managed = [];
+    }
+    return [...new Set([boundTabId, ...managed])].slice(0, SESSION_TAB_QUOTA_SAMPLE_MAX).map((id) => {
+      const url = this.safeTabUrl(id);
+      return url ? { id, url } : { id };
+    });
+  }
+
+  /** Sentence naming the usable tabs and the call that opens one of the session's own. */
+  private usableTabsNote(boundTabId: string): string {
+    const list = this.usableTabs(boundTabId).map((tab) => (tab.url ? `${tab.id} (${tab.url})` : tab.id)).join(', ');
+    return `Tabs this session may use: ${list}. Pass one of them as tabId on every call, or open your own with anti.browser.tabs.create {url, bind: false} and use the tabId it returns.`;
   }
 
   private safeTabUrl(tabId: string): string | undefined {
@@ -5134,7 +5158,13 @@ export class BrowserControlPort {
       const currentTabs = this.host.getManagedTabIds(boundTabId);
       if (currentTabs && currentTabs.size >= SESSION_TAB_LIMIT) {
         const closableTabIds = this.closableTabIds(boundTabId, currentTabs);
-        throw new CapabilityError('POLICY_DENIED', `Browser tab limit reached (${currentTabs.size}/${SESSION_TAB_LIMIT} tabs in this session). Close a tab this session owns${closableTabIds.length > 0 ? ` (closable: ${closableTabIds.join(', ')})` : ''}, then retry.`, {
+        const ownedByThisAgent = [...currentTabs].slice(0, SESSION_TAB_LIMIT).map((id) => {
+          const url = this.safeTabUrl(id);
+          return { id, ...(url ? { url } : {}), closable: closableTabIds.includes(id) };
+        });
+        const ownedList = ownedByThisAgent.map((tab) => (tab.url ? `${tab.id} (${tab.url})` : tab.id)).join(', ');
+        throw new CapabilityError('POLICY_DENIED', `Browser tab limit reached (${currentTabs.size}/${SESSION_TAB_LIMIT} tabs in this session). Close a tab this session owns${closableTabIds.length > 0 ? ` (closable: ${closableTabIds.join(', ')})` : ''}, then retry. Tabs counted: ${ownedList}.`, {
+          ownedByThisAgent,
           tabId: boundTabId,
           used: currentTabs.size,
           limit: SESSION_TAB_LIMIT,
@@ -5273,7 +5303,7 @@ export class BrowserControlPort {
       if (!allowed) {
         throw new CapabilityError(
           'TARGET_MISMATCH',
-          `Cannot retarget to tab "${cleanId}". This session is isolated to tab "${liveBoundId.trim()}" and its managed tabs. ${SHARE_TAB_GUIDANCE}`,
+          `Cannot retarget to tab "${cleanId}". This session is isolated to tab "${liveBoundId.trim()}" and its managed tabs. ${this.usableTabsNote(liveBoundId.trim())} ${SHARE_TAB_GUIDANCE}`,
           {
             ...this.tabMismatchDetails(liveBoundId.trim(), cleanId, {}),
             tabId: cleanId,
@@ -5361,7 +5391,7 @@ export class BrowserControlPort {
         if (!allowed && !sameProjectScope && !sharedByUser) {
           throw new CapabilityError(
             'TARGET_MISMATCH',
-            `Cannot rebind to tab "${effectiveTabId}". This session is isolated to tab "${priorBoundId.trim()}" and its managed tabs. ${SHARE_TAB_GUIDANCE}`,
+            `Cannot rebind to tab "${effectiveTabId}". This session is isolated to tab "${priorBoundId.trim()}" and its managed tabs. ${this.usableTabsNote(priorBoundId.trim())} ${SHARE_TAB_GUIDANCE}`,
             {
               ...this.tabMismatchDetails(priorBoundId.trim(), effectiveTabId, {}),
               boundTabId: priorBoundId.trim(),
@@ -5454,7 +5484,7 @@ export class BrowserControlPort {
     if (boundId && targetId.trim() !== boundId.trim() && !authorizedByCreator) {
       const isAllowed = this.host.isTabAllowed ? this.host.isTabAllowed(boundId.trim(), targetId.trim()) : false;
       if (!isAllowed) {
-        throw new CapabilityError('TARGET_MISMATCH', `Cannot close tab "${targetId}". This session is isolated to tab "${boundId}" and its managed tabs. ${SHARE_TAB_GUIDANCE}`, {
+        throw new CapabilityError('TARGET_MISMATCH', `Cannot close tab "${targetId}". This session is isolated to tab "${boundId}" and its managed tabs. ${this.usableTabsNote(boundId.trim())} ${SHARE_TAB_GUIDANCE}`, {
           ...this.tabMismatchDetails(boundId.trim(), targetId.trim(), {}),
           tabId: targetId,
           boundTabId: boundId,
@@ -5570,7 +5600,7 @@ export class BrowserControlPort {
       if (!isAllowed) {
         throw new CapabilityError(
           'TARGET_MISMATCH',
-          `Cannot switch to tab '${tabId}'. This session is isolated to tab '${boundId}'. ${SHARE_TAB_GUIDANCE}`,
+          `Cannot switch to tab '${tabId}'. This session is isolated to tab '${boundId}'. ${this.usableTabsNote(boundId)} ${SHARE_TAB_GUIDANCE}`,
           {
             ...this.tabMismatchDetails(boundId, targetId, {}),
             tabId,
@@ -10188,7 +10218,7 @@ export class BrowserControlPort {
               if (!params.paneId) params.paneId = 'mobile';
             }
           } else {
-            throw new CapabilityError('TARGET_MISMATCH', `Explicit tabId "${explicitTabId}" does not match target tabId "${target.tabId}".${splitReviewNote(this.host.isTabSplit?.(target.tabId))} ${SHARE_TAB_GUIDANCE}`, {
+            throw new CapabilityError('TARGET_MISMATCH', `Explicit tabId "${explicitTabId}" does not match target tabId "${target.tabId}".${splitReviewNote(this.host.isTabSplit?.(target.tabId))} ${this.usableTabsNote(target.tabId.trim())} ${SHARE_TAB_GUIDANCE}`, {
               ...this.tabMismatchDetails(target.tabId.trim(), candidate, {}),
               tabId: explicitTabId,
               boundTabId: target.tabId,
