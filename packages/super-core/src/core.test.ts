@@ -1462,3 +1462,22 @@ test('an unstamped store is prepared on open and stamped afterwards', () => {
   check.close();
   assert.notEqual(stamp, 0, 'the preparing open leaves a stamp');
 });
+
+// The stamp is derived from the preparation text, so a store stamped by a build with a different
+// schema (or an old stamp) is prepared again and gets whatever that DDL adds.
+test('a store carrying a stale stamp is prepared again on open', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'core-open-stale-'));
+  const file = path.join(dir, 'core.db');
+  openCore(file).close();
+
+  const raw = new DatabaseSync(file);
+  raw.exec('DROP INDEX idx_claims_unit');
+  raw.exec('PRAGMA user_version = 1');
+  raw.close();
+
+  openCore(file).close();
+  const check = new DatabaseSync(file);
+  const restored = check.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_claims_unit'").all();
+  check.close();
+  assert.equal(restored.length, 1, 'a stale stamp must not hide a missing schema object');
+});

@@ -801,10 +801,14 @@ describe('InvocationLedger - startup retention', () => {
     await writer.initialize();
     const liveInvocation = await settleOne(writer, live, { value: 'kept in full', big: 'x'.repeat(4096) });
     const deadInvocation = await settleOne(writer, dead, { value: 'gone' });
+    // A replay of this partition quarantines it (renames it to *.quarantine-<stamp>), so a
+    // ledger that replays before pruning leaves that trace behind and fails below.
+    fs.appendFileSync(path.join(tmpDir, 'invocations', `${dead}.jsonl`), 'not a frame\n', 'utf8');
 
     const restarted = new InvocationLedger({ dataRoot: tmpDir });
     await restarted.initialize(new Set([live]));
 
+    assert.strictEqual(restarted.isQuarantined(dead), false, 'a dead partition is deleted, never replayed into quarantine');
     const files = fs.readdirSync(path.join(tmpDir, 'invocations')).sort();
     assert.deepStrictEqual(files, [`${live}.jsonl`], 'only the live partition stays on disk');
     assert.strictEqual(restarted.getRecord(deadInvocation), undefined, 'a dead partition is not loaded into memory');
