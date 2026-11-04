@@ -142,16 +142,19 @@ export function registerQaProbeCapabilities(
         ...tabProps,
         exerciseCart: { type: 'boolean', description: 'Click + then − on the first cart line and restore the quantity (changes the cart temporarily)' },
         allowRemove: { type: 'boolean', description: 'With exerciseCart: also click the remove control of the first line, then add the line back' },
+        autoSeed: { type: 'boolean', description: 'When the cart is empty, discover an available product variant, add 1 item via /cart/add.js and reload /cart before measuring' },
       },
     },
-    execute: (params: ProbeTabParams & { exerciseCart?: unknown; allowRemove?: unknown }, context) => {
+    execute: (params: ProbeTabParams & { exerciseCart?: unknown; allowRemove?: unknown; autoSeed?: unknown }, context) => {
       const name = 'anti.qa.cart_contract';
       if (params.exerciseCart !== undefined && typeof params.exerciseCart !== 'boolean') throw invalid(name, 'exerciseCart must be a boolean');
       if (params.allowRemove !== undefined && typeof params.allowRemove !== 'boolean') throw invalid(name, 'allowRemove must be a boolean');
+      if (params.autoSeed !== undefined && typeof params.autoSeed !== 'boolean') throw invalid(name, 'autoSeed must be a boolean');
       if (params.allowRemove === true && params.exerciseCart !== true) throw invalid(name, 'allowRemove only applies together with exerciseCart: true');
       return runCartContract(depsFor(params, context), {
         ...(params.exerciseCart === true ? { exerciseCart: true } : {}),
         ...(params.allowRemove === true ? { allowRemove: true } : {}),
+        ...(params.autoSeed === true ? { autoSeed: true } : {}),
       });
     },
   });

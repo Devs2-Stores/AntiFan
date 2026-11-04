@@ -153,6 +153,20 @@ function deriveFromCartContract(result: ProbeResult<unknown>, ticks: ChecklistTi
   ticks.push(checkoutBad === 0
     ? { itemId: 'crt-04', done: true, note: note('nút thanh toán có đích hợp lệ') }
     : { itemId: 'crt-04', done: false, note: note(`nút thanh toán hỏng (${result.findings.filter((f) => f.ruleId === 'cart-checkout-missing' || f.ruleId === 'checkout-target-invalid').map((f) => f.ruleId).join(', ')})`) });
+  const layoutBadRules = [
+    'cart-header-columns-stacked',
+    'cart-item-details-crushed',
+    'cart-item-title-collapsed',
+    'cart-quantity-collapsed',
+    'cart-item-control-collapsed',
+    'cart-item-remove-overlap',
+  ];
+  const layoutBad = ruleHits(result, ...layoutBadRules);
+  if (layoutBad > 0) {
+    const names = result.findings.filter((f) => layoutBadRules.includes(f.ruleId)).map((f) => f.ruleId).join(', ');
+    ticks.push({ itemId: 'crt-02', done: false, note: note(`vỡ layout hoặc bóp hẹp control giỏ hàng (${names})`) });
+    return;
+  }
   if (data?.exercised !== true) return;
   const dead = ruleHits(result, 'cart-control-no-request');
   ticks.push(dead === 0

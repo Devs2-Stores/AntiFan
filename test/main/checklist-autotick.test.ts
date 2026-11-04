@@ -160,6 +160,21 @@ describe('checklist autotick', () => {
     assert.match(ticks['crt-02']!.note, /2 nút/);
   });
 
+  it('un-ticks crt-02 even on a passive run when cart layout or control geometry is broken', () => {
+    const ticks = byId(deriveChecklistTicks({
+      probes: {
+        cart_contract: probe(
+          { exercised: false, steps: [] },
+          [finding('cart-item-details-crushed'), finding('cart-header-columns-stacked')]
+        ),
+      },
+    }));
+    assert.strictEqual(ticks['crt-04']?.done, true);
+    assert.strictEqual(ticks['crt-02']?.done, false);
+    assert.match(ticks['crt-02']!.note, /cart-item-details-crushed/);
+    assert.match(ticks['crt-02']!.note, /cart-header-columns-stacked/);
+  });
+
   it('ticks nothing for a cart run that measured nothing, such as an empty cart', () => {
     assert.deepStrictEqual(deriveChecklistTicks({ probes: { cart_contract: probe({ exercised: false, steps: [] }, [finding('QA_EMPTY_CART_NOT_EXERCISED', 'info')], false) } }), []);
   });

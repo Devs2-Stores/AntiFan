@@ -1300,6 +1300,110 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
       }
     };
     checkInnerClippedInOverflowAncestor();
+    const checkGridTrackCrushAndZeroWidthContainers = () => {
+      const CAROUSEL_OR_SLIDER_RE = /swiper|carousel|slider|splide|flickity|glide|owl|marquee|ticker/i;
+      const crushedContainers = new Set();
+      for (let i = 0; i < elementLimit; i++) {
+        const el = allElements[i];
+        if (!el || el === doc || el === body || el.closest('svg, head, script, style, noscript, template') || el.closest(PLATFORM_PREVIEW_CHROME)) continue;
+        if (isSrOnly(el) || unsettled(el) || !painted(el)) continue;
+        const s = cs(el);
+        if (s.display === 'none' || s.display === 'contents' || s.display === 'inline') continue;
+        if (s.position === 'fixed' || s.position === 'absolute') continue;
+        const r = el.getBoundingClientRect();
+        if (r.right <= 0 || r.left >= vw) continue;
+        if ((s.display === 'grid' || s.display === 'inline-grid') && r.width >= 300 && r.height >= 16 && !el.closest('[aria-hidden="true"], [inert]')) {
+          const tracks = String(s.gridTemplateColumns || '')
+            .replace(/\[[^\]]*\]/g, ' ')
+            .trim()
+            .split(/\s+/)
+            .map((t) => (/^-?\d+(\.\d+)?px$/i.test(t) ? parseFloat(t) : NaN))
+            .filter((n) => Number.isFinite(n) && n > 0);
+          if (tracks.length >= 2 && tracks[0] <= 140 && tracks[1] >= tracks[0] * 1.5) {
+            const visKids = [];
+            for (let c = 0; c < el.children.length; c++) {
+              const ch = el.children[c];
+              const ks = cs(ch);
+              if (ks.display === 'none' || ks.position === 'absolute' || ks.position === 'fixed') continue;
+              if (!painted(ch) || isSrOnly(ch)) continue;
+              visKids.push(ch);
+            }
+            if (visKids.length === 1) {
+              const onlyChild = visKids[0];
+              const cr = onlyChild.getBoundingClientRect();
+              if (cr.width <= 140 && cr.width <= tracks[0] + 4 && cr.width < r.width * 0.45 && ((onlyChild.textContent || '').trim().length > 0 || onlyChild.children.length >= 2)) {
+                push({
+                  kind: 'clipping',
+                  ruleId: 'grid-single-child-track-crush',
+                  severity: 'critical',
+                  selector: getSelector(el),
+                  relatedSelector: getSelector(onlyChild),
+                  actualPx: Math.round(cr.width),
+                  details: 'Grid ' + getSelector(el) + ' (' + Math.round(r.width) + 'px wide, ' + tracks.length + ' columns) traps its only visible child ' + getSelector(onlyChild) + ' in the ' + Math.round(tracks[0]) + 'px first column, leaving ' + Math.round(r.width - cr.width) + 'px unused',
+                  rect: toRect(r)
+                });
+              }
+            }
+          }
+        }
+        if (r.width <= 12 && r.height > 80 && !Boolean(layerOf(el)) && !el.closest('[aria-hidden="true"], [inert]') && !el.closest(CAROUSEL_SLIDE) && !CAROUSEL_OR_SLIDER_RE.test(String(el.className || ''))) {
+          if (s.writingMode && String(s.writingMode).indexOf('vertical') === 0) continue;
+          let skipCrushed = false;
+          for (let anc = parentOf(el); anc && anc !== body; anc = parentOf(anc)) {
+            if (crushedContainers.has(anc)) { skipCrushed = true; break; }
+            const as = cs(anc);
+            if (as.position === 'fixed' || as.position === 'absolute' || CAROUSEL_OR_SLIDER_RE.test(String(anc.className || ''))) { skipCrushed = true; break; }
+            if (isHiddenAxis(as.overflowX) && anc.getBoundingClientRect().width <= 12) { skipCrushed = true; break; }
+          }
+          if (!skipCrushed) {
+            const txt = (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim();
+            if (txt.length >= 10) {
+              crushedContainers.add(el);
+              push({
+                kind: 'clipping',
+                ruleId: 'zero-width-text-container',
+                severity: 'critical',
+                selector: getSelector(el),
+                actualPx: Math.round(r.width),
+                details: 'Container ' + getSelector(el) + ' is crushed to ' + Math.round(r.width) + 'px wide while holding text "' + snippet(txt) + '" stacked ' + Math.round(r.height) + 'px tall',
+                rect: toRect(r)
+              });
+            }
+          }
+        }
+      }
+      if (vw >= 768) {
+        const headCandidates = document.querySelectorAll('[class*="cart-items__head"], .cart-template__data-head, [class*="cart-head"], [class*="cart__head"], [class*="cart-header"], [class*="cart-table__head"]');
+        for (let h = 0; h < headCandidates.length; h++) {
+          const headEl = headCandidates[h];
+          if (!painted(headEl) || isSrOnly(headEl) || headEl.closest(PLATFORM_PREVIEW_CHROME)) continue;
+          const cols = [];
+          for (let c = 0; c < headEl.children.length; c++) {
+            const col = headEl.children[c];
+            if (!painted(col) || isSrOnly(col)) continue;
+            const cr = col.getBoundingClientRect();
+            if (cr.width > 0 && cr.height > 0 && (col.textContent || '').trim().length > 0) cols.push({ el: col, r: cr });
+          }
+          if (cols.length >= 3) {
+            let allStacked = true;
+            for (let ci = 1; ci < cols.length; ci++) {
+              if (cols[ci].r.top < cols[ci - 1].r.bottom - 2) { allStacked = false; break; }
+            }
+            if (allStacked) {
+              push({
+                kind: 'clipping',
+                ruleId: 'cart-header-columns-stacked',
+                severity: 'critical',
+                selector: getSelector(headEl),
+                details: 'Cart table header ' + getSelector(headEl) + ' stacks ' + cols.length + ' column labels vertically at ' + Math.round(vw) + 'px width instead of laying them out horizontally',
+                rect: toRect(headEl.getBoundingClientRect())
+              });
+            }
+          }
+        }
+      }
+    };
+    checkGridTrackCrushAndZeroWidthContainers();
   } catch (err) {
     detectorFailed('clipping', err);
   }

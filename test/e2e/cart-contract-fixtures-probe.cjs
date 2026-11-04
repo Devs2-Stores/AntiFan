@@ -120,10 +120,38 @@ const scenarios = [
       return f;
     },
   },
+  {
+    id: 'cart-crushed-layout',
+    variant: 'crushed',
+    options: {},
+    expect: (r, _b, vp) => {
+      const f = [];
+      if (r.measured !== true || r.passed !== false) f.push(`measured=${r.measured} passed=${r.passed}`);
+      for (const reqRule of ['cart-item-details-crushed', 'cart-item-title-collapsed', 'cart-quantity-collapsed', 'cart-item-remove-overlap']) {
+        if (count(r, reqRule) < 1) f.push(`missing ${reqRule} in ${ruleIds(r).join(',')}`);
+      }
+      if (vp.width >= 768 && count(r, 'cart-header-columns-stacked') < 1) {
+        f.push(`missing cart-header-columns-stacked at ${vp.width}px in ${ruleIds(r).join(',')}`);
+      }
+      return f;
+    },
+  },
+  {
+    id: 'cart-empty-autoseed',
+    variant: 'empty-seedable',
+    options: { autoSeed: true },
+    expect: (r, b) => {
+      const f = [];
+      if (r.measured !== true || r.passed !== true) f.push(`measured=${r.measured} passed=${r.passed} ${JSON.stringify(r.findings)}`);
+      if (r.data.seeded !== true) f.push(`expected data.seeded=true, got ${r.data.seeded}`);
+      if (b.items.length !== 1) f.push(`expected 1 seeded item, got ${b.items.length}`);
+      return f;
+    },
+  },
 ];
 
 function startServer(variant) {
-  const backend = createCartBackend(variant === 'empty' ? [] : [LINE]);
+  const backend = createCartBackend(variant === 'empty' || variant === 'empty-seedable' ? [] : [LINE]);
   const server = http.createServer((req, res) => {
     const chunks = [];
     req.on('data', (c) => chunks.push(c));
@@ -131,7 +159,8 @@ function startServer(variant) {
       const pathname = new URL(req.url, 'http://127.0.0.1').pathname;
       if (pathname === '/cart' && req.method === 'GET') {
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-        res.end(cartPageHtml(variant, backend.items[0] ? backend.items[0].quantity : LINE.quantity));
+        const pageVariant = variant === 'empty-seedable' ? (backend.items.length > 0 ? 'good' : 'empty') : variant;
+        res.end(cartPageHtml(pageVariant, backend.items[0] ? backend.items[0].quantity : LINE.quantity));
         return;
       }
       const reply = backend.handle(req.method, req.url, Buffer.concat(chunks).toString('utf8'));
@@ -198,7 +227,7 @@ async function run() {
       const { win, dbg } = await openAt(vp, `http://127.0.0.1:${port}/cart`);
       try {
         const result = await runCartContract(makeDeps(win, dbg), scenario.options);
-        const failures = scenario.expect(result, backend);
+        const failures = scenario.expect(result, backend, vp);
         if (failures.length === 0) {
           passed++;
           console.log(`PASS ${scenario.id}@${vp.name}`);

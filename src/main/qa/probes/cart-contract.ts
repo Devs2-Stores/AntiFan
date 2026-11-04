@@ -17,6 +17,8 @@ export interface CartContractOptions {
   exerciseCart?: boolean;
   /** With exerciseCart: also click the remove control of the first line, then add the line back. */
   allowRemove?: boolean;
+  /** When the cart is empty, discover an available product variant, add 1 to the cart via /cart/add.js and reload /cart before measuring. */
+  autoSeed?: boolean;
 }
 
 export interface CartControlCounts {
@@ -51,6 +53,7 @@ export interface CartExerciseStep {
 export interface CartContractData {
   itemCount: number;
   exercised: boolean;
+  seeded?: boolean;
   controls: CartControlCounts;
   checkoutTargets: CartCheckoutTarget[];
   steps: CartExerciseStep[];
@@ -83,6 +86,7 @@ interface CartStateResult {
   isCartPage?: boolean;
   cart?: CartSnapshot;
   controls?: { plus: TaggedControl[]; minus: TaggedControl[]; remove: TaggedControl[]; quantityInput: number; checkout: CartCheckoutTarget[] };
+  layoutFindings?: ProbeFinding[];
 }
 
 interface CartObserveResult {
@@ -246,9 +250,198 @@ try {
       return { tag: tag, label: describe(el), lineKey: lineKeyOf(el) };
     });
   });
-  var quantityInput = Array.prototype.filter.call(scope.querySelectorAll('input[name^="updates"], input[name="quantity"], input[data-quantity-input], input[type="number"], input[class*="qty"], input[class*="quantity"]'), function (el) {
+  var qtyInputs = Array.prototype.filter.call(scope.querySelectorAll('input[name^="updates"], input[name="quantity"], input[data-quantity-input], input[type="number"], input[class*="qty"], input[class*="quantity"]'), function (el) {
     return el.type !== 'hidden' && !hidden(el);
-  }).length;
+  });
+  var quantityInput = qtyInputs.length;
+  var layoutFindings = [];
+  var vw = window.innerWidth || (document.documentElement ? document.documentElement.clientWidth : 0) || (document.body ? document.body.getBoundingClientRect().width : 0);
+  var hasLayout = (document.body ? document.body.getBoundingClientRect().width > 0 : false) || Array.prototype.some.call(scope.querySelectorAll('*'), function (n) {
+    var b = n.getBoundingClientRect();
+    return b.width > 0 || b.height > 0;
+  });
+  var visibleRect = function (el) {
+    var r = el.getBoundingClientRect();
+    var left = r.left, top = r.top, right = r.right, bottom = r.bottom;
+    for (var cur = el; cur && cur.nodeType === 1 && cur !== document.body && cur !== document.documentElement; cur = cur.parentElement) {
+      var cs = getComputedStyle(cur);
+      var ox = cs.overflowX || cs.overflow;
+      var oy = cs.overflowY || cs.overflow;
+      if (cur !== el && (ox === 'hidden' || ox === 'clip' || ox === 'auto' || ox === 'scroll' || oy === 'hidden' || oy === 'clip')) {
+        var cr = cur.getBoundingClientRect();
+        if (ox === 'hidden' || ox === 'clip' || ox === 'auto' || ox === 'scroll') {
+          left = Math.max(left, cr.left);
+          right = Math.min(right, cr.right);
+        }
+        if (oy === 'hidden' || oy === 'clip') {
+          top = Math.max(top, cr.top);
+          bottom = Math.min(bottom, cr.bottom);
+        }
+      }
+    }
+    return {
+      left: left,
+      top: top,
+      right: right,
+      bottom: bottom,
+      width: Math.max(0, right - left),
+      height: Math.max(0, bottom - top),
+      rawWidth: r.width,
+      rawHeight: r.height
+    };
+  };
+  if (hasLayout && cart.itemCount > 0) {
+    var headCandidates = scope.querySelectorAll('[class*="cart-items__head"], .cart-template__data-head, [class*="cart-head"], [class*="cart__head"], [class*="cart-header"], [class*="cart-table__head"]');
+    var seenHeads = [];
+    Array.prototype.forEach.call(headCandidates, function (headEl) {
+      if (hidden(headEl) || seenHeads.indexOf(headEl) !== -1) return;
+      seenHeads.push(headEl);
+      var headRect = headEl.getBoundingClientRect();
+      var effectiveVw = vw >= 768 ? vw : (headRect.width >= 500 ? headRect.width : 0);
+      if (effectiveVw < 768 && headRect.width < 500) return;
+      var cols = Array.prototype.filter.call(headEl.children, function (c) {
+        if (hidden(c)) return false;
+        var cr = c.getBoundingClientRect();
+        return cr.width > 0 && cr.height > 0 && (c.textContent || '').trim().length > 0;
+      });
+      if (cols.length >= 3) {
+        var allStacked = true;
+        for (var ci = 1; ci < cols.length; ci++) {
+          var prevR = cols[ci - 1].getBoundingClientRect();
+          var nextR = cols[ci].getBoundingClientRect();
+          if (nextR.top < prevR.bottom - 2) {
+            allStacked = false;
+            break;
+          }
+        }
+        if (allStacked) {
+          layoutFindings.push({
+            ruleId: 'cart-header-columns-stacked',
+            severity: 'critical',
+            selector: describe(headEl),
+            message: 'Cart table header ' + describe(headEl) + ' stacks ' + cols.length + ' column labels vertically on desktop instead of a horizontal row',
+            measured: { columns: cols.length, viewportWidth: Math.round(effectiveVw || headRect.width) }
+          });
+        }
+      }
+    });
+    var rowNodes = Array.prototype.filter.call(
+      scope.querySelectorAll('[data-line-item], [data-cart-item], [data-line], [data-key], .mh-cart-item, .cart-item, .cart-row, tr.cart__row'),
+      function (el) {
+        if (hidden(el) || el.closest('header, footer, nav')) return false;
+        if (/^(BUTTON|A|INPUT|SELECT|TEXTAREA)$/.test(el.tagName)) return false;
+        var cls = typeof el.className === 'string' ? el.className : '';
+        if (/cart-items|cart-item__|__head|__list|__form|__footer|__summary/.test(cls)) return false;
+        return true;
+      }
+    );
+    var cartRows = rowNodes.filter(function (el) {
+      return !rowNodes.some(function (other) { return other !== el && other.contains(el); });
+    });
+    var collapsedQtySelectors = [];
+    var pushQtyCollapsed = function (el, v, minW) {
+      var sel = describe(el);
+      if (collapsedQtySelectors.indexOf(sel) !== -1) return;
+      collapsedQtySelectors.push(sel);
+      layoutFindings.push({
+        ruleId: 'cart-quantity-collapsed',
+        severity: 'critical',
+        selector: sel,
+        message: 'Cart quantity control ' + sel + ' is collapsed or clipped to ' + Math.round(v.width) + 'x' + Math.round(v.height) + 'px (expected >= ' + minW + 'x16px)',
+        measured: { width: Math.round(v.width), height: Math.round(v.height), rawWidth: Math.round(v.rawWidth), rawHeight: Math.round(v.rawHeight) }
+      });
+    };
+    var qtyWrappers = Array.prototype.filter.call(
+      scope.querySelectorAll('quantity-selector, [class*="cart-item__qty"]:not(button):not(input), [class*="quantity-selector"]:not(button):not(input)'),
+      function (w) { return !hidden(w) && !w.closest('header, footer, nav'); }
+    );
+    qtyWrappers.forEach(function (w) {
+      if (qtyWrappers.some(function (o) { return o !== w && o.contains(w); })) return;
+      var wv = visibleRect(w);
+      if (wv.width < 20 || wv.height < 16) pushQtyCollapsed(w, wv, 20);
+    });
+    qtyInputs.forEach(function (qEl) {
+      var qv = visibleRect(qEl);
+      if (qv.width < 20 || qv.height < 16) pushQtyCollapsed(qEl, qv, 20);
+    });
+    found.plus.concat(found.minus).forEach(function (btn) {
+      var bv = visibleRect(btn);
+      if (bv.width < 16 || bv.height < 16) pushQtyCollapsed(btn, bv, 16);
+    });
+    cartRows.forEach(function (row) {
+      var rowRect = row.getBoundingClientRect();
+      if (rowRect.width >= 240) {
+        var detailsList = row.querySelectorAll('[class*="cart-item__details"], [class*="cart-item__info"], [class*="cart-item__body"], [class*="cart-item__content"], [class*="cart-item-details"], [class*="cart-item-info"]');
+        Array.prototype.forEach.call(detailsList, function (det) {
+          if (hidden(det)) return;
+          var dv = visibleRect(det);
+          if (dv.width < 60) {
+            layoutFindings.push({
+              ruleId: 'cart-item-details-crushed',
+              severity: 'critical',
+              selector: describe(det),
+              message: 'Cart item details container ' + describe(det) + ' is crushed to ' + Math.round(dv.width) + 'px wide inside a ' + Math.round(rowRect.width) + 'px cart row',
+              measured: { width: Math.round(dv.width), rowWidth: Math.round(rowRect.width) }
+            });
+          }
+        });
+      }
+      var titles = Array.prototype.filter.call(
+        row.querySelectorAll('[class*="cart-item__title"], [class*="cart-item-title"], [class*="cart__product-title"], [class*="item-title"], a[href*="/products/"]'),
+        function (tEl) { return !hidden(tEl) && !tEl.querySelector('img') && (tEl.textContent || '').trim().length > 0; }
+      );
+      if (titles.length > 0) {
+        var titleEl = titles[0];
+        var tv = visibleRect(titleEl);
+        if (tv.width < 40 || tv.height < 10) {
+          layoutFindings.push({
+            ruleId: 'cart-item-title-collapsed',
+            severity: 'critical',
+            selector: describe(titleEl),
+            message: 'Cart item title ' + describe(titleEl) + ' is collapsed or clipped to ' + Math.round(tv.width) + 'x' + Math.round(tv.height) + 'px (expected >= 40x10px)',
+            measured: { width: Math.round(tv.width), height: Math.round(tv.height), rawWidth: Math.round(tv.rawWidth), rawHeight: Math.round(tv.rawHeight) }
+          });
+        }
+      }
+      var rowRemoves = found.remove.filter(function (rEl) { return row.contains(rEl); });
+      var textNodes = Array.prototype.filter.call(
+        row.querySelectorAll('[class*="vendor"], [class*="title"]:not([class*="titles"]), [class*="variant"], [class*="sku"], a[href*="/products/"]'),
+        function (tEl) { return !hidden(tEl) && !tEl.querySelector('img') && (tEl.textContent || '').trim().length > 0; }
+      );
+      rowRemoves.forEach(function (rEl) {
+        var remRect = rEl.getBoundingClientRect();
+        if (remRect.width <= 0 || remRect.height <= 0) return;
+        for (var ti = 0; ti < textNodes.length; ti++) {
+          var tEl = textNodes[ti];
+          if (rEl.contains(tEl) || tEl.contains(rEl)) continue;
+          var tBox = tEl.getBoundingClientRect();
+          var tRect = tBox;
+          var tCs = getComputedStyle(tEl);
+          if ((tCs.overflowX || tCs.overflow) !== 'hidden' && typeof document.createRange === 'function') {
+            try {
+              var rng = document.createRange();
+              rng.selectNodeContents(tEl);
+              var rr = rng.getBoundingClientRect();
+              if (rr && rr.width > tBox.width) tRect = rr;
+            } catch (e) {}
+          }
+          var ix = Math.min(tRect.right, remRect.right) - Math.max(tRect.left, remRect.left);
+          var iy = Math.min(tRect.bottom, remRect.bottom) - Math.max(tRect.top, remRect.top);
+          var crushedSameOrigin = tBox.width <= 4 && Math.abs(tBox.left - remRect.left) <= 4 && Math.min(tBox.bottom, remRect.bottom) - Math.max(tBox.top, remRect.top) >= 4 && (tCs.overflowX || tCs.overflow) !== 'hidden';
+          if ((ix >= 2 && iy >= 2) || crushedSameOrigin) {
+            layoutFindings.push({
+              ruleId: 'cart-item-remove-overlap',
+              severity: 'critical',
+              selector: describe(rEl),
+              message: 'Cart remove control ' + describe(rEl) + ' overlaps item text ' + describe(tEl),
+              measured: { textSelector: describe(tEl), removeLeft: Math.round(remRect.left), textLeft: Math.round(tRect.left), textRight: Math.round(tRect.right) }
+            });
+            break;
+          }
+        }
+      });
+    });
+  }
   var targets = [];
   var seen = [];
   Array.prototype.forEach.call(document.querySelectorAll('[name="checkout"], [data-checkout], a, button, input[type="submit"], [role="button"]'), function (el) {
@@ -276,7 +469,7 @@ try {
     }
     targets.push({ selector: describe(el), kind: kind, target: raw, valid: valid });
   });
-  return { ok: true, isCartPage: onCartRoute, cart: cart, controls: { plus: tagged.plus, minus: tagged.minus, remove: tagged.remove, quantityInput: quantityInput, checkout: targets } };
+  return { ok: true, isCartPage: onCartRoute, cart: cart, controls: { plus: tagged.plus, minus: tagged.minus, remove: tagged.remove, quantityInput: quantityInput, checkout: targets }, layoutFindings: layoutFindings };
 } catch (err) {
   return { ok: false, error: String(err && err.message || err) };
 }
@@ -308,6 +501,63 @@ try {
   var body = mode === 'quantity' ? { id: line.key, quantity: line.quantity } : { id: line.variantId, quantity: line.quantity, properties: line.properties || undefined };
   var res = await f(url, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(body) });
   return res.ok ? { ok: true } : { ok: false, error: url + ' answered HTTP ' + res.status };
+} catch (err) {
+  return { ok: false, error: String(err && err.message || err) };
+}
+})()`;
+}
+/** Discovers an available product variant from the storefront and adds 1 item to /cart/add.js when the cart is empty. */
+export function buildCartSeedScript(): string {
+  return `(async () => {
+try {
+  var hook = window.__antifanCartHook;
+  var f = hook && hook.origFetch ? hook.origFetch : window.fetch.bind(window);
+  var variantId = null;
+  var pickFromProducts = function (products) {
+    if (!Array.isArray(products)) return null;
+    for (var p = 0; p < products.length; p++) {
+      var variants = products[p] && Array.isArray(products[p].variants) ? products[p].variants : [];
+      for (var v = 0; v < variants.length; v++) {
+        if (variants[v] && variants[v].id != null && variants[v].available !== false) return variants[v].id;
+      }
+    }
+    return null;
+  };
+  try {
+    var res = await f('/products.json?limit=20', { credentials: 'same-origin', headers: { Accept: 'application/json' }, cache: 'no-store' });
+    if (res && res.ok) {
+      var body = await res.json();
+      variantId = pickFromProducts(body && body.products);
+    }
+  } catch (e) {}
+  if (variantId == null) {
+    var links = Array.prototype.map.call(document.querySelectorAll('a[href*="/products/"]'), function (a) { return a.getAttribute('href') || ''; });
+    if (links.length === 0) {
+      try {
+        var homeRes = await f('/collections/all', { credentials: 'same-origin', cache: 'no-store' });
+        if (homeRes && homeRes.ok && typeof homeRes.text === 'function') {
+          var html = await homeRes.text();
+          var m = /href=["']([^"'?#]*\\/products\\/[^"'?#\\/]+)/i.exec(html);
+          if (m && m[1]) links.push(m[1]);
+        }
+      } catch (e) {}
+    }
+    for (var i = 0; i < links.length && variantId == null; i++) {
+      var hm = /\\/products\\/([^/?#]+)/.exec(links[i]);
+      if (!hm || !hm[1]) continue;
+      try {
+        var pRes = await f('/products/' + hm[1] + '.js', { credentials: 'same-origin', headers: { Accept: 'application/json' }, cache: 'no-store' });
+        if (pRes && pRes.ok) {
+          var prod = await pRes.json();
+          variantId = pickFromProducts([prod]);
+        }
+      } catch (e) {}
+    }
+  }
+  if (variantId == null) return { ok: false, error: 'no available product variant found to seed the cart' };
+  var addRes = await f('/cart/add.js', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify({ id: variantId, quantity: 1 }) });
+  if (!addRes || !addRes.ok) return { ok: false, error: '/cart/add.js answered HTTP ' + (addRes ? addRes.status : 'error') };
+  return { ok: true, variantId: variantId };
 } catch (err) {
   return { ok: false, error: String(err && err.message || err) };
 }
@@ -425,13 +675,36 @@ function stepFindings(step: CartExerciseStep, label: string): ProbeFinding[] {
 }
 
 export async function runCartContract(deps: ProbeDeps, opts: CartContractOptions = {}): Promise<ProbeResult<CartContractData>> {
-  const state = await readState(deps);
-  if (!state || state.ok !== true || !state.cart || !state.controls) {
-    return { measured: false, passed: null, findings: [], data: emptyData(), error: state?.error ? `cart state could not be read: ${state.error}` : 'cart contract script returned no result' };
+  const initialState = await readState(deps);
+  if (!initialState || initialState.ok !== true || !initialState.cart || !initialState.controls) {
+    return { measured: false, passed: null, findings: [], data: emptyData(), error: initialState?.error ? `cart state could not be read: ${initialState.error}` : 'cart contract script returned no result' };
   }
-  const { cart, controls } = state;
-  if (state.isCartPage !== true) {
-    return { measured: false, passed: null, findings: [], data: emptyData(cart.itemCount), error: 'current page is not the cart page' };
+  if (initialState.isCartPage !== true) {
+    return { measured: false, passed: null, findings: [], data: emptyData(initialState.cart.itemCount), error: 'current page is not the cart page' };
+  }
+  let cart = initialState.cart;
+  let controls = initialState.controls;
+  let layoutFindings = initialState.layoutFindings;
+  let seeded = false;
+  if (cart.itemCount === 0 && opts.autoSeed === true) {
+    try {
+      const seedRes = (await deps.evalJs(buildCartSeedScript())) as { ok?: boolean; error?: string } | null;
+      if (seedRes?.ok === true) {
+        seeded = true;
+        if (deps.navigate) {
+          await deps.navigate('/cart');
+        } else {
+          await deps.evalJs('(function(){ try { if (typeof location !== "undefined" && typeof location.reload === "function") location.reload(); } catch (e) {} return true; })()');
+        }
+        await deps.wait(POLL_MS);
+        const afterSeed = await readState(deps);
+        if (afterSeed && afterSeed.ok === true && afterSeed.cart && afterSeed.controls) {
+          cart = afterSeed.cart;
+          controls = afterSeed.controls;
+          layoutFindings = afterSeed.layoutFindings;
+        }
+      }
+    } catch {}
   }
   if (cart.itemCount === 0) {
     return {
@@ -446,10 +719,11 @@ export async function runCartContract(deps: ProbeDeps, opts: CartContractOptions
     };
   }
 
-  const findings: ProbeFinding[] = [];
+  const findings: ProbeFinding[] = Array.isArray(layoutFindings) ? [...layoutFindings] : [];
   const data: CartContractData = {
     itemCount: cart.itemCount,
     exercised: false,
+    ...(seeded ? { seeded: true } : {}),
     controls: {
       plus: controls.plus.length,
       minus: controls.minus.length,
