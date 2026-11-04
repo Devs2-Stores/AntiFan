@@ -3078,19 +3078,26 @@ async function probeCatalogueOnce() {
 }
 
 // Parameter aliases: field names agents routinely guess for these tools (audited
-// INVALID_ARGUMENT refusals) map onto the advertised field, in order, and only
-// when the advertised field is absent. A usable value is a non-empty string, or
-// a non-empty array for list fields; anything else is left for the capability
-// to refuse, so an alias never turns a malformed call into an acting one. Every
-// applied alias is reported back as `aliasApplied` so a typo is never hidden.
+// INVALID_ARGUMENT refusals) map onto the advertised field, in order. Each row is
+// [from, to, kind, alsoAbsent]: the alias applies only when `to` and every field in
+// `alsoAbsent` carry no usable value, and `from` is of the declared kind ('string'
+// or 'string[]'). `alsoAbsent` covers an exclusive argument group: terminal.write
+// takes exactly one of input | key | keys, so `{text, keys}` must not become a call
+// that types text AND sends keystrokes into the PTY. Anything else is left for the
+// capability to refuse, so an alias never turns a malformed call into an acting
+// one. Every applied alias is reported back as `aliasApplied`.
 const PARAMETER_ALIASES = Object.freeze({
-  'terminal.write': [['text', 'input']],
-  'anti.agent.file_upload': [['files', 'filePaths'], ['ref', 'refOrSelector'], ['selector', 'refOrSelector']],
-  'anti.agent.drop': [['files', 'filePaths'], ['ref', 'refOrSelector'], ['selector', 'refOrSelector']],
+  'terminal.write': [['text', 'input', 'string', ['key', 'keys']]],
+  'anti.agent.file_upload': [['files', 'filePaths', 'string[]', []], ['ref', 'refOrSelector', 'string', []], ['selector', 'refOrSelector', 'string', []]],
+  'anti.agent.drop': [['files', 'filePaths', 'string[]', []], ['ref', 'refOrSelector', 'string', []], ['selector', 'refOrSelector', 'string', []]],
 });
 function usableAliasValue(value) {
   if (typeof value === 'string') return value.trim() !== '';
   return Array.isArray(value) && value.length > 0;
+}
+function aliasSourceOfKind(value, kind) {
+  if (kind === 'string[]') return Array.isArray(value) && value.length > 0 && value.every((item) => typeof item === 'string' && item.trim() !== '');
+  return typeof value === 'string' && value.trim() !== '';
 }
 function normalizeParameterAliases(method, params) {
   const aliases = PARAMETER_ALIASES[method];
@@ -3098,8 +3105,9 @@ function normalizeParameterAliases(method, params) {
   if (!aliases) return { params: source, aliasApplied: [] };
   const next = { ...source };
   const aliasApplied = [];
-  for (const [from, to] of aliases) {
-    if (usableAliasValue(next[to]) || !usableAliasValue(next[from])) continue;
+  for (const [from, to, kind, alsoAbsent] of aliases) {
+    if (usableAliasValue(next[to]) || alsoAbsent.some((field) => usableAliasValue(next[field]))) continue;
+    if (!aliasSourceOfKind(next[from], kind)) continue;
     next[to] = next[from];
     delete next[from];
     aliasApplied.push({ from, to });

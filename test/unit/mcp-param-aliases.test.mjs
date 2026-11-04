@@ -24,6 +24,23 @@ test('an alias never overrides a field the caller supplied', () => {
   assert.deepEqual(aliasApplied, []);
 });
 
+test('text is not promoted when the call already carries another form of the exclusive input group', () => {
+  for (const other of [{ key: 'enter' }, { keys: ['down', 'enter'] }]) {
+    const given = { sessionId: 's', text: 'typed', ...other };
+    const { params, aliasApplied } = normalizeParameterAliases('terminal.write', given);
+    assert.deepEqual(params, given, 'typed text and keystrokes must not be merged into one PTY write');
+    assert.deepEqual(aliasApplied, []);
+  }
+});
+
+test('files is promoted only as a non-empty array of strings', () => {
+  for (const files of ['a.txt', ['a.txt', 3], [], { 0: 'a.txt' }]) {
+    const { params, aliasApplied } = normalizeParameterAliases('anti.agent.file_upload', { selector: '#f', files });
+    assert.equal(params.filePaths, undefined, JSON.stringify(files));
+    assert.deepEqual(aliasApplied.map((a) => a.from), ['selector'], JSON.stringify(files));
+  }
+});
+
 test('an empty or non-string value is not promoted into the target field', () => {
   assert.deepEqual(normalizeParameterAliases('terminal.write', { sessionId: 's', text: '' }).aliasApplied, []);
   assert.deepEqual(normalizeParameterAliases('terminal.write', { sessionId: 's', text: 42 }).aliasApplied, []);
