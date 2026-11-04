@@ -892,6 +892,17 @@ describe('A burst of read-only commands on a background tab shares one attach', 
     assert.strictEqual(spy.releases(), 0, 'a disposed host must not touch its window from a timer');
     assert.ok(!t.children.includes(t.background.tab.view));
   });
+
+  it('closing a tab while a hold is still running neither arms a linger nor releases the gone view', async () => {
+    const t = setup();
+    const spy = stubTeardown(t);
+    await t.host.runWithAttachedTabView(t.background.tab.view, async () => {
+      assert.strictEqual(t.host.closeTab('tab-bg'), true);
+    }, false, { lingerMs: LINGER_MS });
+    assert.ok(!t.children.includes(t.background.tab.view));
+    await settle();
+    assert.strictEqual(spy.releases(), 0, 'the finishing hold of a closed tab must not arm a linger or release again');
+  });
 });
 
 after(async () => {

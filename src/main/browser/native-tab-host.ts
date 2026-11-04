@@ -6427,9 +6427,13 @@ export class NativeTabHost extends EventEmitter {
   private cancelAttachLinger(view: WebContentsView | null | undefined): void {
     if (!view) return;
     const state = this.temporaryViewAttachCounts?.get(view);
-    if (!state || state.lingerTimer === undefined) return;
-    clearTimeout(state.lingerTimer);
-    state.lingerTimer = undefined;
+    if (!state) return;
+    if (state.lingerTimer !== undefined) {
+      clearTimeout(state.lingerTimer);
+      state.lingerTimer = undefined;
+    }
+    // Deleting even when no timer is armed yet (a hold is still running on the closing tab) means
+    // that hold's `finally` sees no entry for `view` and neither arms a linger nor releases again.
     this.temporaryViewAttachCounts.delete(view);
     try {
       if (this.isTabViewAttached(view)) this.shell.window.contentView.removeChildView(view);

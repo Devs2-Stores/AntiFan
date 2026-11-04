@@ -52,7 +52,7 @@ describe('emptying a field with agentType', () => {
   it('still refuses a call with neither text, fromEnv nor clear:true', async () => {
     const typed: Array<Record<string, unknown>> = [];
     const port = new BrowserControlPort(buildHost(typed));
-    for (const args of [{ selector: '#q' }, { selector: '#q', clear: false }]) {
+    for (const args of [{ selector: '#q' }, { selector: '#q', clear: false }, { selector: '#q', text: '', clear: false }]) {
       await assert.rejects(
         () => port.agentType(args, TARGET),
         (err: unknown) => err instanceof CapabilityError && err.code === 'INVALID_ARGUMENT' && /text/.test(err.message)

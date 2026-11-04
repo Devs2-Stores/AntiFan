@@ -224,8 +224,9 @@ function resolveTypedText(args: { text?: string; secret?: boolean; fromEnv?: str
     }
     return { text: value, secret: true };
   }
-  if (typeof args.text !== 'string') {
-    // Emptying a field types nothing: `clear:true` with the text left out is that request.
+  if (typeof args.text !== 'string' || (args.text.trim().length === 0 && args.clear !== true)) {
+    // Emptying a field types nothing: `clear:true` (with the text left out or empty) is that request,
+    // while `text:""` with `clear:false` (which passes the schema's `clear` presence form) would do nothing.
     if (args.text === undefined && args.clear === true) return { text: '', secret: args.secret === true };
     throw new CapabilityError('INVALID_ARGUMENT', 'text (or fromEnv for a secret, or clear:true to only empty the field) is required');
   }
