@@ -670,21 +670,113 @@ const CAPABILITY_MAP = Object.freeze({
 
 // ---------------------------------------------------------------------------
 // Super Core: local evidence/provenance store (packages/super-core). These
-// capabilities are handled in-process by invokeCore — they never reach the
-// bridge dispatch socket. Unavailable Core returns {available:false} for
-// advisory calls and refuses receipt-required actions.
+// capabilities are served by this process — they never reach the bridge dispatch
+// socket — but the store itself runs in a worker thread. node:sqlite is
+// synchronous: opening the file and the first queries over a large store take
+// hundreds of ms to seconds, and on this thread that stalled every browser and
+// terminal call queued behind a core.* call. The worker keeps this event loop
+// free; core calls still run one after another inside it, exactly as before.
+// ANTIFAN_CORE_INLINE=1 runs the store on this thread instead (a store double
+// installed through require.cache is only visible there).
+// Unavailable Core returns {available:false} for advisory calls and refuses
+// receipt-required actions.
 let coreInstance = null;
+function coreDbPath() {
+  return process.env.SUPER_CORE_DB
+    || require('node:path').join(__dirname, '..', '.super-core', 'core.db');
+}
 function getCore() {
   if (coreInstance) return coreInstance;
-  const dbPath = process.env.SUPER_CORE_DB
-    || require('node:path').join(__dirname, '..', '.super-core', 'core.db');
   try {
     const { openCore } = require('../packages/super-core/dist/index.js');
-    coreInstance = openCore(dbPath);
+    coreInstance = openCore(coreDbPath());
     return coreInstance;
   } catch (e) {
     return null;
   }
+}
+// Body of the core worker. It is serialized into the worker, so it may reference
+// nothing from this module: everything it needs arrives through workerData.
+function coreWorkerBody() {
+  const { parentPort, workerData } = require('node:worker_threads');
+  let core = null;
+  const open = () => {
+    if (core) return core;
+    try {
+      core = require(workerData.distEntry).openCore(workerData.dbPath);
+      return core;
+    } catch (e) {
+      return null;
+    }
+  };
+  parentPort.on('message', ({ id, storeMethod, args }) => {
+    const store = open();
+    if (!store) return parentPort.postMessage({ id, status: 'unavailable' });
+    if (typeof store[storeMethod] !== 'function') return parentPort.postMessage({ id, status: 'no-method' });
+    try {
+      return parentPort.postMessage({ id, status: 'ok', value: store[storeMethod](...args) });
+    } catch (err) {
+      return parentPort.postMessage({
+        id,
+        status: 'error',
+        message: err && err.message !== undefined ? String(err.message) : String(err),
+        code: err && err.code,
+        name: err && err.name,
+      });
+    }
+  });
+}
+let coreWorker = null;
+let coreCallSeq = 0;
+const corePending = new Map();
+function failCorePending(error) {
+  const waiting = [...corePending.values()];
+  corePending.clear();
+  for (const w of waiting) w.reject(error);
+}
+function ensureCoreWorker() {
+  if (coreWorker) return coreWorker;
+  const { Worker } = require('node:worker_threads');
+  const worker = new Worker(`(${coreWorkerBody.toString()})()`, {
+    eval: true,
+    workerData: {
+      dbPath: coreDbPath(),
+      distEntry: require('node:path').join(__dirname, '..', 'packages', 'super-core', 'dist', 'index.js'),
+    },
+  });
+  // Referenced only while a call is in flight, so an idle worker never keeps the process alive.
+  worker.unref();
+  worker.on('message', (reply) => {
+    const waiting = corePending.get(reply.id);
+    if (!waiting) return;
+    corePending.delete(reply.id);
+    if (corePending.size === 0) worker.unref();
+    waiting.resolve(reply);
+  });
+  const lost = (cause) => {
+    if (coreWorker === worker) coreWorker = null;
+    failCorePending(new Error(JSON.stringify({ code: 'CORE_WORKER_LOST', message: `Super Core worker ended before answering: ${cause}` })));
+  };
+  worker.on('error', (err) => lost(err && err.message ? err.message : String(err)));
+  worker.on('exit', (exitCode) => lost(`exit code ${exitCode}`));
+  coreWorker = worker;
+  return worker;
+}
+// One store call, answered as {status: 'unavailable' | 'no-method' | 'ok' | 'error', ...}.
+function callCoreStore(storeMethod, args) {
+  if (process.env.ANTIFAN_CORE_INLINE === '1') {
+    const core = getCore();
+    if (!core) return Promise.resolve({ status: 'unavailable' });
+    if (typeof core[storeMethod] !== 'function') return Promise.resolve({ status: 'no-method' });
+    return Promise.resolve().then(() => ({ status: 'ok', value: core[storeMethod](...args) }));
+  }
+  const worker = ensureCoreWorker();
+  return new Promise((resolve, reject) => {
+    const id = ++coreCallSeq;
+    corePending.set(id, { resolve, reject });
+    worker.ref();
+    worker.postMessage({ id, storeMethod, args });
+  });
 }
 // core.* dispatch table: advertised name -> [store method, argument adapter].
 // This table is the proxy's half of the single-source contract — the parity
@@ -749,25 +841,30 @@ const CORE_DISPATCH = Object.freeze({
   'core.receipt_v2': ['receiptV2', (p) => [p], true],
 });
 async function invokeCore(method, params) {
-  const core = getCore();
   // Mutability is declared in CORE_DISPATCH, next to each store binding, so a new
   // dispatch entry cannot silently miss a hand-maintained side list — which is how
   // replay_regression and record_observation ended up returning a soft
   // `{available:false}` for a write the caller believed had landed.
   const entry = CORE_DISPATCH[method];
-  if (!core) {
-    if (!entry) throw new Error(`unknown core capability: ${method}`);
+  if (!entry) throw new Error(`unknown core capability: ${method}`);
+  const [storeMethod, adapt] = entry;
+  const reply = await callCoreStore(storeMethod, adapt(params || {}));
+  if (reply.status === 'unavailable') {
     if (entry[2]) {
       throw new Error(JSON.stringify({ code: 'CORE_UNAVAILABLE', message: `Super Core store unavailable; mutating action ${method} refused` }));
     }
     return { available: false, reason: 'super-core package not built or db unreachable', method };
   }
-  if (!entry) throw new Error(`unknown core capability: ${method}`);
-  const [storeMethod, adapt] = entry;
-  if (typeof core[storeMethod] !== 'function') {
+  if (reply.status === 'no-method') {
     throw new Error(JSON.stringify({ code: 'CAPABILITY_NOT_FOUND', message: `Super Core store has no method ${storeMethod} for ${method}` }));
   }
-  return core[storeMethod](...adapt(params || {}));
+  if (reply.status === 'error') {
+    const err = new Error(reply.message);
+    if (reply.name) err.name = reply.name;
+    if (reply.code !== undefined) err.code = reply.code;
+    throw err;
+  }
+  return reply.value;
 }
 
 // ─── Phase 5: core.* proxy attempt store — emitter ──────────────────────────
@@ -2980,7 +3077,55 @@ async function probeCatalogueOnce() {
   }
 }
 
+// Parameter aliases: field names agents routinely guess for these tools (audited
+// INVALID_ARGUMENT refusals) map onto the advertised field, in order. Each row is
+// [from, to, kind, alsoAbsent]: the alias applies only when `to` and every field in
+// `alsoAbsent` carry no usable value, and `from` is of the declared kind ('string'
+// or 'string[]'). `alsoAbsent` covers an exclusive argument group: terminal.write
+// takes exactly one of input | key | keys, so `{text, keys}` must not become a call
+// that types text AND sends keystrokes into the PTY. Anything else is left for the
+// capability to refuse, so an alias never turns a malformed call into an acting
+// one. Every applied alias is reported back as `aliasApplied`.
+const PARAMETER_ALIASES = Object.freeze({
+  'terminal.write': [['text', 'input', 'string', ['key', 'keys']]],
+  'anti.agent.file_upload': [['files', 'filePaths', 'string[]', []], ['ref', 'refOrSelector', 'string', []], ['selector', 'refOrSelector', 'string', []]],
+  'anti.agent.drop': [['files', 'filePaths', 'string[]', []], ['ref', 'refOrSelector', 'string', []], ['selector', 'refOrSelector', 'string', []]],
+});
+function usableAliasValue(value) {
+  if (typeof value === 'string') return value.trim() !== '';
+  return Array.isArray(value) && value.length > 0;
+}
+function aliasSourceOfKind(value, kind) {
+  if (kind === 'string[]') return Array.isArray(value) && value.length > 0 && value.every((item) => typeof item === 'string' && item.trim() !== '');
+  return typeof value === 'string' && value.trim() !== '';
+}
+function normalizeParameterAliases(method, params) {
+  const aliases = PARAMETER_ALIASES[method];
+  const source = params && typeof params === 'object' && !Array.isArray(params) ? params : {};
+  if (!aliases) return { params: source, aliasApplied: [] };
+  const next = { ...source };
+  const aliasApplied = [];
+  for (const [from, to, kind, alsoAbsent] of aliases) {
+    if (usableAliasValue(next[to]) || alsoAbsent.some((field) => usableAliasValue(next[field]))) continue;
+    if (!aliasSourceOfKind(next[from], kind)) continue;
+    next[to] = next[from];
+    delete next[from];
+    aliasApplied.push({ from, to });
+  }
+  return { params: aliasApplied.length > 0 ? next : source, aliasApplied };
+}
+function attachAliasApplied(result, aliasApplied) {
+  if (!aliasApplied || aliasApplied.length === 0) return result;
+  if (!result || typeof result !== 'object' || Array.isArray(result)) return result;
+  return { ...result, aliasApplied };
+}
 async function invoke(method, params = {}, callerRequestId, meta) {
+  const { params: normalized, aliasApplied } = normalizeParameterAliases(method, params);
+  const result = await invokeResolved(method, normalized, callerRequestId, meta);
+  return attachAliasApplied(result, aliasApplied);
+}
+
+async function invokeResolved(method, params = {}, callerRequestId, meta) {
   // Per-call view of the recovery state: a refusal only counts when a recovery run begun after this
   // call started produced it, so an old refusal never relabels an unrelated failure.
   const healRunAtStart = autohealRun;
@@ -3917,6 +4062,8 @@ module.exports = {
   autoBindCandidateOf,
   CORE_DISPATCH,
   invoke,
+  normalizeParameterAliases,
+  attachAliasApplied,
   invokeCore,
   DEFAULT_CLIENT_TIMEOUT_MS,
   isEvaluateTool,

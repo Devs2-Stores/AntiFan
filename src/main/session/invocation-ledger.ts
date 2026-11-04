@@ -97,6 +97,9 @@ export interface InvocationLedgerShutdownSettlement {
   failed: number;
 }
 
+/** How long a quarantined partition is kept for forensics before startup deletes it. */
+const QUARANTINE_RETENTION_MS = 14 * 24 * 3600_000;
+
 export class InvocationLedger {
   private readonly partitionsDir: string;
   private readonly maxHotRecords: number;
@@ -123,10 +126,23 @@ export class InvocationLedger {
     this.maxFrameBytes = options.maxFrameBytes ?? DEFAULT_MAX_INVOCATION_FRAME_BYTES;
   }
 
-  public async initialize(): Promise<void> {
+  /**
+   * Replay every partition on disk. With `activeAttachmentIds`, partitions of attachments that
+   * no longer exist are deleted first, so their frames are never read into memory only to be
+   * dropped a moment later; quarantined partitions past the retention window go with them.
+   */
+  public async initialize(activeAttachmentIds?: Set<string>): Promise<void> {
     if (!fs.existsSync(this.partitionsDir)) {
       fs.mkdirSync(this.partitionsDir, { recursive: true });
       return;
+    }
+    if (activeAttachmentIds) {
+      try {
+        await this.pruneDeadPartitions(activeAttachmentIds);
+      } catch {}
+      try {
+        await this.pruneExpiredQuarantine();
+      } catch {}
     }
     const files = fs.readdirSync(this.partitionsDir).filter((f) => f.endsWith('.jsonl'));
     let fileIdx = 0;
@@ -139,6 +155,27 @@ export class InvocationLedger {
         await promise;
       }
     }
+  }
+
+  /**
+   * A partition that fails replay is renamed to `<partition>.jsonl.quarantine-<epoch ms>` and kept
+   * for forensics, but nothing ever removed it: one such file held 33.7 MB. The age is read from
+   * the stamp the ledger wrote into the name (an mtime moves when the file is copied or touched);
+   * a name whose stamp cannot be parsed is left alone.
+   */
+  public async pruneExpiredQuarantine(maxAgeMs: number = QUARANTINE_RETENTION_MS): Promise<number> {
+    if (!fs.existsSync(this.partitionsDir)) return 0;
+    const cutoff = Date.now() - maxAgeMs;
+    let removed = 0;
+    for (const file of fs.readdirSync(this.partitionsDir)) {
+      const stamp = /\.jsonl\.quarantine-(\d{10,})$/.exec(file);
+      if (!stamp || Number(stamp[1]) >= cutoff) continue;
+      try {
+        await fs.promises.unlink(path.join(this.partitionsDir, file));
+        removed++;
+      } catch {}
+    }
+    return removed;
   }
 
   public async pruneDeadPartitions(activeAttachmentIds: Set<string>): Promise<number> {

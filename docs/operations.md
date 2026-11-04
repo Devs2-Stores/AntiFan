@@ -70,8 +70,12 @@ node scripts/run-electron.cjs scripts/smoke-media-freeze.cjs
 - MCP tools `core.query`, `core.context_pack`, `core.recommend`, `core.receipt`,
   `core.ingest_outcome`, `core.adjudicate`, `core.stats`, `core.domain`,
   `core.invalidate`, `core.revoke`, `core.snapshot`, `core.rollback` are served
-  in-process by `scripts/antifan-omp-mcp.cjs` (no bridge dependency). A running
-  MCP server must be restarted to pick up a rebuilt `packages/super-core/dist`.
+  by `scripts/antifan-omp-mcp.cjs` (no bridge dependency). The store runs in a
+  worker thread of the proxy, so a slow `core.*` call never delays browser or
+  terminal calls; `ANTIFAN_CORE_INLINE=1` runs it on the proxy thread instead. A
+  running MCP server must be restarted to pick up a rebuilt `packages/super-core/dist`.
+  A store opened once by the current build carries a `PRAGMA user_version` stamp
+  and later opens skip schema preparation (it is redone when the schema changes).
 - CLI: `antifan-core <cmd>` via `scripts/antifan-core.cjs`.
 - Adjudication has a `scope` (`production` | `acceptance-test`); test-scope
   promotions are auditable and never masquerade as user approvals.

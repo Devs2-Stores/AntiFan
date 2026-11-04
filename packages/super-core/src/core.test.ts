@@ -1413,3 +1413,71 @@ test('minScore keeps weak claims out of a pack and an empty pack is still a pack
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+function pragmaInt(db: DatabaseSync, name: string): number {
+  const row = db.prepare(`PRAGMA ${name}`).get();
+  return Number(row?.[name]);
+}
+// Opening a store that is already at the current schema must be a read-only act:
+// every proxy and the desktop app open the same file, and a write per open both
+// stalls the opener (WAL commit) and bumps `data_version` for every other holder.
+test('opening an already-prepared store commits nothing', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'core-open-ro-'));
+  const file = path.join(dir, 'core.db');
+  const first = openCore(file);
+  first.close();
+
+  const witness = new DatabaseSync(file);
+  const before = pragmaInt(witness, 'data_version');
+  const second = openCore(file);
+  const afterOpen = pragmaInt(witness, 'data_version');
+  const foreignKeys = pragmaInt(second['db'], 'foreign_keys');
+  second.close();
+  witness.close();
+  assert.equal(foreignKeys, 1, 'a store opened through the stamped path still enforces foreign keys on its connection');
+  assert.equal(afterOpen, before, 'the second open of a prepared store must not commit a transaction');
+});
+
+// A store written by a build that never stamped it (user_version 0) still gets the
+// full preparation once, and is stamped so the next open is cheap.
+test('an unstamped store is prepared on open and stamped afterwards', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'core-open-stamp-'));
+  const file = path.join(dir, 'core.db');
+  openCore(file).close();
+
+  const raw = new DatabaseSync(file);
+  raw.exec('PRAGMA user_version = 0');
+  // A duplicate principle written while the store carried no stamp: preparation must fold it.
+  raw.prepare('INSERT INTO principles(principleId, statement, createdAt) VALUES (?,?,?)').run('p-a', 'Always read before editing', '2026-01-01T00:00:00Z');
+  raw.prepare('INSERT INTO principles(principleId, statement, createdAt) VALUES (?,?,?)').run('p-b', 'always read   before editing', '2026-01-02T00:00:00Z');
+  raw.close();
+
+  const core = openCore(file);
+  const listed = core.principles({});
+  core.close();
+  assert.equal(listed.filter((p) => p.principleId === 'p-a' || p.principleId === 'p-b').length, 1, 'duplicate normalized principles are folded on the preparing open');
+
+  const check = new DatabaseSync(file);
+  const stamp = pragmaInt(check, 'user_version');
+  check.close();
+  assert.notEqual(stamp, 0, 'the preparing open leaves a stamp');
+});
+
+// The stamp is derived from the preparation text, so a store stamped by a build with a different
+// schema (or an old stamp) is prepared again and gets whatever that DDL adds.
+test('a store carrying a stale stamp is prepared again on open', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'core-open-stale-'));
+  const file = path.join(dir, 'core.db');
+  openCore(file).close();
+
+  const raw = new DatabaseSync(file);
+  raw.exec('DROP INDEX idx_claims_unit');
+  raw.exec('PRAGMA user_version = 1');
+  raw.close();
+
+  openCore(file).close();
+  const check = new DatabaseSync(file);
+  const restored = check.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_claims_unit'").all();
+  check.close();
+  assert.equal(restored.length, 1, 'a stale stamp must not hide a missing schema object');
+});
