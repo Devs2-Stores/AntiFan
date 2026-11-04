@@ -3812,9 +3812,48 @@ function evaluateValueType(value) {
   return type === 'string' || type === 'number' || type === 'boolean' ? type : 'object';
 }
 
+// The bridge reports two things about an evaluation next to the page's own value: the in-page
+// serializer cut it (`truncated`, `truncatedReasons`) or the tab never answered its render-surface
+// probe (`surface.probeTimedOut`); and a script that moved the page has no value at all
+// (`navigated`, `newUrl`, `scriptMayHaveRun`). Wrapped whole they would sit inside `value`, mixed with
+// whatever object the script returned. They are recognised by their exact key set and value types, so
+// a page object that only resembles them stays page data.
+const BRIDGE_EVAL_FLAG_KEYS = new Set(['value', 'truncated', 'truncatedReasons', 'surface']);
+const NAVIGATED_EVAL_KEYS = new Set(['navigated', 'newUrl', 'scriptMayHaveRun']);
+
+function isPlainRecord(data) {
+  return Boolean(data) && typeof data === 'object' && !Array.isArray(data);
+}
+
+function isNavigatedEvalResult(data) {
+  if (!isPlainRecord(data)) return false;
+  if (!Object.keys(data).every((key) => NAVIGATED_EVAL_KEYS.has(key))) return false;
+  return data.navigated === true && data.scriptMayHaveRun === true && (!('newUrl' in data) || typeof data.newUrl === 'string');
+}
+
+function isBridgeEvalFlags(data) {
+  if (!isPlainRecord(data)) return false;
+  const keys = Object.keys(data);
+  if (!keys.every((key) => BRIDGE_EVAL_FLAG_KEYS.has(key))) return false;
+  const hasSurface = 'surface' in data;
+  const hasTruncated = 'truncated' in data || 'truncatedReasons' in data;
+  if (!hasSurface && !hasTruncated) return false;
+  if (hasSurface) {
+    const surface = data.surface;
+    if (!isPlainRecord(surface) || Object.keys(surface).length !== 1 || surface.probeTimedOut !== true) return false;
+  }
+  if (hasTruncated && !(data.truncated === true && Array.isArray(data.truncatedReasons))) return false;
+  return true;
+}
+
 function wrapEvaluateResult(data) {
   // A bridge that already answers in the envelope shape is not wrapped a second time.
   if (data && typeof data === 'object' && data.ok === true && 'value' in data && typeof data.valueType === 'string') return data;
+  if (isNavigatedEvalResult(data)) return { ok: true, ...data };
+  if (isBridgeEvalFlags(data)) {
+    const { value, ...flags } = data;
+    return { ok: true, value, valueType: evaluateValueType(value), ...flags };
+  }
   return { ok: true, value: data, valueType: evaluateValueType(data) };
 }
 

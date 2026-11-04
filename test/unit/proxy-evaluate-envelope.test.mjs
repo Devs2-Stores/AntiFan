@@ -43,6 +43,37 @@ test('a result already in envelope shape is not wrapped twice', () => {
   assert.deepEqual(proxy.wrapEvaluateResult({ ok: true, value: 1 }), { ok: true, value: { ok: true, value: 1 }, valueType: 'object' });
 });
 
+test('flags the bridge adds around a value travel beside it, not inside it', () => {
+  // surface.probeTimedOut, truncated and truncatedReasons describe the evaluation, so they sit next to
+  // value; a page object that happens to carry a `surface` key stays page data.
+  assert.deepEqual(
+    proxy.wrapEvaluateResult({ value: { w: 0 }, surface: { probeTimedOut: true } }),
+    { ok: true, value: { w: 0 }, valueType: 'object', surface: { probeTimedOut: true } },
+  );
+  assert.deepEqual(
+    proxy.wrapEvaluateResult({ value: 'cut', truncated: true, truncatedReasons: ['depth'], surface: { probeTimedOut: true } }),
+    { ok: true, value: 'cut', valueType: 'string', truncated: true, truncatedReasons: ['depth'], surface: { probeTimedOut: true } },
+  );
+  // Page data of the same family but another shape is not touched.
+  const pageObject = { value: 1, surface: 'flat', extra: true };
+  assert.deepEqual(proxy.wrapEvaluateResult(pageObject), { ok: true, value: pageObject, valueType: 'object' });
+  const looseTruncated = { value: 1, truncated: 'yes' };
+  assert.deepEqual(proxy.wrapEvaluateResult(looseTruncated), { ok: true, value: looseTruncated, valueType: 'object' });
+});
+
+test('a script that moved the page is reported as that outcome, with no value', () => {
+  assert.deepEqual(
+    proxy.wrapEvaluateResult({ navigated: true, newUrl: 'https://shop.test/cart', scriptMayHaveRun: true }),
+    { ok: true, navigated: true, newUrl: 'https://shop.test/cart', scriptMayHaveRun: true },
+  );
+  assert.deepEqual(
+    proxy.wrapEvaluateResult({ navigated: true, scriptMayHaveRun: true }),
+    { ok: true, navigated: true, scriptMayHaveRun: true },
+  );
+  const pageObject = { navigated: true, history: [1] };
+  assert.deepEqual(proxy.wrapEvaluateResult(pageObject), { ok: true, value: pageObject, valueType: 'object' });
+});
+
 // Deleting ANTIFAN_DATA_ROOT is not enough: bridge discovery then falls back to the default
 // data root and can reach the live app. Pin both to an empty tempdir so it finds nothing.
 const ISOLATED_DATA_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-envelope-test-'));
