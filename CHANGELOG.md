@@ -1582,6 +1582,10 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 - Khắc phục triệt để lỗi tab Chromium hiển thị toàn màu đen (hoặc trắng) sau khi chuyển từ preset bo góc (iPhone/iPad/Galaxy) sang preset phẳng kích thước cố định (MacBook 13/14, Full HD, Surface Pro, iPhone SE…): `applyTabDeviceEmulation` giờ luôn đồng bộ màu nền của `WebContentsView` theo bán kính bo góc của preset (`#00000000` khi bo góc, `#ffffff` khi phẳng), thay vì chỉ đặt trong nhánh bo góc và bỏ quên nhánh còn lại. Trước đây view giữ nguyên trạng thái trong suốt, khiến mọi khoảnh khắc chưa được vẽ của tab lộ nền cửa sổ `#080c14` ra ngoài (tab đen) cho tới khi F5 vẽ lại toàn bộ viewport.
 - Bổ sung unit test khoá hợp đồng "màu nền view luôn khớp bán kính bo góc" cho toàn bộ danh mục `DEVICE_PRESETS`, chặn tái phát khi thêm preset mới.
 
+### Sửa — MCP trình duyệt: `anti.browser.evaluate` không còn bị từ chối vì probe bề mặt chậm
+
+- **Sự cố (02/11/2026, audit chat OMP):** 55 lỗi `NO_RENDER_SURFACE` / 23 phiên; 6 subagent chạy song song cùng một cửa sổ bị từ chối cả lệnh đọc `document.title` vì probe bề mặt 3 giây hết giờ (rồi thử lại 8 giây), sau đó chuyển sang Playwright. Eval có watchdog riêng nên chặn trước bằng probe là thừa khi probe chỉ chậm.
+- **`anti.browser.evaluate` / `anti.inspect.eval` (`requireRenderSurface`):** probe chỉ thử một lần; hết giờ thì biểu thức vẫn chạy và kết quả trả `{ value, surface: { probeTimedOut: true } }` (kết quả bị cắt cụt có cả `truncated`). Probe trả đúng 0x0, hoặc lỗi không phải hết giờ (renderer mất), vẫn từ chối `NO_RENDER_SURFACE`. Một lần đo thành công được nhớ 4 giây theo tab và pane nên loạt eval liên tiếp không probe lại; lần đo 0x0 hoặc hết giờ không bao giờ được nhớ. Tool chụp ảnh giữ nguyên cổng và cơ chế thử lại.
 ---
 ## [v1.3.5] - 2026-09-01 (Core Runtime Hardening, Lineage Safety & Dual-Tier MCP Parity)
 

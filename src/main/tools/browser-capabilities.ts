@@ -1237,9 +1237,11 @@ async function compareAndMintReceipt(
 }
 
 /**
- * Runs an in-page expression and returns its value unchanged unless the host had to cut it down
- * (depth cap, element HTML cap): then the value travels inside `{ value, truncated: true,
- * truncatedReasons }`, so a caller never mistakes a clipped result for the whole one.
+ * Runs an in-page expression and returns its value unchanged unless there is something the caller
+ * must know about it: the host cut the value down (depth cap, element HTML cap), or the tab never
+ * answered its render-surface probe. Then the value travels inside `{ value, truncated: true,
+ * truncatedReasons }` and/or `{ value, surface: { probeTimedOut: true } }`, so a caller never
+ * mistakes a clipped result for the whole one, nor a layout read on an unmeasured tab for a measured one.
  */
 async function evaluateForCaller(
   browser: BrowserControlPort,
@@ -1250,8 +1252,12 @@ async function evaluateForCaller(
   options: { requireRenderSurface?: boolean; allowDegradedSurface?: boolean; timeoutMs?: number }
 ): Promise<unknown> {
   const checked = await browser.evalChecked(target, expression, tabId, paneId, options);
-  if (!checked.truncated) return checked.value;
-  return { value: checked.value, truncated: true, truncatedReasons: checked.truncatedReasons };
+  if (!checked.truncated && !checked.surface) return checked.value;
+  return {
+    value: checked.value,
+    ...(checked.truncated ? { truncated: true, truncatedReasons: checked.truncatedReasons } : {}),
+    ...(checked.surface ? { surface: checked.surface } : {}),
+  };
 }
 
 /** Schema fragment of the `cookieJar` argument, shared by every tab-open registration. */
