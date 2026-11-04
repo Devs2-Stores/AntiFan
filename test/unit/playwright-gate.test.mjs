@@ -30,6 +30,7 @@ function makeHook() {
   return {
     ctx,
     call: (toolName, input, sessionId = "s1") => handlers.get("tool_call")({ toolName, input }, ctx(sessionId)),
+    rawResult: (event, sessionId = "s1") => handlers.get("tool_result")(event, ctx(sessionId)),
     result: (toolName, input, content, isError, sessionId = "s1") =>
       handlers.get("tool_result")({ toolName, input, content: [{ type: "text", text: content }], isError }, ctx(sessionId)),
     shutdown: (sessionId = "s1") => handlers.get("session_shutdown")({}, ctx(sessionId)),
@@ -123,4 +124,132 @@ test("a malformed event never throws and never blocks", () => {
   assert.equal(hook.call(undefined, undefined), undefined);
   assert.doesNotThrow(() => hook.result(undefined, null, undefined, undefined));
   assert.equal(hook.call("eval", { code: 42 }), undefined);
+});
+
+test("NO_RENDER_SURFACE is in FALLBACK_CODES", () => {
+  assert.ok(FALLBACK_CODES.includes("NO_RENDER_SURFACE"));
+});
+
+test("replaying real 02/11 JSONL toolResult rows (01a19a67 MCP not connected + TARGET_STALE, ReauditHuashu/ReauditImpeccable NO_RENDER_SURFACE via eval helpers and statusEvents) unlocks Playwright", () => {
+  // 1. 01a19a67-4979 L32: write xd://mcp__antifan_browser_anti_browser_tabs_list -> MCP server not connected (raw JSONL toolResult has details.xdev.tool, no input.path)
+  {
+    const hook = makeHook();
+    assert.equal(hook.call("mcp__playwright_browser_snapshot", {})?.block, true);
+    hook.rawResult({
+      role: "toolResult",
+      toolCallId: "toolu_014YCLBeTSBdq9U3wBjFnLyV",
+      toolName: "write",
+      content: [
+        {
+          type: "text",
+          text: "MCP failure\nserver: antifan-browser\ntool: anti.browser.tabs.list\ntransport: unknown\nstage: connect\nfailure: connect\nretryable: yes\nmessage: MCP server not connected: antifan-browser\nnext: Check that the MCP server is running and reachable, then retry.",
+        },
+      ],
+      details: {
+        xdev: {
+          tool: "mcp__antifan_browser_anti_browser_tabs_list",
+          mode: "execute",
+          args: { all: true },
+          tier: "write",
+          inner: {
+            serverName: "antifan-browser",
+            mcpToolName: "anti.browser.tabs.list",
+            isError: true,
+            provider: "native",
+            providerName: "OMP",
+          },
+        },
+      },
+      isError: true,
+    });
+    assert.equal(hook.call("mcp__playwright_browser_snapshot", {}), undefined);
+  }
+
+  // 2. 01a19a67-1bd5 L136: write xd://mcp__antifan_browser_anti_browser_evaluate -> TARGET_STALE (raw JSONL toolResult)
+  {
+    const hook = makeHook();
+    hook.rawResult({
+      role: "toolResult",
+      toolCallId: "toolu_01Ni12JmpcHXLAe5Lomi8dhd",
+      toolName: "write",
+      content: [
+        {
+          type: "text",
+          text: 'Error: {"code":"TARGET_STALE","message":"TARGET_STALE: Tab c33efa27-ce94-4105-9a4c-50a1ea294307 navigated to https://s2-corporate.myharavan.com/collections/all?themeid=1001523073&sort_by=price-ascending&page=2 while the script ran; its result belonged to the document that was replaced","retryable":true}',
+        },
+      ],
+      details: {
+        xdev: {
+          tool: "mcp__antifan_browser_anti_browser_evaluate",
+          mode: "execute",
+          tier: "write",
+        },
+      },
+      isError: true,
+    });
+    assert.equal(hook.call("mcp__playwright_browser_snapshot", {}), undefined);
+  }
+
+  // 3. ReauditHuashu L25: eval calling earlier-defined helper ev(...) -> cell code has no mcp__antifan_browser literal, details.statusEvents records the failed op, isError:false
+  {
+    const hook = makeHook();
+    hook.rawResult({
+      role: "toolResult",
+      toolCallId: "toolu_01PyeLebHh9mTujVRy6xCdGH",
+      toolName: "eval",
+      input: {
+        language: "js",
+        code: 'await new Promise(r=>setTimeout(r,7000));\nconsole.log((await ev("JSON.stringify([innerWidth,innerHeight,devicePixelRatio,document.documentElement.scrollHeight,location.href])")).text);',
+      },
+      content: [
+        {
+          type: "text",
+          text: 'Error: {"code":"NO_RENDER_SURFACE","message":"NO_RENDER_SURFACE: anti.browser.evaluate cannot run on tab \'a26172ff-c94b-463a-9ad6-f59465428e28\': the render surface could not be measured (Render-surface probe on tab \'a26172ff-c94b-463a-9ad6-f59465428e28\': CDP command Runtime.evaluate timed out after 3000ms)","retryable":true}',
+        },
+      ],
+      details: {
+        language: "js",
+        statusEvents: [
+          {
+            op: "mcp__antifan_browser_anti_browser_evaluate",
+            chars: 326,
+            hasError: true,
+            error:
+              'Error: {"code":"NO_RENDER_SURFACE","message":"NO_RENDER_SURFACE: anti.browser.evaluate cannot run on tab \'a26172ff-c94b-463a-9ad6-f59465428e28\': the render surface could not be measured (Render-surface probe on tab \'a26172ff-c94b-463a-9ad6-f59465428e28\': CDP command Runtime.evaluate timed out after 3000ms)","retryable":true}',
+          },
+        ],
+      },
+      isError: false,
+    });
+    assert.equal(hook.call("mcp__playwright_browser_snapshot", {}), undefined);
+  }
+
+  // 4. ReauditHuashu L160 / ReauditImpeccable L45: eval where content only prints the final retry or plain "Error: NO_RENDER_SURFACE: ...", while details.statusEvents records the AntiFan failure
+  {
+    const hook = makeHook();
+    hook.rawResult({
+      role: "toolResult",
+      toolCallId: "toolu_01JVHhDGSMdUbKEw5RvzoxZr",
+      toolName: "eval",
+      content: [
+        {
+          type: "text",
+          text: '{\n  "_type": "PENDING_CLEANUP",\n  "code": "EXECUTION_TIMEOUT_PENDING_CLEANUP"\n}',
+        },
+      ],
+      details: {
+        language: "python",
+        statusEvents: [
+          {
+            op: "mcp__antifan_browser_anti_browser_evaluate",
+            chars: 326,
+            hasError: true,
+            error: "Error: NO_RENDER_SURFACE: Render-surface probe on tab 'a26172ff-c94b-463a-9ad6-f59465428e28' pane 'desktop' failed: No target available",
+          },
+        ],
+      },
+      isError: false,
+    });
+    assert.equal(hook.call("mcp__playwright_browser_snapshot", {}), undefined);
+  }
 });

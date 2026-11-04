@@ -22,6 +22,7 @@ export const FALLBACK_CODES = [
   "TERMINAL_TAB_CLOSED",
   "TARGET_STALE",
   "TARGET_REQUIRED",
+  "NO_RENDER_SURFACE",
 ] as const;
 
 export const PLAYWRIGHT_GATE_CODES = {
@@ -62,6 +63,8 @@ interface HookEvent {
   toolName?: unknown;
   name?: unknown;
   input?: unknown;
+  args?: unknown;
+  details?: unknown;
   content?: unknown;
   isError?: unknown;
 }
@@ -92,26 +95,72 @@ function textOf(content: unknown): string {
   return content.map((part) => (typeof part === "string" ? part : String(recordOf(part).text ?? ""))).join("\n");
 }
 
-/** What a tool call addresses, as one string: the tool name, a `write` target path, or an `eval` cell. */
+/** Status events recorded by OMP's `eval` tool (`details.statusEvents` and `details.cells[].statusEvents`). */
+function evalStatusEvents(details: Record<string, unknown>): Array<Record<string, unknown>> {
+  const out: Array<Record<string, unknown>> = [];
+  if (Array.isArray(details.statusEvents)) {
+    for (const se of details.statusEvents) out.push(recordOf(se));
+  }
+  if (Array.isArray(details.cells)) {
+    for (const cell of details.cells) {
+      const cellRec = recordOf(cell);
+      if (Array.isArray(cellRec.statusEvents)) {
+        for (const se of cellRec.statusEvents) out.push(recordOf(se));
+      }
+    }
+  }
+  return out;
+}
+
+/** What a tool call addresses, as one string: the tool name, a `write` target path/xdev tool, or an `eval` cell/statusEvent. */
 function callSurface(event: HookEvent): string {
   const tool = String(event.toolName ?? event.name ?? "").trim().toLowerCase();
-  const input = recordOf(event.input);
-  if (tool === "write") return String(input.path ?? "");
-  if (tool === "eval") return String(input.code ?? "");
+  const input = recordOf(event.input ?? event.args);
+  const details = recordOf(event.details);
+  if (tool === "write") {
+    const xdevTool = String(recordOf(details.xdev).tool ?? "");
+    return xdevTool ? `${String(input.path ?? "")}\n${xdevTool}` : String(input.path ?? "");
+  }
+  if (tool === "eval") {
+    const parts = [String(input.code ?? "")];
+    if (Array.isArray(details.cells)) {
+      for (const cell of details.cells) parts.push(String(recordOf(cell).code ?? ""));
+    }
+    for (const se of evalStatusEvents(details)) {
+      parts.push(String(se.op ?? ""));
+    }
+    return parts.join("\n");
+  }
   return tool;
+}
+
+function matchCodeInText(text: string, isError: boolean): string | null {
+  if (text.length === 0) return null;
+  for (const code of FALLBACK_CODES) {
+    if (!text.includes(code)) continue;
+    // A code only counts as a failure of the call: flagged as an error, carried as the error's own `code`, or prefixed by `Error: <CODE>`.
+    if (
+      isError ||
+      new RegExp(String.raw`["']?code["']?\s*[:=]\s*["']?${code}\b`).test(text) ||
+      new RegExp(String.raw`\bError:\s*${code}\b`).test(text)
+    ) {
+      return code;
+    }
+  }
+  return isError && MCP_NOT_CONNECTED_RE.test(text) ? "MCP_NOT_CONNECTED" : null;
 }
 
 /** The first fallback code a failed AntiFan call reports, `MCP_NOT_CONNECTED` for a down server, else null. */
 function fallbackEvidence(event: HookEvent): string | null {
   if (!ANTIFAN_RE.test(callSurface(event))) return null;
-  const text = textOf(event.content);
-  if (text.length === 0) return null;
-  for (const code of FALLBACK_CODES) {
-    if (!text.includes(code)) continue;
-    // A code only counts as a failure of the call: flagged as an error, or carried as the error's own `code`.
-    if (event.isError === true || new RegExp(String.raw`["']?code["']?\s*[:=]\s*["']?${code}\b`).test(text)) return code;
+  const fromContent = matchCodeInText(textOf(event.content), event.isError === true);
+  if (fromContent !== null) return fromContent;
+  for (const se of evalStatusEvents(recordOf(event.details))) {
+    if (!ANTIFAN_RE.test(String(se.op ?? ""))) continue;
+    const fromEvent = matchCodeInText(String(se.error ?? ""), se.hasError === true);
+    if (fromEvent !== null) return fromEvent;
   }
-  return event.isError === true && MCP_NOT_CONNECTED_RE.test(text) ? "MCP_NOT_CONNECTED" : null;
+  return null;
 }
 
 function antifanEquivalent(surface: string): string {
