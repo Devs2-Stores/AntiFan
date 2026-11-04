@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { BrowserTarget, CapabilityRequestContext, AuthenticatedCapabilityContext, CapabilityError, CapabilityEffectPolicyInput, CapabilityRisk, ReceiptBinding, digestText } from '../../shared/control-plane-contracts';
 import { parseCookieJarParam } from '../browser/cookie-jar';
 import { BrowserControlPort, BrowserWaitCondition, BrowserWaitParams, buildRefLookupExpression, ResponsiveBreakpointOption, VISUAL_COMPARE_EXECUTION_BUDGET_MS, VISUAL_COMPARE_CANCELLATION_ACK_MS, FULL_PAGE_CAPTURE_EXECUTION_BUDGET_MS, FULL_PAGE_CAPTURE_CANCELLATION_ACK_MS, VIEWPORT_CAPTURE_EXECUTION_BUDGET_MS, VIEWPORT_CAPTURE_CANCELLATION_ACK_MS, REFERENCE_CAPTURE_EXECUTION_BUDGET_MS, REFERENCE_CAPTURE_CANCELLATION_ACK_MS, BROWSER_WAIT_INVOCATION_BUDGET_MS, BROWSER_WAIT_MAX_TIMEOUT_MS, BROWSER_EVAL_INVOCATION_BUDGET_MS, BROWSER_EVAL_MAX_TIMEOUT_MS } from './browser-control-port';
-import type { CheckedEvalResult } from './browser-control-port';
+import { LIST_TAB_FIELDS, type CheckedEvalResult } from './browser-control-port';
 import { CapabilityCatalogue } from './capability-catalogue';
 import { resolveCallerWorkspaceRoot } from './file-capabilities';
 import { PlatformDetector } from '../qa/scanners/platform-detector';
@@ -1360,17 +1360,27 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
   };
 
 
-  const listTabsFromParams = (params: TabListParams, context: CapabilityRequestContext) => browser.listTabs({
-    target: context.browserTarget,
-    scope: params?.all === true ? 'global' : 'project',
-    affiliatedOnly: params?.affiliatedOnly === true,
-    projectId: typeof params?.projectId === 'string' ? params.projectId : undefined,
-    // The caller's authenticated scope travels on the dispatch context, never
-    // inside the browser target — a bindingless or stale target keeps it.
-    authenticatedProjectId: context.projectId,
-    authenticatedWorkspaceId: context.workspaceId,
-    ...parseTabListFilters(params ?? {}),
-  });
+  // A column the rows do not carry (`active`, `viewport`, `bound`) is a naming slip on a read-only
+  // listing, not a reason to refuse it: the call lists the columns it knows and says which names it
+  // dropped, so the slip is visible and the next call can be right. The port keeps refusing them.
+  const listTabsFromParams = async (params: TabListParams, context: CapabilityRequestContext) => {
+    const filters = parseTabListFilters(params ?? {});
+    const ignoredFields = filters.fields?.filter((field) => !LIST_TAB_FIELDS.includes(field)) ?? [];
+    const knownFields = filters.fields?.filter((field) => LIST_TAB_FIELDS.includes(field)) ?? [];
+    const tabs = await browser.listTabs({
+      target: context.browserTarget,
+      scope: params?.all === true ? 'global' : 'project',
+      affiliatedOnly: params?.affiliatedOnly === true,
+      projectId: typeof params?.projectId === 'string' ? params.projectId : undefined,
+      // The caller's authenticated scope travels on the dispatch context, never
+      // inside the browser target — a bindingless or stale target keeps it.
+      authenticatedProjectId: context.projectId,
+      authenticatedWorkspaceId: context.workspaceId,
+      ...filters,
+      fields: knownFields.length > 0 ? knownFields : undefined,
+    });
+    return ignoredFields.length > 0 ? { tabs, ignoredFields, validFields: LIST_TAB_FIELDS } : tabs;
+  };
 
   // `bind: false` opens the tab without making it this session's bound target: the transport reads the
   // same flag from the call and skips the rotation onto the new tab.
