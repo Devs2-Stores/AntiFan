@@ -546,15 +546,39 @@ const CLI_WORD = String.raw`(?:hrv|haravan-cli|haravan|shopify|sapo)(?:\.(?:cmd|
 const CLI_END = String.raw`(?![a-z0-9_-]|\.[a-z0-9]|/|\\(?![nrt](?![a-z0-9_])))`;
 const CLI_START = String.raw`(?:^|[^a-z0-9_.-])`;
 
+/** `theme` as a word of its own: not `theme.liquid`, `themes`, `layout/theme`, `--theme-x`. */
+const THEME_WORD_RE = /(?:^|[^a-z0-9_\\/.-])theme(?![a-z0-9_-]|\.[a-z0-9]|[\\/])/gi;
+const CLI_OCCURRENCE_RE = new RegExp(String.raw`${CLI_START}(${CLI_WORD})${CLI_END}`, "gi");
+
+function snippetOf(text: string, from: number, to: number): string {
+  return text.slice(from, to).replace(/\s+/g, " ").trim().slice(0, 120);
+}
+
 /**
- * A theme CLI word followed later by `theme`, across lines, quotes, list and call syntax.
- * `hrv.liquid` is a file, not the CLI; `hrv.cmd` / `hrv.js` / `haravan-cli` are. A path is not
- * a mention: `shopify/theme`, `...\Shopify\Rebel\layout\theme.liquid`, `layout/theme.liquid`.
+ * The first place where a theme CLI word is followed later by `theme`, across lines, quotes, list
+ * and call syntax; null when there is none. `hrv.liquid` is a file, not the CLI; `hrv.cmd` /
+ * `hrv.js` / `haravan-cli` are. A path is not a mention: `shopify/theme`, `layout/theme.liquid`,
+ * `...\Shopify\Rebel\layout\theme.liquid`. A CLI word reached through a path is the CLI only when
+ * `theme` follows in the same statement, whatever its case: `./node_modules/.bin/haravan theme`
+ * and `C:/Users/x/AppData/Roaming/npm/HRV theme push` run the CLI, while a folder named after it
+ * (`cd ".../S2 Corporate/Haravan" && rg ...`) is a statement of its own.
  */
-const THEME_CLI_MENTION_RE = new RegExp(
-  String.raw`${CLI_START}${CLI_WORD}${CLI_END}[\s\S]*?(?:^|[^a-z0-9_\\/.-])theme(?![a-z0-9_-]|\.[a-z0-9]|[\\/])`,
-  "i",
-);
+function themeMentionSnippet(text: string): string | null {
+  const themeAt: number[] = [];
+  for (const match of text.matchAll(THEME_WORD_RE)) themeAt.push((match.index ?? 0) + match[0].length - "theme".length);
+  if (themeAt.length === 0) return null;
+  for (const match of text.matchAll(CLI_OCCURRENCE_RE)) {
+    const word = match[1] ?? "";
+    const end = (match.index ?? 0) + match[0].length;
+    const before = match[0].length > word.length ? match[0].charAt(0) : "";
+    const next = themeAt.find((at) => at >= end);
+    if (next === undefined) continue;
+    const pathQualified = before === "/" || before === "\\";
+    if (pathQualified && /[;&|\r\n]/.test(text.slice(end, next))) continue;
+    return snippetOf(text, end - word.length, next + "theme".length);
+  }
+  return null;
+}
 
 /**
  * Shop writes that do not say `theme`: `hrv api put|post|delete|patch <path>` (the raw
@@ -570,23 +594,84 @@ const REMOTE_WRITE_RE = new RegExp(
  * Lines that rename, store or evaluate the CLI word, so that a later line runs it without
  * spelling it: `Set-Alias h hrv`, `alias h=hrv`, `doskey`, `function h { hrv ... }`, `iex`,
  * and `$h = 'hrv'` / `set H=hrv` / `cli = "hrv"`.
+ *
+ * The keyword has to sit outside quotes: `function` or `eval` inside an `rg` pattern
+ * (`rg -n "function create" src/haravan/x.ts`) renames nothing. The keyword's own line is
+ * scanned up to the next `;`, `&` or `|`, and any CLI word on it counts, a capitalised path word
+ * included (`function h { C:/tools/HRV @args }`): a line that defines a wrapper names its target on purpose.
  */
-const CLI_ALIAS_RE = new RegExp(
-  String.raw`(?:^|[\s;&|(])(?:set-alias|new-alias|sal|alias|doskey|new-variable|set-variable|function|iex|invoke-expression|eval)(?![a-z0-9_-])[^\r\n;&|]*?(?:^|[\s"'=\\/])${CLI_WORD}(?![a-z0-9_-]|\.[a-z0-9])`,
-  "i",
-);
+const ALIAS_KEYWORD_RE = /(?:^|[\s;&|(])(set-alias|new-alias|sal|alias|doskey|new-variable|set-variable|function|iex|invoke-expression|eval)(?![a-z0-9_-])/gi;
+const ALIAS_TARGET_RE = new RegExp(String.raw`(?:^|[\s"'=\\/])${CLI_WORD}${CLI_END}`, "i");
 const CLI_ASSIGN_RE = new RegExp(
-  String.raw`(?:^|[;&|(]\s*|\bset\s+)(?:(?:const|let|var|export)\s+)?[$%]?[\w:.-]+%?\s*=\s*["']?(?:[^\s;&|"']*[\\/])?${CLI_WORD}["']?(?=[\s;&|)]|$)`,
-  "im",
+  String.raw`(?:^|[;&|(]\s*|\bset\s+)(?:(?:const|let|var|export)\s+)?[$%]?[\w:.-]+%?\s*=\s*(?:[rbfu]{1,2}(?=["']))?["']?((?:[^\s;&|"']*[\\/])?)(${CLI_WORD})["']?(?=[\s;&|)]|$)`,
+  "gim",
 );
 
-/** A segment that starts with the CLI and then takes its next word from a variable, call, block or expansion. */
+/**
+ * A folder named after a CLI, not the CLI: `E:/Work/themes/devs2/S2 Corporate/Haravan`. The CLIs
+ * are lowercase commands (`hrv`, `haravan`, `shopify`, `sapo`) and `hrv.cmd` / `haravan.js` are the
+ * CLI wherever they sit, while the theme and app folders of a workspace are named `Haravan`,
+ * `Shopify`, `Sapo`. `hrv` is the Haravan CLI's only bin and no workspace folder carries that
+ * name, so it is the CLI in any case. `before` is the character just left of the word.
+ */
+function isFolderName(name: string, before: string): boolean {
+  return (
+    (before === "/" || before === "\\") &&
+    /^[A-Z]/.test(name) &&
+    !/^hrv$/i.test(name) &&
+    !/\.(?:cmd|exe|ps1|bat|js|mjs|cjs)$/i.test(name)
+  );
+}
+
+/** Whether `index` sits inside a quoted span of its own line (`"`, `'` or a backtick opened earlier on that line). */
+function insideQuotes(text: string, index: number): boolean {
+  let quote: string | null = null;
+  for (let i = text.lastIndexOf("\n", index - 1) + 1; i < index; i += 1) {
+    const ch = text.charAt(i);
+    if (quote !== null) {
+      if (ch === quote) quote = null;
+    } else if (ch === '"' || ch === "'" || ch === "`") {
+      quote = ch;
+    }
+  }
+  return quote !== null;
+}
+
+function aliasSnippet(text: string): string | null {
+  for (const keyword of text.matchAll(ALIAS_KEYWORD_RE)) {
+    const start = (keyword.index ?? 0) + keyword[0].length - (keyword[1] ?? "").length;
+    if (insideQuotes(text, start)) continue;
+    const tail = text.slice(start).split(/[\r\n;&|]/, 1)[0] ?? "";
+    if (ALIAS_TARGET_RE.test(tail)) return snippetOf(text, start, start + tail.length);
+  }
+  return null;
+}
+
+function assignSnippet(text: string): string | null {
+  for (const match of text.matchAll(CLI_ASSIGN_RE)) {
+    const prefix = match[1] ?? "";
+    if (prefix.length > 0 && isFolderName(match[2] ?? "", prefix.charAt(prefix.length - 1))) continue;
+    return snippetOf(match[0], 0, match[0].length);
+  }
+  return null;
+}
+
+/**
+ * A segment whose command is the CLI and whose next word comes from a variable, call, block or
+ * expansion (`hrv $c publish`), or whose command is a variable that is followed by `theme`
+ * (`& $h theme push`, `$h theme push`): the variable may hold the CLI under any name.
+ */
 function hasIndirectCliArgument(text: string): boolean {
   for (const segment of topLevelSegments(text)) {
     const tokens = segment.trim().split(/\s+/);
-    if (cliOf(tokens[0] ?? "") === null) continue;
-    const next = tokens.slice(1).find((token) => !token.startsWith("-"));
-    if (next !== undefined && /^[$%@`{(]/.test(next)) return true;
+    if (cliOf(tokens[0] ?? "") !== null) {
+      const next = tokens.slice(1).find((token) => !token.startsWith("-"));
+      if (next !== undefined && /^[$%@`{(]/.test(next)) return true;
+      continue;
+    }
+    const [command, ...args] = tokens.filter((token, index) => index > 0 || !/^(?:&|call|\.)$/i.test(token));
+    if (command === undefined || !/^["']?[$%]\{?[\w:.-]+\}?%?["']?$/.test(command)) continue;
+    if (args.some((token) => /^["']?theme["']?$/i.test(token))) return true;
   }
   return false;
 }
@@ -596,36 +681,44 @@ function unquoted(text: string): string {
 }
 
 /** `hrv api put|post|delete|patch ...` or `hrv rollback-last-push`, spelled plainly or with quote-splitting. */
-function namesRemoteWrite(text: string): boolean {
-  return REMOTE_WRITE_RE.test(text) || REMOTE_WRITE_RE.test(unquoted(text));
+function remoteWriteSnippet(text: string): string | null {
+  const match = REMOTE_WRITE_RE.exec(text) ?? REMOTE_WRITE_RE.exec(unquoted(text));
+  return match === null ? null : match[0].replace(/\s+/g, " ").trim().slice(0, 120);
 }
 
-function namesCliIndirection(text: string): boolean {
-  return (
-    CLI_ALIAS_RE.test(text) ||
-    CLI_ASSIGN_RE.test(text) ||
-    CLI_ALIAS_RE.test(unquoted(text)) ||
-    CLI_ASSIGN_RE.test(unquoted(text)) ||
-    hasIndirectCliArgument(text)
-  );
+function indirectionSnippet(text: string): string | null {
+  const plain = aliasSnippet(text) ?? assignSnippet(text);
+  if (plain !== null) return plain;
+  const bare = unquoted(text);
+  const stripped = aliasSnippet(bare) ?? assignSnippet(bare);
+  if (stripped !== null) return stripped;
+  return hasIndirectCliArgument(text) || hasIndirectCliArgument(bare) ? "the CLI followed by a variable, call or expansion" : null;
 }
 
 /**
- * True when `text` is a use of the theme CLI the gate has to judge: `hrv|haravan|haravan-cli|
- * shopify ... theme`, a shop write through `hrv api` / `hrv rollback-last-push`, or an alias,
- * variable or `iex` that hides the CLI word. Tested on the raw text and on a copy with quoting
- * characters removed, so `h""rv theme push` and `h^rv theme push` are seen. Over-detection is
- * intended: a false hit costs a question to the user, a miss is a changed shop.
+ * The text that makes `text` a use of the theme CLI the gate has to judge: `hrv|haravan|
+ * haravan-cli|shopify ... theme`, a shop write through `hrv api` / `hrv rollback-last-push`, or an
+ * alias, variable or `iex` that hides the CLI word; null when there is none. Tested on the raw
+ * text and on a copy with quoting characters removed, so `h""rv theme push` and `h^rv theme push`
+ * are seen. Over-detection is intended: a false hit costs a question to the user, a miss is a
+ * changed shop. A folder named after a CLI (`.../Haravan`) and a keyword quoted inside a search
+ * pattern are not uses of it.
  */
-export function mentionsThemeCli(text: string): boolean {
-  if (typeof text !== "string" || text.length === 0) return false;
-  return (
-    THEME_CLI_MENTION_RE.test(text) ||
-    THEME_CLI_MENTION_RE.test(unquoted(text)) ||
-    namesRemoteWrite(text) ||
-    namesCliIndirection(text)
-  );
+export function themeCliEvidence(text: string): string | null {
+  if (typeof text !== "string" || text.length === 0) return null;
+  return themeMentionSnippet(text) ?? themeMentionSnippet(unquoted(text)) ?? remoteWriteSnippet(text) ?? indirectionSnippet(text);
 }
+
+/** True when `themeCliEvidence` finds a use of the theme CLI in `text`. */
+export function mentionsThemeCli(text: string): boolean {
+  return themeCliEvidence(text) !== null;
+}
+
+/**
+ * Signs that an `eval` cell starts a process: `subprocess`, `os.system`, `child_process`, `Bun.$`,
+ * `spawn(`, `exec(`, or an IPython `!cmd` / `%cmd` line.
+ */
+export const SUBPROCESS_RE = /subprocess|os\.(?:system|popen|exec|spawn)|child_process|Bun\.(?:\$|spawn)|Deno\.(?:run|Command)|shelljs|\$`|\bspawn\w*\s*\(|\bexec\w*\s*\(|(?:^|\n)\s*[!%]/;
 
 export type ThemeLinePlan =
   /** No theme-CLI mention: nothing to gate. */
@@ -675,7 +768,7 @@ export function classifyThemeLine(text: string, opts: { assumeDirChanged?: boole
     command,
     reason: `${THEME_PUSH_CODES.COMPLEX}: '${command}' names the theme CLI in a shape the push rules cannot read (${why}). Run each theme command on its own as one plain bash command - hrv theme <action> ... - with the bash tool's cwd set to the theme folder; no wrapper (bash -c, cmd /c, powershell -c, npx), no ( ), $( ), { }, backtick or backslash-newline, no quoted CLI word, no global option before 'theme', and no mention of the CLI inside another command's text (git commit -F <file> instead of -m). ${ASK}`,
   });
-  if (namesRemoteWrite(text)) {
+  if (remoteWriteSnippet(text) !== null) {
     return {
       decision: "block",
       code: THEME_PUSH_CODES.REMOTE_OP,
@@ -683,7 +776,7 @@ export function classifyThemeLine(text: string, opts: { assumeDirChanged?: boole
       reason: `${THEME_PUSH_CODES.REMOTE_OP}: '${command}' writes to the shop outside the draft-theme sync (hrv api put/post/delete/patch sends the request as given, hrv rollback-last-push restores remote files without a draft check). A Leader worker may only sync its own bound draft Haravan theme (hrv theme push --only <files> / hrv theme dev). ${ASK}`,
     };
   }
-  if (namesCliIndirection(text)) {
+  if (indirectionSnippet(text) !== null) {
     return complex("an alias, variable, eval or expansion hides which command runs");
   }
   if (COMPLEX_SHAPE_RE.test(text)) {
@@ -707,13 +800,32 @@ export function classifyThemeLine(text: string, opts: { assumeDirChanged?: boole
 }
 
 /**
- * An `eval` cell (Python or JS) can start the theme CLI through `subprocess`, `os.system`,
- * `!cmd`, `Bun.$` or `child_process`, where argument lists and working-directory changes
- * cannot be read back reliably. A worker runs theme commands through the bash tool only,
- * so any eval cell naming the CLI next to `theme` is refused - read actions included.
+ * A CLI word anywhere in an eval cell that is not a workspace folder: `hrv`, `HRV`, `C:/…/npm/HRV`,
+ * `shopify`, however the path to it is built (`pathlib.Path(".../HRV")`, `os.path.join(npm, "HRV")`,
+ * `cli = r".../HRV"`). Unlike a shell line, a cell has no "same statement" to tie the word to `theme`,
+ * so only a folder named `Haravan` or `Sapo` (the theme and app folders; `shopify` and `hrv` are bins
+ * and `hrv` is the Haravan CLI's only one) is set aside.
+ */
+function namesCliWordInCell(text: string): boolean {
+  for (const match of text.matchAll(CLI_OCCURRENCE_RE)) {
+    const word = match[1] ?? "";
+    const before = match[0].length > word.length ? match[0].charAt(0) : "";
+    if ((before === "/" || before === "\\") && /^(?:Haravan|Sapo)$/.test(word)) continue;
+    return true;
+  }
+  return false;
+}
+
+/**
+ * An `eval` cell (Python or JS) reaches the theme CLI only by starting a process (`subprocess`,
+ * `os.system`, `!cmd`, `Bun.$`, `$\``, `child_process`), where argument lists and working-directory
+ * changes cannot be read back reliably. A worker runs theme commands through the bash tool only,
+ * so an eval cell that starts a process and names a CLI word is refused - read actions included.
+ * A cell that only reads a file, prints text or searches for these words starts nothing and passes.
  */
 export function planEvalThemeCode(code: string): ThemeCommandPlan {
-  if (typeof code !== "string" || !mentionsThemeCli(code)) return { decision: "allow" };
+  if (typeof code !== "string" || !SUBPROCESS_RE.test(code)) return { decision: "allow" };
+  if (!namesCliWordInCell(code) && !namesCliWordInCell(unquoted(code)) && !mentionsThemeCli(code)) return { decision: "allow" };
   return {
     decision: "block",
     code: THEME_PUSH_CODES.VIA_EVAL,

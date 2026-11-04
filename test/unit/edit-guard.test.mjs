@@ -1788,6 +1788,13 @@ for (const command of [
   "grep -rn shopify theme/",
   "cat layout/theme.liquid sections/hrv.liquid",
   "hrv api get /web/themes.json",
+  // Sampled from real worker calls the guard refused: a folder named after the CLI, and a
+  // keyword that only sits inside a search pattern.
+  'cd "E:/Work/themes/devs2/S2 Corporate/Haravan" && rg -n "sc_blog_careers" config/settings_schema.json',
+  'cd "E:/Work/themes/devs2/S2 Rog Bike/Haravan" && echo "=== theme code ==="',
+  'rg -n "function createService|const create\\b" src/haravan/haravan.service.spec.ts',
+  'rg -n "eval|iex" E:/Work/themes/devs2/S2 Pet House/Haravan/layout/theme.liquid',
+  'd="devs2/S2 Corporate"; f="$d/Haravan"; ls "$f/sections" | wc -l',
 ]) {
   test(`a worker's benign line is passed untouched: ${command}`, async () => {
     const root = makeThemeWorkspace();
@@ -1799,6 +1806,53 @@ for (const command of [
         for (const language of ["py", "js"]) {
           assert.equal(await runTool(root, `sess-benign-eval-${language}-${command.length}`, "eval", { language, code: command }), null);
         }
+      });
+      assert.equal(stub.recorded().length, 0);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+      fs.rmSync(stub.dir, { recursive: true, force: true });
+    }
+  });
+}
+
+for (const [label, language, code] of [
+  ["reads a file inside a Haravan theme folder", "js", "const fs = require('fs'); console.log(fs.readdirSync('E:/Work/themes/devs2/S2 Corporate/Haravan/sections'), 'theme folder')"],
+  ["prints a note that mentions the CLI", "py", "print('hrv theme push is for the user to run')"],
+]) {
+  test(`a worker's eval cell that ${label} starts no process and passes`, async () => {
+    const root = makeThemeWorkspace();
+    bindShop(root);
+    const stub = installInfoStub({ role: "main" });
+    try {
+      await asTerminal(true, async () => {
+        assert.equal(await runTool(root, `sess-eval-reads-${language}`, "eval", { language, code }), null);
+      });
+      assert.equal(stub.recorded().length, 0);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+      fs.rmSync(stub.dir, { recursive: true, force: true });
+    }
+  });
+}
+
+for (const [label, language, code] of [
+  ["runs a capitalised path-qualified CLI through subprocess", "py", 'import subprocess\nsubprocess.run(["C:/Users/Admin/AppData/Roaming/npm/HRV", "theme", "push", "--force"])'],
+  ["runs the CLI through Bun.$", "js", "await Bun.$`hrv theme push --nodelete`"],
+  ["starts a process for a raw API write", "js", "await Bun.$`C:/Users/Admin/AppData/Roaming/npm/HRV api put /web/themes/1.json`"],
+  ["holds a capitalised CLI path in a variable", "py", 'cli = "C:/Users/Admin/AppData/Roaming/npm/HRV"\nimport subprocess\nsubprocess.run([cli, "theme", "push", "--force"])'],
+  ["holds a raw-string CLI path in a variable", "py", 'cli = r"C:/Users/Admin/AppData/Roaming/npm/HRV"\nimport subprocess\nsubprocess.run([cli, "theme", "push", "--force"])'],
+  ["builds the CLI path with pathlib", "py", 'import pathlib, subprocess\np = pathlib.Path("C:/Users/Admin/AppData/Roaming/npm/HRV")\nsubprocess.run([str(p), "theme", "push", "--force"])'],
+  ["builds the CLI path with os.path.join", "py", 'import os, subprocess\nnpm = os.environ["APPDATA"]\nsubprocess.run([os.path.join(npm, "npm", "HRV"), "theme", "push"])'],
+  ["runs the CLI through a zx template", "js", 'import { $ } from "zx";\nawait $`hrv theme push --force`'],
+]) {
+  test(`a worker's eval cell that ${label} is refused`, async () => {
+    const root = makeThemeWorkspace();
+    bindShop(root);
+    const stub = installInfoStub({ role: "main" });
+    try {
+      await asTerminal(true, async () => {
+        const result = await runTool(root, `sess-eval-refused-${label.replace(/\W+/g, "-")}`, "eval", { language, code });
+        assert.ok(result?.reason.startsWith("REFUSED_THEME_VIA_EVAL:"), result?.reason);
       });
       assert.equal(stub.recorded().length, 0);
     } finally {
@@ -1823,6 +1877,15 @@ for (const [label, command, expectedCode] of [
   ["the CLI with a variable as its next word", "hrv $c publish 1001507144", "REFUSED_THEME_COMPLEX"],
   ["the CLI with an expansion as its next word", "hrv %c% publish 1001507144", "REFUSED_THEME_COMPLEX"],
   ["a bundled short force flag", "hrv theme push -nf --only a.liquid", "REFUSED_THEME_PUSH_SCOPE"],
+  // Windows resolves the CLI whatever the case of its file name, so a capitalised path word that is
+  // followed by `theme` in the same statement is the CLI, not a folder.
+  ["a capitalised path-qualified CLI with --force", "C:/Users/Admin/AppData/Roaming/npm/HRV theme push --force", "REFUSED_THEME_PUSH_SCOPE"],
+  ["a capitalised path-qualified raw API write", "C:/Users/Admin/AppData/Roaming/npm/HRV api put /web/themes/1.json", "REFUSED_THEME_REMOTE_OP"],
+  ["an alias to a capitalised path", "Set-Alias h C:/tools/HRV", "REFUSED_THEME_COMPLEX"],
+  ["a variable run as the CLI", "$h theme push --force", "REFUSED_THEME_COMPLEX"],
+  ["a call operator on a variable", "& $h theme publish 1001507144", "REFUSED_THEME_COMPLEX"],
+  ["a function wrapping a capitalised CLI path", "function h { C:/Users/Admin/AppData/Roaming/npm/HRV @args }; h theme push", "REFUSED_THEME_COMPLEX"],
+  ["a quote-split variable run as the CLI", '"$h" "th""eme" push --force', "REFUSED_THEME_COMPLEX"],
 ]) {
   test(`a worker's ${label} is refused (${expectedCode}) before anything reaches the shop`, async () => {
     const root = makeThemeWorkspace();

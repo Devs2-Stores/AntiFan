@@ -189,7 +189,9 @@ describe('Leader scope of the terminal capabilities', () => {
       hostEpoch: 1,
       getActiveLease: () => lease,
     });
-    registerTerminalCapabilities(catalogue, facade, ownership, { deliveryWaitMs: 150, ...deps });
+    // The default would read this machine's installed hooks (`~/.omp/agent/hooks`), so a case that does not
+    // care about hook drift must not depend on what happens to be installed.
+    registerTerminalCapabilities(catalogue, facade, ownership, { deliveryWaitMs: 150, installedHooksStale: () => [], ...deps });
     return { rows, calls, catalogue };
   };
 
@@ -1097,6 +1099,19 @@ describe('Leader scope of the terminal capabilities', () => {
         assert.ok(!('hookOutdated' in (withRun ?? {})));
         const noRun = listed.sessions.find((row) => row.id === 'terminal-plain');
         assert.ok(!('hookOutdated' in (noRun ?? {})) && !('hookSha256' in (noRun ?? {})));
+      });
+
+      it('lists the installed hooks that drifted, to a Leader only, and nothing when none did', async () => {
+        LeaderRegistry.getInstance().setLeader('terminal-lead', true);
+        const drift = [{ id: 'edit-guard', state: 'SOURCE_CHANGED' as const, detail: 'a source file this hook is built from changed after the install' }];
+        const stale = build(undefined, undefined, {}, { installedHooksStale: () => drift });
+        const listed = (await stale.catalogue.dispatch('terminal.list', {}, ctx())) as { hooksStale?: typeof drift };
+        assert.deepStrictEqual(listed.hooksStale, drift);
+        const clean = build(undefined, undefined, {}, { installedHooksStale: () => [] });
+        const none = (await clean.catalogue.dispatch('terminal.list', {}, ctx())) as { hooksStale?: unknown };
+        assert.ok(!('hooksStale' in none));
+        const attached = (await stale.catalogue.dispatch('terminal.list', {}, attachmentContext('att-plain'))) as { hooksStale?: unknown };
+        assert.ok(!('hooksStale' in attached));
       });
     });
 
