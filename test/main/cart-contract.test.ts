@@ -22,7 +22,7 @@ interface CartBackend {
 interface CartFixtures {
   LINE: CartLineFixture;
   createCartBackend(items?: CartLineFixture[]): CartBackend;
-  cartPageHtml(variant: 'good' | 'broken' | 'empty', quantity?: number): string;
+  cartPageHtml(variant: 'good' | 'broken' | 'empty' | 'crushed', quantity?: number): string;
 }
 
 const fixtures = createRequire(__filename)(path.resolve(process.cwd(), 'test/fixtures/probes/cart-fixtures.cjs')) as CartFixtures;
@@ -380,5 +380,103 @@ describe('runCartContract on a cart with several lines', () => {
     assert.strictEqual(failed.severity, 'critical');
     assert.strictEqual(result.data.restored, 'failed');
     assert.strictEqual(result.passed, false);
+  });
+});
+
+describe('runCartContract S2 Melody House layout defects and autoSeed', () => {
+  it('detects crushed details, collapsed title, collapsed quantity, remove overlap and stacked desktop header columns', async () => {
+    const backend = fixtures.createCartBackend([fixtures.LINE]);
+    const JSDOM = loadJsdom();
+    const dom = new JSDOM(fixtures.cartPageHtml('crushed', 1), {
+      runScripts: 'dangerously',
+      url: `${STOREFRONT_ORIGIN}/cart`,
+    });
+    const win = dom.window as unknown as Record<string, unknown>;
+    win.innerWidth = 1440;
+    const doc = dom.window.document;
+    const setBox = (sel: string, rect: { left: number; top: number; width: number; height: number }) => {
+      const nodes = doc.querySelectorAll(sel);
+      nodes.forEach((el) => {
+        (el as HTMLElement).getBoundingClientRect = () => ({
+          left: rect.left,
+          top: rect.top,
+          right: rect.left + rect.width,
+          bottom: rect.top + rect.height,
+          width: rect.width,
+          height: rect.height,
+          x: rect.left,
+          y: rect.top,
+          toJSON: () => ({}),
+        });
+      });
+    };
+    setBox('.mh-cart-items__head', { left: 20, top: 80, width: 756, height: 80 });
+    const cols = doc.querySelectorAll('.mh-cart-items__col');
+    cols.forEach((col, idx) => {
+      (col as HTMLElement).getBoundingClientRect = () => ({
+        left: 20,
+        top: 80 + idx * 20,
+        right: 776,
+        bottom: 100 + idx * 20,
+        width: 756,
+        height: 20,
+        x: 20,
+        y: 80 + idx * 20,
+        toJSON: () => ({}),
+      });
+    });
+    setBox('.mh-cart-item', { left: 20, top: 180, width: 756, height: 175 });
+    setBox('.mh-cart-item__product', { left: 20, top: 180, width: 88, height: 175 });
+    setBox('.mh-cart-item__media', { left: 20, top: 180, width: 80, height: 80 });
+    setBox('.mh-cart-item__details', { left: 114, top: 180, width: 0, height: 175 });
+    setBox('.mh-cart-item__title', { left: 114, top: 200, width: 0, height: 18 });
+    setBox('.mh-cart-item__vendor', { left: 114, top: 180, width: 0, height: 16 });
+    setBox('.mh-cart-item__remove', { left: 114, top: 180, width: 28, height: 28 });
+    setBox('.mh-cart-item__qty', { left: 114, top: 290, width: 0, height: 36 });
+    setBox('.mh-cart-item__qty-btn, .mh-cart-item__qty-input', { left: 114, top: 290, width: 28, height: 28 });
+    setBox('.checkout', { left: 820, top: 300, width: 320, height: 48 });
+
+    dom.window.fetch = (async (input: string, init?: { method?: string; body?: string }) => {
+      const reply = backend.handle(init?.method ?? 'GET', String(input), init?.body ?? '');
+      return { ok: reply.status === 200, status: reply.status, json: async () => reply.json };
+    }) as unknown as typeof fetch;
+
+    const { deps } = makeDomDeps(dom);
+    const result = await runCartContract(deps);
+
+    assert.strictEqual(result.measured, true);
+    assert.strictEqual(result.passed, false);
+    const rules = new Set(result.findings.map((f) => f.ruleId));
+    for (const expected of [
+      'cart-header-columns-stacked',
+      'cart-item-details-crushed',
+      'cart-item-title-collapsed',
+      'cart-quantity-collapsed',
+      'cart-item-remove-overlap',
+    ]) {
+      assert.ok(rules.has(expected), `expected finding ${expected} in ${JSON.stringify(result.findings)}`);
+    }
+  });
+
+  it('autoSeeds an empty cart when autoSeed: true is passed and measures the populated cart', async () => {
+    const backend = fixtures.createCartBackend([]);
+    const JSDOM = loadJsdom();
+    const dom = new JSDOM(fixtures.cartPageHtml('good', 1), {
+      runScripts: 'dangerously',
+      url: `${STOREFRONT_ORIGIN}/cart`,
+    });
+    dom.window.fetch = (async (input: string, init?: { method?: string; body?: string }) => {
+      const reply = backend.handle(init?.method ?? 'GET', String(input), init?.body ?? '');
+      return { ok: reply.status === 200, status: reply.status, json: async () => reply.json };
+    }) as unknown as typeof fetch;
+
+    const { deps, navigations } = makeDomDeps(dom, { navigate: true });
+    const result = await runCartContract(deps, { autoSeed: true });
+
+    assert.strictEqual(result.measured, true);
+    assert.strictEqual(result.passed, true);
+    assert.strictEqual(result.data.seeded, true);
+    assert.strictEqual(result.data.itemCount, 1);
+    assert.deepStrictEqual(navigations, ['/cart']);
   });
 });

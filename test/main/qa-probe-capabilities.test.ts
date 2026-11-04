@@ -138,7 +138,7 @@ describe('qa-probe-capabilities registration', () => {
     for (const key of ['workspaceRoot', 'zipPath', 'expectedBrand', 'forbiddenWords', 'formBefore', 'formAfter', 'allowNonTheme']) {
       assert.ok(props('theme.package_check').includes(key), `theme.package_check advertises ${key}`);
     }
-    assert.deepStrictEqual(props('anti.qa.cart_contract').sort(), ['allowRemove', 'exerciseCart', 'paneId', 'tabId']);
+    assert.deepStrictEqual(props('anti.qa.cart_contract').sort(), ['allowRemove', 'autoSeed', 'exerciseCart', 'paneId', 'tabId']);
   });
 });
 
@@ -171,6 +171,7 @@ describe('qa-probe-capabilities validation', () => {
     await assert.rejects(() => catalogue.dispatch('anti.qa.cart_contract', { exerciseCart: 'yes' }, makeBoundContext()), invalid);
     await assert.rejects(() => catalogue.dispatch('anti.qa.cart_contract', { allowRemove: 1 }, makeBoundContext()), invalid);
     await assert.rejects(() => catalogue.dispatch('anti.qa.cart_contract', { allowRemove: true }, makeBoundContext()), (err: unknown) => invalid(err) && /exerciseCart/.test((err as Error).message));
+    await assert.rejects(() => catalogue.dispatch('anti.qa.cart_contract', { autoSeed: 'yes' }, makeBoundContext()), invalid);
     assert.strictEqual(evalCalls.length, 0);
   });
 });

@@ -493,6 +493,38 @@ describe('theme.cockpit_scan grading inputs, root guard and checklist ticks', ()
     }
   });
 
+  it('marks report summary as FAIL and un-ticks crt-02 when passive cart probe finds crushed cart layout', async () => {
+    const cartState = {
+      ok: true,
+      isCartPage: true,
+      cart: { itemCount: 1, items: [{ key: 'k1', variantId: 1, quantity: 1, properties: null }] },
+      controls: {
+        plus: [{ tag: 'plus-0', label: 'button.plus' }],
+        minus: [{ tag: 'minus-0', label: 'button.minus' }],
+        remove: [{ tag: 'remove-0', label: 'button.remove' }],
+        quantityInput: 1,
+        checkout: [{ selector: 'button.checkout', kind: 'form-action', target: '/cart', valid: true }],
+      },
+      layoutFindings: [
+        { ruleId: 'cart-item-details-crushed', severity: 'critical', selector: 'div.mh-cart-item__details', message: 'crushed to 0px' },
+        { ruleId: 'cart-header-columns-stacked', severity: 'critical', selector: 'div.mh-cart-items__head', message: 'stacked vertically' },
+      ],
+    };
+    const { catalogue, root, scope } = makeScanFixture({
+      evalResult: (expression) => (expression.includes('isCartPage') ? cartState : undefined),
+    });
+    try {
+      mutateScope(root, scope, { op: 'mark', itemId: 'crt-02', done: true });
+      const result = (await catalogue.dispatch('theme.cockpit_scan', { page: 'cart' }, makeBoundContext())) as ScanResult & { report?: { summary?: { passed?: boolean; verdict?: string } } };
+      assert.strictEqual(result.report?.summary?.passed, false);
+      assert.strictEqual(result.report?.summary?.verdict, 'FAIL');
+      assert.ok(result.checklist?.applied.some((a) => a.itemId === 'crt-02' && a.done === false), JSON.stringify(result.checklist));
+      assert.strictEqual(itemOf(root, scope, 'crt-02')?.done, false);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('sends only the workspace root when no grading input is supplied', async () => {
     const { catalogue, root, qaCalls } = makeScanFixture();
     try {

@@ -93,3 +93,17 @@ test('off-canvas drawer and running marquee raise no finding (Electron probe)', 
   assert.equal(marquee.status, 0, marquee.output.slice(-1500));
   assert.match(marquee.output, /SUMMARY pass=2 info=0 fail=0/);
 });
+
+test('S2 Melody House cart: single-child in 2-col grid and zero-width text container are critical, 2-child grid is clean (Electron probe)', (t) => {
+  const bad = probeFixture('89-cart-grid-single-child-track-crush-and-header-stacked');
+  if (bad.skipped) {
+    t.skip(bad.skipped);
+    return;
+  }
+  assert.equal(bad.status, 0, bad.output.slice(-1500));
+  assert.match(bad.output, /SUMMARY pass=2 info=0 fail=0/);
+
+  const good = probeFixture('90-cart-grid-two-columns-healthy-control');
+  assert.equal(good.status, 0, good.output.slice(-1500));
+  assert.match(good.output, /SUMMARY pass=2 info=0 fail=0/);
+});

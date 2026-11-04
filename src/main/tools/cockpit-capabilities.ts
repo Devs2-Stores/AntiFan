@@ -51,7 +51,7 @@ import { runPageStructure } from '../qa/probes/page-structure';
 import { runMenuDepth } from '../qa/probes/menu-depth';
 import { runVariantImageProbe } from '../qa/probes/variant-image-probe';
 import { runPdpContract } from '../qa/probes/pdp-contract';
-import { runCartContract } from '../qa/probes/cart-contract';
+import { runCartContract, buildCartSeedScript } from '../qa/probes/cart-contract';
 import { parseBaselineViewportsInput, resolveBaselineViewports, type BaselineViewportsInput } from '../qa/baseline-provenance';
 import { DEADLINES } from '../../shared/deadline-chain';
 // Circular edge (browser-capabilities ↔ this module): the namespace is resolved
@@ -414,7 +414,7 @@ const PROBES_BY_PAGE: Readonly<Record<string, ReadonlyArray<keyof ChecklistProbe
   cart: ['cart_contract'],
 };
 
-async function runPageProbes(deps: ProbeDeps, page: string): Promise<ChecklistProbeResults> {
+async function runPageProbes(deps: ProbeDeps, page: string, opts?: { autoSeed?: boolean }): Promise<ChecklistProbeResults> {
   const results: ChecklistProbeResults = {};
   for (const name of PROBES_BY_PAGE[page] ?? []) {
     try {
@@ -423,7 +423,7 @@ async function runPageProbes(deps: ProbeDeps, page: string): Promise<ChecklistPr
         case 'menu_depth': results[name] = await runMenuDepth(deps); break;
         case 'variant_image_probe': results[name] = await runVariantImageProbe(deps, {}); break;
         case 'pdp_contract': results[name] = await runPdpContract(deps); break;
-        case 'cart_contract': results[name] = await runCartContract(deps); break;
+        case 'cart_contract': results[name] = await runCartContract(deps, opts?.autoSeed === true ? { autoSeed: true } : {}); break;
       }
     } catch (err) {
       results[name] = { measured: false, passed: null, findings: [], data: {}, error: err instanceof Error ? err.message : String(err) };
@@ -464,11 +464,33 @@ async function finishScan(args: {
   ok: boolean;
   report: unknown;
   page: string;
+  autoSeed?: boolean;
 }): Promise<ScanProbeOutcome> {
-  const { cockpit, browser, context, identity, checklistInput, checklistBefore, ok, report, page } = args;
+  const { cockpit, browser, context, identity, checklistInput, checklistBefore, ok, report, page, autoSeed } = args;
   if (!ok || !identity.workspaceRoot || !context.browserTarget) return {};
   const deps = makeProbeDeps(browser, context.browserTarget, identity.tabId, 'desktop', context.signal);
-  const probes = await runPageProbes(deps, page);
+  const probes = await runPageProbes(deps, page, { autoSeed });
+  const cartProbe = probes.cart_contract;
+  if (cartProbe && report && typeof report === 'object' && !Array.isArray(report)) {
+    const rep = report as Record<string, unknown>;
+    const findingsObj = rep.findings && typeof rep.findings === 'object' && !Array.isArray(rep.findings)
+      ? (rep.findings as Record<string, unknown>)
+      : undefined;
+    if (cartProbe.findings.some((f) => f.ruleId === 'QA_EMPTY_CART_NOT_EXERCISED') && findingsObj) {
+      const ambiguities = Array.isArray(findingsObj.visualAmbiguities) ? (findingsObj.visualAmbiguities as string[]) : [];
+      const msg = '[empty-cart] /cart was scanned with 0 items: cart line-item layout and controls were not rendered. Add a product (or pass autoSeed: true) and re-scan /cart.';
+      if (!ambiguities.includes(msg)) findingsObj.visualAmbiguities = [...ambiguities, msg];
+    }
+    if (cartProbe.passed === false) {
+      const summaryObj = rep.summary && typeof rep.summary === 'object' && !Array.isArray(rep.summary)
+        ? (rep.summary as Record<string, unknown>)
+        : undefined;
+      if (summaryObj) {
+        summaryObj.passed = false;
+        summaryObj.verdict = 'FAIL';
+      }
+    }
+  }
   const ticks = deriveChecklistTicks({ qa: report, probes });
   const checklist: NonNullable<ScanProbeOutcome['checklist']> = { applied: [], skipped: [] };
   if (ticks.length === 0) return { probes, checklist };
@@ -691,12 +713,16 @@ export function registerCockpitCapabilities(
         multiBreakpoint: { type: 'boolean', description: 'Run the responsive breakpoint sweep (default true)' },
         waivers: { type: 'array', items: { type: 'object', properties: { rule: { type: 'string' }, reason: { type: 'string' } }, required: ['rule', 'reason'] }, description: 'Same as theme.qa_validate waivers: {rule, reason} pairs echoed on the report and receipt' },
         pick: { type: 'string', enum: [...PICK_STRATEGIES], description: 'For page=product without an explicit url: crawl /collections/all and scan the product that best matches this strategy' },
+        autoSeed: { type: 'boolean', description: 'For page=cart: when the cart is empty, seed 1 available product variant via /cart/add.js and reload /cart before running QA and cart_contract' },
       },
     },
-    execute: async (params: { page?: string; url?: string; workspaceRoot?: string; allowNonTheme?: boolean; tabId?: string; profile?: unknown; thresholds?: unknown; baselineViewports?: unknown; multiBreakpoint?: unknown; waivers?: unknown; pick?: unknown }, context) => {
+    execute: async (params: { page?: string; url?: string; workspaceRoot?: string; allowNonTheme?: boolean; tabId?: string; profile?: unknown; thresholds?: unknown; baselineViewports?: unknown; multiBreakpoint?: unknown; waivers?: unknown; pick?: unknown; autoSeed?: unknown }, context) => {
       const identity = resolveBoundScope(cockpit, params, context, 'theme.cockpit_scan');
       const qaOptions = parseScanQaOptions(params);
       const pick = parsePickStrategy(params.pick);
+      if (params.autoSeed !== undefined && typeof params.autoSeed !== 'boolean') {
+        throw new CapabilityError('INVALID_ARGUMENT', 'theme.cockpit_scan autoSeed must be a boolean');
+      }
       // A caller-supplied workspaceRoot is an assertion, not a target: a root outside
       // the bound root falls back to the bound root. An unresolvable bound root stays
       // provisional (no marker check possible, no candidate honoured).
@@ -801,6 +827,22 @@ export function registerCockpitCapabilities(
             pathname: browserCaps.pathnameOfUrl(baselineUrl),
           })
         : undefined;
+      const effectivePage = resolvedPage || inferPageKey(await browser.getLiveTabUrl(identity.tabId).catch(() => boundUrl));
+      if (params.autoSeed === true && effectivePage === 'cart' && context.browserTarget && typeof browser.eval === 'function') {
+        try {
+          const seeded = (await browser.eval(
+            context.browserTarget,
+            `(async () => { try { var r = await fetch('/cart.js', { credentials: 'same-origin', cache: 'no-store' }); var c = r.ok ? await r.json() : null; if (c && c.item_count > 0) return { ok: true, alreadyPopulated: true }; } catch (e) {} return await (${buildCartSeedScript()}); })()`,
+            identity.tabId,
+            'desktop',
+            { allowDegradedSurface: true }
+          )) as { ok?: boolean; alreadyPopulated?: boolean } | null;
+          if (seeded?.ok === true && seeded.alreadyPopulated !== true) {
+            const cartUrl = await browser.getLiveTabUrl(identity.tabId).catch(() => boundUrl);
+            if (cartUrl) await cockpit.navigateAndWait(identity.tabId, cartUrl, COCKPIT_NAVIGATION_MS);
+          }
+        } catch {}
+      }
       const result = await cockpit.runThemeQa(identity.tabId, {
         ...gradingOptions,
         ...(baselineResolution?.viewports ? { viewports: baselineResolution.viewports } : {}),
@@ -816,7 +858,8 @@ export function registerCockpitCapabilities(
         checklistBefore,
         ok: result.ok === true,
         report: result.report,
-        page: resolvedPage || inferPageKey(await browser.getLiveTabUrl(identity.tabId).catch(() => boundUrl)),
+        page: effectivePage,
+        ...(params.autoSeed === true ? { autoSeed: true } : {}),
       });
       return { ok: result.ok === true, report: result.report, error: result.error, scope: identity.scope, workspaceRoot: confinedRoot, isProvisional: identity.isProvisional, ...scanned };
     },

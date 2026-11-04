@@ -60,15 +60,63 @@ export const HOST_METHOD = {
   hostPing: 'terminalHostPing',
   setBridgeEndpoint: 'terminalSetBridgeEndpoint',
   /**
-   * Kills every PTY and exits the host. This exists for one caller only: the explicit
-   * "quit everything" menu action. It must never be wired to GUI shutdown — surviving GUI shutdown
-   * is the entire reason the host is a separate process, so a shutdown-path call here would delete
-   * the feature it was built for.
+   * Kills every PTY and exits the host. Callers: the explicit "quit everything" menu action and an
+   * owner-approved restart. It must never be wired to GUI shutdown — surviving GUI shutdown is the
+   * entire reason the host is a separate process, so a shutdown-path call here would delete the
+   * feature it was built for. Refused with `LIVE_RUNS` while an OMP run is alive, unless `force:true`.
    */
   shutdown: 'terminalHostShutdown',
 } as const;
 
 export type HostMethod = (typeof HOST_METHOD)[keyof typeof HOST_METHOD];
+
+/** Wire parameters for terminalHostShutdown. */
+export interface HostShutdownParams {
+  /**
+   * Shut down even when OMP runs are still alive. Only for a caller that shows the owner the live
+   * runs at that moment (the "Thoát hoàn toàn" dialog). A scripted restart must use `allowRuns`.
+   */
+  force?: boolean;
+  /**
+   * terminalSessionIds whose live run the owner approved ending. They do not block; any other live
+   * run (for example one that started after the approval) still refuses the shutdown.
+   */
+  allowRuns?: string[];
+  [key: string]: unknown;
+}
+
+/** One OMP run that a host shutdown would end: a run file whose state is not `ended` and whose pid is alive. */
+export interface LiveRunSummary {
+  terminalSessionId: string;
+  pid: number;
+  state: string;
+  ompSessionId?: string;
+  cwd?: string;
+  promptHead?: string;
+  lastEventAt?: number;
+}
+
+/** `error` prefix and `data.code` of a terminalHostShutdown the host refused. */
+export const LIVE_RUNS_CODE = 'LIVE_RUNS';
+
+/** Wire `data` of a refused terminalHostShutdown (`success:false`). */
+export interface HostShutdownRefusal {
+  code: typeof LIVE_RUNS_CODE;
+  runs: LiveRunSummary[];
+}
+
+export function describeLiveRuns(runs: readonly LiveRunSummary[]): string {
+  return runs.map((run) => `${run.terminalSessionId} (omp pid ${run.pid}, ${run.state})`).join(', ');
+}
+
+/** Thrown by the proxy when the host refuses to shut down because OMP runs are alive and `force` was not set. */
+export class LiveRunsError extends Error {
+  readonly code = LIVE_RUNS_CODE;
+  constructor(readonly runs: LiveRunSummary[]) {
+    super(`${LIVE_RUNS_CODE}: shutdown would end ${runs.length} live OMP run(s): ${describeLiveRuns(runs)}. Pass force:true only with the owner's explicit approval.`);
+    this.name = 'LiveRunsError';
+  }
+}
 
 /** Wire parameters for terminalNewSession */
 export interface HostNewSessionParams {

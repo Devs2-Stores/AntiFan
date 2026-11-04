@@ -1081,7 +1081,7 @@ export class TerminalManager extends EventEmitter {
    * dir (an isolated instance or a test), the id space is isolated too, so the runs dir is taken
    * as the sibling of that redirected config dir instead of reading the live runtime dir.
    */
-  private runsDirPath(): string {
+  runsDirPath(): string {
     const stateDir = path.resolve(path.dirname(this.statePath()));
     const effectiveConfigDir = path.resolve(process.env.ANTIFAN_CONFIG_DIR || StorageLocations.getConfigDir());
     if (stateDir === effectiveConfigDir) return path.join(StorageLocations.getRuntimeDir(), 'runs');
