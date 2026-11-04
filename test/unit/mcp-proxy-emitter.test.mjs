@@ -100,6 +100,8 @@ for (const key of [
   delete process.env[key];
 }
 process.env.SUPER_CORE_DB = ':memory:';
+// The store double below is installed through require.cache, which only the inline store reads.
+process.env.ANTIFAN_CORE_INLINE = '1';
 const MAIN_DIR = makeDir('main');
 process.env.ANTIFAN_PROXY_TELEMETRY_DIR = MAIN_DIR;
 installStoreDouble();
@@ -184,7 +186,7 @@ const proxy = require(path.join(REPO, 'scripts', 'antifan-omp-mcp.cjs'));
 
 function runChild(body, { storeDir, cwd, env: extraEnv } = {}) {
   const pidFile = path.join(TMP_ROOT, `pid-${Math.random().toString(16).slice(2)}.txt`);
-  const env = { ...process.env, SUPER_CORE_DB: ':memory:', ANTIFAN_TEST_PID_FILE: pidFile, ...(extraEnv || {}) };
+  const env = { ...process.env, SUPER_CORE_DB: ':memory:', ANTIFAN_CORE_INLINE: '1', ANTIFAN_TEST_PID_FILE: pidFile, ...(extraEnv || {}) };
   // `null` means "the variable is absent" (Node drops an undefined env value,
   // which would also delete a value the parent had set); a string overrides it;
   // omitting the option inherits the parent's value.

@@ -670,21 +670,113 @@ const CAPABILITY_MAP = Object.freeze({
 
 // ---------------------------------------------------------------------------
 // Super Core: local evidence/provenance store (packages/super-core). These
-// capabilities are handled in-process by invokeCore — they never reach the
-// bridge dispatch socket. Unavailable Core returns {available:false} for
-// advisory calls and refuses receipt-required actions.
+// capabilities are served by this process — they never reach the bridge dispatch
+// socket — but the store itself runs in a worker thread. node:sqlite is
+// synchronous: opening the file and the first queries over a large store take
+// hundreds of ms to seconds, and on this thread that stalled every browser and
+// terminal call queued behind a core.* call. The worker keeps this event loop
+// free; core calls still run one after another inside it, exactly as before.
+// ANTIFAN_CORE_INLINE=1 runs the store on this thread instead (a store double
+// installed through require.cache is only visible there).
+// Unavailable Core returns {available:false} for advisory calls and refuses
+// receipt-required actions.
 let coreInstance = null;
+function coreDbPath() {
+  return process.env.SUPER_CORE_DB
+    || require('node:path').join(__dirname, '..', '.super-core', 'core.db');
+}
 function getCore() {
   if (coreInstance) return coreInstance;
-  const dbPath = process.env.SUPER_CORE_DB
-    || require('node:path').join(__dirname, '..', '.super-core', 'core.db');
   try {
     const { openCore } = require('../packages/super-core/dist/index.js');
-    coreInstance = openCore(dbPath);
+    coreInstance = openCore(coreDbPath());
     return coreInstance;
   } catch (e) {
     return null;
   }
+}
+// Body of the core worker. It is serialized into the worker, so it may reference
+// nothing from this module: everything it needs arrives through workerData.
+function coreWorkerBody() {
+  const { parentPort, workerData } = require('node:worker_threads');
+  let core = null;
+  const open = () => {
+    if (core) return core;
+    try {
+      core = require(workerData.distEntry).openCore(workerData.dbPath);
+      return core;
+    } catch (e) {
+      return null;
+    }
+  };
+  parentPort.on('message', ({ id, storeMethod, args }) => {
+    const store = open();
+    if (!store) return parentPort.postMessage({ id, status: 'unavailable' });
+    if (typeof store[storeMethod] !== 'function') return parentPort.postMessage({ id, status: 'no-method' });
+    try {
+      return parentPort.postMessage({ id, status: 'ok', value: store[storeMethod](...args) });
+    } catch (err) {
+      return parentPort.postMessage({
+        id,
+        status: 'error',
+        message: err && err.message !== undefined ? String(err.message) : String(err),
+        code: err && err.code,
+        name: err && err.name,
+      });
+    }
+  });
+}
+let coreWorker = null;
+let coreCallSeq = 0;
+const corePending = new Map();
+function failCorePending(error) {
+  const waiting = [...corePending.values()];
+  corePending.clear();
+  for (const w of waiting) w.reject(error);
+}
+function ensureCoreWorker() {
+  if (coreWorker) return coreWorker;
+  const { Worker } = require('node:worker_threads');
+  const worker = new Worker(`(${coreWorkerBody.toString()})()`, {
+    eval: true,
+    workerData: {
+      dbPath: coreDbPath(),
+      distEntry: require('node:path').join(__dirname, '..', 'packages', 'super-core', 'dist', 'index.js'),
+    },
+  });
+  // Referenced only while a call is in flight, so an idle worker never keeps the process alive.
+  worker.unref();
+  worker.on('message', (reply) => {
+    const waiting = corePending.get(reply.id);
+    if (!waiting) return;
+    corePending.delete(reply.id);
+    if (corePending.size === 0) worker.unref();
+    waiting.resolve(reply);
+  });
+  const lost = (cause) => {
+    if (coreWorker === worker) coreWorker = null;
+    failCorePending(new Error(JSON.stringify({ code: 'CORE_WORKER_LOST', message: `Super Core worker ended before answering: ${cause}` })));
+  };
+  worker.on('error', (err) => lost(err && err.message ? err.message : String(err)));
+  worker.on('exit', (exitCode) => lost(`exit code ${exitCode}`));
+  coreWorker = worker;
+  return worker;
+}
+// One store call, answered as {status: 'unavailable' | 'no-method' | 'ok' | 'error', ...}.
+function callCoreStore(storeMethod, args) {
+  if (process.env.ANTIFAN_CORE_INLINE === '1') {
+    const core = getCore();
+    if (!core) return Promise.resolve({ status: 'unavailable' });
+    if (typeof core[storeMethod] !== 'function') return Promise.resolve({ status: 'no-method' });
+    return Promise.resolve().then(() => ({ status: 'ok', value: core[storeMethod](...args) }));
+  }
+  const worker = ensureCoreWorker();
+  return new Promise((resolve, reject) => {
+    const id = ++coreCallSeq;
+    corePending.set(id, { resolve, reject });
+    worker.ref();
+    worker.postMessage({ id, storeMethod, args });
+  });
 }
 // core.* dispatch table: advertised name -> [store method, argument adapter].
 // This table is the proxy's half of the single-source contract — the parity
@@ -749,25 +841,30 @@ const CORE_DISPATCH = Object.freeze({
   'core.receipt_v2': ['receiptV2', (p) => [p], true],
 });
 async function invokeCore(method, params) {
-  const core = getCore();
   // Mutability is declared in CORE_DISPATCH, next to each store binding, so a new
   // dispatch entry cannot silently miss a hand-maintained side list — which is how
   // replay_regression and record_observation ended up returning a soft
   // `{available:false}` for a write the caller believed had landed.
   const entry = CORE_DISPATCH[method];
-  if (!core) {
-    if (!entry) throw new Error(`unknown core capability: ${method}`);
+  if (!entry) throw new Error(`unknown core capability: ${method}`);
+  const [storeMethod, adapt] = entry;
+  const reply = await callCoreStore(storeMethod, adapt(params || {}));
+  if (reply.status === 'unavailable') {
     if (entry[2]) {
       throw new Error(JSON.stringify({ code: 'CORE_UNAVAILABLE', message: `Super Core store unavailable; mutating action ${method} refused` }));
     }
     return { available: false, reason: 'super-core package not built or db unreachable', method };
   }
-  if (!entry) throw new Error(`unknown core capability: ${method}`);
-  const [storeMethod, adapt] = entry;
-  if (typeof core[storeMethod] !== 'function') {
+  if (reply.status === 'no-method') {
     throw new Error(JSON.stringify({ code: 'CAPABILITY_NOT_FOUND', message: `Super Core store has no method ${storeMethod} for ${method}` }));
   }
-  return core[storeMethod](...adapt(params || {}));
+  if (reply.status === 'error') {
+    const err = new Error(reply.message);
+    if (reply.name) err.name = reply.name;
+    if (reply.code !== undefined) err.code = reply.code;
+    throw err;
+  }
+  return reply.value;
 }
 
 // ─── Phase 5: core.* proxy attempt store — emitter ──────────────────────────
