@@ -111,6 +111,7 @@ test("evidence that does not come from a failed AntiFan call does not unlock", (
   assert.equal(hook.call("mcp__playwright_browser_navigate", {})?.block, true);
   // An eval cell that merely greps/prints "Error: TARGET_STALE" with mcp__antifan_browser in a regex (isError:false, no statusEvents error) must not unlock.
   hook.result("eval", { language: "js", code: "const re = /mcp__antifan_browser/; console.log('Error: TARGET_STALE: sample');" }, "Error: TARGET_STALE: sample", false);
+  assert.equal(hook.call("mcp__playwright_browser_navigate", {})?.block, true);
 });
 
 test("ending the session clears its unlock", () => {
