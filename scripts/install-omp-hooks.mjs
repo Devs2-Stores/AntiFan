@@ -9,7 +9,7 @@
  *
  *   node scripts/install-omp-hooks.mjs --check      # hash comparison, no writes
  *   node scripts/install-omp-hooks.mjs --install    # atomic replace + manifest
- *   --hook <id>                                     # with --check/--install: only that hook (edit-guard, run-state, leader-guard, theme-qa-gate)
+ *   --hook <id>                                     # with --check/--install: only that hook (edit-guard, run-state, leader-guard, playwright-gate, theme-qa-gate)
  *   node scripts/install-omp-hooks.mjs --rollback   # restore the previous files
  *
  * Discovery rule (omp://hooks.md): `<agentDir>/hooks/{pre,post}/*.{ts,js}`, where
@@ -49,6 +49,8 @@ const BUNDLE = {
   target: "node20",
   logLevel: "silent",
   legalComments: "none",
+  absWorkingDir: ROOT,
+  metafile: true,
 };
 
 /**
@@ -82,6 +84,13 @@ const HOOKS = [
     legacyNames: [],
   },
   {
+    id: "playwright-gate",
+    installName: "antifan-playwright-gate",
+    phase: "pre",
+    source: "src/omp-hooks/playwright-gate.ts",
+    legacyNames: [],
+  },
+  {
     id: "theme-qa-gate",
     installName: "antifan-theme-qa-gate",
     phase: "post",
@@ -92,6 +101,22 @@ const HOOKS = [
 
 function sha256(text) {
   return createHash("sha256").update(text).digest("hex");
+}
+
+/**
+ * Identity of the repo sources one hook is built from: every bundled input inside the repo, as
+ * `relative path, NUL, bytes, NUL` in path order. `src/main/leader/leader-runtime.ts` recomputes it
+ * from the manifest's `inputs`, so a source edited after the install shows up in `terminal.list`
+ * without bundling anything. Dependencies under node_modules are not part of it.
+ */
+function sourceIdentity(result) {
+  const inputs = Object.keys(result.metafile.inputs)
+    .map((input) => input.split("\\").join("/"))
+    .filter((input) => !input.startsWith("node_modules/") && !input.includes("/node_modules/") && !path.isAbsolute(input))
+    .sort();
+  const hash = createHash("sha256");
+  for (const input of inputs) hash.update(input).update("\0").update(fs.readFileSync(path.join(ROOT, input))).update("\0");
+  return { inputs, sourceSha256: hash.digest("hex") };
 }
 
 function readManifest() {
@@ -131,6 +156,7 @@ async function bundleHook(hook) {
     text,
     hash: sha256(text),
     ...(buildSha256 ? { buildSha256 } : {}),
+    ...sourceIdentity(result),
     target: path.join(dir, `${hook.installName}.js`),
     supersede: [`${hook.installName}.ts`, ...(hook.legacyNames ?? [])].map((name) =>
       path.join(dir, name),
@@ -194,6 +220,8 @@ async function install() {
       path: hook.target,
       sha256: hook.hash,
       ...(hook.buildSha256 ? { buildSha256: hook.buildSha256 } : {}),
+      inputs: hook.inputs,
+      sourceSha256: hook.sourceSha256,
       source: hook.source,
       superseded: hook.supersede,
     });

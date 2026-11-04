@@ -51,7 +51,7 @@ import * as path from "node:path";
 
 import { DEVICE_PATH_RE, WRITE_TOOLS, extractTargetPaths } from "./edit-guard-policy";
 import { isInside, resolveWorkspaceShape } from "./theme-paths";
-import { classifyThemeLine, mentionsThemeCli, planThemeCommand } from "./theme-push-policy";
+import { SUBPROCESS_RE, classifyThemeLine, mentionsThemeCli, planThemeCommand } from "./theme-push-policy";
 
 export const LEADER_GUARD_CODES = {
   THEME_EDIT: "REFUSED_LEADER_THEME_EDIT",
@@ -396,8 +396,6 @@ function shellWritesTheme(command: string, cwd: string, jobsRoot: string, env: E
   }
   return null;
 }
-
-const SUBPROCESS_RE = /subprocess|os\.(?:system|popen|exec|spawn)|child_process|Bun\.(?:\$|spawn)|\bspawn\w*\s*\(|\bexec\w*\s*\(|(?:^|\n)\s*[!%]/;
 
 /** The refusal for a shell line or eval cell that runs the theme CLI with a write-class action. */
 function themeCliRefusal(text: string, kind: "bash" | "eval"): LeaderRefusal | null {

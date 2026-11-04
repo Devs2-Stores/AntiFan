@@ -16,6 +16,7 @@ import {
   clearRunFilesOf,
   getLeaderPlacementPort,
   getLeaderProjectRemovalPort,
+  installedHooksStale,
   installedRunStateHookSha256,
   isUnderLeaderScratchRoot,
   leaderHookStatus,
@@ -24,6 +25,7 @@ import {
   waitForAnyRunSettled,
   waitForRunSettled,
   type LeaderMintedProjectRemoval,
+  type StaleHook,
 } from '../leader/leader-runtime';
 import { daemonVersionStatus, type DaemonVersionStatus } from '../terminal-daemon/daemon-spawner';
 import { WorkerTerminalInputGate } from './worker-terminal-input-gate';
@@ -829,6 +831,8 @@ export interface TerminalCapabilityDeps {
   daemonStatus?: () => DaemonVersionStatus;
   /** Build identity of the installed run-state hook that `terminal.list` compares each run file against (default: the installer manifest's). */
   installedHookSha256?: () => string | undefined;
+  /** Installed OMP hooks that drifted from their install record or source, listed by `terminal.list` for a Leader (default: read from the installer manifest). */
+  installedHooksStale?: () => StaleHook[];
   /** How long `terminal.write` waits to see an idle OMP start a run after a Leader's prompt (default 5 s; a call may pass its own, up to 7 s; always cut to the call budget). */
   deliveryWaitMs?: number;
 }
@@ -1189,6 +1193,7 @@ export function registerTerminalCapabilities(
       activeSessionId: string;
       omittedOutOfScopeTerminals?: number;
       daemonOutdated?: { running: string; staged: string; message: string };
+      hooksStale?: StaleHook[];
     }
   >({
     name: 'terminal.list',
@@ -1255,6 +1260,7 @@ export function registerTerminalCapabilities(
         const registry = LeaderRegistry.getInstance();
         const reachable = sessions.filter((session) => Boolean(session?.id) && session.id !== scope.homeId && scope.ownership.isLiveTerminal?.(session.id) === true);
         const installedHook = (deps.installedHookSha256 ?? installedRunStateHookSha256)();
+        const staleHooks = (deps.installedHooksStale ?? installedHooksStale)();
         const rows = reachable.map((session): Record<string, unknown> & { id: string } => {
           const worker = registry.workerOf(session.id);
           const run = leaderRunSnapshot(session.id);
@@ -1271,6 +1277,7 @@ export function registerTerminalCapabilities(
           activeSessionId: rows.some((row) => row.id === activeId) ? activeId : (rows[0]?.id ?? ''),
           ...(sessions.length - rows.length > 0 ? { omittedOutOfScopeTerminals: sessions.length - rows.length } : {}),
           ...outdatedNote(),
+          ...(staleHooks.length > 0 ? { hooksStale: staleHooks } : {}),
         };
       }
       // An attachment sees the panes of its own terminal and nothing else: listing is how a caller

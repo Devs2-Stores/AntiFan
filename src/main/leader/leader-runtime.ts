@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -294,7 +295,7 @@ export function installedRunStateHookSha256(): string | undefined {
  * identified). It is absent when there is no run file or the manifest does not identify a build, so a
  * Leader never hears about drift that cannot be proven.
  */
-export function leaderHookStatus(terminalId: string, installed: string | undefined = installedRunStateHookSha256()): { hookSha256?: string; hookOutdated?: boolean } {
+export function leaderHookStatus(terminalId: string, installed: string | undefined): { hookSha256?: string; hookOutdated?: boolean } {
   let raw: unknown;
   try {
     raw = JSON.parse(fs.readFileSync(path.join(leaderRunsDir(), `${terminalId}.json`), 'utf8'));
@@ -307,4 +308,125 @@ export function leaderHookStatus(terminalId: string, installed: string | undefin
     ...(hookSha256 ? { hookSha256 } : {}),
     ...(installed ? { hookOutdated: hookSha256 !== installed } : {}),
   };
+}
+
+/**
+ * The hook ids `scripts/install-omp-hooks.mjs` installs. A test installs into a scratch agent dir and
+ * compares this list with the manifest the real installer writes, so the two cannot drift apart.
+ */
+export const OMP_HOOK_IDS = ['edit-guard', 'run-state', 'leader-guard', 'playwright-gate', 'theme-qa-gate'] as const;
+
+/** One OMP hook whose installed copy no longer matches what the installer wrote or what the repo source builds. */
+export interface StaleHook {
+  id: string;
+  /** MISSING: the installed file is gone. INSTALLED_CHANGED: its bytes differ from the manifest. SOURCE_CHANGED: a bundled source file differs from the install-time hash. SOURCES_UNREADABLE: those sources cannot be read, so drift is unknown. NOT_INSTALLED: the manifest has no row for a hook the installer knows. */
+  state: 'MISSING' | 'INSTALLED_CHANGED' | 'SOURCE_CHANGED' | 'SOURCES_UNREADABLE' | 'NOT_INSTALLED';
+  detail: string;
+}
+
+interface ManifestHook {
+  id: string;
+  path: string;
+  sha256: string;
+  inputs?: string[];
+  sourceSha256?: string;
+}
+
+/** What `scripts/install-omp-hooks.mjs` hashes for `sourceSha256`: `relative path, NUL, bytes, NUL` per input, in path order. */
+function sourceIdentity(repoRoot: string, inputs: string[]): string | null {
+  const hash = createHash('sha256');
+  for (const input of inputs) {
+    try {
+      hash.update(input).update('\0').update(fs.readFileSync(path.join(repoRoot, input))).update('\0');
+    } catch {
+      return null;
+    }
+  }
+  return hash.digest('hex');
+}
+
+function parseManifest(manifestPath: string): { repoRoot: string; hooks: ManifestHook[] } | null {
+  try {
+    const raw: unknown = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    if (!raw || typeof raw !== 'object' || !('hooks' in raw) || !Array.isArray(raw.hooks)) return null;
+    const repoRoot = 'repoRoot' in raw && typeof raw.repoRoot === 'string' ? raw.repoRoot : '';
+    const hooks: ManifestHook[] = [];
+    for (const entry of raw.hooks as unknown[]) {
+      if (!entry || typeof entry !== 'object') continue;
+      const row = entry as Record<string, unknown>;
+      if (typeof row.id !== 'string' || typeof row.path !== 'string' || typeof row.sha256 !== 'string') continue;
+      hooks.push({
+        id: row.id,
+        path: row.path,
+        sha256: row.sha256,
+        ...(Array.isArray(row.inputs) && row.inputs.every((input) => typeof input === 'string') ? { inputs: row.inputs as string[] } : {}),
+        ...(typeof row.sourceSha256 === 'string' ? { sourceSha256: row.sourceSha256 } : {}),
+      });
+    }
+    return { repoRoot, hooks };
+  } catch {
+    return null;
+  }
+}
+
+function statStamp(file: string): string {
+  try {
+    const stat = fs.statSync(file);
+    return `${stat.mtimeMs}:${stat.size}`;
+  } catch {
+    return 'absent';
+  }
+}
+
+let staleHooksCache: { stamp: string; stale: StaleHook[] } | undefined;
+
+/**
+ * The OMP hooks whose installed copy drifted, read the way `install-omp-hooks.mjs --check` judges
+ * them but without bundling: the installed file against the manifest hash, and (for a manifest the
+ * current installer wrote) the repo sources it was bundled from against the install-time source hash.
+ * A hook the installer knows but the manifest has no row for (installed before the hook existed, or
+ * left out by a single-hook install) is `NOT_INSTALLED`. The answer is cached on the mtime and size of
+ * the manifest, the installed files and the sources, so a `terminal.list` call costs a handful of
+ * `stat` calls until something changes. An empty list means nothing drifted that can be proven; no
+ * manifest at all proves nothing, and a manifest that predates source hashes proves no source drift.
+ */
+export function installedHooksStale(): StaleHook[] {
+  const manifestPath = installedHooksManifestPath();
+  const manifest = parseManifest(manifestPath);
+  if (!manifest) {
+    staleHooksCache = undefined;
+    return [];
+  }
+  const stamp = [
+    statStamp(manifestPath),
+    ...manifest.hooks.flatMap((hook) => [statStamp(hook.path), ...(hook.inputs ?? []).map((input) => statStamp(path.join(manifest.repoRoot, input)))]),
+  ].join('|');
+  if (staleHooksCache?.stamp === stamp) return staleHooksCache.stale;
+  const stale: StaleHook[] = [];
+  for (const hook of manifest.hooks) {
+    let installed: Buffer;
+    try {
+      installed = fs.readFileSync(hook.path);
+    } catch {
+      stale.push({ id: hook.id, state: 'MISSING', detail: `${hook.path} is not there` });
+      continue;
+    }
+    if (createHash('sha256').update(installed).digest('hex') !== hook.sha256) {
+      stale.push({ id: hook.id, state: 'INSTALLED_CHANGED', detail: `${hook.path} differs from what the installer wrote` });
+    } else if (hook.inputs && hook.sourceSha256) {
+      const now = sourceIdentity(manifest.repoRoot, hook.inputs);
+      if (now === null) {
+        stale.push({ id: hook.id, state: 'SOURCES_UNREADABLE', detail: `the sources this hook was built from are not readable under ${manifest.repoRoot} (the checkout that installed it moved or was deleted): drift cannot be judged, reinstall from the current checkout` });
+      } else if (now !== hook.sourceSha256) {
+        stale.push({ id: hook.id, state: 'SOURCE_CHANGED', detail: 'a source file this hook is built from changed after the install' });
+      }
+    }
+  }
+  for (const id of OMP_HOOK_IDS) {
+    if (!manifest.hooks.some((hook) => hook.id === id)) {
+      stale.push({ id, state: 'NOT_INSTALLED', detail: 'the installer manifest has no row for this hook: run node scripts/install-omp-hooks.mjs --install' });
+    }
+  }
+  staleHooksCache = { stamp, stale };
+  return stale;
 }
