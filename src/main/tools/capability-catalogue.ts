@@ -24,6 +24,7 @@ import { dialogOpenError, type JsDialogDescription } from '../browser/js-dialog-
 import { SHARE_TAB_GUIDANCE } from '../../shared/tab-sharing';
 import { AttachmentTabLedger } from './attachment-tab-ledger';
 import type { ClosedTabInfo } from '../browser/closed-tab-record';
+import type { UsableTab } from './usable-tabs';
 
 /**
  * Target-bound capabilities that never reach the page, so an open JavaScript dialog does not
@@ -209,6 +210,12 @@ export interface CapabilityCatalogueOptions {
    * session's managed tab ids. Diagnostic only; it never feeds an authorization decision.
    */
   describeTabOwnership?: (boundTabId: string, targetTabId: string) => Record<string, unknown> | undefined;
+  /**
+   * The tabs a session bound to `boundTabId` may address (live and admitted by the host's own
+   * checks, bound tab first). Diagnostic only: refusals about the wrong tab list them so the caller
+   * can pick a right one; it never feeds an authorization decision.
+   */
+  listUsableTabs?: (boundTabId: string) => UsableTab[];
 }
 
 export class CapabilityCatalogue {
@@ -326,6 +333,20 @@ export class CapabilityCatalogue {
       } catch {}
     }
     return undefined;
+  }
+
+  /**
+   * The tabs the session bound to `boundTabId` may address, for a refusal to show. Undefined when
+   * the host cannot say (no listing wired, or it failed): the refusal then carries no list rather
+   * than an empty one that would read as "no tab at all".
+   */
+  listUsableTabs(boundTabId: string): UsableTab[] | undefined {
+    if (!this.options.listUsableTabs) return undefined;
+    try {
+      return this.options.listUsableTabs(boundTabId);
+    } catch {
+      return undefined;
+    }
   }
 
   /**

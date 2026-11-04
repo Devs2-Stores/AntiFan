@@ -103,6 +103,7 @@ import { carriesSemanticRef, sequenceDependsOnPriorDocument, SEQUENCE_STEP_TYPES
 import { AntiBotLatch, DEFAULT_ANTI_BOT_PARTITION, antiBotChallengeError, classifyAntiBotUrl, isOrdinaryPageOnHost } from './anti-bot-challenge.js';
 import { PLATFORM_PREVIEW_CHROME, PLATFORM_PREVIEW_CHROME_SELECTORS } from '../qa/platform-preview-chrome.js';
 import { splitReviewNote } from './capability-catalogue';
+import { describeUsableTabs, listUsableTabs, type UsableTab } from './usable-tabs';
 import { SESSION_TAB_LIMIT, SHARE_TAB_GUIDANCE } from '../../shared/tab-sharing';
 /**
  * A sequence that addresses an element by `@eN` ref was refused because its document generation
@@ -2890,31 +2891,18 @@ export class BrowserControlPort {
    * The tabs this session may address, bound tab first, bounded: what a refusal about the wrong
    * tab has to show so the caller can pick a right one instead of guessing.
    */
-  private usableTabs(boundTabId: string): Array<{ id: string; url?: string }> {
-    let managed: Iterable<string> = [];
-    try {
-      managed = this.host.getManagedTabIds?.(boundTabId) ?? [];
-    } catch {
-      managed = [];
-    }
-    const allowed = (id: string): boolean => {
-      // A tab that no longer exists would send the caller straight into a stale-target refusal.
-      if (!this.isTabLive(id)) return false;
-      if (id === boundTabId) return true;
-      try { return this.host.isTabAllowed ? this.host.isTabAllowed(boundTabId, id) : true; } catch { return false; }
-    };
-    return [...new Set([boundTabId, ...managed])].filter(allowed).slice(0, SESSION_TAB_QUOTA_SAMPLE_MAX).map((id) => {
-      const url = this.safeTabUrl(id);
-      return url ? { id, url } : { id };
-    });
+  private usableTabs(boundTabId: string): UsableTab[] {
+    return listUsableTabs(boundTabId, {
+      managedTabIds: (bound) => this.host.getManagedTabIds?.(bound) ?? [],
+      isLive: (id) => this.isTabLive(id),
+      isAllowed: (bound, id) => (this.host.isTabAllowed ? this.host.isTabAllowed(bound, id) : true),
+      urlOf: (id) => this.safeTabUrl(id),
+    }, SESSION_TAB_QUOTA_SAMPLE_MAX);
   }
 
   /** Sentence naming the usable tabs and the call that opens one of the session's own. */
   private usableTabsNote(boundTabId: string): string {
-    const list = this.usableTabs(boundTabId).map((tab) => (tab.url ? `${tab.id} (${tab.url})` : tab.id)).join(', ');
-    const open = 'open your own with anti.browser.tabs.create {url, bind: false} and use the tabId it returns';
-    if (!list) return `This session has no live tab it may use: ${open}, or rebind to a live one with anti.browser.rebind_target.`;
-    return `Tabs this session may use: ${list}. Pass one of them as tabId on every call, or ${open}.`;
+    return describeUsableTabs(this.usableTabs(boundTabId));
   }
 
   private safeTabUrl(tabId: string): string | undefined {

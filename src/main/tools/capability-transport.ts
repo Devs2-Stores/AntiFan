@@ -20,6 +20,7 @@ import {
 } from '../../shared/control-plane-contracts';
 import { CapabilityCatalogue } from './capability-catalogue';
 import { SHARE_TAB_GUIDANCE } from '../../shared/tab-sharing';
+import { describeUsableTabs } from './usable-tabs';
 import { AttachmentRegistry, type PageCloseAdmission } from '../run/attachment-registry';
 import { onceCloseAdmissionRelease, assertPageAdmitsWork, assertApplicationAdmitsWork } from './browser-control-port';
 import { InvocationLedger } from '../session/invocation-ledger';
@@ -826,12 +827,21 @@ export class CapabilityTransportAdapter {
                 }) === true
               : false);
           if (!allowed) {
+            // The same list the browser port gives its own tab refusals; undefined (host cannot say) adds nothing.
+            const usableTabs = this.catalogue.listUsableTabs(authorityTabId);
+            const refusalDetails = {
+              ...(usableTabs ? { usableTabs } : {}),
+              recovery: 'anti.browser.rebind_target',
+              alternativeRecovery: 'anti.browser.tabs.create {url}',
+              shareRecovery: SHARE_TAB_GUIDANCE,
+              boundTabId: authorityTabId,
+            };
             throw new CapabilityError(
               'TARGET_MISMATCH',
-              `Tab ID '${resolvedRequested}' is outside this session's authority (bound '${authorityTabId}'). It belongs to another project, session or window (for example a tab the user opened), so this session cannot take it over. Rebind only to session-managed or same-project tabs: list them with anti.browser.tabs.list (affiliated rows) or open one with anti.browser.tabs.create. ${SHARE_TAB_GUIDANCE}`,
+              `Tab ID '${resolvedRequested}' is outside this session's authority (bound '${authorityTabId}'). It belongs to another project, session or window (for example a tab the user opened), so this session cannot take it over. Rebind only to session-managed or same-project tabs: list them with anti.browser.tabs.list (affiliated rows) or open one with anti.browser.tabs.create. ${usableTabs ? `${describeUsableTabs(usableTabs)} ` : ''}${SHARE_TAB_GUIDANCE}`,
               failoverId
-                ? { candidateTabIds: [failoverId], failoverTabId: failoverId, recovery: 'anti.browser.rebind_target', alternativeRecovery: 'anti.browser.tabs.create {url}', shareRecovery: SHARE_TAB_GUIDANCE, boundTabId: authorityTabId }
-                : { recovery: 'anti.browser.rebind_target', alternativeRecovery: 'anti.browser.tabs.create {url}', shareRecovery: SHARE_TAB_GUIDANCE, boundTabId: authorityTabId }
+                ? { candidateTabIds: [failoverId], failoverTabId: failoverId, ...refusalDetails }
+                : refusalDetails
             );
           }
         }

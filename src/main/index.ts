@@ -116,6 +116,7 @@ import type { ExecutionBackend } from './agent/execution-backend';
 import { BrowserControlPort, assertApplicationAdmitsWork } from './tools/browser-control-port';
 import { CockpitPort } from './tools/cockpit-port';
 import { CapabilityTransportAdapter } from './tools/capability-transport';
+import { listUsableTabs } from './tools/usable-tabs';
 import { DeviceManager } from './device/device-manager';
 import { IosDeviceAdapter } from './device/ios-device-adapter';
 import { validateControlPlaneId, makeControlPlaneId, CapabilityError, CONTROL_PLANE_DEFAULT_PROJECT_ID, CONTROL_PLANE_DEFAULT_WORKSPACE_ID, type ProjectRecord, type WorkspaceRecord } from '../shared/control-plane-contracts';
@@ -4078,6 +4079,16 @@ async function createWindow(): Promise<void> {
     getOpenJsDialog: (tabId) => hostForTabOrDegrade(tabId, 'controlPlane.getOpenJsDialog')?.getOpenJsDialog(tabId),
     isTabAllowed: (primaryTabId, requestedTabId) => (hostForTabOrDegrade(primaryTabId, 'controlPlane.isTabAllowed')?.isTabAllowedForPrimary(primaryTabId, requestedTabId) ?? false),
     describeTabOwnership: (boundTabId, targetTabId) => hostForTabOrDegrade(boundTabId, 'controlPlane.describeTabOwnership')?.describeTabOwnership(boundTabId, targetTabId),
+    listUsableTabs: (boundTabId) => {
+      const host = hostForTabOrDegrade(boundTabId, 'controlPlane.listUsableTabs');
+      if (!host) return [];
+      return listUsableTabs(boundTabId, {
+        managedTabIds: (bound) => host.getManagedTabIdsForBoundTab(bound),
+        isLive: (id) => host.hasTab(id),
+        isAllowed: (bound, id) => host.isTabAllowedForPrimary(bound, id),
+        urlOf: (id) => host.getTabUrl(id),
+      });
+    },
     isTabSplit: (tabId) => hostForTabOrDegrade(tabId, 'controlPlane.isTabSplit')?.isTabSplit(tabId),
     resolveTabId: (id) => {
       if (!id) return undefined;

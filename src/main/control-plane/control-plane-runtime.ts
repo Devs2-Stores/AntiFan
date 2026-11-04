@@ -29,6 +29,7 @@ import { WorkflowRegistry } from '../workflow/workflow-registry';
 import { TerminalManager, type TerminalManagerStats } from '../browser/terminal-manager';
 import type { JsDialogDescription } from '../browser/js-dialog-tracker';
 import type { ClosedTabInfo } from '../browser/closed-tab-record';
+import type { UsableTab } from '../tools/usable-tabs';
 import { WorkflowEngine } from '../workflow/workflow-engine';
 import { assertExactBrowserTarget, BrowserTarget, CapabilityError, CapabilityRequestContext, issueRuntimeLease, RuntimeFeatureSwitch, RuntimeLease, WorkspaceRecord } from '../../shared/control-plane-contracts';
 import { WorkflowDefinition, WorkflowExecutionResult, WorkflowEventListener } from '../workflow/workflow-schema';
@@ -53,6 +54,8 @@ export interface ControlPlaneRuntimeOptions {
   isTabAllowed?: (primaryTabId: string, requestedTabId: string) => boolean;
   /** Diagnostic only: why a tab is (not) among the tabs the session bound to `primaryTabId` may drive. */
   describeTabOwnership?: (boundTabId: string, targetTabId: string) => Record<string, unknown> | undefined;
+  /** Diagnostic only: the tabs the session bound to `boundTabId` may address, shown by refusals about the wrong tab. */
+  listUsableTabs?: (boundTabId: string) => UsableTab[];
   /** Whether the tab is in split review mode (has a mobile pane). */
   isTabSplit?: (tabId: string) => boolean | undefined;
   resolveTabId?: (tabIdOrIdentifier: string) => string | undefined;
@@ -244,6 +247,7 @@ export class ControlPlaneRuntime {
       workspaceRegistry: this.workspaces,
       isTabAllowed: options.isTabAllowed,
       describeTabOwnership: options.describeTabOwnership,
+      listUsableTabs: options.listUsableTabs,
       isTabSplit: options.isTabSplit,
       resolveTabAffiliation: options.resolveTabAffiliation,
       resolveTabId: options.resolveTabId,
