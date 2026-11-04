@@ -814,4 +814,29 @@ describe('InvocationLedger - startup retention', () => {
       'a live partition replays with its stored result untouched'
     );
   });
+
+  it('19. Startup deletes quarantined partitions older than the retention window, by the stamp in the name, and keeps recent ones', async () => {
+    const dir = path.join(tmpDir, 'invocations');
+    fs.mkdirSync(dir, { recursive: true });
+    const day = 24 * 3600_000;
+    const now = Date.now();
+    const names = {
+      old: `attachment-old.jsonl.quarantine-${now - 30 * day}`,
+      recent: `attachment-recent.jsonl.quarantine-${now - 2 * day}`,
+      unparsable: 'attachment-odd.jsonl.quarantine-notastamp',
+      live: 'attachment-live.jsonl',
+    };
+    for (const [key, name] of Object.entries(names)) {
+      // The live partition is replayed at startup, so it must be a valid (empty) journal.
+      fs.writeFileSync(path.join(dir, name), key === 'live' ? '' : '{"x":1}\n', 'utf8');
+    }
+    // An old mtime must not decide: the stamp the ledger wrote into the name does.
+    fs.utimesSync(path.join(dir, names.recent), new Date(now - 60 * day), new Date(now - 60 * day));
+
+    const ledger = new InvocationLedger({ dataRoot: tmpDir });
+    await ledger.initialize(new Set(['attachment-live']));
+
+    const left = fs.readdirSync(dir).sort();
+    assert.deepStrictEqual(left, [names.live, names.recent, names.unparsable].sort());
+  });
 });
