@@ -725,7 +725,8 @@ export class TabAutomationHost {
           } catch {}
         })()`).catch(() => {});
       }
-      await this.sendCdpInputCommand(wc, 'Input.insertText', { text });
+      // Emptying a field (clear with no text) has nothing to insert.
+      if (text.length > 0) await this.sendCdpInputCommand(wc, 'Input.insertText', { text });
       const readBack = await this.readBackTypedText(wc, text, clear === true, secret === true);
       return { success: true, executionTier: 'cdp_trusted', data: { ok: true, executed: true, tier: 'cdp_trusted', executionTier: 'cdp_trusted', rect: res.rect, ...readBack } };
     } catch (cdpErr) {

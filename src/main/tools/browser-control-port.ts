@@ -208,7 +208,7 @@ const SECRET_ENV_NAME = /^ANTIFAN_SECRET_[A-Z0-9_]+$/;
  * the value goes to the page and nowhere else (never into a result, receipt or log), and only
  * `ANTIFAN_SECRET_*` names are readable so a caller cannot lift arbitrary environment values.
  */
-function resolveTypedText(args: { text?: string; secret?: boolean; fromEnv?: string }): { text: string; secret: boolean } {
+function resolveTypedText(args: { text?: string; secret?: boolean; fromEnv?: string; clear?: boolean }): { text: string; secret: boolean } {
   if (args.fromEnv !== undefined) {
     if (typeof args.text === 'string' && args.text.length > 0) {
       throw new CapabilityError('INVALID_ARGUMENT', 'Pass either text or fromEnv, not both');
@@ -224,7 +224,9 @@ function resolveTypedText(args: { text?: string; secret?: boolean; fromEnv?: str
     return { text: value, secret: true };
   }
   if (typeof args.text !== 'string') {
-    throw new CapabilityError('INVALID_ARGUMENT', 'text (or fromEnv for a secret) is required');
+    // Emptying a field types nothing: `clear:true` with the text left out is that request.
+    if (args.text === undefined && args.clear === true) return { text: '', secret: args.secret === true };
+    throw new CapabilityError('INVALID_ARGUMENT', 'text (or fromEnv for a secret, or clear:true to only empty the field) is required');
   }
   return { text: args.text, secret: args.secret === true };
 }

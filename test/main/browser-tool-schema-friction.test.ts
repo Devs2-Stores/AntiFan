@@ -6,6 +6,7 @@ import * as assert from 'node:assert/strict';
 import { CapabilityCatalogue } from '../../src/main/tools/capability-catalogue';
 import { registerBrowserCapabilities } from '../../src/main/tools/browser-capabilities';
 import { LIST_TAB_FIELDS, type BrowserControlPort } from '../../src/main/tools/browser-control-port';
+import { checkRequiredArgs } from '../../src/main/tools/required-args';
 import { BrowserTarget, CapabilityError } from '../../src/shared/control-plane-contracts';
 
 const TARGET: BrowserTarget = {
@@ -177,6 +178,49 @@ describe('browser.wait infers its condition from the target argument', () => {
     it(`${name} refuses a call that names neither a condition nor a target`, async () => {
       const h = makeHarness();
       await assert.rejects(async () => h.run(name, { timeoutMs: 100 }), invalid(/needs a condition/));
+      await assert.rejects(async () => h.run(name, { tabId: 'tab-1' }), invalid(/needs a condition/));
+    });
+
+    for (const [params, expectedMs, alias] of [
+      [{ timeout: 15000 }, 15000, 'timeout'],
+      [{ tabId: 'tab-1', timeout: 15000 }, 15000, 'timeout'],
+      [{ ms: 500 }, 500, 'ms'],
+    ] as Array<[Record<string, unknown>, number, string]>) {
+      it(`${name} ${JSON.stringify(params)} sleeps for that long and says what it inferred`, async () => {
+        const h = makeHarness();
+        const result = await h.run(name, params) as { conditionInferred?: string; aliasApplied?: unknown };
+        const forwarded = h.last('wait').args[1] as Record<string, unknown>;
+        assert.strictEqual(forwarded.condition, 'timeout');
+        assert.strictEqual(forwarded.timeoutMs, expectedMs);
+        assert.ok(!('timeout' in forwarded) && !('ms' in forwarded), 'the alias field is folded away');
+        assert.strictEqual(result.conditionInferred, 'timeout');
+        assert.deepStrictEqual(result.aliasApplied, [{ from: alias, to: 'timeoutMs' }]);
+      });
+    }
+
+    it(`${name} reads timeout as the bound of the condition it infers from a target`, async () => {
+      const h = makeHarness();
+      const result = await h.run(name, { selector: '.cart', timeout: 3000 }) as { conditionInferred?: string; aliasApplied?: unknown };
+      const forwarded = h.last('wait').args[1] as Record<string, unknown>;
+      assert.strictEqual(forwarded.condition, 'selector');
+      assert.strictEqual(forwarded.timeoutMs, 3000);
+      assert.strictEqual(result.conditionInferred, 'selector');
+      assert.deepStrictEqual(result.aliasApplied, [{ from: 'timeout', to: 'timeoutMs' }]);
+    });
+
+    it(`${name} never lets an alias override timeoutMs or a non-numeric value stand in for it`, async () => {
+      const h = makeHarness();
+      await h.run(name, { condition: 'timeout', timeoutMs: 200, timeout: 9000 });
+      assert.strictEqual((h.last('wait').args[1] as { timeoutMs: number }).timeoutMs, 200);
+      await assert.rejects(async () => h.run(name, { timeout: 'soon' }), invalid(/needs a condition/));
+    });
+
+    it(`${name} passes the presence gate with timeout or ms alone`, () => {
+      const h = makeHarness();
+      const schema = h.catalogue.get(name)!.inputSchema as Record<string, unknown>;
+      assert.strictEqual(checkRequiredArgs(name, schema, { timeout: 15000 }), undefined);
+      assert.strictEqual(checkRequiredArgs(name, schema, { ms: 500 }), undefined);
+      assert.ok(checkRequiredArgs(name, schema, { timeoutMs: 250 }), 'a bare timeoutMs is a bound, not a condition');
     });
   }
 
@@ -187,9 +231,24 @@ describe('browser.wait infers its condition from the target argument', () => {
     assert.deepStrictEqual(a.anyOf, b.anyOf);
     assert.deepStrictEqual(
       a.anyOf.map((form) => form.required[0]),
-      ['condition', 'type', 'selector', 'ref', 'urlPattern', 'url', 'minGeneration']
+      ['condition', 'type', 'selector', 'ref', 'urlPattern', 'url', 'minGeneration', 'timeout', 'ms']
     );
   });
+});
+
+describe('agent type with clear needs no text', () => {
+  const NAMES = ['anti.agent.cursor.type', 'browser.agent-type'];
+  for (const name of NAMES) {
+    it(`${name} accepts clear with empty or absent text and still refuses nothing to type`, () => {
+      const h = makeHarness();
+      const schema = h.catalogue.get(name)!.inputSchema as Record<string, unknown>;
+      assert.strictEqual(checkRequiredArgs(name, schema, { selector: '#q', text: '', clear: true }), undefined);
+      assert.strictEqual(checkRequiredArgs(name, schema, { selector: '#q', clear: true }), undefined);
+      assert.strictEqual(checkRequiredArgs(name, schema, { selector: '#q', text: 'abc' }), undefined);
+      assert.ok(checkRequiredArgs(name, schema, { selector: '#q', text: '' }), 'empty text without clear types nothing');
+      assert.ok(checkRequiredArgs(name, schema, { selector: '#q' }));
+    });
+  }
 });
 
 describe('anti.browser.dialog defaults to reading the open dialog', () => {

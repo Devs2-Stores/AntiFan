@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { BrowserTarget, CapabilityRequestContext, AuthenticatedCapabilityContext, CapabilityError, CapabilityEffectPolicyInput, CapabilityRisk, ReceiptBinding, digestText } from '../../shared/control-plane-contracts';
 import { parseCookieJarParam } from '../browser/cookie-jar';
 import { BrowserControlPort, BrowserWaitCondition, BrowserWaitParams, buildRefLookupExpression, ResponsiveBreakpointOption, VISUAL_COMPARE_EXECUTION_BUDGET_MS, VISUAL_COMPARE_CANCELLATION_ACK_MS, FULL_PAGE_CAPTURE_EXECUTION_BUDGET_MS, FULL_PAGE_CAPTURE_CANCELLATION_ACK_MS, VIEWPORT_CAPTURE_EXECUTION_BUDGET_MS, VIEWPORT_CAPTURE_CANCELLATION_ACK_MS, REFERENCE_CAPTURE_EXECUTION_BUDGET_MS, REFERENCE_CAPTURE_CANCELLATION_ACK_MS, BROWSER_WAIT_INVOCATION_BUDGET_MS, BROWSER_WAIT_MAX_TIMEOUT_MS, BROWSER_EVAL_INVOCATION_BUDGET_MS, BROWSER_EVAL_MAX_TIMEOUT_MS } from './browser-control-port';
-import { LIST_TAB_FIELDS, type CheckedEvalResult } from './browser-control-port';
+import { LIST_TAB_FIELDS, type BrowserWaitResult, type CheckedEvalResult } from './browser-control-port';
 import { CapabilityCatalogue } from './capability-catalogue';
 import { resolveCallerWorkspaceRoot } from './file-capabilities';
 import { PlatformDetector } from '../qa/scanners/platform-detector';
@@ -667,13 +667,15 @@ function agentTypeInputSchema(): Record<string, unknown> {
       text: { type: 'string' },
       fromEnv: { type: 'string', description: 'Name of a main-process environment variable (ANTIFAN_SECRET_ prefix only) whose value is typed instead of `text`, so a password or token never passes through tool arguments, receipts or logs. Mutually exclusive with `text`; implies secret' },
       secret: { type: 'boolean', description: 'Mark the typed text as sensitive: the field is masked in screenshots and snapshots and the value is kept out of receipts' },
-      clear: { type: 'boolean' },
+      clear: { type: 'boolean', description: 'Select the field content and delete it before typing; with clear:true and no text (or text:"") the field is only emptied' },
       trusted: { type: 'boolean' },
       force: { type: 'boolean', description: 'Skip the occlusion and animation-stability gates for a knowingly covered or endlessly animating target' },
       tabId: { type: 'string' },
       paneId: { type: 'string', enum: ['desktop', 'mobile'] },
     },
-    oneOf: [{ required: ['text'] }, { required: ['fromEnv'] }],
+    // Forms that may be combined (`text` with `clear`); text and fromEnv still exclude each other in the port.
+    // `clear` alone is a form because emptying a field types nothing and the presence gate treats text:"" as absent.
+    anyOf: [{ required: ['text'] }, { required: ['fromEnv'] }, { required: ['clear'] }],
   };
 }
 
@@ -1021,7 +1023,12 @@ function normalizeSequenceParams(capability: string, params: SequenceParams): {
   return { ...rest, actions: normalized };
 }
 
-/** At least one argument that names what to wait for: the condition itself, its alias, or the target the condition is inferred from. */
+/**
+ * At least one argument that names what to wait for: the condition itself, its alias, the target the
+ * condition is inferred from, or a plain duration (`timeout` / `ms`, which means sleeping that long).
+ * `timeoutMs` alone is deliberately not a form: next to any other condition it is only the bound of
+ * that wait, so a call that forgot its condition must not quietly turn into a sleep.
+ */
 const WAIT_PRESENCE_FORMS = [
   { required: ['condition'] },
   { required: ['type'] },
@@ -1030,25 +1037,75 @@ const WAIT_PRESENCE_FORMS = [
   { required: ['urlPattern'] },
   { required: ['url'] },
   { required: ['minGeneration'] },
+  { required: ['timeout'] },
+  { required: ['ms'] },
 ];
 
+/** Spellings of `timeoutMs` agents reach for; the canonical field is `timeoutMs`. */
+const WAIT_DURATION_ALIASES = ['timeout', 'ms'] as const;
+
+const WAIT_DURATION_ALIAS_PROPERTIES = {
+  timeout: { type: 'number', description: 'Alias for timeoutMs; sent without a condition it means sleeping that many milliseconds (condition timeout)' },
+  ms: { type: 'number', description: 'Alias for timeoutMs; sent without a condition it means sleeping that many milliseconds (condition timeout)' },
+} as const;
+
+type WaitParamsWithAliases = Omit<BrowserWaitParams, 'condition'> & { condition?: BrowserWaitCondition; timeout?: unknown; ms?: unknown };
+
+interface ResolvedWait {
+  params: BrowserWaitParams;
+  /** The condition the call did not name, chosen from the argument that implied it. */
+  conditionInferred?: BrowserWaitCondition;
+  /** Duration spellings folded onto `timeoutMs`. */
+  aliasApplied: Array<{ from: string; to: string }>;
+}
+
 /**
- * Fills in the wait condition when the caller named only its target: a selector waits for that
- * selector, a ref for that ref, a URL for the URL match, a minimum generation for the generation.
- * An explicit `condition` or `type` is never overridden.
+ * Folds `timeout` / `ms` onto `timeoutMs` (never over a `timeoutMs` the caller sent, and only a
+ * finite number counts), and fills in the wait condition when the caller named only its target: a
+ * selector waits for that selector, a ref for that ref, a URL for the URL match, a minimum generation
+ * for the generation, a bare duration for the timeout condition. An explicit `condition` or `type` is
+ * never overridden. What was folded or inferred is returned so the result can say so.
  */
-function withInferredWaitCondition(params: BrowserWaitParams): BrowserWaitParams {
-  if (params.condition || params.type) return params;
+function resolveWaitParams(raw: WaitParamsWithAliases): ResolvedWait {
+  const { timeout, ms, ...rest } = raw;
+  const durationAliases = { timeout, ms };
+  const named = WAIT_DURATION_ALIASES.find((from) => {
+    const value = durationAliases[from];
+    return typeof value === 'number' && Number.isFinite(value);
+  });
+  const aliasApplied: Array<{ from: string; to: string }> = [];
+  let params = rest as BrowserWaitParams;
+  if (named && params.timeoutMs === undefined) {
+    params = { ...params, timeoutMs: durationAliases[named] as number };
+    aliasApplied.push({ from: named, to: 'timeoutMs' });
+  }
+  if (params.condition || params.type) return { params, aliasApplied };
   const inferred: BrowserWaitCondition | undefined =
     typeof params.selector === 'string' && params.selector ? 'selector'
       : typeof params.ref === 'string' && params.ref ? 'ref'
         : (typeof params.urlPattern === 'string' && params.urlPattern) || (typeof params.url === 'string' && params.url) ? 'url'
           : typeof params.minGeneration === 'number' ? 'generation'
-            : undefined;
+            : named ? 'timeout'
+              : undefined;
   if (!inferred) {
-    throw new CapabilityError('INVALID_ARGUMENT', 'browser.wait needs a condition (or type), or one of selector, ref, urlPattern/url or minGeneration to infer it from');
+    throw new CapabilityError('INVALID_ARGUMENT', 'browser.wait needs a condition (or type), or one of selector, ref, urlPattern/url, minGeneration or timeout/ms to infer it from');
   }
-  return { ...params, condition: inferred };
+  return { params: { ...params, condition: inferred }, conditionInferred: inferred, aliasApplied };
+}
+
+/** Runs a wait with its duration aliases and inferred condition resolved, and reports both in the result. */
+async function executeBrowserWait(
+  browser: BrowserControlPort,
+  raw: WaitParamsWithAliases,
+  context: { browserTarget?: unknown; signal?: AbortSignal }
+): Promise<BrowserWaitResult & { conditionInferred?: BrowserWaitCondition; aliasApplied?: Array<{ from: string; to: string }> }> {
+  const { params, conditionInferred, aliasApplied } = resolveWaitParams(raw);
+  const result = await browser.wait(context.browserTarget as BrowserTarget, params, params.tabId, params.paneId, context.signal);
+  return {
+    ...result,
+    ...(conditionInferred ? { conditionInferred } : {}),
+    ...(aliasApplied.length > 0 ? { aliasApplied } : {}),
+  };
 }
 
 const NAVIGATE_WAIT_UNTIL_VALUES = ['commit', 'domcontentloaded', 'load'] as const;
@@ -1678,6 +1735,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         minGeneration: { type: 'number', description: 'Minimum document generation to wait for (generation or navigation condition)' },
         state: { type: 'string', enum: ['attached', 'visible', 'actionable', 'detached', 'hidden'] },
         timeoutMs: { type: 'number', description: `Timeout in milliseconds (5000 default, ${BROWSER_WAIT_MAX_TIMEOUT_MS} max)` },
+        ...WAIT_DURATION_ALIAS_PROPERTIES,
         idleWindowMs: { type: 'number', description: 'Debounce idle window in milliseconds (500 default)' },
         tabId: { type: 'string' },
         paneId: { type: 'string', enum: ['desktop', 'mobile'] },
@@ -1685,10 +1743,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       // `type` is an alias of `condition`, and the condition is inferred from the target argument when neither is sent.
       anyOf: WAIT_PRESENCE_FORMS,
     },
-    execute: (params: BrowserWaitParams, context) => {
-      const resolved = withInferredWaitCondition(params);
-      return browser.wait(context.browserTarget as BrowserTarget, resolved, resolved.tabId, resolved.paneId, context.signal);
-    },
+    execute: (params: WaitParamsWithAliases, context) => executeBrowserWait(browser, params, context),
   });
 
   catalogue.register({
@@ -2091,6 +2146,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         minGeneration: { type: 'number' },
         state: { type: 'string', enum: ['attached', 'visible', 'actionable', 'detached', 'hidden'] },
         timeoutMs: { type: 'number' },
+        ...WAIT_DURATION_ALIAS_PROPERTIES,
         idleWindowMs: { type: 'number' },
         tabId: { type: 'string' },
         paneId: { type: 'string', enum: ['desktop', 'mobile'] },
@@ -2098,10 +2154,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
       // `type` is an alias of `condition`, and the condition is inferred from the target argument when neither is sent.
       anyOf: WAIT_PRESENCE_FORMS,
     },
-    execute: (params: BrowserWaitParams, context) => {
-      const resolved = withInferredWaitCondition(params);
-      return browser.wait(context.browserTarget as BrowserTarget, resolved, resolved.tabId, resolved.paneId, context.signal);
-    },
+    execute: (params: WaitParamsWithAliases, context) => executeBrowserWait(browser, params, context),
   });
 
 
