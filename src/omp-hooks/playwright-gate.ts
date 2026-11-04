@@ -13,7 +13,7 @@
  * session with no AntiFan around has nothing to fall back from. A hook failure never blocks a call.
  */
 
-/** Codes AGENTS.md section 3.1 names as a reason to use Playwright. */
+/** Codes AGENTS.md section 3.1 names as a reason to use Playwright, plus NO_RENDER_SURFACE from the 02/11/2026 Reaudit outage. */
 export const FALLBACK_CODES = [
   "MCP_BRIDGE_OFFLINE",
   "PAIRING_UNAVAILABLE",
@@ -138,12 +138,8 @@ function matchCodeInText(text: string, isError: boolean): string | null {
   if (text.length === 0) return null;
   for (const code of FALLBACK_CODES) {
     if (!text.includes(code)) continue;
-    // A code only counts as a failure of the call: flagged as an error, carried as the error's own `code`, or prefixed by `Error: <CODE>`.
-    if (
-      isError ||
-      new RegExp(String.raw`["']?code["']?\s*[:=]\s*["']?${code}\b`).test(text) ||
-      new RegExp(String.raw`\bError:\s*${code}\b`).test(text)
-    ) {
+    // A code only counts as a failure of the call: flagged as an error (or statusEvents.hasError), or carried as the error's own `code`.
+    if (isError || new RegExp(String.raw`["']?code["']?\s*[:=]\s*["']?${code}\b`).test(text)) {
       return code;
     }
   }

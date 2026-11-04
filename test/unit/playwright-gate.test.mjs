@@ -109,6 +109,8 @@ test("evidence that does not come from a failed AntiFan call does not unlock", (
   // An AntiFan error with a code outside section 3.1.
   hook.result("write", { path: "xd://mcp__antifan_browser_anti_browser_navigate", content: "{}" }, 'Error: {"code":"NAVIGATION_TIMEOUT","message":"x"}', true);
   assert.equal(hook.call("mcp__playwright_browser_navigate", {})?.block, true);
+  // An eval cell that merely greps/prints "Error: TARGET_STALE" with mcp__antifan_browser in a regex (isError:false, no statusEvents error) must not unlock.
+  hook.result("eval", { language: "js", code: "const re = /mcp__antifan_browser/; console.log('Error: TARGET_STALE: sample');" }, "Error: TARGET_STALE: sample", false);
 });
 
 test("ending the session clears its unlock", () => {
@@ -245,6 +247,30 @@ test("replaying real 02/11 JSONL toolResult rows (01a19a67 MCP not connected + T
             chars: 326,
             hasError: true,
             error: "Error: NO_RENDER_SURFACE: Render-surface probe on tab 'a26172ff-c94b-463a-9ad6-f59465428e28' pane 'desktop' failed: No target available",
+          },
+        ],
+      },
+      isError: false,
+    });
+    assert.equal(hook.call("mcp__playwright_browser_snapshot", {}), undefined);
+  }
+
+  // 5. ReauditImpeccable L71: eval calling nav(...) where content only prints the later evr JSON, while details.statusEvents records TARGET_STALE
+  {
+    const hook = makeHook();
+    hook.rawResult({
+      role: "toolResult",
+      toolCallId: "toolu_014LBqMg7Zo6GZm9HYQTcWMU",
+      toolName: "eval",
+      content: [{ type: "text", text: '{"ok":true,"value":"{\\"w\\":1440}","valueType":"string"}' }],
+      details: {
+        language: "python",
+        statusEvents: [
+          {
+            op: "mcp__antifan_browser_anti_browser_navigate",
+            chars: 165,
+            hasError: true,
+            error: 'Error: {"code":"TARGET_STALE","message":"TARGET_STALE: [TARGET_STALE] Navigation failed or timed out before a load-complete document was available","retryable":true}',
           },
         ],
       },
