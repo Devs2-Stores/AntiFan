@@ -826,6 +826,24 @@ describe('A burst of read-only commands on a background tab shares one attach', 
     assert.strictEqual(t.presentedRecycles(), 1);
   });
 
+  it('a lingering view that left the window is attached again by the next hold, so the command never runs on a detached pane', async () => {
+    const t = setup();
+    await t.host.runWithAttachedTabView(t.background.tab.view, async () => undefined, false, { lingerMs: LINGER_MS });
+    // A capture lift, a layer recycle or a window move can take the pane out while it lingers.
+    t.children.splice(t.children.indexOf(t.background.tab.view), 1);
+
+    let attachedDuringHold: boolean | undefined;
+    await t.host.runWithAttachedTabView(t.background.tab.view, async () => {
+      attachedDuringHold = t.host.isTabViewAttached(t.background.tab.view);
+    }, false, { lingerMs: LINGER_MS });
+
+    assert.strictEqual(attachedDuringHold, true);
+    assert.strictEqual(t.attaches(), 2);
+    await settle();
+    assert.deepStrictEqual(t.children, [t.presented.tab.view], 'the re-attached pane is released like any other');
+    assert.strictEqual(t.presentedRecycles(), 1, 'a release that changed the window tree re-asserts the presented layer');
+  });
+
   it('a view that became the presented one during the linger stays in the window when the linger ends', async () => {
     const t = setup();
     await t.host.runWithAttachedTabView(t.background.tab.view, async () => undefined, false, { lingerMs: LINGER_MS });

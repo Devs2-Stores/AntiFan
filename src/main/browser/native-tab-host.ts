@@ -6465,10 +6465,20 @@ export class NativeTabHost extends EventEmitter {
     const state = this.temporaryViewAttachCounts.get(view);
     let tookOverLinger = false;
     if (state && state.lingerTimer !== undefined) {
-      // The hold the linger kept becomes this call's: the view is still attached and laid out.
+      // The hold the linger kept becomes this call's. A capture lift, a layer recycle or a window
+      // move may have taken the pane out of the window meanwhile, and a command run against a pane
+      // outside it waits out the whole eval ceiling: it is attached and laid out again, and the
+      // release that follows has changed the window tree, so it re-asserts the presented layer.
       clearTimeout(state.lingerTimer);
       state.lingerTimer = undefined;
       tookOverLinger = true;
+      if (!this.isTabViewAttached(view)) {
+        this.attachTabView(view, isMobile);
+        mark = markSwitchStep(steps, 'attach', mark);
+        this.layOutDetachedView(view);
+        mark = markSwitchStep(steps, 'layout', mark);
+        state.attachedByHelper = true;
+      }
     } else if (!state || state.count === 0) {
       const wasAttached = this.isTabViewAttached(view);
       if (!wasAttached) {
