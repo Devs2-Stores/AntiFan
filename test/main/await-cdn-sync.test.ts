@@ -12,7 +12,7 @@ import { registerBrowserCapabilities } from '../../src/main/tools/browser-capabi
 import { BrowserControlPort, BrowserHostPort } from '../../src/main/tools/browser-control-port';
 import { CapabilityTransportAdapter } from '../../src/main/tools/capability-transport';
 import { AttachmentRegistry } from '../../src/main/run/attachment-registry';
-import { BrowserTarget, issueRuntimeLease, makeControlPlaneId } from '../../src/shared/control-plane-contracts';
+import { BrowserTarget, CapabilityError, issueRuntimeLease, makeControlPlaneId } from '../../src/shared/control-plane-contracts';
 
 const CSS = 'body{color:red}';
 
@@ -163,11 +163,16 @@ describe('a dead bound tab says it no longer exists and names the rebind tool, b
     );
   });
 
-  it('rebindTarget onto a foreign tab under a dead prior binding stays an isolation refusal', () => {
+  it('rebindTarget onto a foreign tab under a dead prior binding stays an isolation refusal and does not offer the dead tab', () => {
     const port = new BrowserControlPort(dead());
     assert.throws(
       () => port.rebindTarget({ tabId: 'tab-user' }, makeTarget('tab-1', 1)),
-      (err: unknown) => code(err) === 'TARGET_MISMATCH'
+      (err: unknown) => {
+        if (code(err) !== 'TARGET_MISMATCH') return false;
+        const e = err as CapabilityError;
+        const usable = (e.details as { usableTabs?: Array<{ id: string }> } | undefined)?.usableTabs ?? [];
+        return !usable.some((tab) => tab.id === 'tab-1') && !/may use: tab-1/.test(e.message);
+      }
     );
   });
 

@@ -2896,6 +2896,8 @@ export class BrowserControlPort {
       managed = [];
     }
     const allowed = (id: string): boolean => {
+      // A tab that no longer exists would send the caller straight into a stale-target refusal.
+      if (!this.isTabLive(id)) return false;
       if (id === boundTabId) return true;
       try { return this.host.isTabAllowed ? this.host.isTabAllowed(boundTabId, id) : true; } catch { return false; }
     };
@@ -2908,7 +2910,9 @@ export class BrowserControlPort {
   /** Sentence naming the usable tabs and the call that opens one of the session's own. */
   private usableTabsNote(boundTabId: string): string {
     const list = this.usableTabs(boundTabId).map((tab) => (tab.url ? `${tab.id} (${tab.url})` : tab.id)).join(', ');
-    return `Tabs this session may use: ${list}. Pass one of them as tabId on every call, or open your own with anti.browser.tabs.create {url, bind: false} and use the tabId it returns.`;
+    const open = 'open your own with anti.browser.tabs.create {url, bind: false} and use the tabId it returns';
+    if (!list) return `This session has no live tab it may use: ${open}, or rebind to a live one with anti.browser.rebind_target.`;
+    return `Tabs this session may use: ${list}. Pass one of them as tabId on every call, or ${open}.`;
   }
 
   private safeTabUrl(tabId: string): string | undefined {
