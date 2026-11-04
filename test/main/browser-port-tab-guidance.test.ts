@@ -25,7 +25,7 @@ function buildHost(overrides: Partial<BrowserHostPort> = {}): BrowserHostPort {
   const ids = Object.keys(URLS);
   return {
     getTabList: () => ids.map((id) => ({ id, url: URLS[id] })),
-    hasTab: (id) => ids.includes(id ?? ''),
+    hasTab: (id?: string) => ids.includes(id ?? ''),
     getTabUrl: (id: string) => URLS[id],
     getDocumentGeneration: () => 1,
     isTabAllowed: (_bound: string, candidate: string) => candidate !== 'tab-user',
