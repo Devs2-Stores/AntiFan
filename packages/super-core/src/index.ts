@@ -214,6 +214,8 @@ export class Core {
     fs.mkdirSync(path.dirname(dbPath), { recursive: true });
     this.db = new DatabaseSync(dbPath);
     this.db.exec('PRAGMA busy_timeout = 5000');
+    // Connection-level, so it must be set on every open, including the stamped one below.
+    this.db.exec('PRAGMA foreign_keys = ON');
     const stamped = this.db.prepare('PRAGMA user_version').get();
     if (Number(stamped?.user_version) === PREPARED_STAMP) return;
     this.db.exec(DDL);

@@ -1431,8 +1431,10 @@ test('opening an already-prepared store commits nothing', () => {
   const before = pragmaInt(witness, 'data_version');
   const second = openCore(file);
   const afterOpen = pragmaInt(witness, 'data_version');
+  const foreignKeys = pragmaInt(second['db'], 'foreign_keys');
   second.close();
   witness.close();
+  assert.equal(foreignKeys, 1, 'a store opened through the stamped path still enforces foreign keys on its connection');
   assert.equal(afterOpen, before, 'the second open of a prepared store must not commit a transaction');
 });
 
