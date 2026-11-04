@@ -53,7 +53,7 @@ import { FirstPartyNetworkTracker, type NetworkTrackerStats } from './first-part
 import type { NetworkLogFilters, NetworkLogResult } from './network-log-manager';
 import { WorkspaceCapsuleManager, canonicalFolderKey, findCapsuleByRoot, findReusableCapsule, workspaceDialogDefaultPath, type WorkspaceCapsule, type CapsuleAffiliation } from '../project/workspace-capsule';
 import { findSyncDuplicate, syncIdentity, platformSyncIdentity, themeSyncPlatformOfSpecId } from '../project/sync-identity';
-import { planThemeSyncAutostart, specsWithoutRunningWatcher } from '../project/theme-sync-autostart';
+import { planThemeSyncAutostart, specsWithoutRunningWatcher, windowHasLeaderWorker } from '../project/theme-sync-autostart';
 import { snapshotProcessesCached } from '../process/theme-watcher-processes';
 import { PreviewWatcherPool, type PreviewChangeEvent } from '../server/preview-watcher-pool';
 import { buildPreviewUrl, parsePreviewUrl } from '../server/preview-url-codec';
@@ -14932,9 +14932,15 @@ export class NativeTabHost extends EventEmitter {
     } catch {
       return true;
     }
-    const specs = planThemeSyncAutostart(folder);
-    if (specs.length === 0) return true;
     const owner = this.windowOwnerKey();
+    // A terminal a Leader mints in this window's folder is a worker: the registry records it right after
+    // the mint, so the answer is read again just before the split opens (the process-table probe awaits).
+    const leaderDriven = (): boolean => {
+      const registry = LeaderRegistry.getInstance();
+      return windowHasLeaderWorker(owner, TerminalManager.getInstance().listSessions() as SessionSummary[], (id) => registry.workerOf(id) !== undefined);
+    };
+    const specs = planThemeSyncAutostart(folder, { leaderDriven: leaderDriven() });
+    if (specs.length === 0) return true;
     const sessions = TerminalManager.getInstance().listSessions() as SessionSummary[];
     const rows = sessions.filter((s) => s.ownerKey === owner);
     // Stable base: the tab a watcher already hangs under, else a running tab, else any open tab.
@@ -14965,7 +14971,7 @@ export class NativeTabHost extends EventEmitter {
       }
       toStart = specsWithoutRunningWatcher(folder, specs, running.map((s) => ({ cwd: s.cwd, shellPid: s.shellPid })), processes);
     }
-    if (toStart.length === 0) return true;
+    if (toStart.length === 0 || leaderDriven()) return true;
     const result = await openBuiltinSplits(
       this.spaceTerminalDeps(TERMINAL_CHANNELS.SPACE_OPEN_SPLITS, () => owner),
       folder,

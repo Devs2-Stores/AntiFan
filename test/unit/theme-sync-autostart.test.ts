@@ -3,7 +3,7 @@ import * as assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { detectThemeSyncPlatforms, planThemeSyncAutostart } from '../../src/main/project/theme-sync-autostart';
+import { detectThemeSyncPlatforms, planThemeSyncAutostart, windowHasLeaderWorker } from '../../src/main/project/theme-sync-autostart';
 import { HARAVAN_LOCAL_BINDING_FILE, SAPO_LOCAL_BINDING_FILE } from '../../src/main/project/sync-identity';
 
 const HARAVAN = JSON.stringify({ org_id: '1000123', theme_id: '1001234' });
@@ -102,5 +102,57 @@ describe('planThemeSyncAutostart', () => {
       assert.equal(planThemeSyncAutostart(folderWith({ ...bound, '.antifan/space.json': '{nope' })).length, 1);
       assert.equal(planThemeSyncAutostart(folderWith({ ...bound, '.antifan/space.json': space([{ id: 'bad id', label: 'x' }]) })).length, 1);
     });
+  });
+
+  describe('when a Leader drives the window', () => {
+    // The theme role (main/live) is only known to `hrv theme info -j`, a network call: the binding
+    // file carries none. A worker a Leader minted in the folder therefore never gets an app-started
+    // watcher, whatever theme it is bound to, because a watcher on the live theme pushes every save.
+    it('plans nothing for any platform that would otherwise start a watcher', () => {
+      const cases: Array<Record<string, string>> = [
+        { [HARAVAN_LOCAL_BINDING_FILE]: HARAVAN },
+        { [HARAVAN_LOCAL_BINDING_FILE]: HARAVAN, [SAPO_LOCAL_BINDING_FILE]: SAPO },
+        { [SAPO_LOCAL_BINDING_FILE]: SAPO },
+        { 'shopify.theme.toml': '' },
+      ];
+      for (const files of cases) {
+        const folder = folderWith(files);
+        assert.ok(planThemeSyncAutostart(folder).length > 0, `without a Leader: ${Object.keys(files).join(',')}`);
+        assert.deepEqual(planThemeSyncAutostart(folder, { leaderDriven: true }), [], Object.keys(files).join(','));
+      }
+    });
+
+    it('keeps the plan for a window no Leader drives, with or without the option', () => {
+      const folder = folderWith({ [HARAVAN_LOCAL_BINDING_FILE]: HARAVAN });
+      assert.deepEqual(planThemeSyncAutostart(folder, { leaderDriven: false }), planThemeSyncAutostart(folder));
+      assert.equal(planThemeSyncAutostart(folder, { leaderDriven: false }).length, 1);
+    });
+
+    it('still defers to a Space that declares its own watcher', () => {
+      const declared = space([{ id: 'w', label: 'watch', role: 'sync', idlePolicy: 'never' }]);
+      const folder = folderWith({ [HARAVAN_LOCAL_BINDING_FILE]: HARAVAN, '.antifan/space.json': declared });
+      assert.deepEqual(planThemeSyncAutostart(folder, { leaderDriven: false }), []);
+      assert.deepEqual(planThemeSyncAutostart(folder, { leaderDriven: true }), []);
+    });
+  });
+});
+
+describe('windowHasLeaderWorker', () => {
+  const rows = [
+    { id: 'terminal-1', ownerKey: 'project:a' },
+    { id: 'terminal-2', ownerKey: 'project:b' },
+  ];
+
+  it('is true for a Leader worker owned by this window', () => {
+    assert.equal(windowHasLeaderWorker('project:a', rows, (id) => id === 'terminal-1'), true);
+  });
+
+  it('is false when the worker belongs to another window', () => {
+    assert.equal(windowHasLeaderWorker('project:a', rows, (id) => id === 'terminal-2'), false);
+  });
+
+  it('is false while the registry has no record of any of this window\'s terminals', () => {
+    assert.equal(windowHasLeaderWorker('project:a', rows, () => false), false);
+    assert.equal(windowHasLeaderWorker('project:a', [], () => true), false);
   });
 });

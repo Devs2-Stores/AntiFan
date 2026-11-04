@@ -67,10 +67,35 @@ export function spaceDeclaresWatcher(folder: string): boolean {
 }
 
 /**
- * The split panes to start under the window's base terminal, or none when the folder is not a
- * theme or its Space already owns the watcher.
+ * True when a terminal of the window owned by `owner` is a worker a Leader drives. A worker another
+ * window owns, or a terminal the registry has no record of (yet), does not count.
  */
-export function planThemeSyncAutostart(folder: string): SpaceTerminalSpec[] {
+export function windowHasLeaderWorker(
+  owner: string,
+  sessions: readonly { id: string; ownerKey?: string }[],
+  isWorker: (sessionId: string) => boolean,
+): boolean {
+  return sessions.some((session) => session.ownerKey === owner && isWorker(session.id));
+}
+
+/** What the caller knows about the window that the folder alone cannot say. */
+export interface ThemeSyncAutostartContext {
+  /**
+   * A Leader drives a terminal of this window. Whether the theme the folder is bound to is the live
+   * (`main`) one is only known to `hrv theme info -j`, a network call this module never makes: the
+   * binding file carries no role. A watcher on the live theme pushes every save to the storefront
+   * without the `--only --nodelete` gate a push goes through, so for a window a Leader works in the
+   * unknown role is treated as live and nothing starts. A window the user opens alone is unchanged.
+   */
+  leaderDriven?: boolean;
+}
+
+/**
+ * The split panes to start under the window's base terminal, or none when the folder is not a
+ * theme, its Space already owns the watcher, or a Leader drives the window.
+ */
+export function planThemeSyncAutostart(folder: string, context: ThemeSyncAutostartContext = {}): SpaceTerminalSpec[] {
+  if (context.leaderDriven === true) return [];
   if (spaceDeclaresWatcher(folder)) return [];
   return detectThemeSyncPlatforms(folder).map((platform) => ({
     id: themeSyncSpecId(platform),
