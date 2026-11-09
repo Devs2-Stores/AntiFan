@@ -187,8 +187,23 @@ describe("init", () => {
     const noLeader = cli(w, base, { ANTIFAN_TERMINAL_SESSION_ID: "" });
     assert.equal(noLeader.code, 2);
     assert.match(noLeader.stderr, /Leader terminal/);
-    assert.equal(cli(w, base).code, 0);
-    assert.equal(cli(w, base).code, 2, "same minute + slug must not overwrite a job");
+    // The job dir name carries the minute, so a pair of inits that straddles a minute boundary legitimately yields two jobs.
+    // Retry with a fresh slug until a pair lands inside one minute; a second init in the SAME minute must always be refused.
+    let refusedInSameMinute = 0;
+    for (let attempt = 0; attempt < 4 && refusedInSameMinute === 0; attempt += 1) {
+      const args = base.map((v, i) => (base[i - 1] === "--slug" ? `dup-${attempt}` : v));
+      const first = cli(w, args);
+      assert.equal(first.code, 0, first.stderr);
+      const second = cli(w, args);
+      const stampOf = (r) => path.basename(r.last.jobDir ?? "").slice(0, 11);
+      if (second.code === 0) {
+        assert.notEqual(stampOf(second), stampOf(first), "a second init in the same minute must not overwrite a job");
+      } else {
+        assert.equal(second.code, 2);
+        refusedInSameMinute += 1;
+      }
+    }
+    assert.equal(refusedInSameMinute, 1, "same minute + slug must not overwrite a job");
   });
 });
 
