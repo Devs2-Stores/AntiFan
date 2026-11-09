@@ -75,3 +75,17 @@ For NEEDS_INPUT: a CLI command the worker needs is yours to approve or deny (Too
 
 ## 3. Other cases
 Same change on many projects, one big task in one repo (worktrees), long jobs: `references/leader-discipline.md` §3.
+## 2b. A-Z feedback playbook and rules added 09/11/2026 (user: "phải từ A-Z", after finished jobs were left open twice)
+Per Taiz Feedback issue the Leader owns every step until the worker terminal is closed:
+1. Intake: open a fresh dashboard tab (`tabs.create` with `anchorTabId`, `bind:true`), read `fetch('/api/getDashboardData',{cache:'no-store'})`, keep `host==='Taiz' && stage==='Feedback'`, match by `String(x.id)`, read each row's `message` and `devNote` (comments, images). Map shop to project folder.
+2. `LJ init`, write the task into a file with the write tool (a bash line naming a theme path is refused: `REFUSED_LEADER_THEME_EDIT`), merge it into `{{TASK}}`, `terminal.create {cwd,name}`, `LJ dispatch`, send the returned `input` (text, then `key:"enter"` separately), confirm `runSeq` grew via `worker-status.mjs`.
+3. The worker header makes the dev server a fixed step: after `hrv theme info --json`, a NON-live bound theme gets its own split with `hrv theme dev` BEFORE the first edit and the split is closed before the final report; a live (role main) theme is refused by the hook, so the worker pushes `--only <file> --nodelete` and reports "theme live, no dev". A hrv command hanging over 120 s becomes `NEEDS_INPUT`.
+4. Per job, as soon as it settles (never wait for the others): `validate-report`, `verify-sheet`, your own storefront measurement, dashboard re-read by id, `LJ record`, then ask the user per issue (one `ask` field per issue, honest list of what was not checked).
+5. On the user's Done: `LJ approve`, close prompt file (API lookup by id, guard, `quickUpdate`, re-read Stage by id), `LJ dispatch --kind close`, wait, read the API yourself, `LJ record --kind dashboard`, `terminal.close` every worker and dev split, `LJ close`, then `LJ status --all` must show `leakedWorkers: 0` and no open job.
+Rules from the day's mistakes:
+- `LJ wait-any [--leader T]` (bash `async:true, timeout:0`) watches every dispatched job of the Leader and returns at the FIRST one that settles, dies or needs the user (`event:"first"`, `job`, `jobDir`, `alsoReady`). Handle that job at once, run `LJ status --all`, relaunch `wait-any` while any job is still dispatched. It replaces chaining `LJ wait` per job.
+- Correction to "`LJ wait` is the only command that sets `settledAt`": since 09/11/2026 `LJ status`, `validate-report` and `record` settle a round whose worker already finished (`reconcileSettled`), and `status` flags it. The stop hook text now names `wait-any`; the hook change needs a build and an AntiFan restart before it takes effect.
+- Relay text to a running worker with `force:true` and a trailing `\r` in `input`. Text that names the theme CLI in `terminal.write` is judged as a whole unsent line (`REFUSED_THEME_COMPLEX`) and blocks every later Enter: clear with `key:"ctrl-c"`, put the CLI instructions in a file and relay a plain line pointing to it.
+- Do not `npm run build` the shared Haravan CLI (`rimraf dist`, about 23 s) while workers run hrv; schedule it or tell the user the risk.
+- State an unknown cause as unknown. A grep miss is not proof that no test depends on old wording (2 `leader-guard` tests did).
+

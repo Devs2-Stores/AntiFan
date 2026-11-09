@@ -28,7 +28,7 @@ for (const name of UNIT) {
   fs.writeFileSync(path.join(TEMP, `${name}.mts`), source);
 }
 const guard = await import(pathToFileURL(path.join(TEMP, "leader-guard.mts")).href);
-const { default: leaderGuardHook, findOpenJobs, findLeakedWorkers, canonicalTool, investigationLabel, LEADER_READ_ALLOW_ROOTS } = guard;
+const { default: leaderGuardHook, findOpenJobs, findLeakedWorkers, buildStopReason, canonicalTool, investigationLabel, LEADER_READ_ALLOW_ROOTS } = guard;
 
 const LEADER = "terminal-7";
 const OTHER_LEADER = "terminal-9";
@@ -149,7 +149,7 @@ test("stop is blocked while a job of this Leader is dispatched, with the exact n
   assert.equal(result.decision, "block");
   assert.ok(result.reason.includes(dir));
   assert.match(result.reason, /\[dispatched\]/);
-  assert.ok(result.reason.includes(`node scripts/leader/leader-job.mjs wait --job ${dir}`));
+  assert.ok(result.reason.includes("node scripts/leader/leader-job.mjs wait-any"));
   assert.match(result.reason, /async:true, timeout:0/);
 });
 
@@ -170,6 +170,13 @@ test("stop is blocked while a worker is dead and says to resume on a NEW termina
   assert.ok(result.reason.includes(dir));
   assert.match(result.reason, /NEW terminal/);
   assert.ok(!result.reason.includes(`leader-job.mjs wait --job ${dir}`));
+});
+
+test("buildStopReason names wait-any only when a job is dispatched", () => {
+  const job = (state) => ({ dir: "/jobs/j1", state });
+  assert.match(buildStopReason([job("dispatched")]), /leader-job\.mjs wait-any/);
+  assert.ok(!buildStopReason([job("reported")]).includes("wait-any"));
+  assert.ok(!buildStopReason([job("verified")]).includes("wait-any"));
 });
 
 test("stop is allowed for needs_input, verified, user-approved, closed and open jobs", async () => {
@@ -274,7 +281,7 @@ test("an open job and a leaked worker are reported together in one block", async
   openTerminal("terminal-85");
   const result = await makeHook().stop();
   assert.equal(result.decision, "block");
-  assert.ok(result.reason.includes(`leader-job.mjs wait --job ${live}`));
+  assert.ok(result.reason.includes("leader-job.mjs wait-any"));
   assert.match(result.reason, /terminal-85: its job is closed/);
 });
 

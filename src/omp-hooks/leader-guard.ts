@@ -168,7 +168,7 @@ const CLI = "node scripts/leader/leader-job.mjs";
 
 function nextStep(job: OpenJob): string {
   if (job.state === "dispatched") {
-    return `worker still running -> bash {async:true, timeout:0}: ${CLI} wait --job ${job.dir}  (its result wakes this session)`;
+    return `worker still running -> covered by the single ${CLI} wait-any below`;
   }
   if (job.state === "worker_dead") {
     return `worker died -> inspect its repo (git log/status, report file), then ${CLI} dispatch --job ${job.dir} --worker <NEW terminal> --prompt <resume prompt>; never re-wait the dead worker`;
@@ -180,10 +180,19 @@ function nextStep(job: OpenJob): string {
 }
 
 export function buildStopReason(open: OpenJob[]): string {
+  const running = open.filter((job) => job.state === "dispatched");
   const lines = open.map((job) => `- ${job.dir} [${job.state}]: ${nextStep(job)}`);
+  const waitAny =
+    running.length > 0
+      ? [
+          `Wait for the running jobs with ONE call, bash {async:true, timeout:0}: ${CLI} wait-any  (returns as soon as the FIRST of them settles, dies or needs the user; its result wakes this session).`,
+          "When it wakes, handle that job right away (validate-report, verify, ask the user, close) and run wait-any again for the rest. Never hold a finished job back for a slower one.",
+        ]
+      : [];
   return [
     "Do not end the turn: you still have open Leader jobs. Run these from E:/Work/apps/AntiFan:",
     ...lines,
+    ...waitAny,
     "Stopping is allowed once each job is needs_input, verified, user-approved or closed.",
   ].join("\n");
 }

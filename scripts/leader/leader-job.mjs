@@ -45,6 +45,10 @@ Commands
        worker terminals of earlier rounds that are still open (a replaced worker): terminal.close each right away.
        A fresh round (a new omp.exe) is refused (exit 4) while AntiFan reports Windows commit headroom under its
        floor; --allow-low-memory overrides that only on the user's say-so.
+  wait-any [--leader TERMINAL] [--timeout-min N] [--stale-min 90] [--undelivered-sec 90]
+       Watch ALL dispatched jobs of the Leader at once and return when the FIRST one settles, dies or needs the
+       user (event "first": job, jobDir, exit). Handle that job now (validate, verify, ask the user, close), then
+       run wait-any again. Never hold a finished job back for a slower one.
   wait --job DIR [--timeout-min N] [--poll-ms 2000] [--stale-min 90] [--undelivered-sec 90] [--sessions-dir DIR]
        Poll worker run files until every round is settled (state=settled), a worker waits for the user, or a
        worker is dead: run file gone (not counted in the first 3 minutes), OMP pid gone, OMP session ended before
@@ -693,6 +697,45 @@ async function cmdWait(flags) {
   }
 }
 
+/**
+ * Watch every dispatched job of this Leader at once and return as soon as ANY of them settles, dies or
+ * needs the user. Waiting on jobs one after another lets a slow job hold back the ones already finished.
+ */
+async function cmdWaitAny(flags) {
+  const leader = one(flags, "leader") || process.env.ANTIFAN_TERMINAL_SESSION_ID;
+  if (!leader) throw new CliError(EXIT.USAGE, "pass --leader TERMINAL or set ANTIFAN_TERMINAL_SESSION_ID");
+  const dirs = readLeaderJobs(leader)
+    .filter(({ job }) => job.state === "dispatched")
+    .map(({ dir }) => dir);
+  if (!dirs.length) {
+    emit({ cmd: "wait-any", event: "nothing-to-wait", leader });
+    return EXIT.OK;
+  }
+  const passthrough = ["timeout-min", "poll-ms", "stale-min", "undelivered-sec", "sessions-dir", "runs-dir"];
+  const runs = dirs.map(async (dir) => {
+    const sub = new Map([["job", [dir]]]);
+    for (const name of passthrough) if (flags.has(name)) sub.set(name, flags.get(name));
+    return { dir, code: await cmdWait(sub) };
+  });
+  const first = await Promise.race(runs);
+  const runsDir = runsDirOf(flags);
+  const alsoReady = readLeaderJobs(leader)
+    .filter(({ dir }) => dir !== first.dir && path.resolve(dir) !== path.resolve(first.dir))
+    .filter(({ job }) => finishedUnsettled(job, runsDir) !== null)
+    .map(({ job }) => job.job);
+  emit({
+    cmd: "wait-any",
+    event: "first",
+    job: path.basename(first.dir),
+    jobDir: first.dir.replace(/\\/g, "/"),
+    exit: first.code,
+    stillWatching: dirs.length - 1,
+    alsoReady,
+    note: "handle this job now, then run wait-any again; alsoReady lists jobs whose worker already finished: run wait --job DIR for each",
+  });
+  return first.code;
+}
+
 function requiredKindsFor(round, json, job) {
   if (round.kind === "close") return ["dashboard"];
   // A job without a sheet still needs an independent check of the dashboard row: with nothing required,
@@ -703,8 +746,34 @@ function requiredKindsFor(round, json, job) {
   return req;
 }
 
+/**
+ * Settle every dispatched round whose worker already finished, straight from its run file, the way `wait` does.
+ * The ledger then never depends on a waiter happening to be running when the worker goes idle.
+ * Returns true when it changed the job.
+ */
+export function reconcileSettled(dir, job, runsDir, now = Date.now()) {
+  if (job.state !== "dispatched") return false;
+  let changed = false;
+  for (const r of job.rounds) {
+    if (r.settledAt || r.deadAt) continue;
+    const run = readRun(runsDir, r.worker.terminal);
+    if (!run || run.unreadable) continue;
+    if (judgeRound(r, run, null, now).kind !== "settled") continue;
+    r.settledAt = now;
+    r.worker.ompSessionId = run.ompSessionId ?? r.worker.ompSessionId;
+    r.settleRun = { state: run.state, runSeq: run.runSeq, lastEventAt: run.lastEventAt };
+    changed = true;
+  }
+  if (changed) {
+    if (job.rounds.every((r) => r.settledAt || r.deadAt)) job.state = "settled";
+    saveJob(dir, job);
+  }
+  return changed;
+}
+
 function cmdValidateReport(flags) {
   const { dir, job } = loadJob(flags);
+  reconcileSettled(dir, job, runsDirOf(flags));
   const round = pickRound(job, flags);
   const errors = [];
   let text = null;
@@ -824,6 +893,7 @@ function extractJson(text) {
 
 function cmdRecord(flags) {
   const { dir, job } = loadJob(flags);
+  reconcileSettled(dir, job, runsDirOf(flags));
   const round = pickRound(job, flags);
   const kind = req(flags, "kind");
   const status = req(flags, "status");
@@ -878,6 +948,19 @@ function blockingText(job) {
   }
 }
 
+/**
+ * A worker that already finished its turn while the ledger still says "dispatched": nothing has run wait since,
+ * so the Leader does not know. Say it loudly instead of printing the stale "worker running".
+ */
+export function finishedUnsettled(job, runsDir) {
+  const last = job.rounds.at(-1);
+  if (job.state !== "dispatched" || !last || last.settledAt || last.deadAt) return null;
+  const run = readRun(runsDir, last.worker.terminal);
+  if (!run || run.unreadable) return null;
+  if (judgeRound(last, run, null).kind !== "settled") return null;
+  return `worker ${last.worker.terminal} FINISHED round ${last.n} (idle) but the ledger has not seen it: run wait-any NOW, then handle this job`;
+}
+
 function cmdStatus(flags) {
   const jobs = [];
   if (one(flags, "job")) {
@@ -893,6 +976,7 @@ function cmdStatus(flags) {
   let listed = 0;
   let leaked = 0;
   for (const { dir, job } of jobs) {
+    reconcileSettled(dir, job, runsDir);
     const live = liveWorkers(job, runsDir, inUseElsewhere(peers, job));
     const leaks = leakedWorkers(job, live);
     if (!one(flags, "job") && !one(flags, "all") && job.state === "closed" && leaks.length === 0) continue;
@@ -909,7 +993,7 @@ function cmdStatus(flags) {
       rounds: job.rounds.length,
       lastSettledAt: [...job.rounds].reverse().find((r) => r.settledAt)?.settledAt ?? null,
       lastWorker: last?.worker.terminal ?? null,
-      blocking: job.state === "closed" && leaks.length ? `close the leaked worker terminals: ${leaks.map((w) => w.terminal).join(", ")}` : blockingText(job),
+      blocking: job.state === "closed" && leaks.length ? `close the leaked worker terminals: ${leaks.map((w) => w.terminal).join(", ")}` : finishedUnsettled(job, runsDir) ?? blockingText(job),
       nextReportPath: reportPathFor(dir, job, job.rounds.length + 1),
       outstandingDevRows: latestSheet(job)?.outstandingDevRows?.length ?? null,
       liveWorkers: live,
@@ -1171,6 +1255,7 @@ const COMMANDS = {
   init: cmdInit,
   dispatch: cmdDispatch,
   wait: cmdWait,
+  "wait-any": cmdWaitAny,
   "validate-report": cmdValidateReport,
   "verify-sheet": cmdVerifySheet,
   record: cmdRecord,
@@ -1204,5 +1289,7 @@ export async function main(argv) {
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   main(process.argv.slice(2)).then((code) => {
     process.exitCode = code;
+    // wait-any leaves the polling loops of the slower jobs running; end the process once the first result is out.
+    if (process.argv[2] === "wait-any") process.exit(code);
   });
 }

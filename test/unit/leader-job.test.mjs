@@ -15,7 +15,7 @@ import { after, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { parseCsv, stringifyCsv } from "../../scripts/leader/csv.mjs";
-import { judgeRound, parseArgv, sheetExportUrl } from "../../scripts/leader/leader-job.mjs";
+import { finishedUnsettled, judgeRound, parseArgv, sheetExportUrl } from "../../scripts/leader/leader-job.mjs";
 import { parseReport, validateReportText } from "../../scripts/leader/report.mjs";
 import { analyzeSheet, diffSheets, outstandingDevRows, parseSheet, verifySheet } from "../../scripts/leader/sheet-diff.mjs";
 
@@ -501,6 +501,70 @@ describe("dispatch / wait / validate-report through the CLI", () => {
     assert.equal(j.job().state, "worker_dead");
     assert.match(j.job().rounds[0].deadWhy, /^undelivered:/);
     assert.equal(cli(w, ["wait", "--job", j.dir]).code, 7, "a later wait reports the same verdict");
+  });
+
+  test("status and validate-report settle a finished round without any waiter running", () => {
+    const w = world();
+    const j = initJob(w, "whenever");
+    assert.equal(dispatch(w, j, "terminal-7").code, 0);
+    writeRun(w, "terminal-7", { ompSessionId: "omp-new", state: "idle", runSeq: 1, lastEventAt: Date.now() + 5000 });
+    assert.equal(j.job().state, "dispatched", "nothing has settled it yet: no wait ran");
+    const status = cli(w, ["status", "--job", j.dir]);
+    assert.equal(status.code, 0, status.stderr);
+    assert.equal(j.job().state, "settled");
+    assert.match(status.lines[0].blocking, /validate-report/);
+    const w2 = world();
+    const j2 = initJob(w2, "whenever");
+    assert.equal(dispatch(w2, j2, "terminal-7").code, 0);
+    writeRun(w2, "terminal-7", { ompSessionId: "omp-new", state: "idle", runSeq: 1, lastEventAt: Date.now() + 5000 });
+    const validated = cli(w2, ["validate-report", "--job", j2.dir, "--round", "1"]);
+    assert.doesNotMatch(JSON.stringify(validated.lines) + validated.stderr, /not settled yet/);
+    assert.equal(j2.job().state, "settled");
+  });
+
+  test("a worker that is still running keeps its round dispatched under status", () => {
+    const w = world();
+    const j = initJob(w, "whenever");
+    assert.equal(dispatch(w, j, "terminal-7").code, 0);
+    writeRun(w, "terminal-7", { ompSessionId: "omp-new", state: "running", runSeq: 1, lastEventAt: Date.now() + 5000 });
+    const status = cli(w, ["status", "--job", j.dir]);
+    assert.equal(j.job().state, "dispatched");
+    assert.match(status.lines[0].blocking, /running round 1/);
+  });
+
+  test("finishedUnsettled warns for an idle finished worker and returns null while it runs", () => {
+    const w = world();
+    const j = initJob(w, "whenever");
+    assert.equal(dispatch(w, j, "terminal-7").code, 0);
+    writeRun(w, "terminal-7", { ompSessionId: "omp-new", state: "idle", runSeq: 1, lastEventAt: Date.now() + 5000 });
+    assert.match(finishedUnsettled(j.job(), w.runs), /FINISHED round 1.*wait-any/);
+    writeRun(w, "terminal-7", { ompSessionId: "omp-new", state: "running", runSeq: 1, lastEventAt: Date.now() + 5000 });
+    assert.equal(finishedUnsettled(j.job(), w.runs), null);
+  });
+
+  test("wait-any returns the job that finished first and leaves the running one watched", () => {
+    const w = world();
+    const a = initJob(w, "whenever");
+    const b = initJob(w, "seahorse");
+    assert.equal(dispatch(w, a, "terminal-7").code, 0);
+    assert.equal(dispatch(w, b, "terminal-8").code, 0);
+    writeRun(w, "terminal-7", { ompSessionId: "omp-new", state: "idle", runSeq: 1, lastEventAt: Date.now() + 5000 });
+    writeRun(w, "terminal-8", { ompSessionId: "omp-new", state: "running", runSeq: 1, lastEventAt: Date.now() + 5000 });
+    const r = cli(w, ["wait-any", "--poll-ms", "20", "--timeout-min", "0.05"]);
+    assert.equal(r.code, 0, r.stderr);
+    const first = r.lines.find((l) => l.cmd === "wait-any");
+    assert.equal(first.event, "first");
+    assert.equal(first.job, path.basename(a.dir));
+    assert.equal(first.stillWatching, 1);
+    assert.deepEqual(first.alsoReady, []);
+    assert.equal(b.job().state, "dispatched", "the slower job is untouched");
+  });
+
+  test("wait-any with nothing dispatched says so and exits 0", () => {
+    const w = world();
+    const r = cli(w, ["wait-any"]);
+    assert.equal(r.code, 0);
+    assert.equal(r.last.event, "nothing-to-wait");
   });
 
   test("wait calls a follow-up dead at once when the OMP pid is gone though the run file still says idle", () => {
