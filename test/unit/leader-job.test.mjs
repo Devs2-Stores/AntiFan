@@ -43,6 +43,7 @@ function world() {
   env.LEADER_JOBS_ROOT = jobs;
   env.LEADER_RUNS_DIR = runs;
   env.ANTIFAN_TERMINAL_SESSION_ID = "terminal-1";
+  env.LEADER_LEARN = "off";
   return { root, jobs, runs, env };
 }
 
@@ -161,7 +162,7 @@ describe("init", () => {
     assert.ok(prompt.includes("String(r.id)==='9282'"), "guard resolves by stable id");
     assert.ok(prompt.includes("x.host==='Taiz'") && prompt.includes("SHEETWHEN") && prompt.includes("whenever.myshopify.com"));
     assert.ok(prompt.includes(path.join(j.dir, "whenever-job.report.md").replace(/\\/g, "/")));
-    assert.match(prompt, /KHÔNG chạy quickUpdate\(\.\.\.,'Done'\)/, "first pass never sets Done");
+    assert.match(prompt, /không chạy quickUpdate\(\.\.\.,'Done'\)/i, "first pass never sets Done");
     assert.ok(prompt.includes("{{TASK}}"), "task marker left for the Leader");
     assert.ok(prompt.includes("hrv theme"), "haravan profile keeps the theme steps");
     assert.deepEqual([...new Set(prompt.match(/\{\{[A-Z_]+\}\}/g))], ["{{TASK}}"]);
@@ -824,11 +825,11 @@ describe("full lifecycle: verify, approve, close round, close", () => {
     assert.equal(d.last.mode, "followup");
     assert.equal(j.job().state, "dispatched");
     const closePrompt = fs.readFileSync(d.last.promptPath, "utf8");
-    assert.ok(closePrompt.includes("User đã duyệt đóng issue 9282") && closePrompt.includes("quickUpdate(<rowNumber>,'Done')"));
+    assert.ok(closePrompt.includes(`APPROVAL_TOKEN: ${j.job().approval.closeToken}`) && closePrompt.includes("quickUpdate(<rowNumber>,'Done')"));
     assert.ok(closePrompt.includes(d.last.reportPath));
     assert.equal(settle(w, j, "terminal-7", { runSeq: 2, ompSessionId: "omp-new", lastEventAt: Date.now() + 6000 }).code, 0);
     job = j.job();
-    fs.writeFileSync(job.rounds[1].reportPath, reportText(job, 2, { sheet: undefined, dashboard: { commentsAdded: 0, stageBefore: "Feedback", stageAfter: "Done" } }));
+    fs.writeFileSync(job.rounds[1].reportPath, reportText(job, 2, { sheet: undefined, closeToken: job.approval.closeToken, dashboard: { commentsAdded: 0, stageBefore: "Feedback", stageAfter: "Done" } }));
     const vr = cli(w, ["validate-report", "--job", j.dir]);
     assert.equal(vr.code, 0, vr.stderr);
     assert.deepEqual(j.job().rounds[1].report.required, ["dashboard"]);

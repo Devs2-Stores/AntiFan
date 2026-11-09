@@ -58,7 +58,7 @@ export function parseReport(text) {
  * @param {object} job job.json
  * @param {number} round round number the report belongs to
  */
-export function validateReportObject(parsed, job, round) {
+export function validateReportObject(parsed, job, round, ctx = {}) {
   const errors = [];
   const j = parsed.json;
   if (j === null) return errors;
@@ -153,15 +153,69 @@ export function validateReportObject(parsed, job, round) {
       }
     }
   }
+  if (j.review !== undefined) {
+    const r = j.review;
+    if (!isObj(r)) errors.push("review must be an object {verdict, findings}");
+    else {
+      if (!REVIEW_VERDICTS.includes(r.verdict)) errors.push(`review.verdict must be one of ${REVIEW_VERDICTS.join(", ")}`);
+      if (!isStrArray(r.findings)) errors.push("review.findings must be an array of strings");
+    }
+  } else if (ctx.kind === "review") {
+    errors.push("review round report must carry review {verdict, findings}");
+  }
+  // Only a DONE close report claims the close; NEEDS_INPUT / FAILED close reports (e.g. a guard mismatch) validate normally.
+  if (ctx.kind === "close" && status === "DONE") {
+    const want = ctx.closeToken;
+    if (!isNonEmptyStr(want)) {
+      errors.push("job has no close token (the Leader must run approve before the close round)");
+    } else if (!isNonEmptyStr(j.closeToken) || j.closeToken !== want) {
+      errors.push("close report must echo the APPROVAL_TOKEN of the close prompt as top-level closeToken (missing or wrong)");
+    } else if (ctx.tokenUsedAt != null && ctx.tokenUsedRound !== round) {
+      errors.push("close token was already used by another report");
+    }
+  }
   return errors;
 }
 
-/** Everything but the filesystem mtime check. */
-export function validateReportText(text, job, round) {
-  const parsed = parseReport(text);
-  const errors = [...parsed.errors, ...validateReportObject(parsed, job, round)];
-  return { status: parsed.status, json: parsed.json, errors };
+const asciiLower = (s) =>
+  String(s)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/gi, "d")
+    .toLowerCase();
+
+// Topics only the user can decide or perform; an answer from the Leader would be a guess.
+const ONLY_USER_TOPICS = [
+  ["login/credential", /\b(log ?in|sign ?in|dang nhap|otp|2fa|two[- ]?factor|xac thuc|mat khau|password|passcode|credentials?|tokens?|secrets?|api[- ]?keys?)\b/],
+  ["payment", /\b(payments?|thanh toan|billing|refund|hoan tien|invoice|hoa don|charge|tra phi)\b/],
+  ["publish", /\b(publish\w*|xuat ban|go live|dang len)\b/],
+  ["delete", /\b(delet\w*|xoa|destroy\w*)\b/],
+  ["force/prune", /(--force|--prune|\bforce\b|\bprune\b)/],
+  ["another theme id", /(theme\s*(id)?\s*(khac|other|another|different)|(khac|other|another|different)\s+theme|theme\s*id\s*\d)/],
+  ["user's own account", /(tai khoan (cua )?(anh|toi|minh|ban)|(your|my)( own)? account|account (cua )?(anh|minh))/],
+];
+
+/** True when the question is about something only the user may decide (login, payment, publish, delete, ...). */
+export function classifyNeedsInput(question, options = []) {
+  const text = asciiLower([question, ...(Array.isArray(options) ? options : [])].filter((v) => typeof v === "string").join("\n"));
+  const reasons = ONLY_USER_TOPICS.filter(([, re]) => re.test(text)).map(([name]) => name);
+  return { onlyUser: reasons.length > 0, reasons };
 }
+
+/**
+ * Everything but the filesystem mtime check.
+ * `ctx` describes the round: { kind, closeToken, tokenUsedAt, tokenUsedRound }. A close round must echo the
+ * job's one-time close token; a review round must carry a review verdict.
+ */
+export function validateReportText(text, job, round, ctx = {}) {
+  const parsed = parseReport(text);
+  const errors = [...parsed.errors, ...validateReportObject(parsed, job, round, ctx)];
+  const n = parsed.json?.needsInput;
+  const needsInput = parsed.status === "NEEDS_INPUT" && isObj(n) && isStr(n.question) ? { ...n, ...classifyNeedsInput(n.question, n.options) } : null;
+  return { status: parsed.status, json: parsed.json, errors, needsInput };
+}
+
+export const REVIEW_VERDICTS = ["PASS", "CONCERNS", "FAIL"];
 
 /** Sheet cells a valid report claims, in verify-sheet's shape. */
 export function claimedCells(json) {

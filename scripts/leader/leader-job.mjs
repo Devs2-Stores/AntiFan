@@ -14,18 +14,24 @@ import { claimedCells, validateReportText } from "./report.mjs";
 import { defaultSessionsDir, judgeLiveness, pidAlive, sessionActivityAt, START_GRACE_MS, UNDELIVERED_AFTER_MS, undeliveredWhy } from "./worker-liveness.mjs";
 import { FALLBACK_TICK_MS, nextRunChange } from "./event-wait.mjs";
 import { pendingAskOf } from "./ask-dialog.mjs";
+import { buildBoard } from "./board.mjs";
+import { ingestOutcome, listPending } from "./learn.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_JOBS_ROOT = "E:/Work/scratch/leader";
 const DEFAULT_DATA_ROOT = "E:/Work/.antifan-data";
 const JOB_SCHEMA = "leader-job/1";
 const HOST = "Taiz";
-const BOOL_FLAGS = new Set(["help", "allow-busy", "allow-low-memory", "force", "all", "allow-outstanding", "without-done", "no-sheet", "keep-workers"]);
+const BOOL_FLAGS = new Set(["help", "allow-busy", "allow-low-memory", "force", "all", "allow-outstanding", "without-done", "no-sheet", "keep-workers", "allow-extra-round", "text"]);
 const VERIFY_KINDS = ["sheet", "dashboard", "storefront"];
 const VERIFY_STATUSES = ["PASS", "WARN", "FAIL", "UNREADABLE"];
 const PROBES = { themeId: "themeId.js", overflow: "overflow.js", "element-rect": "element-rect.js", "dashboard-issue": "dashboard-issue.js" };
 
 export const EXIT = { OK: 0, CHECK_FAILED: 1, USAGE: 2, TIMEOUT: 3, REFUSED: 4, NEEDS_INPUT: 5, WORKER_DEAD: 6, UNDELIVERED: 7 };
+
+/** Work/followup rounds that are not dead a job may use, and dead rounds it may burn, before dispatch needs --allow-extra-round. */
+export const MAX_ROUNDS_PER_JOB = 4;
+export const MAX_DEAD_ROUNDS = 3;
 
 const HELP = `leader-job.mjs - Leader job ledger (feedback jobs for host ${HOST})
 
@@ -39,12 +45,17 @@ Commands
        Without --gid the sheet's first tab is exported (plain /export?format=csv). --no-sheet is for an
        issue that has no Google Sheet: a header-only stub snapshot is written, verify-sheet reports N/A
        (never PASS) and the sheet is not a required verification.
-  dispatch --job DIR --worker TERMINAL [--prompt FILE] [--kind work|followup|close]
-       [--mode auto|fresh|followup] [--allow-busy] [--allow-low-memory]
+  dispatch --job DIR --worker TERMINAL [--prompt FILE] [--kind work|followup|close|review]
+       [--mode auto|fresh|followup] [--allow-busy] [--allow-low-memory] [--allow-extra-round --reason "<text>"]
        Stamp dispatchedAt/preRunSeq, append a round, state=dispatched, print {input} for terminal.write. closeNow lists
        worker terminals of earlier rounds that are still open (a replaced worker): terminal.close each right away.
        A fresh round (a new omp.exe) is refused (exit 4) while AntiFan reports Windows commit headroom under its
        floor; --allow-low-memory overrides that only on the user's say-so.
+       A work/followup round past ${MAX_ROUNDS_PER_JOB} live rounds, or any dispatch past ${MAX_DEAD_ROUNDS} dead rounds, is refused (exit 4)
+       unless --allow-extra-round --reason "<why>" (stored on the round). close and review rounds never count.
+       --kind review starts a read-only reviewer over the earlier rounds' reports (template review-followup.md); its
+       report carries review {verdict PASS|CONCERNS|FAIL, findings[]} and never changes the verification of the work round.
+       A close round's prompt carries APPROVAL_TOKEN (from approve); the worker must echo it as "closeToken" in its report.
   wait-any [--leader TERMINAL] [--timeout-min N] [--stale-min 90] [--undelivered-sec 90]
        Watch ALL dispatched jobs of the Leader at once and return when the FIRST one settles, dies or needs the
        user (event "first": job, jobDir, exit). Handle that job now (validate, verify, ask the user, close), then
@@ -68,7 +79,11 @@ Commands
   status [--leader TERMINAL] [--job DIR] [--all]    List open jobs and what blocks each. liveWorkers = worker terminals still
        open (run file present), leakedWorkers = those nobody needs (every one once the job is closed, else a replaced
        worker). A closed job that still has a live worker is listed too: close those terminals.
-  approve --job DIR [--allow-outstanding] [--force]  User said yes: state=user-approved.
+       Each row shows roundsUsed/maxRounds (work+followup rounds that are not dead) and deadRounds/maxDeadRounds.
+  needs-me [--leader T] [--all] [--stale-hours N] [--text]
+       Read-only board of the Leader's jobs: who waits for the user, dead workers, stale jobs. --text prints one screen.
+  lessons  List the PENDING lesson candidates that closing jobs stored in AntiFan Core (LEADER_LEARN=off disables learning).
+  approve --job DIR [--allow-outstanding] [--force]  User said yes: state=user-approved; mints the one-time close token.
   close --job DIR [--without-done] [--force] [--keep-workers]  state=closed (needs approval and a verified close round).
        Refused (exit 4) while any worker terminal of the job is still open: terminal.close each first, then close.
        --keep-workers leaves them open on purpose; job.json then records workersKept, so status and the stop hook stop flagging them.
@@ -82,7 +97,8 @@ Commands
        --quote-file reads the same words from a file: use it when the words themselves name the theme CLI, because
        the Leader's own bash line may not carry them. One line, 1-500 characters, stored exactly as written.
 
-Environment: LEADER_JOBS_ROOT (default ${DEFAULT_JOBS_ROOT}), LEADER_RUNS_DIR or ANTIFAN_DATA_ROOT
+Learning: close stores a PENDING lesson in AntiFan Core (scripts/antifan-core.cjs, or LEADER_CORE_SCRIPT; db = SUPER_CORE_DB);
+LEADER_LEARN=off disables it. Environment: LEADER_JOBS_ROOT (default ${DEFAULT_JOBS_ROOT}), LEADER_RUNS_DIR or ANTIFAN_DATA_ROOT
 (run files <dir>/<terminal>.json, default ${DEFAULT_DATA_ROOT}/runtime/runs), ANTIFAN_TERMINAL_SESSION_ID
 (the Leader's terminal). Flag --runs-dir overrides LEADER_RUNS_DIR. dispatch reads AntiFan's commit reading from
 commit-pressure.json next to the runs dir (default ${DEFAULT_DATA_ROOT}/runtime/commit-pressure.json). approve-push writes
@@ -316,9 +332,9 @@ function applyProfile(tpl, profile, hasSheet = true) {
 const NO_SHEET_STUB_CSV = "Stage,Mô tả,Dev note kết quả\n";
 const GID_FIRST_TAB = "tab đầu tiên (không chỉ định gid)";
 
-function jobVars(job, n, reportPath) {
+function jobVars(job, n, reportPath, kind = "work") {
   const c = job.subject.cols;
-  return {
+  const vars = {
     JOB: job.job,
     KEY: job.slug,
     ROUND: n,
@@ -332,7 +348,27 @@ function jobVars(job, n, reportPath) {
     COL_DONE: c.done ?? "(không có cột này)",
     REPORT_PATH: reportPath,
   };
+  // The close token only ever goes into a close round's prompt: a work round that quotes it would let customer text forge a close.
+  if (kind === "close" && typeof job.approval?.closeToken === "string") vars.CLOSE_TOKEN = job.approval.closeToken;
+  if (kind === "review") vars.REVIEW_TARGETS = job.rounds.filter((r) => r.kind !== "review").map((r) => r.reportPath).join("\n");
+  return vars;
 }
+
+/** The latest round that is not a review: the one whose verification decides the job state. */
+const lastWorkRound = (job) => [...job.rounds].reverse().find((r) => r.kind !== "review") ?? null;
+const liveWorkRounds = (job) => job.rounds.filter((r) => (r.kind === "work" || r.kind === "followup") && !r.deadAt).length;
+const deadRounds = (job) => job.rounds.filter((r) => r.deadAt && (r.kind === "work" || r.kind === "followup")).length;
+
+/**
+ * Where the job goes when a review round ends (settled, dead, asked the user, valid or not): a review never moves the job.
+ * Another unfinished round keeps it dispatched; otherwise it returns to the state it had before the review was dispatched.
+ */
+function stateWithoutReview(job, round) {
+  if (job.rounds.some((r) => r.kind !== "review" && !r.settledAt && !r.deadAt)) return "dispatched";
+  return typeof round.stateBefore === "string" && round.stateBefore !== "dispatched" ? round.stateBefore : "settled";
+}
+/** State after every round settled: "settled", unless the last round to end was a review, which leaves the job as it was. */
+const settledState = (job) => (job.rounds.at(-1)?.kind === "review" ? stateWithoutReview(job, job.rounds.at(-1)) : "settled");
 
 const reportPathFor = (dir, job, n) => fwd(path.join(dir, n === 1 ? `${job.slug}.report.md` : `${job.slug}.r${n}.report.md`));
 const promptPathFor = (dir, job, n) => fwd(path.join(dir, n === 1 ? `${job.slug}.prompt.md` : `${job.slug}.r${n}.prompt.md`));
@@ -483,16 +519,32 @@ async function cmdDispatch(flags) {
   const worker = validTerminalId(req(flags, "worker"), "worker");
   const n = job.rounds.length + 1;
   const kind = one(flags, "kind") || (n === 1 ? "work" : "followup");
-  if (!["work", "followup", "close"].includes(kind)) throw new CliError(EXIT.USAGE, "--kind must be work, followup or close");
+  if (!["work", "followup", "close", "review"].includes(kind)) throw new CliError(EXIT.USAGE, "--kind must be work, followup, close or review");
   if (kind === "close" && !(job.state === "user-approved" && job.approvedAt)) {
     throw new CliError(EXIT.REFUSED, `close round needs state user-approved (run approve after the user's yes); state is ${job.state}`);
+  }
+  if (kind === "review" && !job.rounds.some((r) => r.kind !== "review")) throw new CliError(EXIT.REFUSED, "nothing to review: dispatch a work round first");
+  let extraRoundReason = null;
+  if (kind === "work" || kind === "followup") {
+    const used = liveWorkRounds(job);
+    const dead = deadRounds(job);
+    const over = [];
+    if (used >= MAX_ROUNDS_PER_JOB) over.push(`${used} work/followup rounds already used (max ${MAX_ROUNDS_PER_JOB})`);
+    if (dead >= MAX_DEAD_ROUNDS) over.push(`${dead} dead rounds (max ${MAX_DEAD_ROUNDS})`);
+    if (over.length) {
+      if (one(flags, "allow-extra-round") !== true) {
+        throw new CliError(EXIT.REFUSED, `round cap reached: ${over.join("; ")}. Stop and ask the user, or pass --allow-extra-round --reason "<why>"`, { roundsUsed: used, maxRounds: MAX_ROUNDS_PER_JOB, deadRounds: dead, maxDeadRounds: MAX_DEAD_ROUNDS });
+      }
+      extraRoundReason = (one(flags, "reason") ?? "").trim();
+      if (!extraRoundReason) throw new CliError(EXIT.USAGE, "--allow-extra-round needs --reason \"<why this extra round is justified>\"");
+    }
   }
   const reportPath = reportPathFor(dir, job, n);
   let promptPath = one(flags, "prompt") ? fwd(path.resolve(one(flags, "prompt"))) : null;
   if (!promptPath) {
-    if (kind !== "close") throw new CliError(EXIT.USAGE, "missing required --prompt");
+    if (kind !== "close" && kind !== "review") throw new CliError(EXIT.USAGE, "missing required --prompt");
     promptPath = promptPathFor(dir, job, n);
-    fs.writeFileSync(promptPath, readTemplate("close-followup.md"));
+    fs.writeFileSync(promptPath, readTemplate(kind === "close" ? "close-followup.md" : "review-followup.md"));
   }
   let text;
   try {
@@ -500,14 +552,16 @@ async function cmdDispatch(flags) {
   } catch (e) {
     throw new CliError(EXIT.USAGE, `cannot read prompt ${promptPath}: ${e.message}`);
   }
-  const rendered = render(text, jobVars(job, n, reportPath));
+  const rendered = render(text, jobVars(job, n, reportPath, kind));
   const left = [...new Set(rendered.match(/\{\{[A-Z_]+\}\}/g) ?? [])];
   if (left.length) {
     throw new CliError(
       EXIT.REFUSED,
       left.includes("{{TASK}}")
         ? "prompt still contains the {{TASK}} marker: write the task text into the skeleton first"
-        : `prompt contains unresolved placeholders: ${left.join(", ")}`,
+        : kind === "close" && left.includes("{{CLOSE_TOKEN}}")
+          ? `job ${dir} has no close token; run: leader-job approve --job DIR --force to mint a close token`
+          : `prompt contains unresolved placeholders: ${left.join(", ")}`,
     );
   }
   if (!rendered.includes(reportPath)) throw new CliError(EXIT.REFUSED, `prompt does not tell the worker where to write the report (${reportPath})`);
@@ -557,6 +611,8 @@ async function cmdDispatch(flags) {
     report: null,
     verification: {},
   };
+  if (kind === "review") round.stateBefore = job.state;
+  if (extraRoundReason) round.extraRoundReason = extraRoundReason;
   const replaced = liveWorkers(job, runsDir, inUseElsewhere(readLeaderJobs(job.leader?.terminal), job)).filter((w) => w.terminal !== worker);
   job.rounds.push(round);
   job.state = "dispatched";
@@ -574,6 +630,9 @@ async function cmdDispatch(flags) {
     promptPath,
     reportPath,
     dispatchedAt: round.dispatchedAt,
+    roundsUsed: liveWorkRounds(job),
+    maxRounds: MAX_ROUNDS_PER_JOB,
+    ...(extraRoundReason ? { extraRoundReason } : {}),
     preRunSeq: round.preRunSeq,
     ...(commit ? { commitHeadroomBytes: commit.headroomBytes, commitFloorBytes: commit.floorBytes } : {}),
     ...(replaced.length
@@ -651,7 +710,7 @@ async function cmdWait(flags) {
           });
       const verdict = judgeRound(r, run, live, Date.now(), undeliveredSec * 1000);
       if (verdict.kind === "waiting_user") {
-        job.state = "needs_input";
+        job.state = r.kind === "review" ? stateWithoutReview(job, r) : "needs_input";
         saveJob(dir, job);
         emit({ cmd: "wait", event: "needs-input", job: job.job, round: r.n, worker: r.worker.terminal, lastTool: run?.lastTool ?? null, reason: verdict.why, ask: pendingAskOf(sessionsDir, run) });
         return EXIT.NEEDS_INPUT;
@@ -659,7 +718,7 @@ async function cmdWait(flags) {
       if (verdict.kind === "dead") {
         r.deadAt = Date.now();
         r.deadWhy = verdict.why;
-        job.state = "worker_dead";
+        job.state = r.kind === "review" ? stateWithoutReview(job, r) : "worker_dead";
         saveJob(dir, job);
         emit({ cmd: "wait", event: "worker-dead", job: job.job, round: r.n, worker: r.worker.terminal, why: verdict.why, runState: run?.state ?? null, lastTool: run?.lastTool ?? null, state: job.state });
         return EXIT.WORKER_DEAD;
@@ -668,7 +727,7 @@ async function cmdWait(flags) {
         r.deadAt = Date.now();
         r.deadWhy = `undelivered: ${verdict.why}`;
         r.undelivered = true;
-        job.state = "worker_dead";
+        job.state = r.kind === "review" ? stateWithoutReview(job, r) : "worker_dead";
         saveJob(dir, job);
         emit({ cmd: "wait", event: "worker-undelivered", job: job.job, round: r.n, worker: r.worker.terminal, why: verdict.why, runState: run?.state ?? null, runSeq: run?.runSeq ?? null, state: job.state });
         return EXIT.UNDELIVERED;
@@ -682,9 +741,10 @@ async function cmdWait(flags) {
       }
     }
     if (changed) {
-      if (job.rounds.every((r) => r.settledAt || r.deadAt)) job.state = "settled";
+      const allSettled = job.rounds.every((r) => r.settledAt || r.deadAt);
+      if (allSettled) job.state = settledState(job);
       saveJob(dir, job);
-      if (job.state === "settled") {
+      if (allSettled) {
         emit({ cmd: "wait", event: "all-settled", job: job.job, state: job.state });
         return EXIT.OK;
       }
@@ -737,6 +797,7 @@ async function cmdWaitAny(flags) {
 }
 
 function requiredKindsFor(round, json, job) {
+  if (round.kind === "review") return [];
   if (round.kind === "close") return ["dashboard"];
   // A job without a sheet still needs an independent check of the dashboard row: with nothing required,
   // a report that carries only a summary would reach "verified" without anyone having looked at anything.
@@ -765,7 +826,7 @@ export function reconcileSettled(dir, job, runsDir, now = Date.now()) {
     changed = true;
   }
   if (changed) {
-    if (job.rounds.every((r) => r.settledAt || r.deadAt)) job.state = "settled";
+    if (job.rounds.every((r) => r.settledAt || r.deadAt)) job.state = settledState(job);
     saveJob(dir, job);
   }
   return changed;
@@ -795,8 +856,11 @@ function cmdValidateReport(flags) {
   }
   let status = null;
   let json = null;
+  let needsInput = null;
   if (text !== null) {
-    const v = validateReportText(text, job, round.n);
+    const approval = job.approval ?? {};
+    const v = validateReportText(text, job, round.n, { kind: round.kind, closeToken: approval.closeToken, tokenUsedAt: approval.tokenUsedAt, tokenUsedRound: approval.tokenUsedRound });
+    needsInput = v.needsInput;
     status = v.status;
     json = v.json;
     errors.push(...v.errors);
@@ -805,19 +869,47 @@ function cmdValidateReport(flags) {
     }
   }
   const valid = errors.length === 0;
-  round.report = { status, valid, errors, checkedAt: Date.now(), ...(valid ? { required: requiredKindsFor(round, json, job) } : {}) };
+  round.report = {
+    status,
+    valid,
+    errors,
+    checkedAt: Date.now(),
+    ...(valid && round.kind !== "review" ? { required: requiredKindsFor(round, json, job) } : {}),
+    ...(valid && round.kind === "review" ? { review: json.review } : {}),
+    ...(needsInput ? { needsInput } : {}),
+  };
   if (valid) {
-    if (round.n === job.rounds.length) job.state = status === "NEEDS_INPUT" ? "needs_input" : "reported";
+    // The close token is spent by the first valid DONE close report; a replay of the same round's report stays valid.
+    if (round.kind === "close" && status === "DONE" && job.approval && job.approval.tokenUsedAt == null) {
+      job.approval.tokenUsedAt = Date.now();
+      job.approval.tokenUsedRound = round.n;
+    }
+    if (round.n === job.rounds.length && round.kind !== "review") job.state = status === "NEEDS_INPUT" ? "needs_input" : "reported";
   }
+  // A review round never moves the job, valid report or not.
+  if (round.kind === "review" && round.n === job.rounds.length) job.state = stateWithoutReview(job, round);
   saveJob(dir, job);
   for (const e of errors) process.stderr.write(`report round ${round.n}: ${e}\n`);
-  emit({ cmd: "validate-report", ok: valid, job: job.job, round: round.n, status, valid, errors, state: job.state });
+  emit({
+    cmd: "validate-report",
+    ok: valid,
+    job: job.job,
+    round: round.n,
+    kind: round.kind,
+    status,
+    valid,
+    errors,
+    state: job.state,
+    ...(needsInput ? { onlyUser: needsInput.onlyUser, reasons: needsInput.reasons } : {}),
+    ...(valid && round.kind === "review" ? { review: json.review } : {}),
+  });
   return valid ? EXIT.OK : EXIT.CHECK_FAILED;
 }
 
 function applyVerification(job, round) {
   const rep = round.report;
-  const latest = round.n === job.rounds.length;
+  if (round.kind === "review") return { missing: ["review rounds are advisory: they never verify a job"] };
+  const latest = round.n === lastWorkRound(job)?.n;
   const missing = [];
   if (!rep?.valid) return { missing: ["valid report"] };
   const reportOk = round.kind === "close" ? rep.status === "DONE" : rep.status === "DONE" || rep.status === "PENDING";
@@ -932,7 +1024,8 @@ function blockingText(job) {
     case "settled":
       return "worker idle: validate-report";
     case "reported": {
-      const miss = (last?.report?.required ?? []).filter((k) => !["PASS", "WARN"].includes(last.verification[k]?.status));
+      const lastWork = lastWorkRound(job);
+      const miss = (lastWork?.report?.required ?? []).filter((k) => !["PASS", "WARN"].includes(lastWork.verification[k]?.status));
       return `independent verification pending: ${miss.join(", ") || "none"}`;
     }
     case "worker_dead":
@@ -991,6 +1084,14 @@ function cmdStatus(flags) {
       issueId: job.subject.issueId,
       shop: job.subject.shop,
       rounds: job.rounds.length,
+      roundsUsed: liveWorkRounds(job),
+      maxRounds: MAX_ROUNDS_PER_JOB,
+      deadRounds: deadRounds(job),
+      maxDeadRounds: MAX_DEAD_ROUNDS,
+      latestReview: (() => {
+        const r = [...job.rounds].reverse().find((x) => x.kind === "review" && x.report?.valid);
+        return r ? { round: r.n, verdict: r.report.review?.verdict ?? null } : null;
+      })(),
       lastSettledAt: [...job.rounds].reverse().find((r) => r.settledAt)?.settledAt ?? null,
       lastWorker: last?.worker.terminal ?? null,
       blocking: job.state === "closed" && leaks.length ? `close the leaked worker terminals: ${leaks.map((w) => w.terminal).join(", ")}` : finishedUnsettled(job, runsDir) ?? blockingText(job),
@@ -1015,9 +1116,14 @@ const latestSheet = (job) => [...job.rounds].reverse().find((r) => r.verificatio
 function cmdApprove(flags) {
   const { dir, job } = loadJob(flags);
   const force = one(flags, "force") === true;
+  if (job.state === "closed") throw new CliError(EXIT.REFUSED, "job is closed: a new close token would be meaningless");
+  const pendingClose = job.rounds.find((r) => r.kind === "close" && !r.deadAt && !r.report?.valid);
+  if (pendingClose) {
+    throw new CliError(EXIT.REFUSED, `close round ${pendingClose.n} is still in flight or unvalidated: approving again would invalidate its token`);
+  }
   if (!force) {
     if (job.state !== "verified") throw new CliError(EXIT.REFUSED, `approve needs state verified, state is ${job.state}`);
-    const last = job.rounds.at(-1);
+    const last = lastWorkRound(job);
     if (last?.report?.status !== "DONE") throw new CliError(EXIT.REFUSED, `latest report status is ${last?.report?.status}, only DONE can be approved`);
     const out = latestSheet(job)?.outstandingDevRows ?? [];
     if (out.length && one(flags, "allow-outstanding") !== true) {
@@ -1026,6 +1132,7 @@ function cmdApprove(flags) {
   }
   job.state = "user-approved";
   job.approvedAt = Date.now();
+  job.approval = { at: job.approvedAt, closeToken: crypto.randomBytes(14).toString("base64url"), tokenUsedAt: null };
   saveJob(dir, job);
   emit({ cmd: "approve", ok: true, job: job.job, state: job.state });
   return EXIT.OK;
@@ -1053,8 +1160,44 @@ function cmdClose(flags) {
   job.state = "closed";
   job.closedAt = Date.now();
   saveJob(dir, job);
-  emit({ cmd: "close", ok: true, job: job.job, state: job.state, ...(live.length ? { leftOpen: live.map((w) => w.terminal) } : {}) });
+  // Learning is fail-open: the job is already closed on disk, and nothing below may fail or block the close.
+  let lesson;
+  try {
+    const r = ingestOutcome(job, learnOpts());
+    lesson = { at: Date.now(), ok: r?.ok === true, caseId: r?.caseId ?? null, candidateId: r?.candidateId ?? null, error: r?.error ?? null };
+  } catch (e) {
+    lesson = { at: Date.now(), ok: false, caseId: null, candidateId: null, error: String(e?.message ?? e) };
+  }
+  job.lesson = lesson;
+  try {
+    saveJob(dir, job);
+  } catch {}
+  emit({ cmd: "close", ok: true, job: job.job, state: job.state, lesson, ...(live.length ? { leftOpen: live.map((w) => w.terminal) } : {}) });
   return EXIT.OK;
+}
+
+function cmdNeedsMe(flags) {
+  const leader = one(flags, "leader") || process.env.ANTIFAN_TERMINAL_SESSION_ID;
+  if (!leader) throw new CliError(EXIT.USAGE, "pass --leader TERMINAL or set ANTIFAN_TERMINAL_SESSION_ID");
+  const staleRaw = one(flags, "stale-hours");
+  const staleHours = staleRaw === undefined ? 24 : Number(staleRaw);
+  if (!(staleHours > 0)) throw new CliError(EXIT.USAGE, "--stale-hours must be a number above 0");
+  const board = buildBoard({ jobsRoot: jobsRoot(), runsDir: runsDirOf(flags), leader, now: Date.now(), staleHours, includeClosed: one(flags, "all") === true });
+  if (one(flags, "text") === true) {
+    process.stdout.write(`${board.text}\n`);
+    return EXIT.OK;
+  }
+  emit({ cmd: "needs-me", ok: true, rows: board.rows, needsMe: board.needsMe, text: board.text });
+  return EXIT.OK;
+}
+
+/** Options for learn.mjs: the repo root as cwd and an optional LEADER_CORE_SCRIPT override of the Core CLI. */
+const learnOpts = () => ({ cwd: path.resolve(HERE, "..", ".."), env: process.env, ...(process.env.LEADER_CORE_SCRIPT ? { coreScript: process.env.LEADER_CORE_SCRIPT } : {}) });
+
+function cmdLessons() {
+  const r = listPending(learnOpts());
+  emit({ cmd: "lessons", ok: r?.ok === true, candidates: r?.candidates ?? [], error: r?.error ?? null });
+  return r?.ok === true ? EXIT.OK : EXIT.CHECK_FAILED;
 }
 
 // ---------------------------------------------------------------- live theme push approval
@@ -1263,6 +1406,8 @@ const COMMANDS = {
   status: cmdStatus,
   approve: cmdApprove,
   close: cmdClose,
+  "needs-me": cmdNeedsMe,
+  lessons: cmdLessons,
   "approve-push": cmdApprovePush,
 };
 
