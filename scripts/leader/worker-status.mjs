@@ -85,12 +85,12 @@ export function parseArgs(argv) {
  * not dead either. A run that is not settled is also dead after STALE_MS of silence with no transcript write.
  * No hand-over time applies here, so `since` is 0.
  */
-function liveness(run, effective, sessionsDir, now) {
+export function liveness(run, effective, sessionsDir, now, staleMs = STALE_MS) {
   if (effective.ompAlive === false) return { dead: run.state !== "ended", why: effective.why };
   if (SETTLED_STATES.has(run.state)) return { dead: false, why: null };
   return judgeLiveness(run, 0, {
     now,
-    staleMs: STALE_MS,
+    staleMs,
     graceMs: START_GRACE_MS,
     pidAlive: true,
     activityAt: () => sessionActivityAt(sessionsDir, run),

@@ -38,7 +38,7 @@ export const THEME_PUSH_CODES = {
 } as const;
 
 export interface ThemeCommand {
-  cli: "hrv" | "shopify" | "sapo";
+  cli: "hrv" | "shopify" | "sapo" | "bizweb";
   /** First known action word after `theme`, or the first positional when none is known. */
   action: string;
   /** Numeric positional after the action (the `[value]` theme id), if any. */
@@ -134,11 +134,12 @@ export function startsDirChange(text: string): boolean {
 }
 
 /** `C:\x\hrv.cmd`, `./node_modules/.bin/haravan`, `shopify.exe`, `sapo` → `hrv` | `shopify` | `sapo` | null. */
-function cliOf(token: string): "hrv" | "shopify" | "sapo" | null {
+function cliOf(token: string): "hrv" | "shopify" | "sapo" | "bizweb" | null {
   const base = path.win32.basename(path.posix.basename(token)).toLowerCase().replace(/\.(cmd|exe|ps1|bat|js|mjs|cjs)$/, "");
   if (base === "hrv" || base === "haravan" || base === "haravan-cli") return "hrv";
   if (base === "shopify") return "shopify";
   if (base === "sapo") return "sapo";
+  if (base === "bizweb") return "bizweb";
   return null;
 }
 
@@ -162,6 +163,21 @@ export function parseThemeCommands(command: string): ThemeCommand[] {
     for (let i = 0; i < tokens.length; i += 1) {
       const cli = cliOf(tokens[i] ?? "");
       if (cli === null) continue;
+      if (cli === "sapo") {
+        const top = tokens.slice(i + 1).find((token) => !token.startsWith("-"));
+        if (top !== undefined && SAPO_TOP_SET[top.toLowerCase()] === true) {
+          found.push({
+            cli,
+            action: top.toLowerCase() === "pull" ? "fetch" : top.toLowerCase(),
+            themeId: null,
+            flags: tokens.slice(i + 1).filter((token) => token.startsWith("-")).map((token) => token.toLowerCase()),
+            dirChanged,
+            chained,
+            text: tokens.slice(i).join(" "),
+          });
+          break;
+        }
+      }
       const themeAt = tokens.indexOf("theme", i + 1);
       if (themeAt === -1) continue;
       // Global options may sit between the CLI word and `theme`; any other word means
@@ -200,7 +216,9 @@ export type ThemeCommandPlan =
    * `shopify theme list --id <themeId> --store <store> --json` reports exactly that theme with role
    * `unpublished` or `development`.
    */
-  | { decision: "verify-shopify-draft"; themeId: string; store: string };
+  | { decision: "verify-shopify-draft"; themeId: string; store: string }
+  /** A scoped `sapo theme push --only <glob>`. Allowed only if `sapo theme info --json` in the theme root returns the theme `themeId` bound in `.sapo-cli_local.json`; a role `main` (live) theme also needs `--yes`. */
+  | { decision: "verify-sapo-bound"; themeId: string };
 
 const ASK =
   "Stop and report STATUS: NEEDS_INPUT to the Leader with the exact command; only the user can approve it.";
@@ -211,6 +229,14 @@ const ASK =
  */
 export function planThemeCommand(cmd: ThemeCommand, boundThemeId: string | null): ThemeCommandPlan {
   const action = cmd.action;
+  if (cmd.cli === "bizweb") {
+    return {
+      decision: "block",
+      code: THEME_PUSH_CODES.REMOTE_OP,
+      reason: `${THEME_PUSH_CODES.REMOTE_OP}: '${cmd.text}' runs the legacy Bizweb CLI, which a Leader worker may not use. Use the Sapo CLI instead (${SAPO_ALLOWED_TEXT}).`,
+    };
+  }
+  if (cmd.cli === "sapo") return planSapoCommand(cmd, boundThemeId);
   if (cmd.cli === "hrv" && cmd.flags.some((flag) => flag === "--prune" || flag.startsWith("--prune="))) {
     if (!cmd.flags.some((flag) => flag === "--help" || flag === "-h")) {
       return {
@@ -229,7 +255,7 @@ export function planThemeCommand(cmd: ThemeCommand, boundThemeId: string | null)
   }
   if (cmd.cli === "shopify" && action === "push") return planShopifyPush(cmd);
   if (cmd.cli !== "hrv" && action === "dev") {
-    // `shopify|sapo theme dev` serves a local preview on a development theme, so it does not
+    // `shopify theme dev` serves a local preview on a development theme, so it does not
     // change the live theme; naming an existing theme does, directly (`--theme`, `-t`, `-t123`,
     // `-t=123`) or through an environment of shopify.theme.toml (`-e`, `--environment`), so those
     // forms stay a question for the user. A theme id set in the process environment
@@ -306,6 +332,293 @@ export function planThemeCommand(cmd: ThemeCommand, boundThemeId: string | null)
     };
   }
   return { decision: "verify-draft", themeId: boundThemeId };
+}
+
+/** Where a worker's refusal about a Sapo command tells it to go for a command that stays the user's. */
+const SAPO_ALLOWED_TEXT =
+  "sapo whoiam, sapo info [-j], sapo theme list|info [id]|check [-j], sapo diff [-j], sapo backup [-n <name>], sapo theme fetch [<id>] (no --prune), sapo theme push --only <glob> (no --force), sapo select <store>, sapo login --oauth -s <store>";
+
+type SapoFlagSpec = Record<string, { name: string; kind: "bool" | "value" }>;
+const SAPO_JSON_FLAGS: SapoFlagSpec = { "-j": { name: "json", kind: "bool" }, "--json": { name: "json", kind: "bool" } };
+const SAPO_COMMAND_FLAGS: Record<string, SapoFlagSpec> = {
+  whoiam: {},
+  info: SAPO_JSON_FLAGS,
+  "theme list": SAPO_JSON_FLAGS,
+  "theme info": SAPO_JSON_FLAGS,
+  "theme check": SAPO_JSON_FLAGS,
+  diff: SAPO_JSON_FLAGS,
+  backup: { "-n": { name: "name", kind: "value" }, "--name": { name: "name", kind: "value" } },
+  fetch: {},
+  push: {
+    "-o": { name: "only", kind: "value" },
+    "--only": { name: "only", kind: "value" },
+    "-i": { name: "ignore", kind: "value" },
+    "--ignore": { name: "ignore", kind: "value" },
+    "--nodelete": { name: "nodelete", kind: "bool" },
+    "-y": { name: "yes", kind: "bool" },
+    "--yes": { name: "yes", kind: "bool" },
+  },
+  select: {},
+  login: {
+    "--oauth": { name: "oauth", kind: "bool" },
+    "-s": { name: "store", kind: "value" },
+    "--store": { name: "store", kind: "value" },
+  },
+};
+/** Positional arguments each allowed command takes (a theme id, a store prefix). */
+const SAPO_MAX_POSITIONALS: Record<string, number> = {
+  whoiam: 0,
+  info: 0,
+  "theme list": 0,
+  "theme info": 1,
+  "theme check": 0,
+  diff: 0,
+  backup: 0,
+  fetch: 1,
+  push: 1,
+  select: 1,
+  login: 0,
+};
+const SAPO_READ_ONLY: Record<string, true> = {
+  whoiam: true,
+  info: true,
+  "theme list": true,
+  "theme info": true,
+  "theme check": true,
+  diff: true,
+};
+const SAPO_STORE_RE = /^[a-z0-9][a-z0-9._-]{0,127}$/i;
+
+/** `sapo <command>` or `sapo theme <action>` as one canonical name; `null` for no command or an option before it. */
+function sapoCommandOf(tokens: string[]): { command: string; args: string[] } | null {
+  const first = tokens[1]?.toLowerCase();
+  if (first === undefined || first.startsWith("-")) return null;
+  if (first === "theme") {
+    const sub = tokens[2]?.toLowerCase();
+    if (sub === undefined || sub.startsWith("-")) return null;
+    const command = sub === "pull" ? "fetch" : sub === "push" || sub === "fetch" ? sub : `theme ${sub}`;
+    return { command, args: tokens.slice(3) };
+  }
+  const command = first === "pull" ? "fetch" : first === "theme-check" ? "theme check" : first;
+  return { command, args: tokens.slice(2) };
+}
+
+/** True for a Sapo command that changes nothing on the shop and nothing in the folder (or only asks for help). */
+export function sapoIsReadOnly(cmd: ThemeCommand): boolean {
+  if (cmd.cli !== "sapo") return false;
+  if (cmd.flags.some((flag) => flag === "--help" || flag === "-h")) return true;
+  const named = sapoCommandOf(cmd.text.split(/\s+/).filter(Boolean));
+  return named !== null && SAPO_READ_ONLY[named.command] === true;
+}
+
+interface SapoArgs {
+  values: Record<string, string[]>;
+  bools: Set<string>;
+  positionals: string[];
+  bad: string | null;
+}
+
+/** Reads `args` against `spec`: long flags (`--only x`, `--only=x`), single short flags, positionals. A bundle, an unknown flag or a flag without its value is `bad`. */
+function parseSapoArgs(args: string[], spec: SapoFlagSpec): SapoArgs {
+  const out: SapoArgs = { values: {}, bools: new Set(), positionals: [], bad: null };
+  for (let i = 0; i < args.length; i += 1) {
+    const token = args[i] ?? "";
+    if (!token.startsWith("-") || token === "-") {
+      out.positionals.push(token);
+      continue;
+    }
+    let flag = token;
+    let inline: string | null = null;
+    if (token.startsWith("--")) {
+      const eq = token.indexOf("=");
+      if (eq !== -1) {
+        flag = token.slice(0, eq);
+        inline = token.slice(eq + 1);
+      }
+    } else if (!/^-[a-z]$/i.test(token)) {
+      out.bad = `${token}: bundled or attached short flags are not read; write each flag on its own (-o <glob>)`;
+      return out;
+    }
+    const entry = spec[flag];
+    if (entry === undefined) {
+      out.bad = `${flag} is not a flag a worker may pass here`;
+      return out;
+    }
+    if (entry.kind === "bool") {
+      if (inline !== null) {
+        out.bad = `${flag} takes no value`;
+        return out;
+      }
+      out.bools.add(entry.name);
+      continue;
+    }
+    let value = inline;
+    if (value === null) {
+      const next = args[i + 1];
+      if (next === undefined || next.startsWith("-")) {
+        out.bad = `${flag} has no value`;
+        return out;
+      }
+      value = next;
+      i += 1;
+    }
+    if (value.length === 0) {
+      out.bad = `${flag} has an empty value`;
+      return out;
+    }
+    (out.values[entry.name] ??= []).push(value);
+  }
+  return out;
+}
+
+/**
+ * One `sapo` command of a worker (user rule 09/11/2026, parallel to `hrv`): read commands, `fetch`
+ * without `--prune`, `backup`, `select <store>`, `login --oauth -s <store>` and a `theme push --only
+ * <glob>` to the theme bound in `.sapo-cli_local.json` (no `--force`, no other theme id) run alone on
+ * their line; the push also needs `sapo theme info --json` there to return that same theme; on a LIVE theme it also needs `--yes`. Everything
+ * else (`dev`, which force-pushes every save to the bound theme, `publish`, `delete`, `rename`,
+ * `restore`, `logout`, a token on the command line) stays the user's.
+ */
+function planSapoCommand(cmd: ThemeCommand, boundThemeId: string | null): ThemeCommandPlan {
+  const block = (code: string, why: string): ThemeCommandPlan => ({
+    decision: "block",
+    code,
+    reason: `${code}: '${cmd.text}' ${why}`,
+  });
+  if (cmd.flags.some((flag) => flag === "--help" || flag === "-h")) return { decision: "allow" };
+  const tokens = cmd.text.split(/\s+/).filter(Boolean);
+  const named = sapoCommandOf(tokens);
+  if (named === null) {
+    return block(
+      THEME_PUSH_CODES.REMOTE_OP,
+      `has an option or no command right after 'sapo'. Write 'sapo <command> [options]' with the command first. Allowed: ${SAPO_ALLOWED_TEXT}.`,
+    );
+  }
+  const { command, args } = named;
+  if (command === "dev" || command === "theme dev") {
+    return block(
+      THEME_PUSH_CODES.REMOTE_OP,
+      `starts the Sapo watcher, which force-pushes every saved file to the bound theme (the live one included) with no check. Push the files you changed instead: sapo theme push --only <glob>. ${ASK}`,
+    );
+  }
+  const spec = SAPO_COMMAND_FLAGS[command];
+  if (spec === undefined) {
+    return block(
+      THEME_PUSH_CODES.REMOTE_OP,
+      `is not a Sapo command a Leader worker may run (publish, delete, rename, restore, logout, open, doctor, export and the rest stay the user's). Allowed: ${SAPO_ALLOWED_TEXT}. ${ASK}`,
+    );
+  }
+  if (cmd.chained) {
+    return block(
+      THEME_PUSH_CODES.COMPLEX,
+      `is chained with another command on the same line (;, &&, ||, |, &, line break, or a redirect such as 2>&1). Run it alone as one plain line. ${ASK}`,
+    );
+  }
+  if (args.some((token) => token === "--force" || token.startsWith("--force=") || (/^-[a-z]+$/i.test(token) && token.toLowerCase().includes("f") && command !== "login"))) {
+    return block(
+      THEME_PUSH_CODES.PUSH_SCOPE,
+      `uses --force, which skips the conflict check and the LIVE-theme warning and overwrites what the shop holds. Remove --force; on a conflict run 'sapo diff' and 'sapo theme fetch', merge, and push again. ${ASK}`,
+    );
+  }
+  if (args.some((token) => token === "--prune" || token.startsWith("--prune=") || (/^-[a-z]+$/i.test(token) && token.toLowerCase().includes("p") && command === "fetch"))) {
+    return block(
+      THEME_PUSH_CODES.PUSH_SCOPE,
+      `uses --prune, which deletes local files that are not on the remote theme. Remove --prune: sapo theme fetch <id>. ${ASK}`,
+    );
+  }
+  if (command === "login" && args.some((token) => token === "-t" || token === "--token" || token.startsWith("--token="))) {
+    return block(
+      THEME_PUSH_CODES.REMOTE_OP,
+      `puts an access token on the command line, where it lands in logs and history. Use sapo login --oauth -s <store> (one line).`,
+    );
+  }
+  const parsed = parseSapoArgs(args, spec);
+  if (parsed.bad !== null) {
+    const toTheme = /^(?:-t|--theme|--theme-id)\b/.test(parsed.bad);
+    return block(
+      THEME_PUSH_CODES.REMOTE_OP,
+      `${parsed.bad}. Allowed for '${command}': ${Object.keys(spec).join(" ") || "no options"}${toTheme ? "; the theme is the one bound in .sapo-cli_local.json (sapo select <store>)" : ""}.`,
+    );
+  }
+  const maxPositionals = SAPO_MAX_POSITIONALS[command] ?? 0;
+  if (parsed.positionals.length > maxPositionals) {
+    return block(
+      command === "push" ? THEME_PUSH_CODES.PUSH_SCOPE : THEME_PUSH_CODES.REMOTE_OP,
+      `has an argument '${parsed.positionals[maxPositionals] ?? ""}' that '${command}' does not take here${command === "push" ? ' (a file goes behind --only: sapo theme push --only <glob>)' : ""}.`,
+    );
+  }
+  const positional = parsed.positionals[0];
+  if (command === "select") {
+    if (positional === undefined || !SAPO_STORE_RE.test(positional)) {
+      return block(THEME_PUSH_CODES.REMOTE_OP, "needs the store prefix as one plain word: sapo select <store>.");
+    }
+    return { decision: "allow" };
+  }
+  if (command === "login") {
+    const store = parsed.values.store ?? [];
+    if (!parsed.bools.has("oauth") || store.length !== 1 || !SAPO_STORE_RE.test(store[0] ?? "")) {
+      return block(THEME_PUSH_CODES.REMOTE_OP, "must be exactly: sapo login --oauth -s <store> (one store prefix).");
+    }
+    return { decision: "allow" };
+  }
+  if (command === "fetch" || command === "push" || command === "theme info") {
+    if (positional !== undefined && !/^[1-9]\d{0,19}$/.test(positional)) {
+      return command === "push"
+        ? block(THEME_PUSH_CODES.PUSH_SCOPE, `has the file argument '${positional}'. Name files with --only: sapo theme push --only ${positional}.`)
+        : block(THEME_PUSH_CODES.REMOTE_OP, `takes a numeric theme id, not '${positional}'.`);
+    }
+  }
+  if (command === "fetch" || command === "push") {
+    if (cmd.dirChanged) {
+      return block(
+        THEME_PUSH_CODES.PUSH_UNVERIFIED,
+        "may not run in the folder that was checked: a cd, pushd, Set-Location or script ran before it in this line or earlier in this terminal, so the theme it targets cannot be verified. Run it alone from a new terminal whose folder is the theme folder.",
+      );
+    }
+    if (positional !== undefined && boundThemeId !== null && positional !== boundThemeId) {
+      return block(
+        THEME_PUSH_CODES.PUSH_FOREIGN_THEME,
+        `targets theme ${positional}, but this workspace is bound to theme ${boundThemeId} (.sapo-cli_local.json). Drop the id to use the bound theme, or fetch ${positional} into a new empty folder. ${ASK}`,
+      );
+    }
+  }
+  if (command === "fetch") {
+    if (positional === undefined && boundThemeId === null) {
+      return block(
+        THEME_PUSH_CODES.PUSH_UNVERIFIED,
+        "has no theme id and this folder has no .sapo-cli_local.json, so Sapo would open an interactive picker. Give the id: sapo theme fetch <id>.",
+      );
+    }
+    return { decision: "allow" };
+  }
+  if (command === "push") {
+    const only = parsed.values.only ?? [];
+    if (only.length !== 1) {
+      return block(
+        THEME_PUSH_CODES.PUSH_SCOPE,
+        only.length === 0
+          ? "pushes the whole theme. Push only the files you changed: sapo theme push --only <glob> (one glob per command; run it once per file)."
+          : "has more than one --only, and Sapo keeps only the last one. Run one push per glob.",
+      );
+    }
+    if ((parsed.values.ignore ?? []).length > 1) {
+      return block(THEME_PUSH_CODES.PUSH_SCOPE, "has more than one --ignore, and Sapo keeps only the last one.");
+    }
+    if (pushSendsSettingsUnnamed(cmd.text)) {
+      return block(
+        THEME_PUSH_CODES.PUSH_SETTINGS_DATA,
+        `would also push ${SETTINGS_DATA_KEY}, which the admin rewrites whenever the merchant saves, so it would overwrite settings saved there. Name the files you changed with --only <exact path>, or add --ignore ${SETTINGS_DATA_KEY}. To push that file itself: sapo theme fetch ${boundThemeId ?? "<id>"}, edit the fetched copy, then sapo theme push --only ${SETTINGS_DATA_KEY}.`,
+      );
+    }
+    if (boundThemeId === null) {
+      return block(
+        THEME_PUSH_CODES.PUSH_UNVERIFIED,
+        "runs in a workspace with no .sapo-cli_local.json, so the target theme cannot be checked. Run 'sapo select <store>' (one line) in the theme folder, then push again.",
+      );
+    }
+    return { decision: "verify-sapo-bound", themeId: boundThemeId };
+  }
+  return { decision: "allow" };
 }
 
 /**
@@ -537,7 +850,7 @@ function pushSendsSettingsUnnamed(text: string): boolean {
   return named.length === 0 || named.some((pattern) => pattern !== SETTINGS_DATA_KEY && globMatch(pattern, SETTINGS_DATA_KEY) !== false);
 }
 
-const CLI_WORD = String.raw`(?:hrv|haravan-cli|haravan|shopify|sapo)(?:\.(?:cmd|exe|ps1|bat|js|mjs|cjs))?`;
+const CLI_WORD = String.raw`(?:hrv|haravan-cli|haravan|shopify|sapo|bizweb)(?:\.(?:cmd|exe|ps1|bat|js|mjs|cjs))?`;
 /**
  * After a CLI word: not part of a longer name (`hrv.liquid`, `hrv-x`) and not a folder
  * (`shopify/theme`, `Shopify\Rebel`). A backslash that is only a source-code escape
@@ -696,6 +1009,23 @@ function indirectionSnippet(text: string): string | null {
 }
 
 /**
+ * Sapo commands that name no `theme` word: `sapo push`, `sapo fetch`, `sapo dev` (top-level
+ * shortcuts of the theme commands), `sapo restore`, `sapo select`, `sapo login`, ... They reach the
+ * shop or the saved login just as `sapo theme <action>` does, so the line is judged the same way.
+ */
+const SAPO_TOP_WORDS = "login|logout|select|whoiam|info|open|push|fetch|pull|dev|doctor|diff|backup|restore|theme-check";
+const SAPO_TOP_RE = new RegExp(
+  String.raw`${CLI_START}sapo(?:\.(?:cmd|exe|ps1|bat|js|mjs|cjs))?${CLI_END}(?:\s+-\S+(?:\s+[^\s-]\S*)?)*\s+(?:${SAPO_TOP_WORDS})(?![a-z0-9_.-])`,
+  "i",
+);
+const SAPO_TOP_SET: Record<string, true> = Object.fromEntries(SAPO_TOP_WORDS.split("|").map((word) => [word, true]));
+
+function sapoTopSnippet(text: string): string | null {
+  const match = SAPO_TOP_RE.exec(text);
+  return match === null ? null : match[0].replace(/\s+/g, " ").trim().slice(0, 120);
+}
+
+/**
  * The text that makes `text` a use of the theme CLI the gate has to judge: `hrv|haravan|
  * haravan-cli|shopify ... theme`, a shop write through `hrv api` / `hrv rollback-last-push`, or an
  * alias, variable or `iex` that hides the CLI word; null when there is none. Tested on the raw
@@ -706,7 +1036,14 @@ function indirectionSnippet(text: string): string | null {
  */
 export function themeCliEvidence(text: string): string | null {
   if (typeof text !== "string" || text.length === 0) return null;
-  return themeMentionSnippet(text) ?? themeMentionSnippet(unquoted(text)) ?? remoteWriteSnippet(text) ?? indirectionSnippet(text);
+  return (
+    themeMentionSnippet(text) ??
+    themeMentionSnippet(unquoted(text)) ??
+    remoteWriteSnippet(text) ??
+    sapoTopSnippet(text) ??
+    sapoTopSnippet(unquoted(text)) ??
+    indirectionSnippet(text)
+  );
 }
 
 /** True when `themeCliEvidence` finds a use of the theme CLI in `text`. */
@@ -727,7 +1064,7 @@ export type ThemeLinePlan =
   | { decision: "block"; code: string; reason: string; command: string };
 
 /** Characters and shapes after which the line cannot be read back as plain `hrv theme ...` commands. */
-const COMPLEX_SHAPE_RE = /[({`]|\\[\r\n]|\.haravan-cli_local\.json/i;
+const COMPLEX_SHAPE_RE = /[({`]|\\[\r\n]|\.(?:haravan|sapo)-cli_local\.json/i;
 
 /** Top-level shell segments: split on `&&`, `||`, `;`, `|`, line breaks and `&` outside quotes. */
 function topLevelSegments(text: string): string[] {
@@ -780,7 +1117,7 @@ export function classifyThemeLine(text: string, opts: { assumeDirChanged?: boole
     return complex("an alias, variable, eval or expansion hides which command runs");
   }
   if (COMPLEX_SHAPE_RE.test(text)) {
-    return complex("subshell, grouping, backtick, line continuation or .haravan-cli_local.json");
+    return complex("subshell, grouping, backtick, line continuation or .haravan-cli_local.json / .sapo-cli_local.json");
   }
   let mentioningSegments = 0;
   for (const segment of topLevelSegments(text)) {
@@ -925,4 +1262,44 @@ export function draftVerdict(
     };
   }
   return { decision: "allow" };
+}
+
+/** Parsed `sapo theme info --json`: the theme object the shop returned (`id`, `role`); null when the output holds none (not found, login error). */
+export function parseSapoThemeInfo(output: string): { themeId: string; role: string } | null {
+  const start = output.indexOf("{");
+  const end = output.lastIndexOf("}");
+  if (start === -1 || end <= start) return null;
+  try {
+    const parsed: unknown = JSON.parse(output.slice(start, end + 1));
+    if (parsed === null || typeof parsed !== "object" || !("id" in parsed) || parsed.id == null) return null;
+    const role = "role" in parsed && typeof parsed.role === "string" ? parsed.role.trim().toLowerCase() : "";
+    return { themeId: String(parsed.id).trim(), role };
+  } catch {
+    return null;
+  }
+}
+
+/** The refusal for a `verify-sapo-bound` plan whose `sapo theme info --json` answer did not clear it. */
+export function sapoBoundVerdict(
+  cmd: ThemeCommand,
+  boundThemeId: string,
+  info: { themeId: string; role: string } | null,
+  detail: string,
+): { decision: "allow" } | { decision: "block"; code: string; reason: string } {
+  if (info !== null && info.themeId === boundThemeId) {
+    if (info.role === "main" && !cmd.flags.some((flag) => flag === "--yes" || flag === "-y")) {
+      return {
+        decision: "block",
+        code: THEME_PUSH_CODES.PUSH_LIVE,
+        reason: `${THEME_PUSH_CODES.PUSH_LIVE}: bound theme ${boundThemeId} is the shop's LIVE theme (role main), and without --yes sapo theme push stops at an interactive confirmation that a worker cannot answer. Add --yes (it skips only that question; the conflict check still runs and stops on a conflict): sapo theme push --only <glob> --yes. --force is not allowed.`,
+      };
+    }
+    return { decision: "allow" };
+  }
+  const seen = info === null ? detail : `it reported theme ${info.themeId}`;
+  return {
+    decision: "block",
+    code: THEME_PUSH_CODES.PUSH_UNVERIFIED,
+    reason: `${THEME_PUSH_CODES.PUSH_UNVERIFIED}: could not prove the shop holds the bound theme ${boundThemeId} before '${cmd.text}' (sapo theme info --json: ${seen}). Run 'sapo theme info --json' alone in the theme folder and read its answer: if the login expired, run 'sapo login --oauth -s <store>' (one line), then 'sapo select <store>' if the theme is not the bound one, and retry.`,
+  };
 }

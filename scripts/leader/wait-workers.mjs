@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 // wait-workers.mjs - wait for Leader workers outside the feedback job ledger.
+//   node scripts/leader/wait-workers.mjs --mine [--leader T] [--timeout-min N] [--peek] [--table]   <- the way to wait (see fleet-watch.mjs)
+//
+// --mine: the Leader's WHOLE fleet from the Manager registry (new workers included, none to list by hand). The fixed
+// --w list below stays for a Leader that must pin one worker to a dispatch time; it can silently drop workers.
 //
 //   node scripts/leader/wait-workers.mjs --w <terminal>,<writtenAtMs>,<minRunSeq>[,<reportPath>] ... [--all]
 //        [--timeout-min N] [--stale-min N] [--undelivered-sec N] [--poll-ms N] [--runs-dir DIR] [--sessions-dir DIR]
@@ -109,6 +113,8 @@ function readRow(runsDir, sessionsDir, spec, staleMs, undeliveredMs) {
 }
 
 async function main(argv) {
+  // --mine: no fixed list; every worker the Leader registry names, new ones included (fleet-watch.mjs).
+  if (argv.includes("--mine")) return (await import("./fleet-watch.mjs")).main(argv);
   const specs = [];
   let all = false;
   let timeoutMin = null;

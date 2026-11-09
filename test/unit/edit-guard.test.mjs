@@ -1200,7 +1200,8 @@ for (const [label, command, extra, expectedCode] of [
   ["a Shopify dev with an inline long theme value", "shopify theme dev --theme=123", {}, "REFUSED_THEME_REMOTE_OP"],
   ["a Shopify dev using a toml environment", "shopify theme dev -e production", {}, "REFUSED_THEME_REMOTE_OP"],
   ["a Shopify dev using a long environment flag", "shopify theme dev --environment production", {}, "REFUSED_THEME_REMOTE_OP"],
-  ["a Sapo push", "sapo theme push", {}, "REFUSED_THEME_REMOTE_OP"],
+  ["a Sapo push with no --only", "sapo theme push", {}, "REFUSED_THEME_PUSH_SCOPE"],
+  ["a Sapo dev watcher", "sapo theme dev", {}, "REFUSED_THEME_REMOTE_OP"],
   ["a Sapo publish", "sapo theme publish 1", {}, "REFUSED_THEME_REMOTE_OP"],
   ["a Sapo dev pointed at an existing theme", "sapo theme dev --theme 5", {}, "REFUSED_THEME_REMOTE_OP"],
   ["a push to another theme id", "hrv theme push 999 --only a.liquid", {}, "REFUSED_THEME_PUSH_FOREIGN_THEME"],
@@ -1228,7 +1229,7 @@ for (const [label, command, extra, expectedCode] of [
 for (const command of [
   "shopify theme dev",
   "shopify theme dev --store x.myshopify.com --theme-editor-sync",
-  "sapo theme dev",
+  "sapo whoiam",
   "hrv theme push --help",
   "shopify theme dev -h",
 ]) {
@@ -2238,7 +2239,7 @@ test("a push to the bound live theme is still refused when it leaves the rule: f
       ["a second push", `${LIVE_PUSH} && ${LIVE_PUSH}`, complex],
       ["a dev server on the live theme", "hrv theme dev", "REFUSED_THEME_PUSH_LIVE"],
       ["a publish", "hrv theme publish 1001507144", "REFUSED_THEME_REMOTE_OP"],
-      ["a Sapo push", "sapo theme push", "REFUSED_THEME_REMOTE_OP"],
+      ["a Sapo push with no --only", "sapo theme push", scope],
       ["a Shopify push with no flags", "shopify theme push", scope],
     ]) {
       const result = await runBash(root, "sess-live-b", line);
@@ -2461,5 +2462,236 @@ test("parseApprovedPush accepts only hrv theme push --only <files> --nodelete, a
     `hrv theme push --only ${Array.from({ length: 51 }, (_, index) => `f${index}.css`).join(" ")} --nodelete`,
   ]) {
     assert.equal(approval.parseApprovedPush(line), null, JSON.stringify(line));
+  }
+});
+
+// ---- Sapo CLI: one worker lane parallel to hrv ----
+
+const SAPO_BOUND = "1035075";
+const { SAPO_COMMAND_ENV } = draftProbe;
+const SAPO_AT_LOAD = process.env[SAPO_COMMAND_ENV];
+after(() => {
+  if (SAPO_AT_LOAD === undefined) delete process.env[SAPO_COMMAND_ENV];
+  else process.env[SAPO_COMMAND_ENV] = SAPO_AT_LOAD;
+});
+
+/** Plan for one Sapo line with the theme id `.sapo-cli_local.json` holds (`null` = no binding). */
+function planSapoLine(line, bound = SAPO_BOUND, opts = {}) {
+  const parsed = themePolicy.classifyThemeLine(line, opts);
+  if (parsed.decision === "block") return { decision: "block", code: parsed.code };
+  assert.equal(parsed.decision, "commands", line);
+  assert.equal(parsed.commands.length, 1, line);
+  return themePolicy.planThemeCommand(parsed.commands[0], bound);
+}
+
+for (const [line, decision] of [
+  ["sapo whoiam", "allow"],
+  ["sapo info", "allow"],
+  ["sapo info -j", "allow"],
+  ["sapo theme list", "allow"],
+  ["sapo theme info", "allow"],
+  ["sapo theme info 1035075", "allow"],
+  ["sapo theme check", "allow"],
+  ["sapo diff", "allow"],
+  ["sapo diff -j", "allow"],
+  ["sapo backup", "allow"],
+  ["sapo backup -n before-fix", "allow"],
+  ["sapo theme fetch 1035075", "allow"],
+  ["sapo theme fetch", "allow"],
+  ["sapo fetch 1035075", "allow"],
+  ["sapo select seafoods", "allow"],
+  ["sapo login --oauth -s seafoods", "allow"],
+  ["sapo theme push --only layout/theme.liquid", "verify-sapo-bound"],
+  ["sapo push --only assets/a.css", "verify-sapo-bound"],
+  ["sapo theme push 1035075 --only sections/a.liquid", "verify-sapo-bound"],
+  ["sapo theme push --only config/settings_data.json", "verify-sapo-bound"],
+  ["sapo theme push --only assets/** --ignore config/settings_data.json", "verify-sapo-bound"],
+  ["sapo theme push --help", "allow"],
+  ["sapo theme push --only layout/theme.liquid --yes", "verify-sapo-bound"],
+  ["sapo push --only layout/theme.liquid -y", "verify-sapo-bound"],
+]) {
+  test(`a worker may run '${line}' (${decision})`, () => {
+    assert.equal(planSapoLine(line).decision, decision);
+  });
+}
+
+for (const [label, line, code, bound] of [
+  ["--force", "sapo theme push --only a.liquid --force", "REFUSED_THEME_PUSH_SCOPE"],
+  ["--yes with --force", "sapo theme push --only a.liquid --yes --force", "REFUSED_THEME_PUSH_SCOPE"],
+  ["--yes on a read command", "sapo diff --yes", "REFUSED_THEME_REMOTE_OP"],
+  ["-f", "sapo theme push -f --only a.liquid", "REFUSED_THEME_PUSH_SCOPE"],
+  ["a bundled -nf", "sapo theme push -nf --only a.liquid", "REFUSED_THEME_PUSH_SCOPE"],
+  ["--force on the top-level push", "sapo push --force", "REFUSED_THEME_PUSH_SCOPE"],
+  ["--prune", "sapo theme fetch --prune", "REFUSED_THEME_PUSH_SCOPE"],
+  ["-p on fetch", "sapo theme fetch -p", "REFUSED_THEME_PUSH_SCOPE"],
+  ["a push without --only", "sapo theme push", "REFUSED_THEME_PUSH_SCOPE"],
+  ["a top-level push without --only", "sapo push", "REFUSED_THEME_PUSH_SCOPE"],
+  ["a file argument instead of --only", "sapo theme push layout/theme.liquid", "REFUSED_THEME_PUSH_SCOPE"],
+  ["two --only", "sapo theme push --only a.liquid --only b.liquid", "REFUSED_THEME_PUSH_SCOPE"],
+  ["a glob that reaches settings_data", "sapo theme push --only config/**", "REFUSED_THEME_PUSH_SETTINGS_DATA"],
+  ["a **/*.json glob", "sapo theme push --only **/*.json", "REFUSED_THEME_PUSH_SETTINGS_DATA"],
+  ["another theme id on push", "sapo theme push 999 --only a.liquid", "REFUSED_THEME_PUSH_FOREIGN_THEME"],
+  ["another theme id on fetch", "sapo theme fetch 999", "REFUSED_THEME_PUSH_FOREIGN_THEME"],
+  ["--theme", "sapo theme push --only a.liquid --theme 999", "REFUSED_THEME_REMOTE_OP"],
+  ["--theme-id", "sapo theme push --only a.liquid --theme-id 999", "REFUSED_THEME_REMOTE_OP"],
+  ["a publish", "sapo theme publish 1035075", "REFUSED_THEME_REMOTE_OP"],
+  ["a delete", "sapo theme delete 1035075", "REFUSED_THEME_REMOTE_OP"],
+  ["a rename", "sapo theme rename NewName", "REFUSED_THEME_REMOTE_OP"],
+  ["an export", "sapo theme export", "REFUSED_THEME_REMOTE_OP"],
+  ["a theme dev watcher", "sapo theme dev", "REFUSED_THEME_REMOTE_OP"],
+  ["a top-level dev watcher", "sapo dev", "REFUSED_THEME_REMOTE_OP"],
+  ["a restore", "sapo restore", "REFUSED_THEME_REMOTE_OP"],
+  ["a logout", "sapo logout", "REFUSED_THEME_REMOTE_OP"],
+  ["a login with a token", "sapo login -t abc123 -s seafoods", "REFUSED_THEME_REMOTE_OP"],
+  ["a login without --oauth", "sapo login -s seafoods", "REFUSED_THEME_REMOTE_OP"],
+  ["a select with no store", "sapo select", "REFUSED_THEME_REMOTE_OP"],
+  ["an option in front of the command", "sapo -x restore", "REFUSED_THEME_REMOTE_OP"],
+  ["the legacy bizweb CLI", "bizweb theme list", "REFUSED_THEME_REMOTE_OP"],
+  ["a chained push", "sapo theme push --only a.liquid && echo done", "REFUSED_THEME_COMPLEX"],
+  ["a piped read", "sapo diff | tee diff.txt", "REFUSED_THEME_COMPLEX"],
+  ["a push in a folder with no binding", "sapo theme push --only a.liquid", "REFUSED_THEME_PUSH_UNVERIFIED", null],
+  ["a fetch with no id in an unbound folder", "sapo theme fetch", "REFUSED_THEME_PUSH_UNVERIFIED", null],
+]) {
+  test(`a worker's sapo line with ${label} is refused`, () => {
+    const plan = planSapoLine(line, bound === undefined ? SAPO_BOUND : bound);
+    assert.equal(plan.decision, "block", line);
+    assert.equal(plan.code, code, line);
+    if (plan.reason !== undefined) {
+      assert.ok(plan.reason.length > code.length + 20, "the refusal says what to do");
+    }
+  });
+}
+
+test("a Sapo push after a cd is unverifiable, and a refusal for an allowed command never says only the user can approve it", () => {
+  const plan = planSapoLine("sapo theme push --only a.liquid", SAPO_BOUND, { assumeDirChanged: true });
+  assert.equal(plan.code, "REFUSED_THEME_PUSH_UNVERIFIED");
+  for (const line of ["sapo theme push", "sapo theme push --only config/**", "sapo theme push --only a.liquid --theme 9"]) {
+    assert.ok(!planSapoLine(line).reason.includes("only the user can approve it"), line);
+  }
+});
+
+test("the legacy and top-level Sapo shortcuts are seen even without the word 'theme'", () => {
+  for (const line of ["sapo push --force", "sapo restore", "sapo logout", "sapo dev", "sapo -x restore"]) {
+    assert.equal(themePolicy.mentionsThemeCli(line), true, line);
+  }
+  for (const line of ["rg -n sapo src", "cd E:/Work/apps/Sapo CLI && npm run build", "git log -- sapo/layout/theme.liquid"]) {
+    assert.equal(themePolicy.classifyThemeLine(line).decision === "commands", false, line);
+  }
+});
+
+/** A stand-in `sapo` answering `theme info --json` with the theme `themeId` of `role` (`ok: false` = the CLI's red not-found text, no JSON). */
+function installSapoStub({ themeId = SAPO_BOUND, ok = true, exitCode = 0, role = "unpublished" }) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sapo-info-stub-"));
+  const calls = path.join(dir, "calls.jsonl");
+  const script = path.join(dir, "sapo.mjs");
+  const body = ok
+    ? JSON.stringify({ id: Number(themeId), name: "Stub", role }, null, 2)
+    : "✗ Không tìm thấy theme #1035075.";
+  fs.writeFileSync(
+    script,
+    [
+      'import { appendFileSync } from "node:fs";',
+      `appendFileSync(${JSON.stringify(calls)}, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd() }) + "\\n");`,
+      `console.log(${JSON.stringify(body)});`,
+      `process.exitCode = ${exitCode};`,
+    ].join("\n"),
+  );
+  process.env[SAPO_COMMAND_ENV] = `"${process.execPath}" "${script}"`;
+  const recorded = () => (fs.existsSync(calls) ? fs.readFileSync(calls, "utf8").trim().split("\n").map((row) => JSON.parse(row)) : []);
+  return { dir, recorded };
+}
+
+function makeSapoWorkspace(withBinding = true) {
+  const root = makeThemeWorkspace();
+  if (withBinding) {
+    fs.writeFileSync(path.join(root, ".sapo-cli_local.json"), JSON.stringify({ store_prefix: "seafoods", theme_id: Number(SAPO_BOUND), theme_name: "Stub" }));
+  }
+  return root;
+}
+
+for (const [label, stubOptions, withBinding, expectedCode] of [
+  ["a draft theme", {}, true, null],
+  ["the live theme", { role: "main" }, true, "REFUSED_THEME_PUSH_LIVE"],
+  ["another id", { themeId: "777" }, true, "REFUSED_THEME_PUSH_UNVERIFIED"],
+  ["an unconfigured project", { ok: false }, true, "REFUSED_THEME_PUSH_UNVERIFIED"],
+  ["an expired login", { exitCode: 1, ok: false }, true, "REFUSED_THEME_PUSH_UNVERIFIED"],
+  ["no binding in the folder", {}, false, "REFUSED_THEME_PUSH_UNVERIFIED"],
+]) {
+  test(`a Sapo push is cleared by sapo info -j in the bound folder: ${label}`, async () => {
+    const root = makeSapoWorkspace(withBinding);
+    const stub = installSapoStub(stubOptions);
+    try {
+      const outcome = await draftProbe.gateThemeLine({ text: "sapo theme push --only sections/hero.liquid", cwd: root, timeoutMs: 20_000 });
+      if (expectedCode === null) {
+        assert.equal(outcome.decision, "allow");
+        const calls = stub.recorded();
+        assert.equal(calls.length, 1, "exactly one info probe");
+        assert.deepEqual(calls[0].argv, ["theme", "info", "--json"]);
+        assert.equal(path.resolve(calls[0].cwd).toLowerCase(), path.resolve(root).toLowerCase());
+      } else {
+        assert.equal(outcome.decision, "block");
+        assert.equal(outcome.code, expectedCode);
+      }
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+      fs.rmSync(stub.dir, { recursive: true, force: true });
+    }
+  });
+}
+
+test("a Sapo push to the LIVE bound theme needs --yes: without it the refusal says to add it, with it the push passes and the force flags stay refused", async () => {
+  const root = makeSapoWorkspace();
+  const stub = installSapoStub({ role: "main" });
+  try {
+    const gate = (text) => draftProbe.gateThemeLine({ text, cwd: root, timeoutMs: 20_000 });
+    const bare = await gate("sapo theme push --only layout/theme.liquid");
+    assert.equal(bare.code, "REFUSED_THEME_PUSH_LIVE");
+    assert.ok(bare.reason.includes("Add --yes"), bare.reason);
+    for (const text of ["sapo theme push --only layout/theme.liquid --yes", "sapo push --only layout/theme.liquid -y"]) {
+      assert.equal((await gate(text)).decision, "allow", text);
+    }
+    assert.equal((await gate("sapo theme push --only layout/theme.liquid --yes --force")).code, "REFUSED_THEME_PUSH_SCOPE");
+    assert.equal((await gate("sapo theme push --only layout/theme.liquid --yes=1")).code, "REFUSED_THEME_REMOTE_OP");
+    assert.equal(stub.recorded().length, 3, "the three lines that reach the probe are the bare push and the two --yes pushes");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(stub.dir, { recursive: true, force: true });
+  }
+});
+
+test("Sapo reads and fetch of the bound theme pass with no probe; a refused push never reaches the CLI", async () => {
+  const root = makeSapoWorkspace();
+  const stub = installSapoStub({});
+  try {
+    for (const text of ["sapo diff", "sapo theme list", `sapo theme fetch ${SAPO_BOUND}`, "sapo backup -n x"]) {
+      assert.equal((await draftProbe.gateThemeLine({ text, cwd: root, timeoutMs: 20_000 })).decision, "allow", text);
+    }
+    for (const text of ["sapo theme push --only a.liquid --force", "sapo restore", "sapo diff\nsapo restore"]) {
+      assert.equal((await draftProbe.gateThemeLine({ text, cwd: root, timeoutMs: 20_000 })).decision, "block", text);
+    }
+    assert.deepEqual(stub.recorded(), [], "no Sapo call is made by any of these");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(stub.dir, { recursive: true, force: true });
+  }
+});
+
+test("a worker's bash call runs the Sapo rules end to end", async () => {
+  const root = makeSapoWorkspace();
+  const stub = installSapoStub({});
+  try {
+    await asTerminal(true, async () => {
+      assert.equal(await runBash(root, "sess-sapo-push", "sapo theme push --only sections/hero.liquid"), null);
+      const forced = await runBash(root, "sess-sapo-force", "sapo theme push --only sections/hero.liquid --force");
+      assert.equal(forced?.block, true);
+      assert.ok(forced.reason.startsWith("REFUSED_THEME_PUSH_SCOPE:"), forced.reason);
+      const publish = await runBash(root, "sess-sapo-publish", "sapo theme publish 1035075");
+      assert.equal(publish?.block, true);
+      assert.ok(publish.reason.startsWith("REFUSED_THEME_REMOTE_OP:"), publish.reason);
+    });
+    assert.equal(stub.recorded().length, 1, "only the cleared push is probed");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(stub.dir, { recursive: true, force: true });
   }
 });

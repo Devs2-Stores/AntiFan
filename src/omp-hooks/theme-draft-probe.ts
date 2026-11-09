@@ -9,13 +9,15 @@
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
-import { findBindingRoot, resolveShopIdentity } from "./theme-paths";
+import { findBindingRoot, findSapoBindingRoot, readSapoBoundThemeId, resolveShopIdentity } from "./theme-paths";
 import {
   classifyThemeLine,
   draftVerdict,
+  parseSapoThemeInfo,
   parseShopifyThemeList,
   parseThemeInfo,
   planThemeCommand,
+  sapoBoundVerdict,
   shopifyDraftVerdict,
   THEME_PUSH_CODES,
 } from "./theme-push-policy";
@@ -34,6 +36,8 @@ import {
 export const HRV_COMMAND_ENV = "ANTIFAN_HRV_COMMAND";
 /** Shell command prefix that runs the Shopify CLI; tests and non-PATH installs override it. */
 export const SHOPIFY_COMMAND_ENV = "ANTIFAN_SHOPIFY_COMMAND";
+/** Shell command prefix that runs the Sapo CLI; tests and non-PATH installs override it. */
+export const SAPO_COMMAND_ENV = "ANTIFAN_SAPO_COMMAND";
 
 export interface HrvRun {
   /** Combined stdout+stderr (capped), or null when the CLI never ran to completion. */
@@ -154,6 +158,11 @@ export function runShopify(cwd: string, args: string, timeoutMs: number): Promis
   return runCli(SHOPIFY_COMMAND_ENV, "shopify", cwd, args, timeoutMs);
 }
 
+/** `sapo <args>` in `cwd`; see `runCli`. */
+export function runSapo(cwd: string, args: string, timeoutMs: number): Promise<HrvRun> {
+  return runCli(SAPO_COMMAND_ENV, "sapo", cwd, args, timeoutMs);
+}
+
 /**
  * Environment variables the Shopify CLI reads in place of the flags a worker may not pass to
  * `theme push` (live, publish, create, development, force, legacy upload, environment, token). A
@@ -215,10 +224,12 @@ export async function gateThemeLine(o: {
   }
   const bindingRoot = findBindingRoot(o.cwd);
   const boundThemeId = bindingRoot === null ? null : (resolveShopIdentity(bindingRoot)?.themeId ?? null);
+  const sapoRoot = findSapoBindingRoot(o.cwd);
+  const sapoBoundThemeId = sapoRoot === null ? null : readSapoBoundThemeId(sapoRoot);
   const verified: string[] = [];
   const approved: PushApprovalUse[] = [];
   for (const cmd of line.commands) {
-    const plan = planThemeCommand(cmd, boundThemeId);
+    const plan = planThemeCommand(cmd, cmd.cli === "sapo" ? sapoBoundThemeId : boundThemeId);
     let verdict: { decision: "allow" } | { decision: "block"; code: string; reason: string };
     if (plan.decision === "verify-draft" && bindingRoot !== null) {
       const run = await runHrv(bindingRoot, "theme info -j", o.timeoutMs);
@@ -229,6 +240,19 @@ export async function gateThemeLine(o: {
       if (verdict.decision === "allow") verified.push(cmd.text);
     } else if (plan.decision === "verify-draft") {
       verdict = draftVerdict(cmd, plan.themeId, null, "no binding folder");
+    } else if (plan.decision === "verify-sapo-bound") {
+      const run = sapoRoot === null ? null : await runSapo(sapoRoot, "theme info --json", o.timeoutMs);
+      const info = run === null || run.output === null || run.exitCode !== 0 ? null : parseSapoThemeInfo(run.output);
+      const detail =
+        run === null
+          ? "no .sapo-cli_local.json folder"
+          : run.output === null
+            ? run.failure
+            : run.exitCode !== 0
+              ? `exit ${run.exitCode ?? "null"}: ${lastOutputLine(run.output)}`
+              : lastOutputLine(run.output);
+      verdict = sapoBoundVerdict(cmd, plan.themeId, info, detail);
+      if (verdict.decision === "allow") verified.push(cmd.text);
     } else if (plan.decision === "verify-shopify-draft") {
       const override = SHOPIFY_PUSH_ENV_OVERRIDES.find((name) => (process.env[name] ?? "").trim().length > 0);
       if (override !== undefined) {

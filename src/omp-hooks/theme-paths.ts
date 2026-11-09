@@ -314,3 +314,27 @@ export function findBindingRoot(start: string): string | null {
   }
   return null;
 }
+
+/** Nearest folder at or above `start` that holds `.sapo-cli_local.json` (the file `sapo select` writes). */
+export function findSapoBindingRoot(start: string): string | null {
+  let current = path.resolve(start);
+  for (let depth = 0; depth < MAX_WALK_UP; depth += 1) {
+    if (fs.existsSync(path.join(current, ".sapo-cli_local.json"))) return current;
+    const parent = path.dirname(current);
+    if (parent === current) return null;
+    current = parent;
+  }
+  return null;
+}
+
+/** The numeric `theme_id` that `sapo select` stored in `<root>/.sapo-cli_local.json`; null when absent, unreadable or not numeric. */
+export function readSapoBoundThemeId(root: string): string | null {
+  try {
+    const parsed: unknown = JSON.parse(fs.readFileSync(path.join(root, ".sapo-cli_local.json"), "utf8"));
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed) || !("theme_id" in parsed)) return null;
+    const id = String(parsed.theme_id ?? "").trim();
+    return /^[1-9]\d{0,19}$/.test(id) ? id : null;
+  } catch {
+    return null;
+  }
+}

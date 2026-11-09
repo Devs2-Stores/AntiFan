@@ -51,7 +51,7 @@ import * as path from "node:path";
 
 import { DEVICE_PATH_RE, WRITE_TOOLS, extractTargetPaths } from "./edit-guard-policy";
 import { isInside, resolveWorkspaceShape } from "./theme-paths";
-import { SUBPROCESS_RE, classifyThemeLine, mentionsThemeCli, planThemeCommand } from "./theme-push-policy";
+import { SUBPROCESS_RE, classifyThemeLine, mentionsThemeCli, planThemeCommand, sapoIsReadOnly } from "./theme-push-policy";
 
 export const LEADER_GUARD_CODES = {
   THEME_EDIT: "REFUSED_LEADER_THEME_EDIT",
@@ -424,7 +424,7 @@ function themeCliRefusal(text: string, kind: "bash" | "eval"): LeaderRefusal | n
   for (const cmd of plan.commands) {
     const helpOnly = cmd.flags.some((flag) => flag === "--help" || flag === "-h");
     const syncs = (cmd.action === "dev" || cmd.action === "push") && !helpOnly;
-    if (syncs || planThemeCommand(cmd, null).decision !== "allow") {
+    if (syncs || (cmd.cli === "sapo" && !sapoIsReadOnly(cmd)) || planThemeCommand(cmd, null).decision !== "allow") {
       return refuse(LEADER_GUARD_CODES.THEME_CLI, `'${cmd.text.slice(0, 160)}' changes or syncs a theme; a Leader may only run read-only theme commands (list, info, help ...)`);
     }
   }
