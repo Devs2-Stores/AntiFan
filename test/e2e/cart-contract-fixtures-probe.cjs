@@ -137,6 +137,66 @@ const scenarios = [
     },
   },
   {
+    // The theme lays the row out with display:contents on .mh-cart-item__details (and a nested .__actions): no box, rect 0x0 by design.
+    id: 'cart-display-contents-good',
+    variant: 'contents',
+    options: {},
+    expect: (r) => {
+      const f = [];
+      if (r.measured !== true || r.passed !== true) f.push(`measured=${r.measured} passed=${r.passed} ${JSON.stringify(r.findings)}`);
+      if (r.findings.length !== 0) f.push(`findings ${ruleIds(r).join(',')}`);
+      return f;
+    },
+  },
+  {
+    // Same markup, but the row grid is 5rem + 20px: the only box of the display:contents subtree is a 20px column, a real defect.
+    id: 'cart-display-contents-crushed',
+    variant: 'contents-crushed',
+    options: {},
+    expect: (r) => {
+      const f = [];
+      if (r.measured !== true || r.passed !== false) f.push(`measured=${r.measured} passed=${r.passed}`);
+      const details = r.findings.filter((x) => x.ruleId === 'cart-item-details-crushed' && /cart-item__details/.test(x.selector));
+      if (details.length < 1) f.push(`missing cart-item-details-crushed on the display:contents container in ${JSON.stringify(r.findings.map((x) => `${x.ruleId}@${x.selector}`))}`);
+      return f;
+    },
+  },
+  {
+    // Real S2 Melody House /cart before the remove-button fix: the trash button ends column 2, ~400px from the row edge,
+    // between the title column and the price column. cart_contract used to return no finding for it.
+    id: 'cart-melody-remove-misplaced',
+    variant: 'melody-remove-misplaced',
+    options: {},
+    expect: (r, _b, vp) => {
+      const f = [];
+      const hits = r.findings.filter((x) => x.ruleId === 'cart-item-remove-misplaced');
+      if (count(r, 'cart-item-details-crushed') !== 0) f.push(`display:contents false positive came back: ${JSON.stringify(r.findings.map((x) => `${x.ruleId}@${x.selector}`))}`);
+      if (vp.width >= 768) {
+        if (r.measured !== true || r.passed !== false) f.push(`measured=${r.measured} passed=${r.passed}`);
+        if (hits.length !== 1) f.push(`expected 1 cart-item-remove-misplaced, got ${hits.length} in ${JSON.stringify(r.findings.map((x) => `${x.ruleId}@${x.selector}`))}`);
+        else {
+          const m = hits[0].measured;
+          if (!/cart-item__remove/.test(hits[0].selector)) f.push(`selector ${hits[0].selector}`);
+          if (!(m.gapToRowEdgePx > 300)) f.push(`gapToRowEdgePx ${m.gapToRowEdgePx}`);
+          if (!m.leftNeighbor || !m.rightNeighbor || !m.removeRect || !m.rowRect) f.push(`measured ${JSON.stringify(m)}`);
+        }
+      } else if (hits.length !== 0) f.push(`mobile must not report cart-item-remove-misplaced, got ${hits.length}`);
+      return f;
+    },
+  },
+  {
+    // Same page and grid, but the trash button is pinned to the top-right corner of the row (the fix shape): clean.
+    id: 'cart-melody-remove-corner',
+    variant: 'melody-remove-corner',
+    options: {},
+    expect: (r) => {
+      const f = [];
+      if (r.measured !== true || r.passed !== true) f.push(`measured=${r.measured} passed=${r.passed} ${JSON.stringify(r.findings)}`);
+      if (r.findings.length !== 0) f.push(`findings ${ruleIds(r).join(',')}`);
+      return f;
+    },
+  },
+  {
     id: 'cart-empty-autoseed',
     variant: 'empty-seedable',
     options: { autoSeed: true },

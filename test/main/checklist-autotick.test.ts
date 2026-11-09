@@ -175,6 +175,15 @@ describe('checklist autotick', () => {
     assert.match(ticks['crt-02']!.note, /cart-header-columns-stacked/);
   });
 
+  it('un-ticks crt-02 for an exercised cart whose only defect is a floating remove control', () => {
+    const ticks = byId(deriveChecklistTicks({
+      probes: { cart_contract: probe({ exercised: true, steps: [] }, [finding('cart-item-remove-misplaced')]) },
+    }));
+    assert.strictEqual(ticks['crt-04']?.done, true);
+    assert.strictEqual(ticks['crt-02']?.done, false);
+    assert.match(ticks['crt-02']!.note, /cart-item-remove-misplaced/);
+  });
+
   it('ticks nothing for a cart run that measured nothing, such as an empty cart', () => {
     assert.deepStrictEqual(deriveChecklistTicks({ probes: { cart_contract: probe({ exercised: false, steps: [] }, [finding('QA_EMPTY_CART_NOT_EXERCISED', 'info')], false) } }), []);
   });

@@ -296,7 +296,8 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
   // Clips applied to the in-flow content (text, static children) of el.
   const contentClips = memo([], (el) => {
     const s = cs(el);
-    const own = s.overflowX !== 'visible' || s.overflowY !== 'visible' ? [el] : [];
+    // display:contents generates no box, so its overflow clips nothing (its rect is 0x0 and would clip everything).
+    const own = s.display !== 'contents' && (s.overflowX !== 'visible' || s.overflowY !== 'visible') ? [el] : [];
     return own.concat(boxClips(el));
   });
 
@@ -1302,6 +1303,15 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
     checkInnerClippedInOverflowAncestor();
     const checkGridTrackCrushAndZeroWidthContainers = () => {
       const CAROUSEL_OR_SLIDER_RE = /swiper|carousel|slider|splide|flickity|glide|owl|marquee|ticker/i;
+      // Children that generate a box: a display:contents child is replaced by its own children (its rect is 0x0 by design).
+      const boxChildren = (parent, out) => {
+        for (let c = 0; c < parent.children.length; c++) {
+          const ch = parent.children[c];
+          if (cs(ch).display === 'contents') boxChildren(ch, out);
+          else out.push(ch);
+        }
+        return out;
+      };
       const crushedContainers = new Set();
       for (let i = 0; i < elementLimit; i++) {
         const el = allElements[i];
@@ -1321,8 +1331,9 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
             .filter((n) => Number.isFinite(n) && n > 0);
           if (tracks.length >= 2 && tracks[0] <= 140 && tracks[1] >= tracks[0] * 1.5) {
             const visKids = [];
-            for (let c = 0; c < el.children.length; c++) {
-              const ch = el.children[c];
+            const gridKids = boxChildren(el, []);
+            for (let c = 0; c < gridKids.length; c++) {
+              const ch = gridKids[c];
               const ks = cs(ch);
               if (ks.display === 'none' || ks.position === 'absolute' || ks.position === 'fixed') continue;
               if (!painted(ch) || isSrOnly(ch)) continue;
@@ -1353,7 +1364,7 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
             if (crushedContainers.has(anc)) { skipCrushed = true; break; }
             const as = cs(anc);
             if (as.position === 'fixed' || as.position === 'absolute' || CAROUSEL_OR_SLIDER_RE.test(String(anc.className || ''))) { skipCrushed = true; break; }
-            if (isHiddenAxis(as.overflowX) && anc.getBoundingClientRect().width <= 12) { skipCrushed = true; break; }
+            if (as.display !== 'contents' && isHiddenAxis(as.overflowX) && anc.getBoundingClientRect().width <= 12) { skipCrushed = true; break; }
           }
           if (!skipCrushed) {
             const txt = (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim();
@@ -1378,8 +1389,9 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
           const headEl = headCandidates[h];
           if (!painted(headEl) || isSrOnly(headEl) || headEl.closest(PLATFORM_PREVIEW_CHROME)) continue;
           const cols = [];
-          for (let c = 0; c < headEl.children.length; c++) {
-            const col = headEl.children[c];
+          const headCols = boxChildren(headEl, []);
+          for (let c = 0; c < headCols.length; c++) {
+            const col = headCols[c];
             if (!painted(col) || isSrOnly(col)) continue;
             const cr = col.getBoundingClientRect();
             if (cr.width > 0 && cr.height > 0 && (col.textContent || '').trim().length > 0) cols.push({ el: col, r: cr });
@@ -1404,6 +1416,67 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
       }
     };
     checkGridTrackCrushAndZeroWidthContainers();
+    // A cart row's remove control must hug the row edge, sit in the price/total column, or at least not float
+    // between two content columns of the same line (desktop only; the mobile stack is a different layout).
+    const checkCartRemoveMisplaced = () => {
+      if (vw < 768) return;
+      const rowNodes = Array.from(document.querySelectorAll('[data-line-item], .mh-cart-item, .cart-item, .cart-row, tr.cart__row'));
+      const rows = rowNodes.filter((el) => !el.closest('header, footer, nav') && !rowNodes.some((o) => o !== el && o.contains(el)) && !/^(BUTTON|A|INPUT|SELECT|TEXTAREA)$/.test(el.tagName));
+      for (let r = 0; r < rows.length; r++) {
+        const row = rows[r];
+        if (!painted(row) && cs(row).display !== 'contents') continue;
+        if (row.closest(PLATFORM_PREVIEW_CHROME) || row.closest('[aria-hidden="true"], [inert]')) continue;
+        let boxEl = row;
+        while (boxEl.parentElement && cs(boxEl).display === 'contents') boxEl = boxEl.parentElement;
+        const rowBox = boxEl.getBoundingClientRect();
+        if (rowBox.width <= 0 || rowBox.right <= 0 || rowBox.left >= vw) continue;
+        const controls = Array.from(row.querySelectorAll('[data-action="remove-cart-item"], [class*="cart-item__remove"], [class*="cart-remove"], [class*="remove-cart"]'));
+        if (!controls.length) continue;
+        const leaves = Array.from(row.querySelectorAll('*')).filter((n) => {
+          if (cs(n).display === 'contents' || !painted(n) || isSrOnly(n)) return false;
+          if (/^(INPUT|IMG|SELECT|TEXTAREA|BUTTON)$/.test(n.tagName)) return true;
+          for (let ch = n.firstChild; ch; ch = ch.nextSibling) {
+            if (ch.nodeType === 3 && String(ch.nodeValue || '').trim().length > 0) return true;
+          }
+          return false;
+        });
+        for (let c = 0; c < controls.length; c++) {
+          const rEl = controls[c];
+          if (!painted(rEl) || isSrOnly(rEl) || cs(rEl).position === 'fixed') continue;
+          const rb = rEl.getBoundingClientRect();
+          if (rb.width <= 0 || rb.height <= 0) continue;
+          const gapToEdge = rowBox.right - rb.right;
+          if (gapToEdge <= Math.max(48, rowBox.width * 0.08)) continue;
+          const bandGap = Math.max(24, rb.height);
+          let left = null;
+          let right = null;
+          let inPriceColumn = false;
+          for (let n = 0; n < leaves.length; n++) {
+            const el = leaves[n];
+            if (rEl.contains(el) || el.contains(rEl)) continue;
+            const nb = el.getBoundingClientRect();
+            if (nb.width <= 0 || nb.height <= 0) continue;
+            const priced = el.closest('[class*="price"], [class*="total"]');
+            if (priced && row.contains(priced) && Math.min(nb.right, rb.right) - Math.max(nb.left, rb.left) >= rb.width * 0.5) inPriceColumn = true;
+            if (Math.max(nb.top - rb.bottom, rb.top - nb.bottom, 0) > bandGap) continue;
+            if (nb.right <= rb.left + 2) { if (!left || nb.right > left.nb.right) left = { el: el, nb: nb }; }
+            else if (nb.left >= rb.right - 2) { if (!right || nb.left < right.nb.left) right = { el: el, nb: nb }; }
+          }
+          if (inPriceColumn || !left || !right) continue;
+          push({
+            kind: 'clipping',
+            ruleId: 'cart-item-remove-misplaced',
+            severity: 'critical',
+            selector: getSelector(rEl),
+            relatedSelector: getSelector(right.el),
+            actualPx: Math.round(gapToEdge),
+            details: 'Cart remove control ' + getSelector(rEl) + ' floats between ' + getSelector(left.el) + ' and ' + getSelector(right.el) + ', ' + Math.round(gapToEdge) + 'px from the right edge of its ' + Math.round(rowBox.width) + 'px row instead of sitting on the row edge or in the price column',
+            rect: toRect(rb)
+          });
+        }
+      }
+    };
+    checkCartRemoveMisplaced();
   } catch (err) {
     detectorFailed('clipping', err);
   }
@@ -2189,7 +2262,7 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
         const v = { left: r.left, right: r.right, top: r.top, bottom: r.bottom };
         for (let p = parentOf(el); p && p !== body && p !== doc; p = parentOf(p)) {
           const ps = getComputedStyle(p);
-          if (ps.overflowX === 'visible' && ps.overflowY === 'visible') continue;
+          if (ps.display === 'contents' || (ps.overflowX === 'visible' && ps.overflowY === 'visible')) continue;
           const pr = p.getBoundingClientRect();
           const left = pr.left + p.clientLeft;
           const top = pr.top + p.clientTop;

@@ -160,6 +160,7 @@ function deriveFromCartContract(result: ProbeResult<unknown>, ticks: ChecklistTi
     'cart-quantity-collapsed',
     'cart-item-control-collapsed',
     'cart-item-remove-overlap',
+    'cart-item-remove-misplaced',
   ];
   const layoutBad = ruleHits(result, ...layoutBadRules);
   if (layoutBad > 0) {

@@ -22,7 +22,7 @@ interface CartBackend {
 interface CartFixtures {
   LINE: CartLineFixture;
   createCartBackend(items?: CartLineFixture[]): CartBackend;
-  cartPageHtml(variant: 'good' | 'broken' | 'empty' | 'crushed', quantity?: number): string;
+  cartPageHtml(variant: 'good' | 'broken' | 'empty' | 'crushed' | 'contents' | 'contents-crushed' | 'melody-remove-misplaced' | 'melody-remove-corner', quantity?: number): string;
 }
 
 const fixtures = createRequire(__filename)(path.resolve(process.cwd(), 'test/fixtures/probes/cart-fixtures.cjs')) as CartFixtures;
@@ -478,5 +478,105 @@ describe('runCartContract S2 Melody House layout defects and autoSeed', () => {
     assert.strictEqual(result.data.seeded, true);
     assert.strictEqual(result.data.itemCount, 1);
     assert.deepStrictEqual(navigations, ['/cart']);
+  });
+});
+
+describe('runCartContract with display:contents containers', () => {
+  type Box = { left: number; top: number; width: number; height: number };
+  /** jsdom has no layout: every element reports 0x0 unless stubbed, which is exactly what display:contents does in a browser. */
+  async function runContentsCart(variant: 'contents' | 'contents-crushed' | 'melody-remove-misplaced' | 'melody-remove-corner', boxes: Record<string, Box>, innerWidth = 1440) {
+    const backend = fixtures.createCartBackend([fixtures.LINE]);
+    const JSDOM = loadJsdom();
+    const dom = new JSDOM(fixtures.cartPageHtml(variant, 1), { runScripts: 'dangerously', url: `${STOREFRONT_ORIGIN}/cart` });
+    (dom.window as unknown as Record<string, unknown>).innerWidth = innerWidth;
+    const doc = dom.window.document;
+    for (const [selector, b] of Object.entries(boxes)) {
+      doc.querySelectorAll(selector).forEach((el) => {
+        (el as HTMLElement).getBoundingClientRect = () => ({ left: b.left, top: b.top, right: b.left + b.width, bottom: b.top + b.height, width: b.width, height: b.height, x: b.left, y: b.top, toJSON: () => ({}) });
+      });
+    }
+    dom.window.fetch = (async (input: string, init?: { method?: string; body?: string }) => {
+      const reply = backend.handle(init?.method ?? 'GET', String(input), init?.body ?? '');
+      return { ok: reply.status === 200, status: reply.status, json: async () => reply.json };
+    }) as unknown as typeof fetch;
+    const { deps } = makeDomDeps(dom);
+    return runCartContract(deps);
+  }
+
+  it('does not call a display:contents details container (rect 0x0, no box) a crushed column', async () => {
+    const result = await runContentsCart('contents', {
+      '.mh-cart-items__head': { left: 20, top: 80, width: 756, height: 24 },
+      '.mh-cart-items__col': { left: 20, top: 80, width: 120, height: 24 },
+      '.mh-cart-item': { left: 20, top: 120, width: 756, height: 90 },
+      '.mh-cart-item__media': { left: 20, top: 125, width: 88, height: 80 },
+      '.mh-cart-item__titles': { left: 124, top: 130, width: 380, height: 40 },
+      '.mh-cart-item__vendor': { left: 124, top: 130, width: 380, height: 16 },
+      '.mh-cart-item__title': { left: 124, top: 150, width: 380, height: 20 },
+      '.mh-cart-item__price': { left: 520, top: 140, width: 128, height: 20 },
+      '.mh-cart-item__qty': { left: 664, top: 130, width: 128, height: 34 },
+      '.mh-cart-item__qty-btn, .mh-cart-item__qty-input': { left: 664, top: 130, width: 32, height: 32 },
+      '.mh-cart-item__remove': { left: 808, top: 130, width: 28, height: 28 },
+      '.checkout': { left: 20, top: 240, width: 320, height: 48 },
+    });
+    assert.strictEqual(result.measured, true);
+    assert.deepStrictEqual(result.findings, []);
+    assert.strictEqual(result.passed, true);
+  });
+
+  it('still reports crushed details when the only boxes of a display:contents container are narrower than 60px', async () => {
+    const result = await runContentsCart('contents-crushed', {
+      '.mh-cart-item': { left: 20, top: 120, width: 756, height: 175 },
+      '.mh-cart-item__media': { left: 20, top: 120, width: 80, height: 80 },
+      '.mh-cart-item__body': { left: 116, top: 120, width: 20, height: 175 },
+      '.checkout': { left: 20, top: 320, width: 320, height: 48 },
+    });
+    assert.strictEqual(result.passed, false);
+    const crushed = result.findings.filter((f) => f.ruleId === 'cart-item-details-crushed' && /cart-item__details/.test(f.selector ?? ''));
+    assert.strictEqual(crushed.length, 1, JSON.stringify(result.findings));
+    assert.match(crushed[0]?.message ?? '', /crushed to 20px wide/);
+  });
+
+  // Real measurements of the S2 Melody House row before the remove-button fix (viewport 1728, row x 236..1023).
+  const MELODY_BOXES: Record<string, Box> = {
+    '.mh-cart-items__head': { left: 236, top: 300, width: 787, height: 30 },
+    '.mh-cart-items__col': { left: 365, top: 300, width: 100, height: 14 },
+    '.mh-cart-item': { left: 236, top: 348, width: 787, height: 151 },
+    '.mh-cart-item__product': { left: 257, top: 369, width: 745, height: 110 },
+    '.mh-cart-item__media': { left: 257, top: 380, width: 92, height: 69 },
+    '.mh-cart-item__image': { left: 262, top: 385, width: 82, height: 59 },
+    '.mh-cart-item__top': { left: 365, top: 369, width: 253, height: 70 },
+    '.mh-cart-item__titles': { left: 365, top: 369, width: 210, height: 70 },
+    '.mh-cart-item__vendor': { left: 365, top: 369, width: 60, height: 12 },
+    '.mh-cart-item__title': { left: 365, top: 392, width: 210, height: 41 },
+    '.mh-cart-item__variant': { left: 365, top: 436, width: 70, height: 14 },
+    '.mh-cart-item__sku': { left: 365, top: 452, width: 140, height: 14 },
+    '.mh-cart-item__price-inline': { left: 634, top: 405, width: 100, height: 20 },
+    '.mh-cart-item__qty': { left: 757, top: 405, width: 114, height: 38 },
+    '.mh-cart-item__qty-btn, .mh-cart-item__qty-input': { left: 757, top: 405, width: 36, height: 38 },
+    '.mh-cart-item__line-total': { left: 898, top: 405, width: 105, height: 20 },
+    '.mh-price__current': { left: 898, top: 405, width: 105, height: 20 },
+    '.mh-cart-item__price-inline .mh-price__current': { left: 634, top: 405, width: 100, height: 20 },
+    '.checkout': { left: 236, top: 520, width: 320, height: 48 },
+  };
+
+  it('reports a remove control that floats between the title and price columns, ~400px from the row edge', async () => {
+    const result = await runContentsCart('melody-remove-misplaced', { ...MELODY_BOXES, '.mh-cart-item__remove': { left: 585, top: 369, width: 32, height: 32 } }, 1728);
+    const hits = result.findings.filter((f) => f.ruleId === 'cart-item-remove-misplaced');
+    assert.strictEqual(hits.length, 1, JSON.stringify(result.findings));
+    assert.match(hits[0]?.selector ?? '', /cart-item__remove/);
+    assert.strictEqual(result.passed, false);
+  });
+
+  it('accepts a remove control on the row edge or inside the price column', async () => {
+    const edge = await runContentsCart('melody-remove-corner', { ...MELODY_BOXES, '.mh-cart-item__remove': { left: 984, top: 356, width: 32, height: 32 } }, 1728);
+    assert.deepStrictEqual(edge.findings.filter((f) => f.ruleId === 'cart-item-remove-misplaced'), []);
+    // 91px from the row edge but stacked above the line total: same column as the price cluster.
+    const priceColumn = await runContentsCart('melody-remove-misplaced', { ...MELODY_BOXES, '.mh-cart-item__remove': { left: 900, top: 369, width: 32, height: 32 } }, 1728);
+    assert.deepStrictEqual(priceColumn.findings.filter((f) => f.ruleId === 'cart-item-remove-misplaced'), []);
+  });
+
+  it('does not apply the placement rule on the mobile stack (<= 767px)', async () => {
+    const result = await runContentsCart('melody-remove-misplaced', { ...MELODY_BOXES, '.mh-cart-item__remove': { left: 585, top: 369, width: 32, height: 32 } }, 390);
+    assert.deepStrictEqual(result.findings.filter((f) => f.ruleId === 'cart-item-remove-misplaced'), []);
   });
 });

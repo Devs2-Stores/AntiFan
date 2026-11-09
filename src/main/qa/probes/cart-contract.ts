@@ -123,6 +123,29 @@ var hidden = function (el) {
   }
   return false;
 };
+// display:contents generates no box: getBoundingClientRect() is 0x0 by design and says nothing about the layout.
+var isContents = function (el) {
+  return !!el && el.nodeType === 1 && getComputedStyle(el).display === 'contents';
+};
+// The nearest ancestor-or-self that generates a box (a display:contents row borrows its parent's width).
+var boxAncestor = function (el) {
+  var cur = el;
+  while (cur && cur.parentElement && isContents(cur)) cur = cur.parentElement;
+  return cur || el;
+};
+// The nearest descendants that generate a box: display:contents children are replaced by their own children.
+var boxDescendants = function (el, out) {
+  out = out || [];
+  Array.prototype.forEach.call(el.children, function (c) {
+    var d = getComputedStyle(c).display;
+    if (d === 'none') return;
+    if (d === 'contents') boxDescendants(c, out); else out.push(c);
+  });
+  return out;
+};
+var hasText = function (el) {
+  return (el.textContent || '').trim().length > 0;
+};
 var readCart = async function () {
   var hook = window.__antifanCartHook;
   var f = hook && hook.origFetch ? hook.origFetch : window.fetch.bind(window);
@@ -265,6 +288,7 @@ try {
     var left = r.left, top = r.top, right = r.right, bottom = r.bottom;
     for (var cur = el; cur && cur.nodeType === 1 && cur !== document.body && cur !== document.documentElement; cur = cur.parentElement) {
       var cs = getComputedStyle(cur);
+      if (cs.display === 'contents') continue;
       var ox = cs.overflowX || cs.overflow;
       var oy = cs.overflowY || cs.overflow;
       if (cur !== el && (ox === 'hidden' || ox === 'clip' || ox === 'auto' || ox === 'scroll' || oy === 'hidden' || oy === 'clip')) {
@@ -296,13 +320,13 @@ try {
     Array.prototype.forEach.call(headCandidates, function (headEl) {
       if (hidden(headEl) || seenHeads.indexOf(headEl) !== -1) return;
       seenHeads.push(headEl);
-      var headRect = headEl.getBoundingClientRect();
+      var headRect = boxAncestor(headEl).getBoundingClientRect();
       var effectiveVw = vw >= 768 ? vw : (headRect.width >= 500 ? headRect.width : 0);
       if (effectiveVw < 768 && headRect.width < 500) return;
-      var cols = Array.prototype.filter.call(headEl.children, function (c) {
+      var cols = boxDescendants(headEl).filter(function (c) {
         if (hidden(c)) return false;
         var cr = c.getBoundingClientRect();
-        return cr.width > 0 && cr.height > 0 && (c.textContent || '').trim().length > 0;
+        return cr.width > 0 && cr.height > 0 && hasText(c);
       });
       if (cols.length >= 3) {
         var allStacked = true;
@@ -357,6 +381,7 @@ try {
     );
     qtyWrappers.forEach(function (w) {
       if (qtyWrappers.some(function (o) { return o !== w && o.contains(w); })) return;
+      if (isContents(w)) return;
       var wv = visibleRect(w);
       if (wv.width < 20 || wv.height < 16) pushQtyCollapsed(w, wv, 20);
     });
@@ -369,26 +394,33 @@ try {
       if (bv.width < 16 || bv.height < 16) pushQtyCollapsed(btn, bv, 16);
     });
     cartRows.forEach(function (row) {
-      var rowRect = row.getBoundingClientRect();
+      var rowRect = boxAncestor(row).getBoundingClientRect();
       if (rowRect.width >= 240) {
         var detailsList = row.querySelectorAll('[class*="cart-item__details"], [class*="cart-item__info"], [class*="cart-item__body"], [class*="cart-item__content"], [class*="cart-item-details"], [class*="cart-item-info"]');
         Array.prototype.forEach.call(detailsList, function (det) {
           if (hidden(det)) return;
-          var dv = visibleRect(det);
-          if (dv.width < 60) {
+          var detW;
+          if (isContents(det)) {
+            var detBoxes = boxDescendants(det).filter(function (b) { return !hidden(b) && hasText(b); });
+            if (detBoxes.length === 0) return;
+            detW = Math.max.apply(null, detBoxes.map(function (b) { return visibleRect(b).width; }));
+          } else {
+            detW = visibleRect(det).width;
+          }
+          if (detW < 60) {
             layoutFindings.push({
               ruleId: 'cart-item-details-crushed',
               severity: 'critical',
               selector: describe(det),
-              message: 'Cart item details container ' + describe(det) + ' is crushed to ' + Math.round(dv.width) + 'px wide inside a ' + Math.round(rowRect.width) + 'px cart row',
-              measured: { width: Math.round(dv.width), rowWidth: Math.round(rowRect.width) }
+              message: 'Cart item details container ' + describe(det) + ' is crushed to ' + Math.round(detW) + 'px wide inside a ' + Math.round(rowRect.width) + 'px cart row',
+              measured: { width: Math.round(detW), rowWidth: Math.round(rowRect.width) }
             });
           }
         });
       }
       var titles = Array.prototype.filter.call(
         row.querySelectorAll('[class*="cart-item__title"], [class*="cart-item-title"], [class*="cart__product-title"], [class*="item-title"], a[href*="/products/"]'),
-        function (tEl) { return !hidden(tEl) && !tEl.querySelector('img') && (tEl.textContent || '').trim().length > 0; }
+        function (tEl) { return !hidden(tEl) && !isContents(tEl) && !tEl.querySelector('img') && hasText(tEl); }
       );
       if (titles.length > 0) {
         var titleEl = titles[0];
@@ -406,7 +438,7 @@ try {
       var rowRemoves = found.remove.filter(function (rEl) { return row.contains(rEl); });
       var textNodes = Array.prototype.filter.call(
         row.querySelectorAll('[class*="vendor"], [class*="title"]:not([class*="titles"]), [class*="variant"], [class*="sku"], a[href*="/products/"]'),
-        function (tEl) { return !hidden(tEl) && !tEl.querySelector('img') && (tEl.textContent || '').trim().length > 0; }
+        function (tEl) { return !hidden(tEl) && !isContents(tEl) && !tEl.querySelector('img') && hasText(tEl); }
       );
       rowRemoves.forEach(function (rEl) {
         var remRect = rEl.getBoundingClientRect();
@@ -440,6 +472,62 @@ try {
           }
         }
       });
+      // Desktop only (the mobile stack is covered by the overlap check): the remove control must hug the row edge,
+      // sit in the price/total column, or at least not float between two content columns of the same line.
+      if (vw >= 768) {
+        var misRowBox = boxAncestor(row).getBoundingClientRect();
+        var misControls = rowRemoves.slice();
+        Array.prototype.forEach.call(row.querySelectorAll('[data-action="remove-cart-item"], [class*="cart-item__remove"]'), function (c) {
+          if (misControls.indexOf(c) === -1 && !hidden(c)) misControls.push(c);
+        });
+        var misLeaves = Array.prototype.filter.call(row.querySelectorAll('*'), function (n) {
+          if (hidden(n) || isContents(n)) return false;
+          if (/^(INPUT|IMG|SELECT|TEXTAREA|BUTTON)$/.test(n.tagName)) return true;
+          for (var ch = n.firstChild; ch; ch = ch.nextSibling) {
+            if (ch.nodeType === 3 && String(ch.nodeValue || '').trim().length > 0) return true;
+          }
+          return false;
+        });
+        var misReported = [];
+        misControls.forEach(function (rEl) {
+          var rb = rEl.getBoundingClientRect();
+          if (rb.width <= 0 || rb.height <= 0 || misRowBox.width <= 0 || misReported.indexOf(rEl) !== -1) return;
+          var gapToEdge = misRowBox.right - rb.right;
+          if (gapToEdge <= Math.max(48, misRowBox.width * 0.08)) return;
+          var bandGap = Math.max(24, rb.height);
+          var lefts = [];
+          var rights = [];
+          var inPriceColumn = false;
+          misLeaves.forEach(function (n) {
+            if (rEl.contains(n) || n.contains(rEl)) return;
+            var nb = n.getBoundingClientRect();
+            if (nb.width <= 0 || nb.height <= 0) return;
+            var priced = n.closest('[class*="price"], [class*="total"]');
+            if (priced && row.contains(priced) && Math.min(nb.right, rb.right) - Math.max(nb.left, rb.left) >= rb.width * 0.5) inPriceColumn = true;
+            var vGap = Math.max(nb.top - rb.bottom, rb.top - nb.bottom, 0);
+            if (vGap > bandGap) return;
+            if (nb.right <= rb.left + 2) lefts.push({ el: n, box: nb });
+            else if (nb.left >= rb.right - 2) rights.push({ el: n, box: nb });
+          });
+          if (inPriceColumn || lefts.length === 0 || rights.length === 0) return;
+          lefts.sort(function (a, b) { return b.box.right - a.box.right; });
+          rights.sort(function (a, b) { return a.box.left - b.box.left; });
+          misReported.push(rEl);
+          layoutFindings.push({
+            ruleId: 'cart-item-remove-misplaced',
+            severity: 'critical',
+            selector: describe(rEl),
+            message: 'Cart remove control ' + describe(rEl) + ' floats between item content ' + describe(lefts[0].el) + ' and ' + describe(rights[0].el) + ', ' + Math.round(gapToEdge) + 'px from the right edge of its ' + Math.round(misRowBox.width) + 'px row instead of sitting on the row edge or in the price column',
+            measured: {
+              removeRect: { left: Math.round(rb.left), top: Math.round(rb.top), width: Math.round(rb.width), height: Math.round(rb.height) },
+              rowRect: { left: Math.round(misRowBox.left), top: Math.round(misRowBox.top), width: Math.round(misRowBox.width), height: Math.round(misRowBox.height) },
+              gapToRowEdgePx: Math.round(gapToEdge),
+              leftNeighbor: describe(lefts[0].el),
+              rightNeighbor: describe(rights[0].el)
+            }
+          });
+        });
+      }
     });
   }
   var targets = [];
