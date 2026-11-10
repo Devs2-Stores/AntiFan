@@ -25,8 +25,17 @@
  *   line that runs git (inspection subcommands), rg, grep, cat, ls, find and the like on such a path,
  *   eval that calls `archive.*` or reads `~/.omp/agent/sessions`, and web_search - and refuses the
  *   call after the `LEADER_INVESTIGATE_LIMIT`th with `REFUSED_LEADER_INVESTIGATE`. The count starts
- *   again at the Leader's next successful `terminal.create` / `terminal.write` (read from
- *   `tool_result`, so a failed or unconfirmed dispatch resets nothing). What a Leader does for a
+ *   again at the Leader's next real dispatch, read from `tool_result` (an unreadable result resets
+ *   nothing): a `terminal.create` that opened a fresh pane (not `reused`), or a `terminal.write` the host
+ *   confirmed (`written:true`) whose `input` / `text` / `message` holds at least `LEADER_DISPATCH_MIN_CHARS`
+ *   visible characters, submitted (`input` / `text` end with a line break; `message` always is), and whose
+ *   target runs an agent (the result's pre-write `run` is not `ended` or stale) or which is a submitted
+ *   `omp ... @<prompt file>` start. Keys alone, an empty, token-sized or unsubmitted text, or text
+ *   typed into a bare shell is not an instruction and resets nothing. A native `read` of
+ *   one existing regular file of at most `LEADER_EXACT_READ_MAX_BYTES`, named by a literal local path
+ *   (selectors allowed; never past OMP sessions, judged by name and by resolved real path, profiles
+ *   included), is free up to `LEADER_EXACT_READ_LIMIT` per
+ *   dispatch window; past that it counts. What a Leader does for a
  *   living never counts: `terminal.*`, `core.*`, todo, task, wait, ask, `leader-job.mjs`,
  *   `wait-workers.mjs`, read-only evaluate, anything in its job folder, merging a worker's branch.
  *   Only a session with a UI is budgeted: a subagent the Leader spawns (no UI, same env) is not,
@@ -496,6 +505,13 @@ export function planLeaderToolCall(
 /** Investigation calls a Leader may make between two worker dispatches; the next one is refused. */
 export const LEADER_INVESTIGATE_LIMIT = 4;
 
+/** Visible characters a `terminal.write` text needs before it counts as handing work to a worker. */
+export const LEADER_DISPATCH_MIN_CHARS = 16;
+
+/** Exact single-file reads that stay free per dispatch window, and the largest file that qualifies. */
+export const LEADER_EXACT_READ_LIMIT = 8;
+export const LEADER_EXACT_READ_MAX_BYTES = 2 * 1024 * 1024;
+
 /**
  * Where a Leader reads freely: its job ledger, the AntiFan data root, OMP config and skills, and the
  * Leader's own skill text and scripts. The job ledger and the data root also follow `LEADER_JOBS_ROOT`
@@ -579,7 +595,7 @@ const GIT_OPTIONS_WITH_VALUE: Record<string, true> = { "-C": true, "-c": true, "
 const GIT_BRANCH_WRITE_FLAG_RE = /^-(?:[dDmMcCuf]|-(?:delete|move|copy|force|set-upstream-to|unset-upstream|edit-description))/;
 
 const EVAL_ARCHIVE_RE = /(?<![\w.$\\/-])archive\s*\.\s*[A-Za-z_]\w*\s*\(/;
-const SESSIONS_PATH_RE = /\.omp[\\/]+agent[\\/]+sessions/i;
+const SESSIONS_PATH_RE = /\.omp[\\/]+(?:profiles[\\/]+[^\\/]+[\\/]+)?agent[\\/]+sessions/i;
 const EVAL_WEB_RE = /\btool\s*\.\s*web_search\s*\(/;
 const EVAL_READ_CALL_RE =
   /\b(?:open|read|read_text|read_bytes|readlines|readFile|readFileSync|readdir|readdirSync|listdir|scandir|walk|glob|rglob|iterdir)\s*\(|\bBun\s*\.\s*(?:file|Glob)\b|\bfs\s*\.|\btool\s*\.\s*(?:read|grep|glob|lsp|ast_edit)\s*\(/;
@@ -598,6 +614,32 @@ function expandHome(target: string): string {
   return /^~(?:[\\/]|$)/.test(target) ? path.join(os.homedir(), target.slice(1)) : target;
 }
 
+/** Past OMP sessions by name or by deny root; the string test that `readFree` and the exact-read check share. */
+function inSessions(abs: string, deny: string[]): boolean {
+  return SESSIONS_PATH_RE.test(abs) || deny.some((root) => isInside(root, abs));
+}
+
+/**
+ * Whether the path, once symlinks, junctions and 8.3 short names are resolved, lands in past OMP sessions.
+ * `missing` is what to answer when the path does not exist (a path that cannot be resolved has nothing to leak).
+ */
+function realPathInSessions(abs: string, deny: string[], missing: boolean): boolean {
+  let real: string;
+  try {
+    real = fs.realpathSync.native(abs);
+  } catch (err) {
+    return (err as NodeJS.ErrnoException)?.code === "ENOENT" || (err as NodeJS.ErrnoException)?.code === "ENOTDIR" ? missing : true;
+  }
+  const realDeny = deny.map((root) => {
+    try {
+      return fs.realpathSync.native(root);
+    } catch {
+      return root;
+    }
+  });
+  return inSessions(real, [...deny, ...realDeny]);
+}
+
 /** True when a Leader may read `target` (a path, a glob or a URL as a tool names it) without it counting. */
 function readFree(target: string, cwd: string, env: Env): boolean {
   if (FREE_URI_RE.test(target)) return true;
@@ -605,8 +647,9 @@ function readFree(target: string, cwd: string, env: Env): boolean {
   const base = expandHome(target.replace(/[*?[{].*$/, ""));
   const abs = path.resolve(cwd, base.length > 0 ? base : ".");
   const roots = readRoots(env);
-  if (roots.deny.some((root) => isInside(root, abs))) return false;
-  return roots.allow.some((root) => isInside(root, abs));
+  if (inSessions(abs, roots.deny)) return false;
+  if (!roots.allow.some((root) => isInside(root, abs))) return false;
+  return !realPathInSessions(abs, roots.deny, false);
 }
 
 function pathEntries(value: unknown): string[] {
@@ -843,24 +886,62 @@ export function investigationLabel(
   return null;
 }
 
+/**
+ * True when a read call names exactly one existing regular file by a literal local path (selectors
+ * such as `:10-40` or `:raw` allowed) that fits `LEADER_EXACT_READ_MAX_BYTES` and is not a past OMP
+ * session. Touches the filesystem and fails closed: a path that cannot be statted is not exact.
+ */
+export function isExactFileRead(
+  params: { toolName: string; input: Record<string, unknown>; cwd: string },
+  env: Env = process.env,
+): boolean {
+  try {
+    const { tool, input } = resolveCall(params.toolName, record(params.input));
+    if (tool !== "read") return false;
+    const targets = extractTargetPaths(input);
+    if (targets.length !== 1) return false;
+    let target = (targets[0] as string).trim();
+    if (target.length === 0 || ANY_URI_RE.test(target) || /[*?[{]/.test(target)) return false;
+    for (let next = target.replace(/:(?:raw|[\d,+-]+)$/i, ""); next !== target; next = target.replace(/:(?:raw|[\d,+-]+)$/i, "")) target = next;
+    if (target.length === 0 || /[*?[{]/.test(target) || SESSIONS_PATH_RE.test(target)) return false;
+    const abs = path.resolve(params.cwd, expandHome(target));
+    const deny = readRoots(env).deny;
+    if (inSessions(abs, deny)) return false;
+    const stat = fs.statSync(abs);
+    if (!stat.isFile() || stat.size > LEADER_EXACT_READ_MAX_BYTES) return false;
+    return !realPathInSessions(abs, deny, true);
+  } catch {
+    return false;
+  }
+}
+
 function investigateRefusal(label: string, limit: number): LeaderRefusal {
   return {
     code: LEADER_GUARD_CODES.INVESTIGATE,
-    reason: `${LEADER_GUARD_CODES.INVESTIGATE}: ${INVESTIGATE_HAND_OFF} (${limit} lệnh điều tra đã dùng từ lần terminal.create/terminal.write gần nhất; lệnh bị chặn: ${label})`,
+    reason: `${LEADER_GUARD_CODES.INVESTIGATE}: ${INVESTIGATE_HAND_OFF} (${limit} lệnh điều tra đã dùng từ lần giao việc gần nhất - terminal.create một pane mới, hoặc terminal.write written:true có input/text kết thúc bằng xuống dòng hay message, từ ${LEADER_DISPATCH_MIN_CHARS} ký tự, vào pane đang chạy agent (hoặc dòng omp ... "@<file prompt>"); phím bấm, chữ ngắn, chữ chưa Enter hay chữ gõ vào shell trần không tính; đọc đúng một file cục bộ ≤ 2 MiB (không phải phiên cũ) miễn phí tối đa ${LEADER_EXACT_READ_LIMIT} lần mỗi lượt; lệnh bị chặn: ${label})`,
   };
 }
 
-function createInvestigateBudget(limit: number = LEADER_INVESTIGATE_LIMIT): { spend(label: string | null): LeaderRefusal | null; reset(): void } {
+function createInvestigateBudget(limit: number = LEADER_INVESTIGATE_LIMIT): {
+  spend(label: string | null, exactFree?: boolean): LeaderRefusal | null;
+  reset(): void;
+} {
   let used = 0;
+  let exactUsed = 0;
   return {
-    spend(label) {
+    spend(label, exactFree = false) {
       if (label === null) return null;
+      if (exactFree && exactUsed < LEADER_EXACT_READ_LIMIT) {
+        exactUsed += 1;
+        return null;
+      }
       if (used >= limit) return investigateRefusal(label, limit);
       used += 1;
       return null;
     },
     reset() {
       used = 0;
+      exactUsed = 0;
     },
   };
 }
@@ -871,19 +952,48 @@ function contentText(content: unknown): string {
   return content.map((part) => (typeof part === "string" ? part : String(record(part).text ?? ""))).join("\n");
 }
 
+function visible(text: unknown): string {
+  return typeof text === "string" ? text.replace(/\s+/g, " ").replace(/[\u0000-\u001f\u007f-\u009f]/g, "").trim() : "";
+}
+
+/** The text a `terminal.write` carries (`input`, its alias `text`, or a Leader's chat `message`), reduced to its visible characters. */
+function visibleWriteText(args: Record<string, unknown>): string {
+  // `input` / `text` reach the pane as typed: only a line break at the end submits them. A `message` is a chat line
+  // the host submits itself.
+  const submitted = [args.input, args.text].filter((part): part is string => typeof part === "string" && /[\r\n]$/.test(part));
+  return [...submitted, args.message].map(visible).filter((part) => part.length > 0).join(" ");
+}
+
+/** A submitted `omp "@<prompt file>"` line: how a Leader hands a fresh worker its prompt file (`leader-job.mjs dispatch`). */
+const OMP_START_RE = /^omp(?:\.exe)?\s.*@[\w./\\:~-]/i;
+
 /**
- * A `tool_result` that shows the Leader handed work to a worker: a `terminal.create` or `terminal.write`
- * that did not fail and, for a write, that the host confirmed (`written:false` means no shell took it).
+ * A `tool_result` that shows the Leader handed work to a worker, judged on the result as well as the
+ * arguments, and fail-closed for the reset (an unreadable result resets nothing):
+ * - `terminal.create` that opened a fresh pane (`reused:true` returned an existing one);
+ * - `terminal.write` confirmed (`written` strictly true) whose text (`input`, `text` or `message`) has at
+ *   least `LEADER_DISPATCH_MIN_CHARS` visible characters, submitted (`input` / `text` end with a line break;
+ *   `message` always is), and whose target runs an agent: the result's pre-write `run` is present, not
+ *   `ended` and not stale - or the text is a submitted `omp ... @<prompt file>` start.
+ * Keys alone, a short or unsubmitted text, a text typed into a bare shell and unreadable arguments do not count.
  */
 function isWorkerDispatch(event: Record<string, unknown>): boolean {
   if (event.isError === true) return false;
-  const tool = resolveCall(String(event.toolName ?? ""), record(event.input)).tool;
-  if (tool !== "terminal_create" && tool !== "terminal_write") return false;
+  const call = resolveCall(String(event.toolName ?? ""), record(event.input));
+  if (call.tool !== "terminal_create" && call.tool !== "terminal_write") return false;
+  let result: Record<string, unknown>;
   try {
-    return record(JSON.parse(contentText(event.content))).written !== false;
+    result = record(JSON.parse(contentText(event.content)));
   } catch {
-    return true;
+    return false;
   }
+  if (call.tool === "terminal_create") return result.reused !== true && typeof result.sessionId === "string";
+  if (result.written !== true) return false;
+  const text = visibleWriteText(call.input);
+  if (Array.from(text).length < LEADER_DISPATCH_MIN_CHARS) return false;
+  const run = record(result.run);
+  const agentRuns = typeof run.state === "string" && run.state !== "ended" && run.stale !== true;
+  return agentRuns || OMP_START_RE.test(text);
 }
 
 // ---------------------------------------------------------------------------
@@ -936,7 +1046,8 @@ export default function leaderGuardHook(pi: GuardPi): void {
       // check and its count run in one synchronous step, so parallel calls cannot overdraw it. Only a
       // session that reports a UI is the Leader's own; an unclassifiable context fails open.
       const ownSession = record(ctx).hasUI === true;
-      const refusal = planLeaderToolCall(params) ?? (ownSession ? budget.spend(investigationLabel(params)) : null);
+      const label = ownSession ? investigationLabel(params) : null;
+      const refusal = planLeaderToolCall(params) ?? (label === null ? null : budget.spend(label, isExactFileRead(params)));
       if (refusal === null) return undefined;
       warnSafely(pi, refusal.reason);
       return { block: true, reason: refusal.reason };

@@ -28,7 +28,7 @@ for (const name of UNIT) {
   fs.writeFileSync(path.join(TEMP, `${name}.mts`), source);
 }
 const guard = await import(pathToFileURL(path.join(TEMP, "leader-guard.mts")).href);
-const { default: leaderGuardHook, findOpenJobs, findLeakedWorkers, buildStopReason, canonicalTool, investigationLabel, LEADER_READ_ALLOW_ROOTS } = guard;
+const { default: leaderGuardHook, findOpenJobs, findLeakedWorkers, buildStopReason, canonicalTool, investigationLabel, isExactFileRead, LEADER_READ_ALLOW_ROOTS } = guard;
 
 const LEADER = "terminal-7";
 const OTHER_LEADER = "terminal-9";
@@ -548,7 +548,7 @@ function assertInvestigateRefused(result) {
 /** One investigation call per route (native tools, shell, eval, web), all outside the read allow-list. */
 function investigations() {
   return [
-    ["read", { path: path.join(themeRoot, "sections", "hero.liquid") }],
+    ["read", { path: path.join(themeRoot, "sections") }],
     ["grep", { pattern: "hero", path: themeRoot }],
     ["glob", { path: `${slash(themeRoot)}/sections/*.liquid` }],
     ["bash", { command: "git log --oneline -5" }],
@@ -583,15 +583,24 @@ test("every route counts toward one budget: lsp, ast_edit, write xd://, eval sub
   assertInvestigateRefused(await hook.call("bash", { command: `rg -n hero ${slash(themeRoot)}` }));
 });
 
-test("a successful terminal.create or terminal.write resets the budget", async () => {
+test("a real dispatch resets the budget: terminal.create or a terminal.write that carries an instruction", async () => {
   const created = { sessionId: "terminal-12", cwd: "E:/Work/scratch/leader/x", workerOf: LEADER };
-  const written = { written: true, woke: false, writtenAt: 1 };
+  const written = { written: true, woke: false, writtenAt: 1, run: { state: "idle", stale: false, runSeq: 1 } };
+  const instruction = "Bước 0: điều tra và báo cáo kết quả";
   const refusedCall = investigations()[4];
   for (const dispatch of [
     (hook) => hook.result("mcp__antifan_browser_terminal_create", created),
     (hook) => hook.result("terminal.create", created),
-    (hook) => hook.result("mcp__antifan_browser_terminal_write", written),
-    (hook) => hook.result("write", written, { input: { path: "xd://mcp__antifan_browser_terminal_write", content: "{}" } }),
+    (hook) => hook.result("mcp__antifan_browser_terminal_write", written, { input: { sessionId: "terminal-12", input: `${instruction}\r` } }),
+    (hook) => hook.result("mcp__antifan_browser_terminal_write", written, { input: { sessionId: "terminal-12", message: instruction } }),
+    (hook) =>
+      hook.result("write", written, {
+        input: { path: "xd://mcp__antifan_browser_terminal_write", content: JSON.stringify({ sessionId: "terminal-12", input: `${instruction}\r` }) },
+      }),
+    (hook) =>
+      hook.result("write", written, {
+        input: { path: "xd://mcp__antifan_browser_terminal_write", content: JSON.stringify({ sessionId: "terminal-12", message: instruction }) },
+      }),
   ]) {
     const hook = makeHook();
     await spendBudget(hook);
@@ -600,6 +609,166 @@ test("a successful terminal.create or terminal.write resets the budget", async (
     await spendBudget(hook);
     assertInvestigateRefused(await hook.call(...refusedCall));
   }
+});
+
+test("a confirmed write that carries no instruction does not reset: keys, empty, blank or token-sized text, unreadable arguments", async () => {
+  const written = { written: true, woke: false, writtenAt: 1 };
+  const nativeWrite = "mcp__antifan_browser_terminal_write";
+  const viaDevice = (content) => ({ path: "xd://mcp__antifan_browser_terminal_write", content });
+  for (const [toolName, input] of [
+    [nativeWrite, { sessionId: "terminal-12", key: "enter" }],
+    [nativeWrite, { sessionId: "terminal-12", keys: ["ctrl+c", "enter"] }],
+    [nativeWrite, { sessionId: "terminal-12", input: "" }],
+    [nativeWrite, { sessionId: "terminal-12", input: "  \r" }],
+    [nativeWrite, { sessionId: "terminal-12", input: "ok\r" }],
+    [nativeWrite, { sessionId: "terminal-12", message: "ok" }],
+    [nativeWrite, { sessionId: "terminal-12", input: "\u0001\u0002\u0003 a b c d e f g h \r\n" }],
+    [nativeWrite, { sessionId: "terminal-12" }],
+    ["write", viaDevice(JSON.stringify({ sessionId: "terminal-12", key: "enter" }))],
+    ["write", viaDevice(JSON.stringify({ sessionId: "terminal-12", input: "ok\r" }))],
+    ["write", viaDevice("{not json")],
+  ]) {
+    const hook = makeHook();
+    await spendBudget(hook);
+    await hook.result(toolName, written, { input: toolName === "write" ? input : input });
+    assertInvestigateRefused(await hook.call(...investigations()[4]));
+  }
+  const hook = makeHook();
+  await spendBudget(hook);
+  await hook.result(nativeWrite, { written: false }, { input: { sessionId: "terminal-12", input: "a long enough instruction here" } });
+  assertInvestigateRefused(await hook.call(...investigations()[4]));
+});
+
+function exactFile(name, bytes = 20) {
+  const file = path.join(plainDir, name);
+  fs.writeFileSync(file, "x".repeat(bytes));
+  return file;
+}
+
+test("an exact single-file read is free; directories, globs, big, missing and past-session files count", async () => {
+  const hook = makeHook();
+  const small = exactFile("note.txt");
+  await spendBudget(hook);
+  for (const target of [small, `${slash(small)}:1-10`, `${slash(small)}:raw`, `${slash(small)}:2-3:raw`]) {
+    assert.equal(await hook.call("read", { path: target }), undefined, `exact read ${target}`);
+  }
+  assert.equal(await hook.call("write", { path: "xd://read", content: JSON.stringify({ path: small }) }), undefined);
+  const big = exactFile("big.bin", 2 * 1024 * 1024 + 1);
+  const edge = exactFile("edge.bin", 2 * 1024 * 1024);
+  assert.equal(await hook.call("read", { path: edge }), undefined, "the size cap itself still fits");
+  const dataRoot = path.join(tempDir("leader-omp-"), ".omp");
+  const session = path.join(dataRoot, "agent", "sessions", "proj", "a.jsonl");
+  fs.mkdirSync(path.dirname(session), { recursive: true });
+  fs.writeFileSync(session, "{}");
+  process.env.ANTIFAN_DATA_ROOT = dataRoot;
+  assert.equal(isExactFileRead({ toolName: "read", input: { path: session }, cwd: plainDir }), false);
+  for (const target of [plainDir, `${slash(plainDir)}/*.txt`, big, path.join(plainDir, "missing.txt"), session]) {
+    assertInvestigateRefused(await hook.call("read", { path: target }));
+  }
+  assertInvestigateRefused(await hook.call("grep", { pattern: "x", path: small }));
+  assertInvestigateRefused(await hook.call("bash", { command: `cat ${slash(small)}` }));
+});
+
+test("exact reads are limited per dispatch window and a dispatch restores both allowances", async () => {
+  const hook = makeHook();
+  const small = exactFile("note.txt");
+  await spendBudget(hook);
+  for (let i = 0; i < 8; i += 1) assert.equal(await hook.call("read", { path: small }), undefined, `exact read ${i + 1}`);
+  assertInvestigateRefused(await hook.call("read", { path: small }));
+  await hook.result("terminal.create", { sessionId: "terminal-12" });
+  await spendBudget(hook);
+  for (let i = 0; i < 8; i += 1) assert.equal(await hook.call("read", { path: small }), undefined, `exact read ${i + 1} after dispatch`);
+  assertInvestigateRefused(await hook.call("read", { path: small }));
+});
+
+const SHELL_PANE = { written: true, woke: false, writtenAt: 1 };
+const WRITE = "mcp__antifan_browser_terminal_write";
+
+async function resets(result, toolName, input) {
+  const hook = makeHook();
+  await spendBudget(hook);
+  await hook.result(toolName, result, { input });
+  return (await hook.call(...investigations()[4])) === undefined;
+}
+
+test("text typed into a bare shell pane does not reset; a live agent run or an omp start does", async () => {
+  const chatter = { sessionId: "terminal-12", input: "echo okokokokokokok\r" };
+  assert.equal(await resets(SHELL_PANE, WRITE, chatter), false, "no run in the result");
+  assert.equal(await resets({ ...SHELL_PANE, run: { state: "ended", stale: true } }, WRITE, chatter), false, "ended run");
+  assert.equal(await resets({ ...SHELL_PANE, run: { state: "idle", stale: true } }, WRITE, chatter), false, "stale run");
+  assert.equal(await resets({ ...SHELL_PANE, run: { state: "idle", stale: false } }, WRITE, chatter), true, "live idle agent");
+  assert.equal(await resets({ ...SHELL_PANE, run: { state: "running", stale: false } }, WRITE, chatter), true, "live running agent");
+  const start = { sessionId: "terminal-12", input: 'omp "@E:/Work/scratch/leader/x/dev.prompt.md"\r' };
+  assert.equal(await resets(SHELL_PANE, WRITE, start), true, "omp start in a shell pane");
+  assert.equal(await resets(SHELL_PANE, WRITE, { sessionId: "terminal-12", input: "omp\r" }), false, "too short");
+  assert.equal(await resets(SHELL_PANE, WRITE, { sessionId: "terminal-12", input: "echo omp \"@a.md\" please" }), false, "omp is not the command");
+});
+
+test("terminal.create that reused an existing pane does not reset; a fresh one does", async () => {
+  assert.equal(await resets({ sessionId: "terminal-12", reused: true, ownerBound: true }, "terminal.create", {}), false);
+  assert.equal(await resets({ sessionId: "terminal-12", reused: false }, "terminal.create", {}), true);
+  assert.equal(await resets({ sessionId: "terminal-12", ownerBound: true }, "terminal.create", {}), true);
+});
+
+test("an unreadable result or one without written:true resets nothing", async () => {
+  const input = { sessionId: "terminal-12", input: "Bước 0: điều tra và báo cáo kết quả" };
+  const run = { state: "idle", stale: false };
+  for (const result of ["{not json", "", "ok", {}, { run }, { written: "true", run }, { written: 1, run }, { written: false, run }]) {
+    assert.equal(await resets(result, WRITE, input), false, JSON.stringify(result));
+  }
+  assert.equal(await resets("{not json", "terminal.create", {}), false);
+  assert.equal(await resets({}, "terminal.create", {}), false);
+});
+
+test("a dispatch sent with the text alias counts like input, under the same length rule", async () => {
+  const run = { written: true, woke: false, writtenAt: 1, run: { state: "idle", stale: false } };
+  const text = "Bước 0: điều tra và báo cáo kết quả\r";
+  assert.equal(await resets(run, WRITE, { sessionId: "terminal-12", text }), true);
+  assert.equal(await resets(run, WRITE, { sessionId: "terminal-12", text: "ok\r" }), false);
+  assert.equal(await resets(SHELL_PANE, WRITE, { sessionId: "terminal-12", text: 'omp "@E:/x/dev.prompt.md"\r' }), true);
+  const device = (args) => ({ path: "xd://mcp__antifan_browser_terminal_write", content: JSON.stringify(args) });
+  assert.equal(await resets(run, "write", device({ sessionId: "terminal-12", text })), true);
+});
+
+test("a text that was never submitted, or an omp line without a prompt file, does not reset", async () => {
+  const live = { written: true, woke: false, writtenAt: 1, run: { state: "idle", stale: false } };
+  assert.equal(await resets(live, WRITE, { sessionId: "terminal-12", input: "aaaaaaaaaaaaaaaa" }), false, "typed, no Enter");
+  assert.equal(await resets(live, WRITE, { sessionId: "terminal-12", text: "aaaaaaaaaaaaaaaa" }), false);
+  assert.equal(await resets(live, WRITE, { sessionId: "terminal-12", input: "aaaaaaaaaaaaaaaa\n" }), true, "newline submits");
+  assert.equal(await resets(live, WRITE, { sessionId: "terminal-12", input: "aaaaaaaaaaaaaaaa\r" }), true);
+  assert.equal(await resets(live, WRITE, { sessionId: "terminal-12", message: "aaaaaaaaaaaaaaaa" }), true, "message is submitted by the host");
+  assert.equal(await resets(SHELL_PANE, WRITE, { sessionId: "terminal-12", input: "omp --version --aaaa\r" }), false, "no prompt file");
+  assert.equal(await resets(SHELL_PANE, WRITE, { sessionId: "terminal-12", input: 'omp "@E:/x/dev.prompt.md"' }), false, "not submitted");
+  assert.equal(await resets(SHELL_PANE, WRITE, { sessionId: "terminal-12", input: 'omp.exe --model x "@E:/x/dev.prompt.md"\r' }), true);
+  assert.equal(await resets(SHELL_PANE, WRITE, { sessionId: "terminal-12", input: "omp send me@ now please\r" }), false, "@ not followed by a path");
+});
+
+test("past sessions stay out of the free reads by real path, junction and profile folder", async () => {
+  const omp = path.join(tempDir("leader-omp-"), ".omp");
+  const sessions = path.join(omp, "agent", "sessions");
+  fs.mkdirSync(sessions, { recursive: true });
+  const real = path.join(sessions, "a.jsonl");
+  fs.writeFileSync(real, "{}");
+  const profile = path.join(omp, "profiles", "work", "agent", "sessions");
+  fs.mkdirSync(profile, { recursive: true });
+  fs.writeFileSync(path.join(profile, "b.jsonl"), "{}");
+  const alias = path.join(tempDir("leader-link-"), "innocent");
+  fs.symlinkSync(sessions, alias, "junction");
+  const env = { ANTIFAN_DATA_ROOT: omp };
+  const exact = (target) => isExactFileRead({ toolName: "read", input: { path: target }, cwd: plainDir }, env);
+  assert.equal(exact(real), false);
+  assert.equal(exact(path.join(profile, "b.jsonl")), false, "profile sessions");
+  assert.equal(exact(path.join(alias, "a.jsonl")), false, "junction into the sessions folder");
+  const ordinary = path.join(omp, "config.yml");
+  fs.writeFileSync(ordinary, "x");
+  assert.equal(exact(ordinary), true, "an ordinary file next to them is still exact");
+  const label = (target) => investigationLabel({ toolName: "read", input: { path: target }, cwd: plainDir }, env);
+  assert.notEqual(label(real), null);
+  assert.notEqual(label(path.join(profile, "b.jsonl")), null);
+  assert.equal(label(ordinary), null, "allow-listed config stays free");
+  const aliasInOmp = path.join(omp, "alias");
+  fs.symlinkSync(sessions, aliasInOmp, "junction");
+  assert.notEqual(label(path.join(aliasInOmp, "a.jsonl")), null, "a junction inside an allowed root into sessions");
 });
 
 test("only a successful dispatch resets: a request, an error, an unconfirmed write or another tool does not", async () => {
