@@ -25,10 +25,14 @@ export const LINE_MAX_CHARS = 8 * 1024;
 const TARGET_CAP = 256;
 
 const BRACKETED_PASTE_MARKERS = /\x1b\[20[01]~/g;
-/** Left/right cursor keys and bare Esc: what a Leader types to move within or dismiss an OMP screen; agent-owned for every live run. */
-const AGENT_NAVIGATION_KEYS = /\x1b\[[CD]|\x1b(?!\[(?:20[01]~|[AB]))/g;
-/** The same plus up/down, which are agent-owned only while an ask dialog is open. */
-const AGENT_NAVIGATION_KEYS_ASK = /\x1b\[[ABCD]|\x1b(?!\[20[01]~)/g;
+/**
+ * What a Leader sends to move within or dismiss an OMP screen, which is agent-owned for every live run: the exact
+ * left/right cursor sequences and a bare Esc (the last character of the input, or followed by a control character).
+ * Every other ESC (SS3 `ESC O A`, modified arrows `ESC [1;5A`, `ESC [5~`, alt-keys) stays in the model and taints the line.
+ */
+const AGENT_NAVIGATION_KEYS = /\x1b\[[CD]|\x1b(?=[\x00-\x1f\x7f]|$)/g;
+/** The same plus the exact up/down sequences, which are agent-owned only while an ask dialog is open. */
+const AGENT_NAVIGATION_KEYS_ASK = /\x1b\[[ABCD]|\x1b(?=[\x00-\x1f\x7f]|$)/g;
 /** Control characters a worker's input may carry besides printable text and DEL (0x7f). */
 const MODELLED_CONTROL_CHARS = new Set(['\t', '\n', '\r', '\b', '\x03', '\x1b']);
 /** Appended to the refusals a Leader's `input` can meet only because a chat line was typed as a shell line. */

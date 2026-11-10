@@ -538,7 +538,7 @@ describe('A Leader worker typing through terminal.write', () => {
         ['hrv theme dev', THEME_PUSH_CODES.PUSH_LIVE],
         ['hrv theme publish 1001507144', THEME_PUSH_CODES.REMOTE_OP],
         ['shopify theme push', THEME_PUSH_CODES.PUSH_SCOPE],
-        ['sapo theme push', THEME_PUSH_CODES.REMOTE_OP],
+        ['sapo theme push', THEME_PUSH_CODES.PUSH_SCOPE],
       ] as const) {
         await assert.rejects(() => write('att-w', 'split-w', `${line}\r`), refusedWith(code), line);
       }
@@ -701,6 +701,45 @@ describe('A Leader worker typing through terminal.write', () => {
       const answered = await send('split-w', { keys: ['down', 'down', 'enter'] });
       assert.strictEqual(answered.written, true);
       assert.deepStrictEqual(calls.writes.map((w) => w.input), ['\x1b[B\x1b[B\r']);
+    });
+
+    it('taints the line for every escape sequence that is not an exact agent key: Enter and messages are refused until ctrl-c', async () => {
+      for (const sequence of ['\x1bOA', '\x1b[1;5A', '\x1b[1;2A', '\x1b[5~', '\x1bp']) {
+        writeRun('split-w', 'idle');
+        const { send, calls } = setup();
+        await send('split-w', { input: sequence });
+        await assert.rejects(() => send('split-w', { key: 'enter' }), refusedWith('REFUSED_THEME_COMPLEX'), JSON.stringify(sequence));
+        assert.strictEqual(calls.writes.filter((w) => w.input === '\r').length, 0, 'no Enter was written');
+        // The refusal cleared the line (Ctrl-C), so a message passes again; a second taint blocks it until ctrl-c.
+        await send('split-w', { input: sequence });
+        await assert.rejects(() => send('split-w', { message: 'xin chào' }), (err: unknown) => err instanceof CapabilityError && err.code === 'POLICY_DENIED', JSON.stringify(sequence));
+        await send('split-w', { key: 'ctrl-c' });
+        assert.strictEqual((await send('split-w', { message: 'xin chào' })).written, true);
+      }
+    });
+
+    it('writes no Enter for the chain input, ctrl-c, SS3 up, Enter', async () => {
+      writeRun('split-w', 'idle');
+      const { send, calls } = setup();
+      await send('split-w', { input: '!hrv theme publish 1 #' });
+      await send('split-w', { key: 'ctrl-c' });
+      await send('split-w', { input: '\x1bOA' });
+      await assert.rejects(() => send('split-w', { key: 'enter' }), refusedWith('REFUSED_THEME_COMPLEX'));
+      assert.strictEqual(calls.writes.filter((w) => w.input === '\r').length, 0);
+    });
+
+    it('taints on SS3 up also while an ask dialog is open, and keeps esc, a raw Esc+Enter and side arrows untainted', async () => {
+      writeRun('split-w', 'waiting_user');
+      const { send, calls } = setup();
+      await send('split-w', { input: '\x1bOA' });
+      await assert.rejects(() => send('split-w', { key: 'enter' }), refusedWith('REFUSED_THEME_COMPLEX'));
+      calls.writes.length = 0;
+
+      writeRun('split-w', 'idle');
+      await send('split-w', { key: 'esc' });
+      await send('split-w', { input: '\x1b\r' });
+      await send('split-w', { keys: ['left', 'right'] });
+      assert.deepStrictEqual(calls.writes.map((w) => w.input), ['\x1b', '\x1b\r', '\x1b[D\x1b[C']);
     });
 
     it('refuses a message while an ask dialog is open, even with force', async () => {
