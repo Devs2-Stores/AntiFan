@@ -14,7 +14,7 @@ import { claimedCells, validateReportText } from "./report.mjs";
 import { defaultSessionsDir, judgeLiveness, pidAlive, sessionActivityAt, START_GRACE_MS, UNDELIVERED_AFTER_MS, undeliveredWhy } from "./worker-liveness.mjs";
 import { FALLBACK_TICK_MS, nextRunChange } from "./event-wait.mjs";
 import { pendingAskOf } from "./ask-dialog.mjs";
-import { buildBoard } from "./board.mjs";
+import { buildBoard, jobProgress } from "./board.mjs";
 import { ingestOutcome, listPending } from "./learn.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -22,8 +22,8 @@ const DEFAULT_JOBS_ROOT = "E:/Work/scratch/leader";
 const DEFAULT_DATA_ROOT = "E:/Work/.antifan-data";
 const JOB_SCHEMA = "leader-job/1";
 const HOST = "Taiz";
-const BOOL_FLAGS = new Set(["help", "allow-busy", "allow-low-memory", "force", "all", "allow-outstanding", "without-done", "no-sheet", "keep-workers", "allow-extra-round", "text"]);
-const VERIFY_KINDS = ["sheet", "dashboard", "storefront"];
+const BOOL_FLAGS = new Set(["help", "allow-busy", "allow-low-memory", "allow-low-disk", "force", "all", "allow-outstanding", "without-done", "no-sheet", "keep-workers", "allow-extra-round", "text"]);
+const VERIFY_KINDS = ["sheet", "dashboard", "storefront", "adhoc"];
 const VERIFY_STATUSES = ["PASS", "WARN", "FAIL", "UNREADABLE"];
 const PROBES = { themeId: "themeId.js", overflow: "overflow.js", "element-rect": "element-rect.js", "dashboard-issue": "dashboard-issue.js" };
 
@@ -38,6 +38,11 @@ const HELP = `leader-job.mjs - Leader job ledger (feedback jobs for host ${HOST}
 Usage: node scripts/leader/leader-job.mjs <command> [flags]
 
 Commands
+  init --kind adhoc --slug S [--leader TERMINAL] [--title "<text>"]
+       A job that is not a feedback issue (deploy, cleanup, content work): no issue id, shop or sheet, no snapshot; job.json
+       carries subject {kind adhoc, title} and the prompt skeleton has no GUARD block. Its report needs no guard object; it
+       reaches "verified" only after you record a PASS (record --kind adhoc: you checked the stated outcome yourself).
+       verify-sheet is refused and close needs no close round (state verified or user-approved).
   init --slug S --issue-id ID --shop SHOP (--sheet SHEETID [--gid GID] | --no-sheet) [--leader TERMINAL]
        [--cols-work H --cols-owner H --cols-note H --cols-done H] [--keys "a|b"]
        [--profile haravan|sheet-only] [--snapshot-file CSV]
@@ -46,11 +51,15 @@ Commands
        issue that has no Google Sheet: a header-only stub snapshot is written, verify-sheet reports N/A
        (never PASS) and the sheet is not a required verification.
   dispatch --job DIR --worker TERMINAL [--prompt FILE] [--kind work|followup|close|review]
-       [--mode auto|fresh|followup] [--allow-busy] [--allow-low-memory] [--allow-extra-round --reason "<text>"]
-       Stamp dispatchedAt/preRunSeq, append a round, state=dispatched, print {input} for terminal.write. closeNow lists
+       [--mode auto|fresh|followup] [--allow-busy] [--allow-low-memory] [--allow-low-disk] [--allow-extra-round --reason "<text>"]
+       Stamp dispatchedAt/preRunSeq, append a round, state=dispatched, print {input} for terminal.write. A followup round
+       (typed into a pane that already runs the agent CLI) also prints {message}: pass it as terminal.write {message}, not
+       {input}. closeNow lists
        worker terminals of earlier rounds that are still open (a replaced worker): terminal.close each right away.
        A fresh round (a new omp.exe) is refused (exit 4) while AntiFan reports Windows commit headroom under its
-       floor; --allow-low-memory overrides that only on the user's say-so.
+       floor; --allow-low-memory overrides that only on the user's say-so. Any dispatch (fresh or followup) is refused
+       (exit 4, "disk is short: ...") while AntiFan's disk-pressure.json reports a volume under its floor; --allow-low-disk
+       overrides that only on the user's say-so.
        A work/followup round past ${MAX_ROUNDS_PER_JOB} live rounds, or any dispatch past ${MAX_DEAD_ROUNDS} dead rounds, is refused (exit 4)
        unless --allow-extra-round --reason "<why>" (stored on the round). close and review rounds never count.
        --kind review starts a read-only reviewer over the earlier rounds' reports (template review-followup.md); its
@@ -72,7 +81,7 @@ Commands
        Check the round's report file; state=reported (needs_input for a NEEDS_INPUT report).
   verify-sheet --job DIR [--round N] [--current-file CSV]
        Diff the live sheet against snapshot-before.csv, keyed by task text, against the report's claims.
-  record --job DIR --round N --kind dashboard|storefront|sheet --status PASS|WARN|FAIL|UNREADABLE [--note T]...
+  record --job DIR --round N --kind dashboard|storefront|sheet|adhoc --status PASS|WARN|FAIL|UNREADABLE [--note T]...
        Store the Leader's own measurement; state=verified once all required kinds pass.
   probe --name themeId|overflow|element-rect|dashboard-issue [--selector CSS] [--id ID] [--limit N]
        Print the read-only expression to pass to anti.browser.evaluate.
@@ -101,7 +110,7 @@ Learning: close stores a PENDING lesson in AntiFan Core (scripts/antifan-core.cj
 LEADER_LEARN=off disables it. Environment: LEADER_JOBS_ROOT (default ${DEFAULT_JOBS_ROOT}), LEADER_RUNS_DIR or ANTIFAN_DATA_ROOT
 (run files <dir>/<terminal>.json, default ${DEFAULT_DATA_ROOT}/runtime/runs), ANTIFAN_TERMINAL_SESSION_ID
 (the Leader's terminal). Flag --runs-dir overrides LEADER_RUNS_DIR. dispatch reads AntiFan's commit reading from
-commit-pressure.json next to the runs dir (default ${DEFAULT_DATA_ROOT}/runtime/commit-pressure.json). approve-push writes
+commit-pressure.json and disk-pressure.json next to the runs dir (default ${DEFAULT_DATA_ROOT}/runtime/). approve-push writes
 <LEADER_APPROVALS_DIR | ANTIFAN_DATA_ROOT/runtime/leader-push-approvals>/<id>.json (flag --approvals-dir) and reads
 the registry <ANTIFAN_CONFIG_DIR | ANTIFAN_DATA_ROOT/config>/leader-terminals.json.
 
@@ -181,6 +190,35 @@ function readCommitPressure(file, now = Date.now()) {
   if (j?.schema !== 1 || typeof j.at !== "number" || typeof j.headroomBytes !== "number" || typeof j.floorBytes !== "number") return null;
   if (Math.abs(now - j.at) > COMMIT_READING_MAX_AGE_MS) return null;
   return j;
+}
+
+/** Main writes its per-volume free-space reading next to the commit reading; same staleness rule. */
+const diskFileOf = (flags) => path.join(path.dirname(path.resolve(runsDirOf(flags))), "disk-pressure.json");
+
+/**
+ * AntiFan Main's latest free-space reading, or null when there is none recent enough to act on (a missing,
+ * malformed or other-schema file, or one from a Main that stopped sampling).
+ */
+function readDiskPressure(file, now = Date.now()) {
+  let j;
+  try {
+    j = JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch {
+    return null;
+  }
+  if (j?.schema !== 1 || typeof j.at !== "number" || !Array.isArray(j.volumes)) return null;
+  if (Math.abs(now - j.at) > COMMIT_READING_MAX_AGE_MS) return null;
+  return j;
+}
+
+/** The volume that makes the machine short of disk: one under its floor, else one the app alarmed on; null when none. */
+function shortDiskVolume(reading) {
+  const ok = (v) => v && typeof v.path === "string" && Number.isFinite(v.freeBytes) && Number.isFinite(v.floorBytes);
+  const vols = reading.volumes.filter(ok);
+  const under = vols.filter((v) => v.freeBytes < v.floorBytes).sort((a, b) => a.freeBytes - b.freeBytes)[0];
+  if (under) return under;
+  if (reading.alarmed === true) return vols.find((v) => v.alarmed === true) ?? vols.sort((a, b) => a.freeBytes - b.freeBytes)[0] ?? null;
+  return null;
 }
 
 const gb = (bytes) => `${(bytes / 1024 ** 3).toFixed(1)} GB`;
@@ -333,21 +371,22 @@ const NO_SHEET_STUB_CSV = "Stage,Mô tả,Dev note kết quả\n";
 const GID_FIRST_TAB = "tab đầu tiên (không chỉ định gid)";
 
 function jobVars(job, n, reportPath, kind = "work") {
-  const c = job.subject.cols;
-  const vars = {
-    JOB: job.job,
-    KEY: job.slug,
-    ROUND: n,
-    ISSUE_ID: job.subject.issueId,
-    HOST: job.subject.host,
-    SHOP: job.subject.shop,
-    SHEET_ID: job.subject.sheetId,
-    GID: job.subject.gid ?? GID_FIRST_TAB,
-    COL_WORK: c.work,
-    COL_NOTE: c.note,
-    COL_DONE: c.done ?? "(không có cột này)",
-    REPORT_PATH: reportPath,
-  };
+  const vars = { JOB: job.job, KEY: job.slug, ROUND: n, REPORT_PATH: reportPath };
+  if (job.subject.kind === "adhoc") {
+    vars.TITLE = job.subject.title;
+  } else {
+    const c = job.subject.cols;
+    Object.assign(vars, {
+      ISSUE_ID: job.subject.issueId,
+      HOST: job.subject.host,
+      SHOP: job.subject.shop,
+      SHEET_ID: job.subject.sheetId,
+      GID: job.subject.gid ?? GID_FIRST_TAB,
+      COL_WORK: c.work,
+      COL_NOTE: c.note,
+      COL_DONE: c.done ?? "(không có cột này)",
+    });
+  }
   // The close token only ever goes into a close round's prompt: a work round that quotes it would let customer text forge a close.
   if (kind === "close" && typeof job.approval?.closeToken === "string") vars.CLOSE_TOKEN = job.approval.closeToken;
   if (kind === "review") vars.REVIEW_TARGETS = job.rounds.filter((r) => r.kind !== "review").map((r) => r.reportPath).join("\n");
@@ -421,9 +460,57 @@ function detectCols(csvText, given) {
 
 // ---------------------------------------------------------------- commands
 
+/** <yymmdd-hhmm>-<slug> under the jobs root, created empty; refuses a name that already exists. */
+function allocJobDir(slug) {
+  const d = new Date();
+  const p2 = (n) => String(n).padStart(2, "0");
+  const stamp = `${p2(d.getFullYear() % 100)}${p2(d.getMonth() + 1)}${p2(d.getDate())}-${p2(d.getHours())}${p2(d.getMinutes())}`;
+  const name = `${stamp}-${slug}`;
+  const dir = path.join(jobsRoot(), name);
+  if (fs.existsSync(dir)) throw new CliError(EXIT.USAGE, `job dir already exists: ${fwd(dir)}`);
+  fs.mkdirSync(dir, { recursive: true });
+  return { name, dir };
+}
+
+const ADHOC_REFUSED_FLAGS = ["issue-id", "shop", "sheet", "gid", "no-sheet", "snapshot-file", "cols-work", "cols-owner", "cols-note", "cols-done", "keys", "profile"];
+
+/** init --kind adhoc: a job that is not a feedback issue. It has no issue, shop, sheet or snapshot. */
+function cmdInitAdhoc(flags, slug) {
+  const wrong = ADHOC_REFUSED_FLAGS.filter((f) => flags.has(f));
+  if (wrong.length) throw new CliError(EXIT.USAGE, `--kind adhoc has no issue, shop or sheet: remove ${wrong.map((f) => `--${f}`).join(", ")}`);
+  const leaderArg = one(flags, "leader") || process.env.ANTIFAN_TERMINAL_SESSION_ID;
+  if (!leaderArg) throw new CliError(EXIT.USAGE, "missing the Leader terminal: pass --leader or set ANTIFAN_TERMINAL_SESSION_ID");
+  const leaderTerminal = validTerminalId(leaderArg, "leader");
+  const title = (one(flags, "title") ?? "").replace(/\s+/g, " ").trim() || slug;
+  const { name, dir } = allocJobDir(slug);
+  const leaderRun = readRun(runsDirOf(flags), leaderTerminal);
+  const job = {
+    schema: JOB_SCHEMA,
+    job: name,
+    slug,
+    createdAt: Date.now(),
+    leader: { terminal: leaderTerminal, ompSessionId: leaderRun && !leaderRun.unreadable ? (leaderRun.ompSessionId ?? null) : null },
+    subject: { kind: "adhoc", title },
+    scope: { keys: null },
+    snapshotBefore: null,
+    profile: "adhoc",
+    state: "open",
+    rounds: [],
+  };
+  const reportPath = reportPathFor(dir, job, 1);
+  const promptPath = promptPathFor(dir, job, 1);
+  fs.writeFileSync(promptPath, `${render(readTemplate("worker-header-adhoc.md"), jobVars(job, 1, reportPath))}\n# Việc\n{{TASK}}\n`);
+  saveJob(dir, job);
+  emit({ cmd: "init", ok: true, jobDir: fwd(dir), job: name, state: job.state, kind: "adhoc", title, promptPath, nextReportPath: reportPath, note: "replace the {{TASK}} line in the prompt, then run dispatch" });
+  return EXIT.OK;
+}
+
 async function cmdInit(flags) {
   const slug = req(flags, "slug");
   if (!/^[a-z0-9][a-z0-9-]{0,40}$/i.test(slug)) throw new CliError(EXIT.USAGE, "--slug must be letters, digits and dashes (max 41 chars)");
+  const jobKind = one(flags, "kind") || "feedback";
+  if (!["feedback", "adhoc"].includes(jobKind)) throw new CliError(EXIT.USAGE, "--kind must be feedback or adhoc");
+  if (jobKind === "adhoc") return cmdInitAdhoc(flags, slug);
   const issueId = req(flags, "issue-id");
   const shop = req(flags, "shop");
   const noSheet = one(flags, "no-sheet") === true;
@@ -457,13 +544,7 @@ async function cmdInit(flags) {
   const analysis = parseSheet(csv, cols);
   if (!analysis.ok) throw new CliError(EXIT.USAGE, `snapshot does not match the column headers: ${analysis.error}`);
 
-  const d = new Date();
-  const p2 = (n) => String(n).padStart(2, "0");
-  const stamp = `${p2(d.getFullYear() % 100)}${p2(d.getMonth() + 1)}${p2(d.getDate())}-${p2(d.getHours())}${p2(d.getMinutes())}`;
-  const name = `${stamp}-${slug}`;
-  const dir = path.join(jobsRoot(), name);
-  if (fs.existsSync(dir)) throw new CliError(EXIT.USAGE, `job dir already exists: ${fwd(dir)}`);
-  fs.mkdirSync(dir, { recursive: true });
+  const { name, dir } = allocJobDir(slug);
   fs.writeFileSync(path.join(dir, "snapshot-before.csv"), csv);
 
   const leaderRun = readRun(runsDirOf(flags), leaderTerminal);
@@ -520,6 +601,9 @@ async function cmdDispatch(flags) {
   const n = job.rounds.length + 1;
   const kind = one(flags, "kind") || (n === 1 ? "work" : "followup");
   if (!["work", "followup", "close", "review"].includes(kind)) throw new CliError(EXIT.USAGE, "--kind must be work, followup, close or review");
+  if (job.subject.kind === "adhoc" && (kind === "close" || kind === "review")) {
+    throw new CliError(EXIT.REFUSED, `an ad-hoc job has no ${kind} round (no dashboard Stage to close, no issue to review): verify with record --kind adhoc, then close`);
+  }
   if (kind === "close" && !(job.state === "user-approved" && job.approvedAt)) {
     throw new CliError(EXIT.REFUSED, `close round needs state user-approved (run approve after the user's yes); state is ${job.state}`);
   }
@@ -565,6 +649,7 @@ async function cmdDispatch(flags) {
     );
   }
   if (!rendered.includes(reportPath)) throw new CliError(EXIT.REFUSED, `prompt does not tell the worker where to write the report (${reportPath})`);
+  if (job.subject.kind === "adhoc" && !rendered.includes(job.job)) throw new CliError(EXIT.REFUSED, `prompt does not name the job (${job.job}): start from the init skeleton`);
 
   const runsDir = runsDirOf(flags);
   const run = readRun(runsDir, worker);
@@ -585,17 +670,31 @@ async function cmdDispatch(flags) {
       { headroomBytes: commit.headroomBytes, floorBytes: commit.floorBytes, alarmed: commit.alarmed === true },
     );
   }
-  if (mode === "fresh") {
+  const disk = readDiskPressure(diskFileOf(flags));
+  // Close and review rounds produce no build output, so only a round that does work needs the room.
+  const diskShort = disk && !one(flags, "allow-low-disk") && (kind === "work" || kind === "followup") ? shortDiskVolume(disk) : null;
+  if (diskShort) {
+    // A volume still latched in the app's alarm can have more free than the floor: the alarm clears only at a higher level.
+    const latched = diskShort.freeBytes >= diskShort.floorBytes;
+    const clear = Number.isFinite(diskShort.clearBytes) ? `; the alarm clears at ${gb(diskShort.clearBytes)}` : "";
+    const why = latched
+      ? `${diskShort.path} is still in a low-disk alarm (${gb(diskShort.freeBytes)} free${clear})`
+      : `${diskShort.path} has ${gb(diskShort.freeBytes)} free, under the ${gb(diskShort.floorBytes)} floor`;
+    throw new CliError(
+      EXIT.REFUSED,
+      `disk is short: ${why}, and a worker writes transcripts, caches and build output there. Free space (delete scratch, empty the Recycle Bin) or let running workers finish, then dispatch again; pass --allow-low-disk only on the user's say-so`,
+      { volume: diskShort.path, freeBytes: diskShort.freeBytes, floorBytes: diskShort.floorBytes, alarmed: latched },
+    );
+  }
+  if (mode === "fresh" && job.subject.kind !== "adhoc") {
     const s = job.subject;
     const missing = [["issueId", String(s.issueId)], ["host", s.host], ["shop", s.shop], ["sheetId", s.sheetId]].filter(([, v]) => !rendered.includes(v)).map(([k]) => k);
     if (missing.length) throw new CliError(EXIT.REFUSED, `fresh worker prompt lacks the guard values: ${missing.join(", ")}`);
   }
   if (rendered !== text) fs.writeFileSync(promptPath, rendered);
 
-  const input =
-    mode === "fresh"
-      ? `omp "@${promptPath}"\r`
-      : `Đọc ${promptPath} rồi làm theo đúng hướng dẫn trong đó (ghi report vào ${reportPath}).\r`;
+  const followupText = `Đọc ${promptPath} rồi làm theo đúng hướng dẫn trong đó (ghi report vào ${reportPath}).`;
+  const input = mode === "fresh" ? `omp "@${promptPath}"\r` : `${followupText}\r`;
   const preOmp = run?.ompSessionId ?? null;
   const round = {
     n,
@@ -627,6 +726,7 @@ async function cmdDispatch(flags) {
     worker,
     state: job.state,
     input,
+    ...(mode === "followup" ? { message: followupText } : {}),
     promptPath,
     reportPath,
     dispatchedAt: round.dispatchedAt,
@@ -635,11 +735,13 @@ async function cmdDispatch(flags) {
     ...(extraRoundReason ? { extraRoundReason } : {}),
     preRunSeq: round.preRunSeq,
     ...(commit ? { commitHeadroomBytes: commit.headroomBytes, commitFloorBytes: commit.floorBytes } : {}),
-    ...(replaced.length
+    ...(replaced.length || mode === "followup"
       ? {
-          closeNow: replaced.filter((w) => w.runState !== "running").map((w) => w.terminal),
-          replacedStillRunning: replaced.filter((w) => w.runState === "running").map((w) => w.terminal),
-          note: "earlier workers of this job are still open and nobody needs them: terminal.close {sessionId, removeMintedProject:true} each one in closeNow now, a replacedStillRunning one once it settles",
+          ...(replaced.length ? { closeNow: replaced.filter((w) => w.runState !== "running").map((w) => w.terminal), replacedStillRunning: replaced.filter((w) => w.runState === "running").map((w) => w.terminal) } : {}),
+          note: [
+            mode === "followup" ? "this worker already runs the agent CLI: pass message (not input) to terminal.write; input is for a shell pane" : null,
+            replaced.length ? "earlier workers of this job are still open and nobody needs them: terminal.close {sessionId, removeMintedProject:true} each one in closeNow now, a replacedStillRunning one once it settles" : null,
+          ].filter(Boolean).join("; "),
         }
       : {}),
   });
@@ -799,6 +901,8 @@ async function cmdWaitAny(flags) {
 function requiredKindsFor(round, json, job) {
   if (round.kind === "review") return [];
   if (round.kind === "close") return ["dashboard"];
+  // An ad-hoc job has no sheet or dashboard; applyVerification still wants one recorded PASS before "verified".
+  if (job?.subject?.kind === "adhoc") return json?.storefront ? ["storefront"] : [];
   // A job without a sheet still needs an independent check of the dashboard row: with nothing required,
   // a report that carries only a summary would reach "verified" without anyone having looked at anything.
   const req = job?.subject?.noSheet ? ["dashboard"] : ["sheet"];
@@ -864,8 +968,8 @@ function cmdValidateReport(flags) {
     status = v.status;
     json = v.json;
     errors.push(...v.errors);
-    if (job.subject.noSheet && Array.isArray(json?.sheet?.cells) && json.sheet.cells.length) {
-      errors.push("report claims sheet cells but this job has no sheet (init --no-sheet)");
+    if ((job.subject.noSheet || job.subject.kind === "adhoc") && Array.isArray(json?.sheet?.cells) && json.sheet.cells.length) {
+      errors.push(job.subject.kind === "adhoc" ? "report claims sheet cells but this job is ad-hoc (no sheet)" : "report claims sheet cells but this job has no sheet (init --no-sheet)");
     }
   }
   const valid = errors.length === 0;
@@ -906,6 +1010,18 @@ function cmdValidateReport(flags) {
   return valid ? EXIT.OK : EXIT.CHECK_FAILED;
 }
 
+/**
+ * What an ad-hoc work round still lacks: a PASS/WARN of the Leader's own check of the stated outcome (kind adhoc),
+ * and no recorded kind currently FAIL (a later PASS of another kind never outvotes it).
+ */
+function adhocMissing(round) {
+  const v = round?.verification ?? {};
+  const missing = [];
+  if (v.adhoc?.status !== "PASS" && v.adhoc?.status !== "WARN") missing.push("adhoc");
+  for (const [k, x] of Object.entries(v)) if (k !== "adhoc" && x?.status === "FAIL") missing.push(`${k} FAIL`);
+  return missing;
+}
+
 function applyVerification(job, round) {
   const rep = round.report;
   if (round.kind === "review") return { missing: ["review rounds are advisory: they never verify a job"] };
@@ -915,11 +1031,14 @@ function applyVerification(job, round) {
   const reportOk = round.kind === "close" ? rep.status === "DONE" : rep.status === "DONE" || rep.status === "PENDING";
   if (!reportOk) return { missing: [`report status ${rep.status} cannot be verified`] };
   const required = rep.required ?? [];
-  if (required.length === 0) return { missing: ["at least one independent check"] };
+  const adhoc = job.subject?.kind === "adhoc";
+  if (required.length === 0 && !adhoc) return { missing: ["at least one independent check"] };
   for (const k of required) {
     const v = round.verification[k]?.status;
     if (v !== "PASS" && v !== "WARN") missing.push(k);
   }
+  // A summary alone never verifies an ad-hoc job: the Leader records at least one check of the stated outcome.
+  if (adhoc && round.kind !== "close") missing.push(...adhocMissing(round).filter((m) => !missing.includes(m)));
   if (!missing.length && latest) {
     if (round.kind === "close") {
       job.state = "user-approved";
@@ -933,6 +1052,7 @@ function applyVerification(job, round) {
 
 async function cmdVerifySheet(flags) {
   const { dir, job } = loadJob(flags);
+  if (job.subject.kind === "adhoc") throw new CliError(EXIT.REFUSED, "an ad-hoc job has no sheet: verify the outcome yourself and run record --kind adhoc --status PASS");
   const round = pickRound(job, flags);
   if (!round.report?.valid) throw new CliError(EXIT.REFUSED, `round ${round.n} has no valid report yet (run validate-report first)`);
   if (job.subject.noSheet) {
@@ -1026,6 +1146,9 @@ function blockingText(job) {
     case "reported": {
       const lastWork = lastWorkRound(job);
       const miss = (lastWork?.report?.required ?? []).filter((k) => !["PASS", "WARN"].includes(lastWork.verification[k]?.status));
+      if (job.subject?.kind === "adhoc") {
+        for (const m of adhocMissing(lastWork)) if (!miss.includes(m)) miss.push(m === "adhoc" ? "adhoc (record --kind adhoc after checking the outcome yourself)" : m);
+      }
       return `independent verification pending: ${miss.join(", ") || "none"}`;
     }
     case "worker_dead":
@@ -1081,8 +1204,8 @@ function cmdStatus(flags) {
       job: job.job,
       jobDir: fwd(dir),
       state: job.state,
-      issueId: job.subject.issueId,
-      shop: job.subject.shop,
+      ...(job.subject.kind === "adhoc" ? { subject: "adhoc", title: job.subject.title } : { issueId: job.subject.issueId, shop: job.subject.shop }),
+      ...jobProgress(job, runsDir),
       rounds: job.rounds.length,
       roundsUsed: liveWorkRounds(job),
       maxRounds: MAX_ROUNDS_PER_JOB,
@@ -1142,9 +1265,17 @@ function cmdClose(flags) {
   const { dir, job } = loadJob(flags);
   const force = one(flags, "force") === true;
   if (!force) {
-    if (job.state !== "user-approved") throw new CliError(EXIT.REFUSED, `close needs state user-approved, state is ${job.state}`);
-    if (!job.closeVerifiedAt && one(flags, "without-done") !== true) {
-      throw new CliError(EXIT.REFUSED, "no verified close round (dispatch --kind close and verify the dashboard Stage), or pass --without-done");
+    if (job.subject.kind === "adhoc") {
+      if (!["verified", "user-approved"].includes(job.state)) throw new CliError(EXIT.REFUSED, `an ad-hoc job closes from state verified (record --kind adhoc --status PASS first), state is ${job.state}`);
+      // approve --force can reach user-approved without a check; the close still needs the recorded outcome check.
+      const lw = lastWorkRound(job);
+      const lack = lw?.report?.valid ? adhocMissing(lw) : ["valid report"];
+      if (lack.length) throw new CliError(EXIT.REFUSED, `an ad-hoc job closes only after its outcome check passed: missing ${lack.join(", ")}`);
+    } else {
+      if (job.state !== "user-approved") throw new CliError(EXIT.REFUSED, `close needs state user-approved, state is ${job.state}`);
+      if (!job.closeVerifiedAt && one(flags, "without-done") !== true) {
+        throw new CliError(EXIT.REFUSED, "no verified close round (dispatch --kind close and verify the dashboard Stage), or pass --without-done");
+      }
     }
   }
   const live = liveWorkers(job, runsDirOf(flags), inUseElsewhere(readLeaderJobs(job.leader?.terminal), job));

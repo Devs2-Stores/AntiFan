@@ -5,7 +5,7 @@
 //
 //   { "schema":"leader-report/1", "status":"DONE",
 //     "job":"<job dir name>", "key":"<slug>", "round":1,   // must match the round being validated
-//     "guard":{"issueId","host","shop","sheetId"},          // copied from the prompt, must match job.json
+//     "guard":{"issueId","host","shop","sheetId"},          // copied from the prompt, must match job.json (ad-hoc jobs: omit it)
 //     "summary":"...",                                       // optional
 //     "files":["..."], "pushed":["..."], "evidence":["..."],
 //     "sheet":{"cells":[{"keyText":"<task text>","col":"<header>","expect":"<cell text>","occurrence":1}],
@@ -76,7 +76,17 @@ export function validateReportObject(parsed, job, round, ctx = {}) {
   if (j.summary !== undefined && !isStr(j.summary)) errors.push("summary must be a string");
 
   const g = j.guard;
-  if (!isObj(g)) {
+  if (job.subject?.kind === "adhoc") {
+    // An ad-hoc job has no issue, shop or sheet: a guard block is optional and must not claim any of them.
+    if (g !== undefined) {
+      if (!isObj(g)) errors.push("guard must be an object when present");
+      else {
+        for (const k of ["issueId", "host", "shop", "sheetId"]) {
+          if (g[k] !== undefined && g[k] !== null && String(g[k]).trim() !== "") errors.push(`guard.${k} claims a feedback field but this job is ad-hoc (no issue, shop or sheet)`);
+        }
+      }
+    }
+  } else if (!isObj(g)) {
     errors.push("guard object missing (issueId, host, shop, sheetId)");
   } else {
     const want = { issueId: String(job.subject.issueId), host: job.subject.host, shop: job.subject.shop, sheetId: job.subject.sheetId };

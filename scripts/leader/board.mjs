@@ -22,6 +22,53 @@ function readRun(runsDir, terminal) {
   return readJson(path.join(runsDir, `${terminal}.json`));
 }
 
+const REPORT_HEAD_BYTES = 512;
+
+/** Line 1 of a report as `STATUS: <word>`: only the word, read from the first bytes, and only when the file is newer than the round's dispatch. */
+function reportStatusOf(round) {
+  if (typeof round?.reportPath !== "string") return null;
+  let fd = null;
+  try {
+    fd = fs.openSync(round.reportPath, "r");
+    if (typeof round.dispatchedAt === "number" && fs.fstatSync(fd).mtimeMs < round.dispatchedAt) return null;
+    const buf = Buffer.alloc(REPORT_HEAD_BYTES);
+    const n = fs.readSync(fd, buf, 0, REPORT_HEAD_BYTES, 0);
+    const first = buf.toString("utf8", 0, n).replace(/^\uFEFF/, "").split(/\r?\n/, 1)[0];
+    return /^STATUS:\s*([A-Za-z_]+)/.exec(first)?.[1] ?? null;
+  } catch {
+    return null;
+  } finally {
+    if (fd !== null) {
+      try {
+        fs.closeSync(fd);
+      } catch {}
+    }
+  }
+}
+
+/**
+ * How far along a job is: its latest round, the worker's run file (silence, last tool) and the first line of the
+ * round's report. Every field is null when its source is missing or half-written; it never throws.
+ */
+export function jobProgress(job, runsDir, now = Date.now()) {
+  const rounds = Array.isArray(job?.rounds) ? job.rounds : [];
+  const last = rounds.at(-1) ?? null;
+  const terminal = typeof last?.worker?.terminal === "string" ? last.worker.terminal : null;
+  const run = last ? readRun(runsDir, terminal) : null;
+  const usable = run !== null && typeof run === "object" && !run.unreadable;
+  return {
+    round: typeof last?.n === "number" ? last.n : null,
+    kind: typeof last?.kind === "string" ? last.kind : null,
+    roundsUsed: rounds.filter((r) => (r?.kind === "work" || r?.kind === "followup") && !r.deadAt).length,
+    worker: terminal,
+    runState: usable && typeof run.state === "string" ? run.state : null,
+    silentMin: usable && Number.isFinite(run.lastEventAt) ? Math.max(0, Math.floor((now - run.lastEventAt) / 60_000)) : null,
+    lastTool: usable && typeof run.lastTool === "string" ? run.lastTool : null,
+    workerAlive: usable ? run.state !== "ended" : null,
+    reportStatus: last ? reportStatusOf(last) : null,
+  };
+}
+
 function blockingText(job, last) {
   switch (job.state) {
     case "open":
@@ -50,6 +97,7 @@ function blockingText(job, last) {
 // Lower rank = listed first.
 function rankOf(row) {
   if (row.state === "needs_input") return 0;
+  if (row.reportStatus === "NEEDS_INPUT") return 1;
   if (row.state === "worker_dead" || row.finishedUnseen) return 1;
   if (row.state === "verified" || row.state === "user-approved") return 2;
   if (row.stale) return 3;
@@ -57,7 +105,9 @@ function rankOf(row) {
 }
 
 /**
- * @param {{jobsRoot:string, runsDir?:string, leader?:string, now?:number, staleHours?:number, includeClosed?:boolean}} opts
+ * @param {{jobsRoot:string, runsDir?:string, leader?:string|null, now?:number, staleHours?:number, includeClosed?:boolean}} opts
+ * `leader` omitted or null lists every Leader's jobs in one pass (one listing, one job.json read each); each row then also
+ * carries `leader`, its Leader terminal id (null when the job has none). Rows are sorted as for one Leader: needs-user first.
  * @returns {{at:number, rows:object[], needsMe:string[], text:string}}
  */
 export function buildBoard({ jobsRoot, runsDir, leader, now = Date.now(), staleHours = 24, includeClosed = false } = {}) {
@@ -84,12 +134,15 @@ export function buildBoard({ jobsRoot, runsDir, leader, now = Date.now(), staleH
     }
     const deadRound = [...job.rounds].reverse().find((r) => r.deadAt || r.deadWhy);
     const deadWhy = deadRound?.deadWhy ?? null;
-    const needsMe = ["needs_input", "worker_dead", "verified", "user-approved"].includes(state) || finishedUnseen || stale;
+    const progress = jobProgress(job, runsDir, now);
+    const needsMe = ["needs_input", "worker_dead", "verified", "user-approved"].includes(state) || finishedUnseen || stale || (state !== "closed" && progress.reportStatus === "NEEDS_INPUT");
     rows.push({
       job: job.job ?? name,
+      ...(leader ? {} : { leader: typeof job.leader?.terminal === "string" ? job.leader.terminal : null }),
       state,
       ageHours,
       rounds: job.rounds.length,
+      ...progress,
       blocking: finishedUnseen ? `worker ${last.worker?.terminal} FINISHED round ${last.n} (idle): run wait-any` : blockingText(job, last),
       needsMe,
       stale,
@@ -107,7 +160,10 @@ export function buildBoard({ jobsRoot, runsDir, leader, now = Date.now(), staleH
     const flag = r.needsMe ? "!" : " ";
     const dead = r.deadWhy && r.state === "worker_dead" ? ` [${r.deadWhy}]` : "";
     const stale = r.stale ? " STALE" : "";
-    lines.push(`${flag} ${r.job} | ${r.state}${stale} | ${r.ageHours}h | r${r.rounds} | ${r.blocking}${dead}`.slice(0, 220));
+    const where = r.round !== null ? `r${r.round}/${r.kind ?? "?"}` : `r${r.rounds}`;
+    const silent = r.silentMin !== null ? ` | silent ${r.silentMin}m` : "";
+    const rep = r.reportStatus ? ` | STATUS: ${r.reportStatus}` : "";
+    lines.push(`${flag} ${r.job} | ${r.state}${stale} | ${r.ageHours}h | ${where}${silent}${rep} | ${r.blocking}${dead}`.slice(0, 220));
   });
   if (rows.length > room) lines.push(`... ${rows.length - room} more not shown`);
   if (!rows.length) lines.push("(no open jobs)");
