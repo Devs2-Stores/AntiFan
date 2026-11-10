@@ -1253,14 +1253,14 @@ describe('Capability catalogue', () => {
     assert.strictEqual(rebindRes.isError, undefined, rebindRes.content?.[0]?.text);
     assert.strictEqual(currentAutomationTab, 'tab-2', 'Host automation tab must be updated to tab-2');
 
-    // 2. A tab outside the session's ownership fails closed before the host's
-    // existence check, so the refusal code is TARGET_MISMATCH (ownership gate),
-    // and the automation target is untouched.
+    // 2. A tab id naming no live tab is reported gone (TARGET_STALE, cause tab-gone) rather than
+    // foreign, and the automation target is untouched.
     const failRes = await server.callTool('antifan_set_automation_target', {
       tabId: 'tab-unknown-999',
     });
     const failPayload = JSON.parse(failRes.content[0]?.text || '{}');
-    assert.strictEqual(failPayload.code, 'TARGET_MISMATCH', `expected TARGET_MISMATCH, got ${failRes.content[0]?.text}`);
+    assert.strictEqual(failPayload.code, 'TARGET_STALE', `expected TARGET_STALE, got ${failRes.content[0]?.text}`);
+    assert.strictEqual(failPayload.details?.cause, 'tab-gone');
     assert.strictEqual(currentAutomationTab, 'tab-2', 'Host automation tab must NOT be corrupted by failed call');
 
     // 3. Opening a new tab via MCP tool automatically rebinds the automation target (Phase 02 invariant)
