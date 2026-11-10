@@ -1560,13 +1560,36 @@ export class AttachmentRegistry {
     // Releasing is bookkeeping only and must never break the mutation path
     // that fired it.
     const sessionId = record?.tabId || record?.browserTarget?.tabId;
-    if (sessionId && this.delegate?.releaseSessionTabPool) {
+    if (sessionId && this.delegate?.releaseSessionTabPool && !this.hasLiveSessionPeer(record, sessionId)) {
       try {
         this.delegate.releaseSessionTabPool(sessionId);
       } catch (err) {
         console.warn(`[AttachmentRegistry] Failed to release session tab pool ${sessionId} on dispose:`, err);
       }
     }
+  }
+
+  /**
+   * Whether another attachment still holds the session this record belonged to.
+   *
+   * A tab pool belongs to the session (the terminal and the tab it is bound to), not to one
+   * attachment: a short-lived attachment minted from the same terminal (every launcher script
+   * run mints one onto the terminal's tab) ends while the long-lived one keeps working in that
+   * pool. Freeing the pool then strips the live session of the tabs it opened and of the
+   * failover that names a live tab after one of them closes, and its next rebind to a tab it
+   * owned is refused as foreign. Peers are matched on the bound tab or on the terminal the
+   * attachment was minted from; only the last one to end frees the pool.
+   */
+  private hasLiveSessionPeer(record: ExecutionAttachmentRecord, tabId: string): boolean {
+    const now = Date.now();
+    for (const other of this.records.values()) {
+      if (other.id === record.id) continue;
+      if (other.state !== 'active' && other.state !== 'suspended') continue;
+      if (typeof other.expiresAt === 'number' && other.expiresAt <= now) continue;
+      if ((other.tabId || other.browserTarget?.tabId) === tabId) return true;
+      if (record.originTerminalSessionId && other.originTerminalSessionId === record.originTerminalSessionId) return true;
+    }
+    return false;
   }
 
   async revokeForAttempt(attemptId: string): Promise<void> {

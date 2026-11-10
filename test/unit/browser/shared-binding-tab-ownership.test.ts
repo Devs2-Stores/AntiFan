@@ -41,6 +41,8 @@ interface HostInternals {
   isTabAllowedForPrimary(primary: string, requested: string): boolean;
   releaseSessionTab(sessionId: string, tabId: string): boolean;
   closeTab(tabId: string, source?: string): boolean;
+  getFailoverTargetTab(staleTabId: string): string | undefined;
+  releaseSessionTabPool(sessionId: string): boolean;
   describeTabOwnership(bound: string, target: string): {
     allowed: boolean;
     targetOwner: string;
@@ -262,5 +264,82 @@ describe('a tab outside the managed set is still foreign', () => {
     assert.equal(description.allowed, false);
     assert.equal(description.targetOwner, 'unowned');
     assert.equal(description.managedTotal, 1);
+  });
+});
+
+/** A registry wired like main: ending an attachment frees the bound tab's pool through the host. */
+function wireRegistryWithPoolRelease(host: HostInternals): AttachmentRegistry {
+  return new AttachmentRegistry({
+    isTabAllowed: (record: { tabId?: string }, requestedTabId: string) => {
+      if (!record?.tabId) return true;
+      if (record.tabId === requestedTabId) return true;
+      return host.isTabAllowedForPrimary(record.tabId, requestedTabId);
+    },
+    releaseSessionTab: (sessionId, tabId) => host.releaseSessionTab(sessionId, tabId),
+    releaseSessionTabPool: (sessionId) => host.releaseSessionTabPool(sessionId),
+  });
+}
+
+async function mintFromTerminal(registry: AttachmentRegistry, tabId: string, terminalSessionId?: string): Promise<ExecutionAttachmentRecord> {
+  const lease = issueRuntimeLease(PROJECT_ID, WORKSPACE_ID, 60_000, 1);
+  const { record } = await registry.issueAttachment(
+    makeControlPlaneId('run'),
+    makeControlPlaneId('attempt'),
+    PROJECT_ID,
+    WORKSPACE_ID,
+    {
+      backendId: 'test-backend',
+      lease,
+      leaseToken: lease.token,
+      hostEpoch: 1,
+      tabId,
+      grant: 'write',
+      documentGeneration: 1,
+      ...(terminalSessionId ? { originTerminalSessionId: terminalSessionId } : {}),
+    },
+  );
+  return record;
+}
+
+describe('ending one attachment does not strip a session that is still live', () => {
+  it('a launcher attachment from the same terminal ends and the session keeps its pool and its failover', async () => {
+    const host = makeHost(['X0', 'T1']);
+    const registry = wireRegistryWithPoolRelease(host);
+    const session = await mintFromTerminal(registry, 'X0', 'terminal-1');
+    await createTabAndRebind(host, registry, session.id, 'X0', 'T1');
+
+    // A launcher script run mints an attachment onto the terminal's tab and revokes it when done.
+    const launcher = await mintFromTerminal(registry, 'X0', 'terminal-1');
+    await registry.revokeAttachment(launcher.id);
+
+    assert.deepEqual([...(host.sessionTabPools.get('X0') ?? [])].sort(), ['T1', 'X0'], 'the live session keeps its pool');
+    assert.equal(host.closeTab('T1', 'mcp-tool'), true);
+    assert.equal(host.getFailoverTargetTab('T1'), 'X0', 'closing the bound tab still names the tab the session owns');
+  });
+
+  it('two attachments bound to the same tab: the first to end frees nothing, the last frees the pool', async () => {
+    const host = makeHost(['X0', 'T1']);
+    const registry = wireRegistryWithPoolRelease(host);
+    host.sessionTabPools.set('X0', new Set(['X0', 'T1']));
+    const first = await mintFromTerminal(registry, 'X0');
+    const second = await mintFromTerminal(registry, 'X0');
+
+    await registry.revokeAttachment(first.id);
+    assert.equal(host.sessionTabPools.has('X0'), true, 'the second attachment still holds the pool');
+
+    await registry.revokeAttachment(second.id);
+    assert.equal(host.sessionTabPools.has('X0'), false, 'the last attachment to end frees it');
+  });
+
+  it('an attachment that is the session\'s only one still frees the pool when it ends', async () => {
+    const host = makeHost(['X0', 'T1']);
+    const registry = wireRegistryWithPoolRelease(host);
+    host.sessionTabPools.set('X0', new Set(['X0', 'T1']));
+    const only = await mintFromTerminal(registry, 'X0', 'terminal-1');
+    await mintFromTerminal(registry, 'Y0', 'terminal-2');
+
+    await registry.revokeAttachment(only.id);
+
+    assert.equal(host.sessionTabPools.has('X0'), false, 'another terminal\'s attachment does not keep this pool alive');
   });
 });
