@@ -744,6 +744,14 @@ async function waitForAnyRunIdle(
 }
 
 /**
+ * The result's `warning` for a placement the host filed under no project: the folder is claimed by no open
+ * project (or by several), so the terminal sits under the Terminal Manager's `unassigned` owner; an OMP
+ * started in it has been seen unable to attach to the AntiFan browser tools.
+ */
+export const NO_PROJECT_OWNER_WARNING =
+  'NO_PROJECT_OWNER: the folder belongs to no open AntiFan project, so this terminal is filed under "unassigned" and an OMP started in it may not be able to reach the AntiFan browser tools (anti.*, theme.*). Open the folder as an AntiFan project first, or give that worker a task that needs no browser tool';
+
+/**
  * A Leader's base terminal for a project folder: minted through the host's placement port and registered
  * as its worker. The registration is what makes the worker's OMP hook refuse unsafe theme commands, so a
  * terminal that cannot be registered is closed again instead of being handed back ungated.
@@ -752,7 +760,7 @@ async function placeLeaderWorker(
   terminal: TerminalManager,
   homeId: string,
   params: { cwd?: string; name?: string }
-): Promise<{ sessionId: string; cwd: string; workerOf: string; ownerKey?: string; capsuleId?: string; minted?: { capsuleId: string } }> {
+): Promise<{ sessionId: string; cwd: string; workerOf: string; ownerKey?: string; capsuleId?: string; minted?: { capsuleId: string }; warning?: string }> {
   const cwd = typeof params.cwd === 'string' ? params.cwd.trim() : '';
   if (!cwd) {
     throw new CapabilityError('INVALID_ARGUMENT', 'cwd is required: a Leader mints a terminal in the project folder it names');
@@ -795,7 +803,7 @@ async function placeLeaderWorker(
     sessionId: placed.sessionId,
     cwd,
     workerOf: homeId,
-    ...(placed.ownerKey ? { ownerKey: placed.ownerKey } : {}),
+    ...(placed.ownerKey && placed.ownerKey.startsWith('project:') ? { ownerKey: placed.ownerKey } : { warning: NO_PROJECT_OWNER_WARNING }),
     ...(placed.capsuleId ? { capsuleId: placed.capsuleId } : {}),
     ...(minted ? { minted } : {}),
   };
@@ -1424,7 +1432,7 @@ export function registerTerminalCapabilities(
       initialRows?: number;
       reuse?: boolean;
     },
-    { sessionId: string; ownerBound?: boolean; reused?: boolean; cwd?: string; workerOf?: string; ownerKey?: string; capsuleId?: string; minted?: { capsuleId: string } }
+    { sessionId: string; ownerBound?: boolean; reused?: boolean; cwd?: string; workerOf?: string; ownerKey?: string; capsuleId?: string; minted?: { capsuleId: string }; warning?: string }
   >({
     name: 'terminal.create',
     description:

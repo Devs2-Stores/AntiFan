@@ -432,6 +432,37 @@ describe('Leader scope of the terminal capabilities', () => {
       }
     });
 
+    it('terminal.create warns NO_PROJECT_OWNER when the host filed the worker under no project, and stays silent when a project owns it', async () => {
+      LeaderRegistry.getInstance().setLeader('terminal-lead', true);
+      let ownerKey: string | undefined;
+      const release = registerLeaderPlacementPort({
+        placeTerminal: async (): Promise<LeaderPlacementResult> => ({ ok: true, sessionId: 'terminal-new', ...(ownerKey ? { ownerKey } : {}), capsuleId: 'capsule-1', minted: { capsuleId: 'capsule-1' } }),
+      });
+      try {
+        const { catalogue } = build();
+        const bare = (await catalogue.dispatch('terminal.create', { cwd: 'E:/Work/customizes/Sunriseplus', name: 'Row 308' }, ctx())) as {
+          ownerKey?: string; capsuleId?: string; minted?: { capsuleId: string }; warning?: string;
+        };
+        assert.strictEqual(bare.ownerKey, undefined);
+        assert.strictEqual(bare.capsuleId, 'capsule-1');
+        assert.match(bare.warning ?? '', /^NO_PROJECT_OWNER: /);
+        assert.strictEqual(LeaderRegistry.getInstance().workerOf('terminal-new')?.leaderId, 'terminal-lead', 'the worker is still registered and gated');
+
+        // The manager's own key is not a project owner either.
+        ownerKey = 'unassigned';
+        const manager = (await catalogue.dispatch('terminal.create', { cwd: 'E:/Work/customizes/Sunriseplus' }, ctx())) as { ownerKey?: string; warning?: string };
+        assert.strictEqual(manager.ownerKey, undefined);
+        assert.match(manager.warning ?? '', /^NO_PROJECT_OWNER: /);
+
+        ownerKey = 'project:p9';
+        const owned = (await catalogue.dispatch('terminal.create', { cwd: 'E:/Work/f1genz' }, ctx())) as { ownerKey?: string; warning?: string };
+        assert.strictEqual(owned.ownerKey, 'project:p9');
+        assert.strictEqual(owned.warning, undefined);
+      } finally {
+        release();
+      }
+    });
+
     it('terminal.create reports a refused placement instead of inventing a terminal', async () => {
       LeaderRegistry.getInstance().setLeader('terminal-lead', true);
       const release = registerLeaderPlacementPort({
