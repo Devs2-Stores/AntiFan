@@ -12,7 +12,10 @@ import { issueRuntimeLease, makeControlPlaneId } from '../../src/shared/control-
 const BOUND = 'tab-agent-bound';
 const FOREIGN = 'tab-user-youtube';
 
-async function refuse(listUsableTabs?: CapabilityCatalogueOptions['listUsableTabs']) {
+async function refuse(
+  listUsableTabs?: CapabilityCatalogueOptions['listUsableTabs'],
+  gone?: { closedBy: 'user'; closeReason: string },
+) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-retarget-refusal-'));
   const projectId = makeControlPlaneId('project');
   const workspaceId = makeControlPlaneId('workspace');
@@ -24,7 +27,8 @@ async function refuse(listUsableTabs?: CapabilityCatalogueOptions['listUsableTab
     workspaceId,
     runtimeId: lease.runtimeId,
     hostEpoch: 1,
-    resolveTabId: (id) => id,
+    resolveTabId: (id) => (gone && id === FOREIGN ? undefined : id),
+    ...(gone ? { describeClosedTab: (id: string) => (id === FOREIGN ? { closedBy: gone.closedBy, closeReason: gone.closeReason, closedAt: 1 } : undefined) } : {}),
     resolveFailoverTabId: () => undefined,
     getDocumentGeneration: () => 1,
     isTabAllowed: (primary, requested) => primary === requested,
@@ -99,5 +103,20 @@ describe('a retarget outside the session authority names the tabs the session ma
     const { resp } = await refuse(() => { throw new Error('host gone'); });
     assert.strictEqual(resp.error?.code, 'TARGET_MISMATCH');
     assert.match(resp.error?.message ?? '', /outside this session's authority/);
+  });
+
+  it('says a closed tab is gone, with who closed it, instead of calling it foreign', async () => {
+    const { resp } = await refuse(() => [{ id: BOUND, url: 'https://shop.example/' }], { closedBy: 'user', closeReason: 'user-close-other' });
+    assert.strictEqual(resp.ok, false);
+    assert.strictEqual(resp.error?.code, 'TARGET_STALE');
+    const details = resp.error?.details as Record<string, unknown>;
+    assert.strictEqual(details.cause, 'tab-gone');
+    assert.strictEqual(details.tabId, FOREIGN);
+    assert.strictEqual(details.closedBy, 'user');
+    assert.strictEqual(details.closeReason, 'user-close-other');
+    assert.strictEqual(details.recovery, 'anti.browser.tabs.list');
+    assert.match(resp.error?.message ?? '', /no longer exists/);
+    assert.doesNotMatch(resp.error?.message ?? '', /another project, session or window/);
+    assert.match(resp.error?.message ?? '', /Tabs this session may use: tab-agent-bound/);
   });
 });

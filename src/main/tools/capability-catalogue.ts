@@ -286,6 +286,19 @@ export class CapabilityCatalogue {
     }
     return undefined;
   }
+  /**
+   * Whether a tab still exists, as the host answers it: false when the id names no live tab,
+   * undefined when no resolver is wired or it fails (the host cannot say, so nothing may be
+   * concluded from it).
+   */
+  tabExists(tabIdOrIdentifier: string): boolean | undefined {
+    if (!this.options.resolveTabId) return undefined;
+    try {
+      return Boolean(this.options.resolveTabId(tabIdOrIdentifier));
+    } catch {
+      return undefined;
+    }
+  }
   /** Session-ownership check delegating to the host seam, false when unwired. */
   isTabAllowed(primaryTabId: string, requestedTabId: string): boolean {
     if (this.options.isTabAllowed) {

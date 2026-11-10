@@ -827,6 +827,26 @@ export class CapabilityTransportAdapter {
                 }) === true
               : false);
           if (!allowed) {
+            // A tab that no longer exists belongs to no project, session or window: it is gone, not
+            // foreign. Calling it foreign sends the caller looking for a permission problem that
+            // is not there and hides that the tab was simply closed.
+            if (this.catalogue.tabExists(resolvedRequested) === false) {
+              const liveTabs = this.catalogue.listUsableTabs(authorityTabId);
+              throw new CapabilityError(
+                'TARGET_STALE',
+                `Tab '${resolvedRequested}' no longer exists, so this session cannot rebind to it. ${liveTabs ? `${describeUsableTabs(liveTabs)} ` : ''}Pick a live tab with anti.browser.tabs.list, or open one with anti.browser.tabs.create.`,
+                {
+                  tabId: resolvedRequested,
+                  boundTabId: authorityTabId,
+                  canRebind: true,
+                  cause: 'tab-gone' satisfies TargetStaleCause,
+                  recovery: 'anti.browser.tabs.list',
+                  alternativeRecovery: 'anti.browser.tabs.create {url}',
+                  ...(liveTabs ? { usableTabs: liveTabs } : {}),
+                  ...(failoverId ? { candidateTabIds: [failoverId], failoverTabId: failoverId } : {}),
+                }
+              );
+            }
             // The same list the browser port gives its own tab refusals; undefined (host cannot say) adds nothing.
             const usableTabs = this.catalogue.listUsableTabs(authorityTabId);
             const refusalDetails = {
