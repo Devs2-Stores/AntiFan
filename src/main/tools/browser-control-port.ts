@@ -5335,7 +5335,7 @@ export class BrowserControlPort {
     return { tabId };
   }
 
-  setAutomationTarget(tabId: string): { success: boolean; tabId: string } {
+  setAutomationTarget(tabId: string, context?: { creatorTabId?: string }): { success: boolean; tabId: string } {
     const cleanId = tabId && typeof tabId === 'string' ? tabId.trim() : '';
     if (!cleanId) throw new CapabilityError('INVALID_ARGUMENT', 'tabId is required');
     if (!this.host.setAutomationTabId || !this.host.getTabList) {
@@ -5352,7 +5352,8 @@ export class BrowserControlPort {
         // exists to stop, so recovery must go through the explicit rebind path.
         throw new CapabilityError('TARGET_STALE', `Bound tab '${boundId.trim()}' no longer exists. Rebind via anti.browser.rebind_target.`, staleDetails('tab-gone', { boundTabId: boundId.trim(), canRebind: true, recovery: 'anti.browser.rebind_target' }));
       }
-      const allowed = this.host.isTabAllowed ? this.host.isTabAllowed(liveBoundId.trim(), cleanId) : false;
+      const authorizedByCreator = typeof context?.creatorTabId === 'string' && context.creatorTabId.trim() === cleanId;
+      const allowed = authorizedByCreator || (this.host.isTabAllowed ? this.host.isTabAllowed(liveBoundId.trim(), cleanId) : false);
       if (!allowed) {
         throw new CapabilityError(
           'TARGET_MISMATCH',
@@ -5384,7 +5385,7 @@ export class BrowserControlPort {
     if (typeof candidate !== 'string' || candidate.trim().length === 0) return undefined;
     return this.isTabLive(candidate.trim()) ? candidate.trim() : undefined;
   }
-  rebindTarget(options: { tabId?: string } = {}, target?: BrowserTarget): { success: boolean; tabId: string; documentGeneration: number; browserEpoch: number; url?: string; title?: string } {
+  rebindTarget(options: { tabId?: string } = {}, target?: BrowserTarget, context?: { creatorTabId?: string }): { success: boolean; tabId: string; documentGeneration: number; browserEpoch: number; url?: string; title?: string } {
     let effectiveTabId = options.tabId && typeof options.tabId === 'string' ? options.tabId.trim() : (target?.tabId ? target.tabId.trim() : '');
     if (effectiveTabId === 'auto') {
       const candidate = this.resolveAutoBindCandidate({ target });
@@ -5412,7 +5413,10 @@ export class BrowserControlPort {
         const managed = this.host.getManagedTabIds ? this.host.getManagedTabIds(priorBoundId.trim()) : null;
         const ownedBySession = managed ? managed.has(effectiveTabId) : false;
         const livePrior = this.host.resolveTargetTabId ? this.host.resolveTargetTabId(priorBoundId) : null;
-        const allowed = ownedBySession ||
+        // A tab this attachment created stays within its authority after the binding left the pool
+        // that owns it; the surface layer names it by canonical id (see closeTab).
+        const authorizedByCreator = typeof context?.creatorTabId === 'string' && context.creatorTabId.trim() === effectiveTabId;
+        const allowed = authorizedByCreator || ownedBySession ||
           (livePrior && this.host.isTabAllowed ? this.host.isTabAllowed(livePrior.trim(), effectiveTabId) : false);
         // Explicit-rebind adoption: a tab that measures into the attachment's own
         // project/workspace stays inside its authority even when another session

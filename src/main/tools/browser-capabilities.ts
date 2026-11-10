@@ -1536,16 +1536,27 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     );
   };
 
-  // A tab this very attachment opened stays closable by it even after a rebind moved its binding
-  // outside the session pool the port checks; every other tab keeps the pool check. The port gets
-  // the canonical id (never a boolean) because it resolves `#N` against a different list than the
-  // catalogue does: it waives the pool check only for exactly this tab.
-  const closeTabFromParams = (params: { tabId: string }, context: CapabilityRequestContext) => {
+  // A tab this very attachment opened stays closable and retargetable by it even after a rebind
+  // moved its binding outside the session pool the port checks; every other tab keeps the pool
+  // check. The port gets the canonical id (never a boolean) because it resolves `#N` against a
+  // different list than the catalogue does: it waives the pool check only for exactly this tab.
+  const creatorTabIdOf = (tabId: string | undefined, context: CapabilityRequestContext): string | undefined => {
     const attachmentId = (context as Partial<AuthenticatedCapabilityContext>).attachmentId;
-    const requested = typeof params.tabId === 'string' ? params.tabId.trim() : '';
+    const requested = typeof tabId === 'string' ? tabId.trim() : '';
     const canonicalId = requested ? catalogue.resolveTabId(requested) ?? requested : '';
-    const creatorTabId = attachmentId && canonicalId && catalogue.tabLedger.owns(attachmentId, canonicalId) ? canonicalId : undefined;
+    return attachmentId && canonicalId && catalogue.tabLedger.owns(attachmentId, canonicalId) ? canonicalId : undefined;
+  };
+  const closeTabFromParams = (params: { tabId: string }, context: CapabilityRequestContext) => {
+    const creatorTabId = creatorTabIdOf(params.tabId, context);
     return browser.closeTab(params.tabId, { target: context.browserTarget, ...(creatorTabId ? { creatorTabId } : {}) });
+  };
+  const rebindTargetFromParams = (params: { tabId?: string }, context: CapabilityRequestContext) => {
+    const creatorTabId = creatorTabIdOf(params.tabId, context);
+    return browser.rebindTarget(params, context.browserTarget, creatorTabId ? { creatorTabId } : undefined);
+  };
+  const setAutomationTargetFromParams = (params: { tabId: string }, context: CapabilityRequestContext) => {
+    const creatorTabId = creatorTabIdOf(params.tabId, context);
+    return browser.setAutomationTarget(params.tabId, creatorTabId ? { creatorTabId } : undefined);
   };
 
   /**
@@ -2541,7 +2552,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'write',
     policy: makeBrowserPolicy({ effect: 'management', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
     inputSchema: { type: 'object', properties: { tabId: { type: 'string' } }, required: ['tabId'] },
-    execute: (params: { tabId: string }) => browser.setAutomationTarget(params.tabId),
+    execute: setAutomationTargetFromParams,
   });
 
   catalogue.register({
@@ -2550,7 +2561,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'write',
     policy: makeBrowserPolicy({ effect: 'management', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
     inputSchema: { type: 'object', properties: { tabId: { type: 'string' } } },
-    execute: (params: { tabId?: string }, context) => browser.rebindTarget(params, context.browserTarget),
+    execute: rebindTargetFromParams,
   });
 
   // 2. Compatibility aliases for MCP & Bridge protocols
@@ -2900,7 +2911,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'write',
     policy: makeBrowserPolicy({ effect: 'management', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
     inputSchema: { type: 'object', properties: { tabId: { type: 'string' } }, required: ['tabId'] },
-    execute: (params: { tabId: string }) => browser.setAutomationTarget(params.tabId),
+    execute: setAutomationTargetFromParams,
   });
 
   catalogue.register({
@@ -2909,7 +2920,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     risk: 'write',
     policy: makeBrowserPolicy({ effect: 'management', risk: 'write', requiresBrowserTarget: false, lane: 'unbounded' }),
     inputSchema: { type: 'object', properties: { tabId: { type: 'string' } } },
-    execute: (params: { tabId?: string }, context) => browser.rebindTarget(params, context.browserTarget),
+    execute: rebindTargetFromParams,
   });
 
   catalogue.register({

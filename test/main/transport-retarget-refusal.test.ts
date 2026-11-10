@@ -15,6 +15,7 @@ const FOREIGN = 'tab-user-youtube';
 async function refuse(
   listUsableTabs?: CapabilityCatalogueOptions['listUsableTabs'],
   gone?: { closedBy: 'user'; closeReason: string } | 'unrecorded',
+  createdBy?: 'self' | 'other',
 ) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-retarget-refusal-'));
   const projectId = makeControlPlaneId('project');
@@ -55,6 +56,13 @@ async function refuse(
   const { launch } = await registry.issueAttachment(makeControlPlaneId('run'), makeControlPlaneId('attempt'), projectId, workspaceId, {
     backendId: 'test-backend', grant: 'write', lease, leaseToken: lease.token, tabId: BOUND,
   });
+  if (createdBy === 'self') catalogue.tabLedger.record(launch.attachmentId, FOREIGN);
+  if (createdBy === 'other') {
+    const sibling = await registry.issueAttachment(makeControlPlaneId('run'), makeControlPlaneId('attempt'), projectId, workspaceId, {
+      backendId: 'test-backend', grant: 'write', lease, leaseToken: lease.token, tabId: 'tab-sibling-bound',
+    });
+    catalogue.tabLedger.record(sibling.launch.attachmentId, FOREIGN);
+  }
   const resp = await transport.dispatchIntent({
     requestId: makeControlPlaneId('request'),
     idempotencyKey: `test:${makeControlPlaneId('request')}`,
@@ -127,5 +135,25 @@ describe('a retarget outside the session authority names the tabs the session ma
     assert.strictEqual(details.cause, 'tab-gone');
     assert.ok(!('closedBy' in details));
     assert.match(resp.error?.message ?? '', /no longer exists/);
+  });
+});
+
+describe('a retarget to a tab the attachment created itself', () => {
+  it('is allowed although the tab is outside the bound tab pool', async () => {
+    const { resp } = await refuse(() => [{ id: BOUND, url: 'https://shop.example/' }], undefined, 'self');
+    assert.strictEqual(resp.ok, true);
+  });
+
+  it('is still refused for a tab another attachment created', async () => {
+    const { resp } = await refuse(() => [{ id: BOUND, url: 'https://shop.example/' }], undefined, 'other');
+    assert.strictEqual(resp.ok, false);
+    assert.strictEqual(resp.error?.code, 'TARGET_MISMATCH');
+  });
+
+  it('is reported gone when the created tab has since been closed', async () => {
+    const { resp } = await refuse(() => [{ id: BOUND, url: 'https://shop.example/' }], { closedBy: 'user', closeReason: 'user-close-other' }, 'self');
+    assert.strictEqual(resp.ok, false);
+    assert.strictEqual(resp.error?.code, 'TARGET_STALE');
+    assert.strictEqual((resp.error?.details as Record<string, unknown>).cause, 'tab-gone');
   });
 });

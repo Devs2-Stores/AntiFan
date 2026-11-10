@@ -819,7 +819,14 @@ export class CapabilityTransportAdapter {
           // Managed-sibling recovery: the host only names failover targets the
           // stale session owns, so an exact failover match authorizes the retarget.
           const failoverId = this.catalogue.resolveFailoverTabId(authorityTabId);
-          const allowed = resolvedRequested === failoverId ||
+          // A tab this attachment (or an attachment minted from the same terminal) created stays
+          // within its authority after the binding left the session pool; the dispatch gate in the
+          // catalogue applies the same rule. A tab recorded as created but already closed is not
+          // owned: it falls through to the gone-tab refusal below.
+          const createdByCaller =
+            this.catalogue.tabLedger.owns(authContext.attachmentId, resolvedRequested) &&
+            this.catalogue.tabExists(resolvedRequested) !== false;
+          const allowed = resolvedRequested === failoverId || createdByCaller ||
             (this.catalogue.isTabAllowedForRetarget
               ? this.catalogue.isTabAllowedForRetarget(authorityTabId, resolvedRequested, {
                   projectId: authContext.projectId,
