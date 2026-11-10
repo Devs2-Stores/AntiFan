@@ -1381,7 +1381,8 @@ describe('OMP MCP stdio proxy security & bootstrap fail-closed contract', { conc
       assert.ok(consoleTool, 'anti.inspect.console must be listed in tools/list');
       assert.ok(consoleTool.description.includes('console'), 'description must mention console');
       assert.strictEqual(consoleTool.inputSchema?.properties?.tabId?.type, 'string');
-      assert.strictEqual(consoleTool.inputSchema?.properties?.level?.type, 'number');
+      // Published relaxed: agents send the level by name ("error") as often as by number, and the host takes both.
+      assert.deepStrictEqual(consoleTool.inputSchema?.properties?.level?.type, ['number', 'string']);
       const expectedAdvertised = [
         'anti.sheet.extract',
         'anti.sheet.write_cell',

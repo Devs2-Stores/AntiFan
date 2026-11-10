@@ -420,6 +420,27 @@ if (CapabilityCatalogue && BrowserControlPort && makeControlPlaneId && problems.
     }
   }
   notes.push(`parity: ${(proxy.definitions || []).length} advertised tools checked against catalogue schemas; ${advertisedCore.size} core.* dispatched`);
+  // The proxy words the terminal.wait cap without a number of its own: a published description
+  // (the row or an alias of it) that carries a millisecond literal different from the compiled
+  // cap goes stale the moment the cap moves.
+  const terminalCapabilities = required('main/tools/terminal-capabilities.js');
+  const terminalWaitCap = terminalCapabilities && terminalCapabilities.TERMINAL_WAIT_MAX_TIMEOUT_MS;
+  if (typeof terminalWaitCap !== 'number') {
+    problems.push('compiled terminal-capabilities does not export TERMINAL_WAIT_MAX_TIMEOUT_MS');
+  } else {
+    const published = await proxy.listTools();
+    for (const tool of published.tools.filter((entry) => /^(anti\.)?terminal\.wait$/.test(entry.name))) {
+      const texts = [tool.description, ...Object.values(tool.inputSchema.properties || {}).map((spec) => spec && spec.description).filter(Boolean)];
+      for (const text of texts) {
+        for (const match of text.matchAll(/\b(\d{4,6})\s*(?:ms|milliseconds)\b|\bmaximum\s+(\d{4,6})\b/gi)) {
+          const literal = Number(match[1] ?? match[2]);
+          if (literal !== terminalWaitCap) {
+            problems.push(`published ${tool.name} text carries ${literal} ms, but the compiled TERMINAL_WAIT_MAX_TIMEOUT_MS is ${terminalWaitCap}`);
+          }
+        }
+      }
+    }
+  }
   // A row that redirects a name the catalogue ALSO registers swaps the server's
   // own semantics for the target's. It is reported rather than rejected: several
   // anti.* aliases are independent implementations, so a fatal rule here would

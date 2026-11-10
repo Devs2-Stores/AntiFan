@@ -112,11 +112,8 @@ const definitions = [
   ['theme.qa_validate', 'Run the authoritative Theme QA verification workflow for the bound storefront tab and workspace. summary.verdict is the structural verdict; summary.certification (STRUCTURAL | CERTIFIED | CERTIFIED_SCOPED) and summary.matrixVerdict say whether the 8-dimension QA matrix certified it — a STRUCTURAL PASS has not measured interaction, visual fidelity or CWV. CERTIFIED needs a receipt-backed baseline for desktop, tablet and mobile: pass baselineViewports {compareReceiptId} from anti.visual.compare; hand-typed {mismatchPercent, passed} numbers are caller-asserted and give STRUCTURAL with BASELINE_NO_PROVENANCE. CERTIFIED_SCOPED needs scope.selectors that are clean on the live page and never unlocks the QA gate. When the tab\'s own rendering is starved and every observed failure depends on rendering, the verdict is INCONCLUSIVE with summary.environment instead of FAIL. A second run on a tab that is already being checked is refused with QA_BUSY (retryable).', QA_VALIDATE_PROPERTIES, [], [], 'tabId'],
   ['theme.debug_bundle', 'Return an atomic storefront diagnostic bundle with platform, Liquid, overflow, and HS findings.', { tabId: { type: 'string' } }, [], [], 'tabId'],
   ['theme.settings_check', 'Run offline Haravan theme settings, binding, and asset reference checks (settings_schema.json / settings.html against Liquid) without requiring a browser tab.', { workspaceRoot: { type: 'string', description: 'Theme workspace root; defaults to the authoritative workspace' }, files: { type: 'array', items: { type: 'string' }, description: 'Theme files (relative to workspaceRoot) whose findings to keep. Filters the result; it does not shorten the run. A path that escapes workspaceRoot is refused' }, changedSince: { type: ['string', 'number'], description: 'ISO timestamp or epoch milliseconds; keeps only findings for files modified at or after it. Filters the result; it does not shorten the run' } }],
-  ['anti.theme.qa_validate', 'Alias of theme.qa_validate: run the authoritative Theme QA verification workflow for the bound storefront tab and workspace. Read summary.certification: STRUCTURAL means the QA matrix did not certify the PASS (no receipt-backed baselineViewports {compareReceiptId} for every size); CERTIFIED_SCOPED covers only scope.selectors. A starved render returns INCONCLUSIVE with summary.environment; a concurrent run on the same tab is refused with QA_BUSY (retryable).', QA_VALIDATE_PROPERTIES, [], [], 'tabId'],
-  ['anti.theme.debug_bundle', 'Alias of theme.debug_bundle: return an atomic storefront diagnostic bundle with platform, Liquid, overflow, and HS findings.', { tabId: { type: 'string' } }, [], [], 'tabId'],
   ['theme.assert_cart', 'Inspect passive storefront cart contract telemetry without adding synthetic items.', { tabId: { type: 'string' } }, [], [], 'tabId'],
   ['theme.resolve_product', 'Auto-resolve complete storefront product variant matrix, pricing, SKU, and availability.', { handle: { type: 'string' }, tabId: { type: 'string' } }, [], [], 'tabId'],
-  ['storefront.resolve_product', 'Auto-resolve complete storefront product variant matrix, pricing, SKU, and availability.', { handle: { type: 'string' }, tabId: { type: 'string' } }, [], [], 'tabId'],
   ['theme.cockpit_list', 'Load the Theme QA checklist scope bound to this tab: items, progress, and per-page counts.', { scope: { type: 'string', description: 'Checklist scope assertion; must re-derive equal to the bound tab scope or the call is refused' }, tabId: { type: 'string' } }, [], [], 'tabId'],
   ['theme.cockpit_mark', 'Mark one Theme QA checklist item done or undone on the bound tab scope; optional note is capped at 1KB.', { itemId: { type: 'string' }, done: { type: 'boolean' }, note: { type: 'string' }, scope: { type: 'string', description: 'Checklist scope assertion; must re-derive equal to the bound tab scope or the call is refused' }, tabId: { type: 'string' } }, ['itemId', 'done'], [], 'tabId'],
   ['theme.cockpit_mark_page', 'Mark every checklist item on one page done or undone on the bound tab scope; unknown pages are refused.', { page: { type: 'string', description: 'A PAGE_DEFS key (home, collection, product, cart, blog, account, pages, qa-gate) or a page already present in the loaded scope' }, done: { type: 'boolean' }, scope: { type: 'string', description: 'Checklist scope assertion; must re-derive equal to the bound tab scope or the call is refused' }, tabId: { type: 'string' } }, ['page', 'done'], [], 'tabId'],
@@ -125,7 +122,6 @@ const definitions = [
   ['theme.cockpit_scan', 'Navigate the bound tab to a checklist page route, run the authoritative Theme QA scan on it, then run the page probes for that route (home: page_structure + menu_depth; product: variant_image_probe + pdp_contract; cart: cart_contract, passive, it reads the quantity, remove and checkout controls and the checkout target but never clicks or changes the cart, and an empty cart is reported as not exercised; collection: menu_depth) and tick the checklist items those measurements decide; items the user changed during the scan are left alone. profile/thresholds/baselineViewports/multiBreakpoint are forwarded to the QA run; pick chooses the product page (max-variants, long-title, sold-out, no-image) instead of the first product link. The report carries certification: STRUCTURAL unless every baseline viewport is receipt-backed.', { page: { type: 'string', description: 'PAGE_DEFS page key; when omitted the tab is scanned on its current URL' }, url: { type: 'string', description: 'Optional explicit same-origin URL or /products/<handle> path to scan' }, workspaceRoot: { type: 'string', description: 'Workspace root assertion; a root outside the bound tab workspace is refused with WORKSPACE_MISMATCH and a root without theme markers with WORKSPACE_NOT_THEME' }, allowNonTheme: { type: 'boolean', description: 'Accept a workspace root without theme markers' }, tabId: { type: 'string' }, profile: QA_VALIDATE_PROPERTIES.profile, thresholds: QA_VALIDATE_PROPERTIES.thresholds, baselineViewports: { ...QA_VALIDATE_PROPERTIES.baselineViewports, description: 'Visual-compare evidence per size (desktop, tablet, mobile). Pass {compareReceiptId} from an anti.visual.compare result: the host reads the numbers from its own ledger, so a receipt-backed run can be CERTIFIED. Legacy {mismatchPercent, passed} is caller-asserted and caps the run at STRUCTURAL' }, multiBreakpoint: QA_VALIDATE_PROPERTIES.multiBreakpoint, waivers: QA_VALIDATE_PROPERTIES.waivers, pick: { type: 'string', enum: ['max-variants', 'long-title', 'sold-out', 'no-image'], description: 'With page=product and no url: crawl /collections/all and scan the product that best matches this strategy instead of the first product link' }, autoSeed: { type: 'boolean', description: 'For page=cart: when the cart is empty, seed 1 available product variant via /cart/add.js and reload /cart before running QA and cart_contract' } }, [], [], 'tabId'],
   ['theme.cockpit_findings', 'Read the latest Theme QA state row for the bound tab: status (idle, running, pass, fail, error), issueCount and report. issueCount is a number only when a finished run produced it (pass or fail). An idle, running or errored row returns issueCount: null and a reasonCode (QA_NOT_RUN, QA_RUNNING, or the failure code), so null never means that nothing was found.', { tabId: { type: 'string' } }, [], [], 'tabId'],
   ['theme.cockpit_report', 'Render the markdown progress report for the bound tab checklist scope (identical to the toolbar export).', { scope: { type: 'string', description: 'Checklist scope assertion; must re-derive equal to the bound tab scope or the call is refused' }, tabId: { type: 'string' } }, [], [], 'tabId'],
-  ['anti.theme.style_override', 'In-memory ephemeral CSS stylesheet override for safe theme testing without writing files to disk (bypasses CLI watchers). Example: {"operation": "apply", "id": "fix-nav", "css": "header { position: sticky; }"} then { "operation": "clear", "id": "fix-nav" }. "remove" and "revert" are accepted as synonyms of "clear". id is required for apply; clear without id removes every AntiFan override on the tab.', { operation: { type: 'string', enum: ['apply', 'clear', 'remove', 'revert'] }, id: { type: 'string' }, css: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, ['operation'], [], 'tabId'],
   ['theme.style_override', 'In-memory ephemeral CSS stylesheet override for safe theme testing without writing files to disk (bypasses CLI watchers). "remove" and "revert" are accepted as synonyms of "clear". id is required for apply; clear without id removes every AntiFan override on the tab.', { operation: { type: 'string', enum: ['apply', 'clear', 'remove', 'revert'] }, id: { type: 'string' }, css: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, ['operation'], [], 'tabId'],
   ['anti.agent.file_upload', 'Upload local files into a file input element in live AntiFan Desktop tab without native file dialogs. When the target is a button, label or dropzone instead of an <input type=file> (or viaFileChooser is true) the target is clicked and the native file chooser it opens is answered with the files.', { refOrSelector: { type: 'string' }, filePaths: { type: 'array', items: { type: 'string' } }, viaFileChooser: { type: 'boolean', description: 'Click the target and answer the native file chooser it opens' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, ['refOrSelector', 'filePaths'], [], 'tabId'],
   ['anti.agent.drop', 'Dispatch native drag and drop file transfer onto a target drop zone element in live AntiFan Desktop tab.', { refOrSelector: { type: 'string' }, filePaths: { type: 'array', items: { type: 'string' } }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, ['refOrSelector', 'filePaths'], [], 'tabId'],
@@ -159,7 +155,7 @@ const definitions = [
   ['anti.artifact.stat', 'Retrieve metadata and size information for an authorized artifact.', { artifactId: { type: 'string' } }, ['artifactId']],
   ['browser.set-viewport', 'Set the bound Chromium tab viewport dimensions and device emulation.', { width: { type: 'number' }, height: { type: 'number' }, mobile: { type: 'boolean' }, deviceScaleFactor: { type: 'number' }, tabId: { type: 'string' }, reload: { type: 'boolean' }, hideScrollbar: { type: 'boolean', description: 'Hide the page scrollbars while the viewport override is applied, so the measured clientWidth equals the requested width (the result reports clientWidth)' } }, ['width', 'height'], [], 'tabId'],
   ['browser.get-viewport', 'Get the bound Chromium tab viewport dimensions, DPR, device preset, and layout surface state without applying overrides.', { tabId: { type: 'string' } }, [], [], 'tabId'],
-  ['browser.wait', 'Deterministic wait for selector, url, navigation, dom-stable, network, actionability, generation, images-settled, timeout, or legacy condition states. The condition is inferred from selector, ref, urlPattern/url or minGeneration when neither condition nor type is given, and from timeout or ms (a plain duration in milliseconds) as condition timeout; an explicit condition or type is never overridden. The result reports conditionInferred and aliasApplied (timeout/ms folded onto timeoutMs).', { condition: { type: 'string', enum: ['selector', 'url', 'navigation', 'dom-stable', 'network', 'actionability', 'generation', 'ref', 'document_loaded', 'url_match', 'network_idle', 'dom_stable', 'images-settled', 'timeout'], description: 'Wait condition to evaluate: selector | url | navigation | dom-stable | network | actionability | generation | images-settled | timeout (or legacy aliases)' }, type: { type: 'string', enum: ['selector', 'url', 'navigation', 'dom-stable', 'network', 'actionability', 'generation', 'ref', 'document_loaded', 'url_match', 'network_idle', 'dom_stable', 'images-settled', 'timeout'], description: 'Alias for condition' }, selector: { type: 'string', description: 'CSS selector to wait for' }, ref: { type: 'string', description: 'Semantic reference token (@e1) to wait for' }, urlPattern: { type: 'string', description: 'URL pattern or substring to match' }, url: { type: 'string', description: 'Alias for urlPattern' }, minGeneration: { type: 'number', description: 'Minimum document generation to wait for (generation or navigation condition)' }, state: { type: 'string', enum: ['attached', 'visible', 'actionable', 'detached', 'hidden'] }, timeoutMs: { type: 'number', description: 'Timeout in milliseconds (5000 default, 30000 max — the capability invocation budget; larger values are refused)' }, timeout: { type: 'number', description: 'Alias for timeoutMs; sent without a condition it means sleeping that many milliseconds (condition timeout)' }, ms: { type: 'number', description: 'Alias for timeoutMs; sent without a condition it means sleeping that many milliseconds (condition timeout)' }, idleWindowMs: { type: 'number', description: 'Debounce idle window in milliseconds (500 default)' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], { anyOf: [{ required: ['condition'] }, { required: ['type'] }, { required: ['selector'] }, { required: ['ref'] }, { required: ['urlPattern'] }, { required: ['url'] }, { required: ['minGeneration'] }, { required: ['timeout'] }, { required: ['ms'] }] }, 'tabId'],
+  ['browser.wait', 'Deterministic wait for selector, url, navigation, dom-stable, network, actionability, generation, images-settled, timeout, or legacy condition states. The condition is inferred from selector, ref, urlPattern/url or minGeneration when neither condition nor type is given, and from timeout or ms (a plain duration in milliseconds) as condition timeout; an explicit condition or type is never overridden. The result reports conditionInferred and aliasApplied (timeout/ms folded onto timeoutMs). A timeoutMs above the cap that elapses unmet answers { satisfied: false, timedOut: true, clamped: true, requestedTimeoutMs, maxTimeoutMs } instead of an error.', { condition: { type: 'string', enum: ['selector', 'url', 'navigation', 'dom-stable', 'network', 'actionability', 'generation', 'ref', 'document_loaded', 'url_match', 'network_idle', 'dom_stable', 'images-settled', 'timeout'], description: 'Wait condition to evaluate: selector | url | navigation | dom-stable | network | actionability | generation | images-settled | timeout (or legacy aliases)' }, type: { type: 'string', enum: ['selector', 'url', 'navigation', 'dom-stable', 'network', 'actionability', 'generation', 'ref', 'document_loaded', 'url_match', 'network_idle', 'dom_stable', 'images-settled', 'timeout'], description: 'Alias for condition' }, selector: { type: 'string', description: 'CSS selector to wait for' }, ref: { type: 'string', description: 'Semantic reference token (@e1) to wait for' }, urlPattern: { type: 'string', description: 'URL pattern or substring to match' }, url: { type: 'string', description: 'Alias for urlPattern' }, minGeneration: { type: 'number', description: 'Minimum document generation to wait for (generation or navigation condition)' }, state: { type: 'string', enum: ['attached', 'visible', 'actionable', 'detached', 'hidden'] }, timeoutMs: { type: 'number', description: 'Timeout in milliseconds (5000 default, 30000 max — the capability invocation budget; a longer request that elapses unmet answers timedOut=true, clamped=true with maxTimeoutMs)' }, timeout: { type: 'number', description: 'Alias for timeoutMs; sent without a condition it means sleeping that many milliseconds (condition timeout)' }, ms: { type: 'number', description: 'Alias for timeoutMs; sent without a condition it means sleeping that many milliseconds (condition timeout)' }, idleWindowMs: { type: 'number', description: 'Debounce idle window in milliseconds (500 default)' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], { anyOf: [{ required: ['condition'] }, { required: ['type'] }, { required: ['selector'] }, { required: ['ref'] }, { required: ['urlPattern'] }, { required: ['url'] }, { required: ['minGeneration'] }, { required: ['timeout'] }, { required: ['ms'] }] }, 'tabId'],
   ['file.read', 'Read a file relative to the authoritative workspace root.', { path: { type: 'string' }, maxBytes: { type: 'number' } }, ['path']],
   ['file.write', 'Write a file relative to the authoritative workspace root with boundary enforcement.', { path: { type: 'string' }, content: { type: 'string' } }, ['path', 'content']],
   ['anti.theme.resolve_element', 'Map a live DOM element to bounded, correlated local theme source candidates.', { selector: { type: 'string' }, ref: { type: 'string' }, workspaceRoot: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], [], 'tabId'],
@@ -244,9 +240,9 @@ const definitions = [
   ['core.receipt_v2', 'Issue an enriched Decision Receipt: evidence revisions + why + historical cases + risks + alternatives + uncertainty + confidence.', { task: { type: 'string' }, packId: { type: 'string' }, recommendation: { type: 'string' }, abstained: { type: 'boolean' }, platform: { type: 'string' } }, ['task', 'recommendation']],
   // Terminal PTY sessions: registered under their own names, so dispatch is
   // unchanged and no routing row is needed.
-  ['terminal.write', 'Write raw input text to one of your terminal split panes (the panes under the terminal you run in; never the terminal you run in itself). Writing to a SLEEPING pane wakes it (a fresh shell in the same cwd) and then delivers the input; the result reports woke=true. The result also carries writtenAt (epoch ms taken just before the write) and, when the terminal has an OMP run file, its run state from before the write: pass writtenAt to terminal.wait run-idle as afterEventAt to wait for the answer to THIS input. written:false means no live shell was confirmed to take the input (a dead terminal, a failed wake or a failed daemon call; a daemon call that timed out may still have delivered it): check the terminal with terminal.list before writing again, or re-create it. A Leader terminal (marked by the user) may write to any live terminal of any project except its own: a terminal whose OMP run is `running` is refused with TERMINAL_BUSY unless force:true. A terminal whose OMP has ended (it exited, crashed or stopped heartbeating) is refused with OMP_NOT_RUNNING, because the input would go to the shell and nothing would answer it: start a new OMP with an input that begins with `omp `, recycle the worker (terminal.close, terminal.create, a continuation prompt), or pass shell:true to type into the shell on purpose. After a prompt (input ending in Enter) typed into an idle OMP the result carries delivery: `started` (a run began: runSeq grew or the state left idle) or `pending` (alive but still idle after deliveryWaitMs, default 5000, maximum 7000, shortened to the call budget; 0 skips the check) or `not_running` (its OMP ended: the line went to the shell): pending is NOT a failure, a worker often needs 15 to 55 s to finish its old turn and start the run, so check `worker-status --since <writtenAt> --min-run-seq <pre-write runSeq + 1>` and treat the prompt as not received only after 90 s without a new run; not_running means recycle the worker. A Leader sends Enter, Esc, Ctrl-C, Tab and the arrow keys with `key` or `keys` instead of `input` (whitespace-only input is refused as no usable value); `keys` answers the ask dialog of a worker with the ask.questions[].answerKeys[option] list that worker-status / wait-workers print, and Esc or an arrow key sent into a terminal with a live OMP never counts as shell-line editing for the theme gate. A terminal a Leader drives (a worker) has the theme-CLI lines it types here checked like its bash tool: each completed line that names hrv/haravan/shopify theme is judged by the same rules (read actions pass; `hrv theme push [--only <files>] --nodelete` passes against the theme id the folder is bound to, live or copy alike, once `hrv theme info -j` there succeeds and reports that same id (no `--nodelete`: REFUSED_THEME_PUSH_NODELETE; a push without `--only` must add `--ignore config/settings_data.json`: REFUSED_THEME_PUSH_SETTINGS_DATA); `hrv theme dev` additionally needs a non-live theme; `--force`, `--prune`, another theme id, publish/delete and every Shopify/Sapo write are refused) and anything refused comes back as POLICY_DENIED with a REFUSED_THEME_* refusalCode: report NEEDS_INPUT to your Leader with the exact command instead of retrying. A worker may type only plain text, Enter, Backspace, Tab, Esc and Ctrl-C: any other control key, a line that ends in a continuation (a trailing backtick, backslash, caret, pipe, ampersand or comma, or an open quote or bracket) and a line that cannot be read back (after Esc or Tab, or over 8 KiB) are refused too, so write a multi-line script to a file instead', { sessionId: { type: 'string', description: 'Target terminal session ID' }, input: { type: 'string', description: 'Data/commands to write into PTY stdin (plain text; for Enter, Esc, Ctrl-C or the arrow keys a Leader passes key or keys instead)' }, key: { type: 'string', enum: ['enter', 'esc', 'ctrl-c', 'tab', 'up', 'down', 'right', 'left'], description: 'Leader only, instead of input: one key sent as the terminal sends it (enter, esc, ctrl-c, tab, up, down, left, right). Use it to close an OMP ask dialog (esc) or submit a prompt already sitting in the input box (enter)' }, keys: { type: 'array', items: { type: 'string', enum: ['enter', 'esc', 'ctrl-c', 'tab', 'up', 'down', 'right', 'left'] }, maxItems: 16, description: 'Leader only, instead of input: several keys in order, sent as one write (esc only as the last key: an Esc followed by another key in the same write reads as Alt+key). worker-status / wait-workers give the list that answers a worker\'s ask dialog as ask.questions[].answerKeys[option], e.g. ["down","down","enter"]' }, force: { type: 'boolean', description: 'Leader only: write even while the target OMP run is running (the input lands inside the running prompt)' }, shell: { type: 'boolean', description: 'Leader only: type into the terminal shell on purpose even though its OMP has ended (otherwise OMP_NOT_RUNNING; an input that begins with "omp " is always allowed)' }, deliveryWaitMs: { type: 'number', description: 'Leader only: how long to wait, after a prompt typed into an idle OMP, for a run to start (default 5000, maximum 7000, shortened to the call budget; 0 skips the check). The result then carries delivery "started", "pending" (not a failure) or "not_running"' } }, ['sessionId'], [{ required: ['input'] }, { required: ['key'] }, { required: ['keys'] }]],
+  ['terminal.write', 'Write to one of your terminal split panes (never your own). Send input (plain text, newline submits); a Leader may instead send key, keys or message (a one-line chat message to a pane running the agent CLI). A sleeping pane is woken first. The result carries written, writtenAt (the afterEventAt for terminal.wait run-idle) and, for a prompt typed into an idle OMP, delivery started | pending | not_running; written:false means no live shell took the input: check terminal.list before retrying. A Leader may write to any live terminal except its own (a busy run needs force:true, an ended OMP shell:true). A worker\'s theme-CLI lines are judged like its bash tool: a refused one returns POLICY_DENIED with a REFUSED_THEME_* refusalCode; report NEEDS_INPUT to your Leader. A worker may type only plain text, Enter, Backspace, Tab, Esc and Ctrl-C; a line ending in a continuation (backtick, backslash, caret, pipe, ampersand, comma, open quote or bracket) or one that cannot be read back is refused: send prose to an agent pane with message, scripts via a file.', { sessionId: { type: 'string', description: 'Target terminal session ID' }, input: { type: 'string', description: 'Data/commands to write into PTY stdin (plain text; for Enter, Esc, Ctrl-C or the arrow keys a Leader passes key or keys instead)' }, key: { type: 'string', enum: ['enter', 'esc', 'ctrl-c', 'tab', 'up', 'down', 'right', 'left'], description: 'Leader only, instead of input: one key sent as the terminal sends it (enter, esc, ctrl-c, tab, up, down, left, right). Use it to close an OMP ask dialog (esc) or submit a prompt already sitting in the input box (enter)' }, keys: { type: 'array', items: { type: 'string', enum: ['enter', 'esc', 'ctrl-c', 'tab', 'up', 'down', 'right', 'left'] }, maxItems: 16, description: 'Leader only, instead of input: several keys in order, sent as one write (esc only as the last key: an Esc followed by another key in the same write reads as Alt+key). worker-status / wait-workers give the list that answers a worker\'s ask dialog as ask.questions[].answerKeys[option], e.g. ["down","down","enter"]' }, message: { type: 'string', description: 'Leader only, instead of input, key and keys: a one-line chat message to a pane whose foreground is the agent CLI' }, force: { type: 'boolean', description: 'Leader only: write even while the target OMP run is running (the input lands inside the running prompt)' }, shell: { type: 'boolean', description: 'Leader only: type into the terminal shell on purpose even though its OMP has ended (otherwise OMP_NOT_RUNNING; an input that begins with "omp " is always allowed)' }, deliveryWaitMs: { type: 'number', description: 'Leader only: how long to wait, after a prompt typed into an idle OMP, for a run to start (default 5000, maximum 7000, shortened to the call budget; 0 skips the check). The result then carries delivery "started", "pending" (not a failure) or "not_running"' } }, ['sessionId'], [{ required: ['input'] }, { required: ['key'] }, { required: ['keys'] }, { required: ['message'] }]],
   ['terminal.resize', 'Resize terminal rows and columns for one of your terminal split panes (the panes under the terminal you run in)', { sessionId: { type: 'string', description: 'Target terminal session ID' }, cols: { type: 'number', description: 'Terminal columns' }, rows: { type: 'number', description: 'Terminal rows' } }, ['sessionId', 'cols', 'rows']],
-  ['terminal.wait', 'Wait for output-match pattern, process exit, silence, or run-idle on one of your terminal split panes (the panes under the terminal you run in). condition may be left out when pattern (output-match), silenceMs (silence), or sessionIds / minRunSeq / afterEventAt (run-idle) names it. run-idle waits until the OMP run in that terminal is idle, waiting for the user, or ended and returns the run snapshot; minRunSeq is the run counter the run must have reached, afterEventAt (pass the writtenAt of your terminal.write) counts only a run whose lastEventAt is newer than it and that completed at least one turn, so a leftover file or a fresh session that has not taken your prompt yet never satisfies it. run-idle also accepts sessionIds (up to 16 terminals) instead of sessionId and answers with the FIRST terminal whose run settled (sessionId, run, sessionIds); call again with the remaining ids for the next one. A SLEEPING session returns immediately with satisfied=false, sleeping=true and code=SESSION_SLEEPING instead of blocking: it is never woken here, write input to wake it', { sessionId: { type: 'string', description: 'Terminal session ID' }, sessionIds: { type: 'array', items: { type: 'string' }, description: 'run-idle only: wait for the first of up to 16 terminals whose run settles, instead of one sessionId' }, condition: { type: 'string', enum: ['output-match', 'exit', 'silence', 'run-idle'], description: 'Optional when pattern, silenceMs, sessionIds, minRunSeq or afterEventAt implies it' }, pattern: { type: 'string', description: 'Regex pattern for output-match' }, sessionGeneration: { type: 'number', description: 'Expected session incarnation' }, afterSeq: { type: 'number', description: 'Sequence cursor' }, silenceMs: { type: 'number', description: 'Silence duration threshold in milliseconds' }, minRunSeq: { type: 'number', description: 'run-idle only: the run counter the OMP run must have reached (runSeq from terminal.list / the run snapshot) before idle counts' }, afterEventAt: { type: 'number', description: 'run-idle only: epoch ms (the writtenAt of your terminal.write). Idle counts only once the run lastEventAt is newer than this and the run completed at least one turn' }, timeoutMs: { type: 'number', description: 'Wait deadline in milliseconds (default and maximum 28000 per call; a longer request is shortened and, when it elapses, answers timedOut=true with lastSeq to continue from through afterSeq)' } }, []],
+  ['terminal.wait', 'Wait for output-match pattern, process exit, silence, or run-idle on one of your terminal split panes (the panes under the terminal you run in). condition may be left out when pattern (output-match), silenceMs (silence), or sessionIds / minRunSeq / afterEventAt (run-idle) names it. run-idle waits until the OMP run in that terminal is idle, waiting for the user, or ended and returns the run snapshot; minRunSeq is the run counter the run must have reached, afterEventAt (pass the writtenAt of your terminal.write) counts only a run whose lastEventAt is newer than it and that completed at least one turn, so a leftover file or a fresh session that has not taken your prompt yet never satisfies it. run-idle also accepts sessionIds (up to 16 terminals) instead of sessionId and answers with the FIRST terminal whose run settled (sessionId, run, sessionIds); call again with the remaining ids for the next one. A SLEEPING session returns immediately with satisfied=false, sleeping=true and code=SESSION_SLEEPING instead of blocking: it is never woken here, write input to wake it. The per-call maximum deadline is returned as maxTimeoutMs in a clamped result', { sessionId: { type: 'string', description: 'Terminal session ID' }, sessionIds: { type: 'array', items: { type: 'string' }, description: 'run-idle only: wait for the first of up to 16 terminals whose run settles, instead of one sessionId' }, condition: { type: 'string', enum: ['output-match', 'exit', 'silence', 'run-idle'], description: 'Optional when pattern, silenceMs, sessionIds, minRunSeq or afterEventAt implies it' }, pattern: { type: 'string', description: 'Regex pattern for output-match' }, sessionGeneration: { type: 'number', description: 'Expected session incarnation' }, afterSeq: { type: 'number', description: 'Sequence cursor' }, silenceMs: { type: 'number', description: 'Silence duration threshold in milliseconds' }, minRunSeq: { type: 'number', description: 'run-idle only: the run counter the OMP run must have reached (runSeq from terminal.list / the run snapshot) before idle counts' }, afterEventAt: { type: 'number', description: 'run-idle only: epoch ms (the writtenAt of your terminal.write). Idle counts only once the run lastEventAt is newer than this and the run completed at least one turn' }, timeoutMs: { type: 'number', description: 'Wait deadline in milliseconds (default and maximum: the per-call maximum, returned as maxTimeoutMs; a longer request is shortened and, when it elapses, answers timedOut=true, clamped=true with lastSeq to continue from through afterSeq)' } }, []],
   ['terminal.list', 'List the terminal split panes you may drive: the panes under the terminal you run in (the Space panes such as a sync watcher, and panes you created). The terminal you run in, other terminals, and other projects\' terminals are never listed; `omittedOutOfScopeTerminals` counts them. A Leader terminal (marked by the user) instead lists every live terminal of every project except its own, each row adding `workerOf` (when it is one of your workers) and `run` (the OMP run state read from its run file: state, runSeq, ompSessionId, promptHead, lastEventAt, stale), plus `hookSha256` (the run-state hook build that terminal\'s OMP runs) and `hookOutdated` (true when that build differs from the installed one, or reports none: that OMP started before the hooks were reinstalled, so tell the user to restart it; absent when the installed build is unknown). `hooksStale` ([{ id, state, detail }], top level of a Leader result, present only when an OMP hook needs reinstalling) names each hook whose installed copy is MISSING, INSTALLED_CHANGED (differs from what the installer wrote), SOURCE_CHANGED (the source it was built from changed after install), SOURCES_UNREADABLE, or NOT_INSTALLED (the installer knows the hook but the manifest has no row for it): relay it to the user as a reinstall plus new OMP sessions, never run the installer yourself. `daemonOutdated` ({ running, staged, message }) appears for a Leader when the terminal daemon still runs an older bundle than the one staged on disk: relay it to the user as "cần khởi động lại daemon", never restart it yourself (a restart ends every live shell). Rows carry bounded wire summary and incarnation metadata; includeBuffer:false drops the raw output tail (`buffer`) from every row, for polling many terminals', { paged: { type: 'boolean', description: 'Whether to page buffers according to wire budget' }, includeBuffer: { type: 'boolean', description: 'false drops the raw output tail (`buffer`) from every row; default true' } }],
   ['terminal.create', 'Create a new terminal split pane under the terminal you run in (always a new pane, never the user\'s own split). You can only ever drive the panes under your own terminal, so this is the only way to get a shell. Close panes you no longer need with terminal.close. reuse:true returns your own idle pane for the same folder instead of a new one; use it only when that pane is idle, because a pane still running a command receives the input. A Leader terminal (marked by the user) that passes cwd without parentId instead mints a BASE terminal in the project that owns that folder, named by `name`, and registers it as its worker; `minted: { capsuleId }` in the result means this call created the folder\'s project capsule (none existed), which terminal.close { removeMintedProject: true } can remove again when the folder is under a Leader scratch folder. A split minted under a terminal a Leader drives is registered as that Leader\'s worker too, so the theme-push rules that apply to the worker apply in the split', { cwd: { type: 'string', description: 'Working directory of the new pane (defaults to your terminal\'s). A Leader: the project folder to mint the worker terminal in' }, name: { type: 'string', description: 'Leader only: the worker terminal\'s name, shown in the Worker board' }, capsuleId: { type: 'string', description: 'Ignored for an agent: a pane always inherits the workspace of the terminal it splits' }, parentId: { type: 'string', description: 'Omit. An agent always splits its own terminal; any other value is refused' }, initialCols: { type: 'number' }, initialRows: { type: 'number' }, reuse: { type: 'boolean', description: 'Return your own live pane for the same cwd instead of creating one (only when it is idle)' } }],
   ['terminal.close', 'Close one of YOUR terminal split panes (a pane under the terminal you run in) and safely terminate its process tree. The terminal you run in and every terminal outside it are refused. A Leader terminal (marked by the user) may close any live terminal of any project except its own, and with removeMintedProject:true also removes the manager project that THIS worker\'s terminal.create minted (the result carries `minted`), but only when the folder is under a Leader scratch folder and no other terminal still lives in that project; a project that existed before the placement is never touched. The outcome is `projectRemoval` { status: REMOVED | NO_PROJECT | REFUSED | FAILED | SKIPPED, reason }', { sessionId: { type: 'string', description: 'Session ID to close' }, isSplit: { type: 'boolean', description: 'Ignored for an agent: a pane is always closed as a split' }, removeMintedProject: { type: 'boolean', description: 'Leader only: after closing, also remove the manager project this worker\'s terminal.create minted (result `minted`). Refused unless the folder is under a Leader scratch folder; never removes a project that existed before the placement' } }, ['sessionId']],
@@ -266,12 +262,22 @@ const definitions = [
   ['theme.transaction.resolve_hold', 'Resolve a HELD quarantine ThemeMutationSession by rolling back to its R0 snapshot.', { workspaceRoot: { type: 'string' }, action: { type: 'string', enum: ['rollback'] }, reason: { type: 'string' } }, ['action']],
 ];
 
-// anti.browser.wait is the catalogue alias of browser.wait: same schema, same replay safety.
-// Derived from the browser.wait row so the two can never describe different arguments.
-{
-  const waitRow = definitions.find(([name]) => name === 'browser.wait');
-  if (!waitRow) throw new Error('browser.wait definition is required to advertise its anti.browser.wait alias');
-  definitions.push(['anti.browser.wait', ...waitRow.slice(1)]);
+// Catalogue aliases: [alias, base]. An alias row is derived from its base row, so the two can
+// never describe different arguments, and it keeps the base's replay safety. The alias carries
+// the base's whole description: agents call the alias name, so the guidance must be on it.
+// The name an alias is published under never changes.
+const DEFINITION_ALIASES = Object.freeze([
+  ['anti.browser.wait', 'browser.wait'],
+  ['anti.theme.qa_validate', 'theme.qa_validate'],
+  ['anti.theme.debug_bundle', 'theme.debug_bundle'],
+  ['anti.theme.style_override', 'theme.style_override'],
+  ['storefront.resolve_product', 'theme.resolve_product'],
+]);
+for (const [alias, base] of DEFINITION_ALIASES) {
+  const baseRow = definitions.find(([name]) => name === base);
+  if (!baseRow) throw new Error(`${base} definition is required to advertise its ${alias} alias`);
+  const text = String(baseRow[1]);
+  definitions.push([alias, `Alias of ${base}: ${text.charAt(0).toLowerCase()}${text.slice(1)}`, ...baseRow.slice(2)]);
 }
 
 let currentAuthorityRevision = null;
@@ -3086,32 +3092,147 @@ async function probeCatalogueOnce() {
 // that types text AND sends keystrokes into the PTY. Anything else is left for the
 // capability to refuse, so an alias never turns a malformed call into an acting
 // one. Every applied alias is reported back as `aliasApplied`.
+const SESSION_ID_ALIASES = [['id', 'sessionId', 'string', []], ['terminal', 'sessionId', 'string', []], ['terminalId', 'sessionId', 'string', []], ['session', 'sessionId', 'string', []]];
+const FILE_TARGET_ALIASES = [['files', 'filePaths', 'string[]', []], ['paths', 'filePaths', 'string[]', []], ['ref', 'refOrSelector', 'string', []], ['selector', 'refOrSelector', 'string', []]];
+// submit is deliberately not aliased onto anything: it would change what is typed into the PTY.
 const PARAMETER_ALIASES = Object.freeze({
-  'terminal.write': [['text', 'input', 'string', ['key', 'keys']]],
-  'anti.agent.file_upload': [['files', 'filePaths', 'string[]', []], ['ref', 'refOrSelector', 'string', []], ['selector', 'refOrSelector', 'string', []]],
-  'anti.agent.drop': [['files', 'filePaths', 'string[]', []], ['ref', 'refOrSelector', 'string', []], ['selector', 'refOrSelector', 'string', []]],
+  'terminal.write': [...SESSION_ID_ALIASES, ['text', 'input', 'string', ['key', 'keys', 'message']]],
+  'terminal.close': SESSION_ID_ALIASES,
+  'terminal.resize': SESSION_ID_ALIASES,
+  'terminal.wait': SESSION_ID_ALIASES.map(([from, to, kind]) => [from, to, kind, ['sessionIds']]),
+  'anti.agent.file_upload': FILE_TARGET_ALIASES,
+  'anti.agent.drop': FILE_TARGET_ALIASES,
+  'anti.agent.set_control': ['checked', 'desired', 'expected', 'value', 'on'].map((from) => [from, 'state', 'boolean|string', []]),
 });
 function usableAliasValue(value) {
   if (typeof value === 'string') return value.trim() !== '';
   return Array.isArray(value) && value.length > 0;
 }
+// 'boolean|string' is a value that may legitimately be false: only undefined, null and a blank string are absent.
+function hasAliasTarget(value, kind) {
+  if (kind === 'boolean|string') return typeof value === 'boolean' || (typeof value === 'string' && value.trim() !== '');
+  return usableAliasValue(value);
+}
 function aliasSourceOfKind(value, kind) {
   if (kind === 'string[]') return Array.isArray(value) && value.length > 0 && value.every((item) => typeof item === 'string' && item.trim() !== '');
+  if (kind === 'boolean|string') return hasAliasTarget(value, kind);
   return typeof value === 'string' && value.trim() !== '';
 }
+
+// Value normalisers: exact spellings agents routinely guess for an enumerated or structured
+// argument map onto the legal value. Anything else is passed through untouched, so an unknown
+// value still reaches the capability, which refuses it. Each applied change is reported in
+// aliasApplied as { from: 'field=value', to: 'field=value' }.
+const TERMINAL_KEY_SPELLINGS = Object.freeze({
+  enter: 'enter', return: 'enter', esc: 'esc', escape: 'esc', tab: 'tab', up: 'up', down: 'down', left: 'left', right: 'right',
+  'ctrl-c': 'ctrl-c', 'ctrl+c': 'ctrl-c',
+});
+function canonicalTerminalKey(value) {
+  return typeof value === 'string' ? TERMINAL_KEY_SPELLINGS[value.trim().toLowerCase()] : undefined;
+}
+function normalizeTerminalKeys(next, applied) {
+  const single = canonicalTerminalKey(next.key);
+  if (single && single !== next.key) {
+    applied.push({ from: 'key=' + next.key, to: 'key=' + single });
+    next.key = single;
+  }
+  if (Array.isArray(next.keys) && next.keys.length > 0 && next.keys.every((item) => canonicalTerminalKey(item))) {
+    const changed = next.keys.map((item, index) => [index, item, canonicalTerminalKey(item)]).filter(([, item, canon]) => item !== canon);
+    if (changed.length > 0) {
+      next.keys = next.keys.map((item) => canonicalTerminalKey(item));
+      for (const [index, item, canon] of changed) applied.push({ from: 'keys[' + index + ']=' + item, to: 'keys[' + index + ']=' + canon });
+    }
+  }
+}
+function valueSpellingNormalizer(field, spellings) {
+  return (next, applied) => {
+    const value = next[field];
+    if (typeof value !== 'string') return;
+    const canonical = spellings[value.trim().toLowerCase()];
+    if (canonical === undefined || canonical === value) return;
+    applied.push({ from: field + '=' + value, to: field + '=' + canonical });
+    next[field] = canonical;
+  };
+}
+const WAIT_UNTIL_SPELLINGS = Object.freeze({ networkidle: 'load', 'network-idle': 'load', networkidle0: 'load', networkidle2: 'load', none: 'commit' });
+const WAIT_CONDITION_SPELLINGS = Object.freeze({
+  page_loaded: 'document_loaded', 'page-loaded': 'document_loaded',
+  'url-changed': 'url_match', url_changed: 'url_match',
+  'network-idle': 'network_idle', networkidle: 'network_idle',
+});
+// The responsive matrix wants objects; every field but width has a default, so a bare integer width is { width }.
+function normalizeCustomBreakpoints(next, applied) {
+  if (!Array.isArray(next.customBreakpoints) || !next.customBreakpoints.some((item) => Number.isInteger(item))) return;
+  next.customBreakpoints = next.customBreakpoints.map((item, index) => {
+    if (!Number.isInteger(item)) return item;
+    applied.push({ from: 'customBreakpoints[' + index + ']=' + item, to: 'customBreakpoints[' + index + '].width=' + item });
+    return { width: item };
+  });
+}
+function cssStringEscape(value) {
+  return value.replace(/[\\"]/g, '\\$&').replace(/\n/g, '\\a ').replace(/\r/g, '\\d ').replace(/\f/g, '\\c ');
+}
+// A locator that carries null/blank keys or only a selector or placeholder is a mis-shaped
+// ref/selector, not a semantic locator. Empty keys are dropped; a locator left with only
+// selector (or only placeholder) becomes the top-level selector, but only when no ref or
+// selector is already present, so the ref/selector/locator exclusivity is never bent.
+function normalizeLocator(next, applied) {
+  const locator = next.locator;
+  if (!locator || typeof locator !== 'object' || Array.isArray(locator)) return;
+  const kept = {};
+  for (const [key, value] of Object.entries(locator)) {
+    if (value === null || (typeof value === 'string' && value.trim() === '')) {
+      applied.push({ from: 'locator.' + key + '=' + (value === null ? 'null' : '""'), to: '(dropped)' });
+    } else {
+      kept[key] = value;
+    }
+  }
+  const keys = Object.keys(kept);
+  const targetFree = !usableAliasValue(next.ref) && !usableAliasValue(next.selector);
+  if (keys.length === 0) {
+    delete next.locator;
+    applied.push({ from: 'locator', to: '(dropped: empty)' });
+  } else if (targetFree && keys.length === 1 && keys[0] === 'selector' && typeof kept.selector === 'string') {
+    next.selector = kept.selector;
+    delete next.locator;
+    applied.push({ from: 'locator.selector', to: 'selector' });
+  } else if (targetFree && keys.length === 1 && keys[0] === 'placeholder' && typeof kept.placeholder === 'string') {
+    next.selector = '[placeholder="' + cssStringEscape(kept.placeholder) + '"]';
+    delete next.locator;
+    applied.push({ from: 'locator.placeholder', to: 'selector' });
+  } else if (keys.length !== Object.keys(locator).length) {
+    next.locator = kept;
+  }
+}
+const VALUE_NORMALIZERS = (() => {
+  const table = {
+    'terminal.write': [normalizeTerminalKeys],
+    'anti.browser.navigate': [valueSpellingNormalizer('waitUntil', WAIT_UNTIL_SPELLINGS)],
+    'browser.wait': [valueSpellingNormalizer('condition', WAIT_CONDITION_SPELLINGS), valueSpellingNormalizer('type', WAIT_CONDITION_SPELLINGS)],
+    'anti.inspect.responsive_matrix': [normalizeCustomBreakpoints],
+  };
+  table['anti.browser.wait'] = table['browser.wait'];
+  for (const [name, , properties] of definitions) {
+    if (properties && properties.locator) table[name] = [...(table[name] || []), normalizeLocator];
+  }
+  return Object.freeze(table);
+})();
+
 function normalizeParameterAliases(method, params) {
-  const aliases = PARAMETER_ALIASES[method];
+  const aliases = PARAMETER_ALIASES[method] || [];
+  const normalizers = VALUE_NORMALIZERS[method] || [];
   const source = params && typeof params === 'object' && !Array.isArray(params) ? params : {};
-  if (!aliases) return { params: source, aliasApplied: [] };
+  if (aliases.length === 0 && normalizers.length === 0) return { params: source, aliasApplied: [] };
   const next = { ...source };
   const aliasApplied = [];
   for (const [from, to, kind, alsoAbsent] of aliases) {
-    if (usableAliasValue(next[to]) || alsoAbsent.some((field) => usableAliasValue(next[field]))) continue;
+    if (hasAliasTarget(next[to], kind) || alsoAbsent.some((field) => usableAliasValue(next[field]))) continue;
     if (!aliasSourceOfKind(next[from], kind)) continue;
     next[to] = next[from];
     delete next[from];
     aliasApplied.push({ from, to });
   }
+  for (const normalize of normalizers) normalize(next, aliasApplied);
   return { params: aliasApplied.length > 0 ? next : source, aliasApplied };
 }
 function attachAliasApplied(result, aliasApplied) {
@@ -3770,6 +3891,88 @@ function actionOutcomeFailed(name, data) {
   return Boolean(flag && data && typeof data === 'object' && data[flag] === false);
 }
 
+// The schema an agent host validates a call against is derived from the definition row, the
+// alias table and the relaxation table below; the rows themselves stay in parity with the app
+// catalogue. A relaxed schema only lets the call reach invoke(), whose own gates (required
+// fields after aliasing, argument forms) and the capability stay the enforcement: a call that
+// truly lacks a field still fails, with the short proxy error instead of the host's.
+function joinDescription(base, note) {
+  const head = typeof base === 'string' ? base.trim().replace(/\.$/, '') : '';
+  return head ? head + '. ' + note : note;
+}
+// Drop the closed enum on a field; the legal values move into its description.
+function openEnum(extra) {
+  return (spec) => {
+    const { enum: legal, ...rest } = spec;
+    return { ...rest, description: joinDescription(spec.description, 'Legal values: ' + legal.join(', ') + (extra ? '; ' + extra : '')) };
+  };
+}
+function relaxLocator(spec) {
+  const { anyOf, ...rest } = spec;
+  const properties = { ...rest.properties };
+  for (const field of ['role', 'name', 'text']) {
+    if (properties[field]) properties[field] = { ...properties[field], type: ['string', 'null'] };
+  }
+  return { ...rest, properties, description: joinDescription(spec.description, 'Null or blank keys are ignored; a locator holding only selector or placeholder is read as the top-level selector') };
+}
+const PUBLISH_RELAXATIONS = (() => {
+  const waitFields = {
+    condition: openEnum('page_loaded is read as document_loaded, url-changed as url_match, network-idle as network_idle'),
+    type: openEnum('page_loaded is read as document_loaded, url-changed as url_match, network-idle as network_idle'),
+  };
+  const table = {
+    'terminal.write': {
+      key: openEnum('ctrl+c, escape and return are read as ctrl-c, esc and enter'),
+      keys: (spec) => ({ ...spec, items: { type: 'string' }, description: joinDescription(spec.description, 'Legal keys: ' + spec.items.enum.join(', ')) }),
+    },
+    'anti.browser.navigate': { waitUntil: openEnum('networkidle spellings are read as load, none as commit') },
+    'browser.wait': waitFields,
+    'anti.browser.wait': waitFields,
+    'anti.inspect.console': { level: () => ({ type: ['number', 'string'], description: 'Console level filter: a number, or a level name such as "error"' }) },
+    'anti.inspect.responsive_matrix': {
+      customBreakpoints: (spec) => ({ ...spec, items: { type: ['integer', 'object'] }, description: joinDescription(spec.description, 'Each item is an object { id, name, width, height, mobile, deviceScaleFactor } or a bare integer width') }),
+    },
+  };
+  for (const [name, , properties] of definitions) {
+    if (properties && properties.locator) table[name] = { ...(table[name] || {}), locator: relaxLocator };
+  }
+  return Object.freeze(table);
+})();
+function aliasPropertySpec(kind) {
+  if (kind === 'string[]') return { type: 'array', items: { type: 'string' } };
+  if (kind === 'boolean|string') return { anyOf: [{ type: 'boolean' }, { type: 'string' }] };
+  return { type: 'string' };
+}
+function publishedTool([name, description, properties, required, forms]) {
+  const aliases = PARAMETER_ALIASES[name] || [];
+  const relaxations = PUBLISH_RELAXATIONS[name] || {};
+  const published = { ...properties };
+  for (const [field, relax] of Object.entries(relaxations)) {
+    if (published[field]) published[field] = relax(published[field]);
+  }
+  for (const [from, to, kind] of aliases) {
+    if (!(from in published)) published[from] = { ...aliasPropertySpec(kind), description: 'alias of ' + to };
+  }
+  const requiredFields = Array.isArray(required) ? required : [];
+  const aliasedRequired = requiredFields.filter((field) => aliases.some(([, to]) => to === field));
+  const publishedRequired = requiredFields.filter((field) => !aliasedRequired.includes(field));
+  const requiredNote = aliasedRequired.length === 0
+    ? ''
+    : ' Required: ' + requiredFields.map((field) => {
+      const names = aliases.filter(([, to]) => to === field).map(([from]) => from);
+      return names.length > 0 ? field + ' (or ' + names.join(', ') + ')' : field;
+    }).join(', ') + '.';
+  return {
+    name,
+    description: description + argumentFormsNote(forms) + requiredNote,
+    inputSchema: {
+      type: 'object',
+      properties: published,
+      ...(publishedRequired.length > 0 ? { required: publishedRequired } : {}),
+    },
+  };
+}
+
 async function listTools() {
   const allowedCaps = resolveAllowedCapabilities();
   const forbiddenCaps = resolveForbiddenCapabilities();
@@ -3777,15 +3980,7 @@ async function listTools() {
     ? definitions.filter(([name]) => isCapabilityPermitted(name, allowedCaps, forbiddenCaps))
     : definitions;
   return {
-    tools: filteredDefs.map(([name, description, properties, required, forms]) => ({
-      name,
-      description: `${description}${argumentFormsNote(forms)}`,
-      inputSchema: {
-        type: 'object',
-        properties,
-        ...(required && required.length > 0 ? { required } : {}),
-      },
-    })),
+    tools: filteredDefs.map(publishedTool),
   };
 }
 
