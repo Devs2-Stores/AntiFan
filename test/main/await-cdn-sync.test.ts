@@ -304,11 +304,13 @@ describe('the transport at the capability boundary', () => {
     assert.strictEqual(res.error?.code, 'TARGET_MISMATCH');
   });
 
-  it('rebinding to a tab outside the session scope stays an isolation refusal even when that tab is gone', async () => {
+  it('rebinding to an id that names no tab is reported gone, not as a tab of another project', async () => {
     const { transport, intent } = await harness({ value: 1 });
     const res = await transport.dispatchIntent(intent('browser.rebind-target', { tabId: 'tab-vanished' }));
     assert.strictEqual(res.ok, false);
-    assert.strictEqual(res.error?.code, 'TARGET_MISMATCH');
+    assert.strictEqual(res.error?.code, 'TARGET_STALE');
+    assert.strictEqual((res.error?.details as Record<string, unknown>).cause, 'tab-gone');
+    assert.doesNotMatch(res.error?.message ?? '', /another project, session or window/);
   });
 
   it('a live bound tab refusing a foreign tab stays TARGET_MISMATCH', async () => {
