@@ -2,7 +2,7 @@
 // close-worker.mjs - close worker terminals of THIS Leader and prove they are gone.
 //
 //   node scripts/leader/close-worker.mjs <terminalId>... [--leader T] [--keep-project] [--retries 3] [--settle-sec 15]
-//        [--config-dir DIR] [--events-file FILE]
+//        [--config-dir DIR] [--runs-dir DIR] [--events-file FILE]
 //
 // Why it exists (04/11/2026): `terminal.close` on terminal-181 answered EXECUTION_UNCERTAIN, the Leader never read
 // `terminal.list` back and told the user it was closed; the terminal stayed open (idle) for 5 more minutes.
@@ -14,13 +14,17 @@
 // It talks to AntiFan through the same stdio MCP proxy OMP uses (scripts/antifan-agent.cjs mcp), as the Leader's
 // terminal, so it MUST run from the Leader's own bash tool: it exits 2 unless env ANTIFAN_TERMINAL_SESSION_ID is a
 // marked Leader and equals --leader (the proxy acts as the env terminal whatever --leader says; from a worker's scope
-// terminal.list is empty and would read as "closed"). "Gone" needs terminal.list AND the registry to agree.
+// terminal.list is empty and would read as "closed"). "Gone" needs terminal.list, the registry AND the run file
+// <runs dir>/<terminal>.json (the Manager removes it a moment after the close answers) to agree.
 //
-// stdout: one JSON line per id `{type:"close", terminal, result: closed|still-open|refused|already-gone, attempts,
-// projectRemoval?, error?, note?}` and a final `{type:"summary", exit, closed, stillOpen, refused}`.
-// Exit: 0 every id closed (or already gone), 1 at least one still open, 4 at least one refused, 2 usage.
+// stdout: one JSON line per id `{type:"close", terminal, result: closed|run-file-lingering|still-open|refused|already-gone,
+// attempts, projectRemoval?, error?, note?}` and a final `{type:"summary", exit, closed, lingering, stillOpen, refused}`.
+// `run-file-lingering`: terminal.list and the registry no longer show the terminal but its run file is still there after
+// --settle-sec; `leader-job.mjs status` counts that worker as open until the Manager removes the file.
+// Exit: 0 every id closed (or already gone), 1 at least one still open or lingering, 4 at least one refused, 2 usage.
 
 import { spawn } from "node:child_process";
+import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { appendEvents, defaultDirs, incarnationOf, ledgerFileOf, readRegistry } from "./fleet-watch.mjs";
@@ -40,7 +44,8 @@ const NON_RETRYABLE = /^(TERMINAL_FORBIDDEN|INVALID_ARGUMENT|POLICY_DENIED|REFUS
 
 /**
  * Close `ids`. deps: { registry() -> object|null, closeCall(id, { removeMintedProject }) -> Promise<result>,
- * isOpen(id) -> Promise<boolean> (true = still listed), recordGone(id, incarnation), sleep(ms), now() }.
+ * isOpen(id) -> Promise<boolean> (true = still listed), runFileExists?(id) -> boolean (the run file is still there; omitted =
+ * not checked), recordGone(id, incarnation), sleep(ms), now() }.
  * opts: { leader, retries = 3, settleMs = 15000, pollMs = 500, removeMintedProject = true }.
  * Returns { results: [...], code }.
  */
@@ -80,6 +85,8 @@ export async function closeWorkers(ids, deps, opts) {
     let lastError = null;
     let projectRemoval = null;
     let gone = false;
+    let lingering = false;
+    let nonRetryable = false;
     while (attempts < retries && !gone) {
       attempts++;
       try {
@@ -88,32 +95,41 @@ export async function closeWorkers(ids, deps, opts) {
         if (res && res.projectRemoval) projectRemoval = res.projectRemoval;
       } catch (e) {
         lastError = { code: e.code ?? "ERROR", message: String(e.message ?? e).slice(0, 300) };
-        if (NON_RETRYABLE.test(lastError.code)) {
-          // The Manager said no for a reason a retry cannot change: look once, do not spend the retries.
-          gone = !(await deps.isOpen(id));
-          break;
-        }
+        if (NON_RETRYABLE.test(lastError.code)) nonRetryable = true;
       }
-      // The call's answer (also EXECUTION_UNCERTAIN) proves nothing: read the terminal list until the id is gone.
+      // The call's answer (also EXECUTION_UNCERTAIN) proves nothing: read the terminal list until the id is gone and
+      // its run file with it. A terminal that is no longer listed but whose run file stays after the window is not
+      // closed again (another call cannot remove the file): it is reported as lingering. The Manager said no for a
+      // reason a retry cannot change (nonRetryable): look once while the terminal is listed, do not spend the retries.
       const deadline = deps.now() + settleMs;
+      let listed = true;
       for (;;) {
-        if (!(await deps.isOpen(id))) {
+        listed = await deps.isOpen(id);
+        const runFile = !listed && deps.runFileExists ? deps.runFileExists(id) : false;
+        if (!listed && !runFile) {
           gone = true;
           break;
         }
-        if (deps.now() >= deadline) break;
+        if (deps.now() >= deadline || (nonRetryable && listed)) break;
         await sleep(pollMs);
       }
+      if (!gone && !listed) {
+        lingering = true;
+        break;
+      }
+      if (nonRetryable) break;
     }
-    if (gone) {
-      deps.recordGone?.(id, incarnation);
+    if (gone || lingering) deps.recordGone?.(id, incarnation);
+    if (lingering) {
+      results.push({ type: "close", terminal: id, result: "run-file-lingering", attempts, ...(projectRemoval ? { projectRemoval } : {}), note: `terminal.list and the registry no longer show it but its run file is still there after ${Math.round(settleMs / 1000)} s: the Manager has not removed it yet (leader-job status counts the worker as open until then); read status again in a few seconds` });
+    } else if (gone) {
       results.push({ type: "close", terminal: id, result: "closed", attempts, ...(projectRemoval ? { projectRemoval } : {}), ...(lastError ? { lastError } : {}) });
     } else {
       results.push({ type: "close", terminal: id, result: "still-open", attempts, ...(lastError ? { error: lastError } : {}), note: "terminal.list still shows it after every attempt: close it again or report it" });
     }
   }
   const refused = results.filter((r) => r.result === "refused").length;
-  const stillOpen = results.filter((r) => r.result === "still-open").length;
+  const stillOpen = results.filter((r) => r.result === "still-open" || r.result === "run-file-lingering").length;
   return { results, code: refused ? 4 : stillOpen ? 1 : 0 };
 }
 
@@ -205,7 +221,7 @@ export class McpStdio {
 
 export function parseArgs(argv, env = process.env) {
   const dirs = defaultDirs(env);
-  const opts = { ids: [], leader: env.ANTIFAN_TERMINAL_SESSION_ID || null, removeMintedProject: true, retries: 3, settleMs: 15_000, configDir: dirs.configDir, eventsFile: null };
+  const opts = { ids: [], leader: env.ANTIFAN_TERMINAL_SESSION_ID || null, removeMintedProject: true, retries: 3, settleMs: 15_000, configDir: dirs.configDir, runsDir: dirs.runsDir, eventsFile: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const value = () => {
@@ -217,6 +233,7 @@ export function parseArgs(argv, env = process.env) {
     else if (a === "--retries") opts.retries = Number(value());
     else if (a === "--settle-sec") opts.settleMs = Number(value()) * 1000;
     else if (a === "--config-dir") opts.configDir = value();
+    else if (a === "--runs-dir") opts.runsDir = value();
     else if (a === "--events-file") opts.eventsFile = value();
     else if (a.startsWith("--")) throw new Error(`unknown argument: ${a}`);
     else if (TERMINAL_ID.test(a)) opts.ids.push(a);
@@ -286,6 +303,7 @@ export async function main(argv, env = process.env) {
       }
       return listed || Boolean(registry()?.workers?.[id]);
     },
+    runFileExists: (id) => fs.existsSync(path.join(opts.runsDir, `${id}.json`)),
     recordGone: (id, incarnation) => {
       try {
         appendEvents(opts.eventsFile, [{ key: `gone:${incarnation}`, kind: "worker-gone", terminal: id, incarnation, by: "close-worker" }], Date.now());
@@ -306,6 +324,7 @@ export async function main(argv, env = process.env) {
       type: "summary",
       exit: outcome.code,
       closed: outcome.results.filter((r) => r.result === "closed" || r.result === "already-gone").length,
+      lingering: outcome.results.filter((r) => r.result === "run-file-lingering").map((r) => r.terminal),
       stillOpen: outcome.results.filter((r) => r.result === "still-open").map((r) => r.terminal),
       refused: outcome.results.filter((r) => r.result === "refused").map((r) => r.terminal),
     }),

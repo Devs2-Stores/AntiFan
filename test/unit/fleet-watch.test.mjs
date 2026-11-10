@@ -241,13 +241,14 @@ describe("reports: worker to Leader without a new channel", () => {
 
 describe("close-worker verifies instead of trusting the call", () => {
   /** A clock the fake sleep advances, so the settle window costs no real time. */
-  function harness({ open, registry, closeCall }) {
+  function harness({ open, registry, closeCall, runFile }) {
     let clock = 0;
     const calls = [];
     const gone = [];
     return {
       calls,
       gone,
+      clock: () => clock,
       deps: {
         registry: () => registry,
         now: () => clock,
@@ -259,6 +260,7 @@ describe("close-worker verifies instead of trusting the call", () => {
           return closeCall(calls.length, id);
         },
         isOpen: async (id) => open(id, calls.length),
+        ...(runFile ? { runFileExists: (id) => runFile(id, clock) } : {}),
         recordGone: (id, inc) => gone.push([id, inc]),
       },
     };
@@ -320,6 +322,40 @@ describe("close-worker verifies instead of trusting the call", () => {
     assert.equal(results[0].result, "already-gone");
     assert.equal(code, 0);
     assert.equal(h.calls.length, 0);
+  });
+
+  test("a terminal that is no longer listed is closed only once its run file is gone", async () => {
+    const h = harness({ registry, open: (_id, calls) => calls < 1, closeCall: () => ({ closed: true }), runFile: (_id, clock) => clock < 1500 });
+    const { results, code } = await closeWorkers(["terminal-10"], h.deps, opts);
+    assert.equal(results[0].result, "closed");
+    assert.equal(code, 0);
+    assert.ok(h.clock() >= 1500, "the answer waited for the run file instead of reporting closed on the terminal list alone");
+    assert.equal(h.calls.length, 1);
+  });
+
+  test("a run file that outlives the settle window is reported as lingering, not closed, and the close is not repeated", async () => {
+    const h = harness({ registry, open: (_id, calls) => calls < 1, closeCall: () => ({ closed: true }), runFile: () => true });
+    const { results, code } = await closeWorkers(["terminal-10"], h.deps, opts);
+    assert.equal(results[0].result, "run-file-lingering");
+    assert.match(results[0].note, /run file is still there/);
+    assert.equal(code, 1);
+    assert.equal(h.calls.length, 1, "another terminal.close cannot remove the file");
+    assert.deepEqual(h.gone, [["terminal-10", "terminal-10@5"]], "the terminal itself is gone");
+  });
+
+  test("a refusal a retry cannot change, on a terminal already unlisted, still waits for the run file", async () => {
+    const h = harness({
+      registry,
+      open: () => false,
+      closeCall: () => {
+        throw Object.assign(new Error("forbidden"), { code: "TERMINAL_FORBIDDEN" });
+      },
+      runFile: (_id, clock) => clock < 1000,
+    });
+    const { results, code } = await closeWorkers(["terminal-10"], h.deps, opts);
+    assert.equal(results[0].result, "closed");
+    assert.equal(results[0].attempts, 1);
+    assert.equal(code, 0);
   });
 
   test("a refusal a retry cannot change (TERMINAL_FORBIDDEN) is looked at once, not retried", async () => {

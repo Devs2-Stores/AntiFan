@@ -103,8 +103,8 @@ Commands
   close --job DIR [--without-done] [--force] [--keep-workers]  state=closed (needs approval and a verified close round).
        Refused (exit 4) while any worker terminal of the job is still open: terminal.close each first, then close.
        --keep-workers leaves them open on purpose; job.json then records workersKept, so status and the stop hook stop flagging them.
-       A worker whose OMP has ended gets --settle-ms (default 5000) for its run file to go away: close-worker.mjs
-       answers "closed" a moment before the Manager removes that file. --without-done also closes a verified job whose
+       A worker whose OMP has ended gets --settle-ms (default 5000) for its run file to go away (close-worker.mjs now waits
+       for that file too and says run-file-lingering when it stays). --without-done also closes a verified job whose
        latest report is PENDING (a final state that never gets a close round), once the user agreed to leave it Pending.
   approve-push --worker TERMINAL --theme ID --cwd DIR --files "a b c" --quote "<the user's words>" [--ttl-min N] [--job DIR]
   approve-push --worker TERMINAL --theme ID --cwd DIR --files "a b c" --quote-file FILE [--ttl-min N] [--job DIR]
