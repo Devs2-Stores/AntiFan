@@ -3241,6 +3241,15 @@ function attachAliasApplied(result, aliasApplied) {
   return { ...result, aliasApplied };
 }
 async function invoke(method, params = {}, callerRequestId, meta) {
+  // terminal.write has no submit flag. Dropping it silently would type the text and send no
+  // Enter, so the call is refused before any alias or dispatch, naming the forms that do submit.
+  if (method === 'terminal.write' && params && typeof params === 'object' && Object.prototype.hasOwnProperty.call(params, 'submit')) {
+    throw new Error(JSON.stringify({
+      code: 'INVALID_ARGUMENT',
+      message: "terminal.write has no 'submit' argument, so nothing was written. To submit a line end input with \"\\r\"; a Leader may instead send message, or keys:[\"enter\"] as its own call.",
+      details: { capability: method, unsupported: ['submit'] },
+    }));
+  }
   const { params: normalized, aliasApplied } = normalizeParameterAliases(method, params);
   const result = await invokeResolved(method, normalized, callerRequestId, meta);
   return attachAliasApplied(result, aliasApplied);

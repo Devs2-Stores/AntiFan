@@ -146,11 +146,22 @@ test('a call that lacks the field under every name is still refused by the proxy
   await refused('terminal.write', { sessionId: 't-1' }, /requires one of: input \| key \| keys \| message/);
 });
 
-test('submit is never aliased and an alias never replaces a supplied value', () => {
-  const given = { sessionId: 't-1', text: 'ls', submit: true };
-  const { params, aliasApplied } = proxy.normalizeParameterAliases('terminal.write', given);
-  assert.deepEqual(params, { sessionId: 't-1', input: 'ls', submit: true });
-  assert.deepEqual(aliasApplied, [{ from: 'text', to: 'input' }]);
+test('terminal.write refuses submit before dispatch; an alias never replaces a supplied value', async () => {
+  for (const args of [{ sessionId: 't-1', text: 'ls', submit: true }, { terminalId: 't-1', input: 'x', submit: false }]) {
+    await assert.rejects(proxy.invoke('terminal.write', args), (err) => {
+      const body = JSON.parse(err.message);
+      assert.equal(body.code, 'INVALID_ARGUMENT');
+      assert.match(body.message, /no 'submit' argument/);
+      assert.match(body.message, /\\r/);
+      assert.match(body.message, /message/);
+      return true;
+    });
+  }
+  // text ending in a carriage return still aliases onto input
+  const ok = proxy.normalizeParameterAliases('terminal.write', { sessionId: 't-1', text: 'ls\r' });
+  assert.deepEqual(ok.params, { sessionId: 't-1', input: 'ls\r' });
+  assert.deepEqual(ok.aliasApplied, [{ from: 'text', to: 'input' }]);
+  assert.equal(published('terminal.write').inputSchema.additionalProperties, undefined, 'the host schema stays open, so submit reaches the proxy');
   // an explicit state:false is a supplied value; checked must not override it
   const kept = proxy.normalizeParameterAliases('anti.agent.set_control', { selector: '#c', state: false, checked: true });
   assert.equal(kept.params.state, false);
