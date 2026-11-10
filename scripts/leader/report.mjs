@@ -10,7 +10,7 @@
 //     "files":["..."], "pushed":["..."], "evidence":["..."],
 //     "sheet":{"cells":[{"keyText":"<task text>","col":"<header>","expect":"<cell text>","occurrence":1}],
 //              "skipped":[{"keyText":"...","reason":"..."}]},
-//     "dashboard":{"commentsAdded":1,"stageBefore":"Feedback","stageAfter":"Feedback"},
+//     "dashboard":{"commentsAdded":1,"commentsRemoved":0,"removedTexts":["..."],"commentText":"...","stageBefore":"Feedback","stageAfter":"Feedback"},
 //     "storefront":{"measurements":[{"probe","url","viewport","selector","value"}]},
 //     "notChecked":["..."],                                  // REQUIRED when DONE
 //     "needsInput":{"question":"...","options":["a","b"]}    // REQUIRED when NEEDS_INPUT (2-3 options)
@@ -101,8 +101,15 @@ export function validateReportObject(parsed, job, round, ctx = {}) {
   }
   if (j.dashboard !== undefined) {
     if (!isObj(j.dashboard)) errors.push("dashboard must be an object");
-    else if (j.dashboard.commentsAdded !== undefined && !(Number.isInteger(j.dashboard.commentsAdded) && j.dashboard.commentsAdded >= 0)) {
-      errors.push("dashboard.commentsAdded must be an integer >= 0");
+    else {
+      for (const k of ["commentsAdded", "commentsRemoved"]) {
+        if (j.dashboard[k] !== undefined && !(Number.isInteger(j.dashboard[k]) && j.dashboard[k] >= 0)) errors.push(`dashboard.${k} must be an integer >= 0`);
+      }
+      if (j.dashboard.removedTexts !== undefined && !isStrArray(j.dashboard.removedTexts)) errors.push("dashboard.removedTexts must be an array of strings");
+      if ((j.dashboard.commentsRemoved ?? 0) > 0 && (j.dashboard.removedTexts?.length ?? 0) !== j.dashboard.commentsRemoved) {
+        errors.push("dashboard.removedTexts must hold the exact text of every removed comment (one per commentsRemoved)");
+      }
+      if (j.dashboard.commentText !== undefined && !isStr(j.dashboard.commentText)) errors.push("dashboard.commentText must be a string");
     }
   }
   if (j.storefront !== undefined) {
