@@ -1,0 +1,203 @@
+{
+  "description": "Lines and cells that run or can run the theme CLI through a data-only look-alike. Every entry is blocked at every door it applies to (a line: classifyThemeLine block plus eval-wrapped block; a cell: planEvalThemeCode block). Block codes are recorded from the code under test.",
+  "entries": [
+    {
+      "id": "rg-pre-cli-word",
+      "kind": "line",
+      "text": "rg --pre hrv x src/",
+      "note": "--pre runs the program named by its value",
+      "expect": "REFUSED_THEME_COMPLEX"
+    },
+    {
+      "id": "rg-pre-cli-theme",
+      "kind": "line",
+      "text": "rg --pre hrv theme publish 1",
+      "note": "--pre with a theme command as its words",
+      "expect": "REFUSED_THEME_COMPLEX"
+    },
+    {
+      "id": "rg-pre-equals-quoted-command",
+      "kind": "line",
+      "text": "rg --pre=\"hrv theme publish 1\" x",
+      "note": "--pre=value",
+      "expect": "REFUSED_THEME_COMPLEX"
+    },
+    {
+      "id": "rg-pattern-file-with-cli",
+      "kind": "line",
+      "text": "rg -f hrv theme publish 1 src/",
+      "note": "-f is not on the allow-list",
+      "expect": "REFUSED_THEME_COMPLEX"
+    },
+    {
+      "id": "grep-command-substitution",
+      "kind": "line",
+      "text": "grep \"x\" $(hrv theme publish 1)",
+      "note": "$(...) as an argument",
+      "expect": "REFUSED_THEME_COMPLEX"
+    },
+    {
+      "id": "rg-backtick-argument",
+      "kind": "line",
+      "text": "rg \"`hrv theme publish 1`\" f",
+      "note": "backtick in a double-quoted pattern runs",
+      "expect": "REFUSED_THEME_COMPLEX"
+    },
+    {
+      "id": "rg-then-publish",
+      "kind": "line",
+      "text": "rg x; hrv theme publish 1",
+      "note": "a real command after a data segment",
+      "expect": "REFUSED_THEME_REMOTE_OP"
+    },
+    {
+      "id": "rg-piped-into-push",
+      "kind": "line",
+      "text": "rg \"a\" f | hrv theme push",
+      "note": "pipe target is the CLI",
+      "expect": "REFUSED_THEME_COMPLEX"
+    },
+    {
+      "id": "gh-alias-set",
+      "kind": "line",
+      "text": "gh alias set t 'hrv theme publish 1'",
+      "note": "gh alias is not an allowed subcommand",
+      "expect": "REFUSED_THEME_COMPLEX"
+    },
+    {
+      "id": "gh-api-write",
+      "kind": "line",
+      "text": "gh api repos/o/r/issues -f title=\"hrv theme publish 1\"",
+      "note": "gh api is not an allowed subcommand",
+      "expect": "REFUSED_THEME_COMPLEX"
+    },
+    {
+      "id": "gh-issue-then-publish",
+      "kind": "line",
+      "text": "gh issue create --title x && hrv theme publish 1",
+      "note": "gh data segment followed by a real command",
+      "expect": "REFUSED_THEME_REMOTE_OP"
+    },
+    {
+      "id": "ls-command-substitution",
+      "kind": "line",
+      "text": "ls $(hrv theme publish 1)",
+      "note": "$(...) as an argument",
+      "expect": "REFUSED_THEME_COMPLEX"
+    },
+    {
+      "id": "variable-holds-cli",
+      "kind": "line",
+      "text": "RG=hrv; $RG theme publish 1",
+      "note": "variable that holds the CLI",
+      "expect": "REFUSED_THEME_COMPLEX"
+    },
+    {
+      "id": "rg-redirect-to-binding-then-push",
+      "kind": "line",
+      "text": "rg x > .haravan-cli_local.json && hrv theme push --only a.liquid",
+      "note": "redirect into the binding file, then a push",
+      "expect": "REFUSED_THEME_COMPLEX"
+    },
+    {
+      "id": "rg-quoted-newline-sneak",
+      "kind": "line",
+      "text": "rg \"a\" f #'\nhrv theme publish 1\n#'",
+      "note": "a comment opens a quote the shell never sees",
+      "expect": "REFUSED_THEME_COMPLEX"
+    },
+    {
+      "id": "rg-ansi-c-desync",
+      "kind": "line",
+      "text": "echo $'a\\'; rg \"x ' ; hrv theme publish 1 ; echo '\" f",
+      "note": "ANSI-C string closes where the splitter thinks a quote continues",
+      "expect": "REFUSED_THEME_COMPLEX"
+    },
+    {
+      "id": "rg-env-config-word",
+      "kind": "line",
+      "text": "RIPGREP_CONFIG_PATH=hrv-theme.conf rg \"x\" f; hrv theme publish 1",
+      "note": "config-loading environment word is not allowed",
+      "expect": "REFUSED_THEME_REMOTE_OP"
+    },
+    {
+      "id": "rg-glob-flag-with-publish-after-and",
+      "kind": "line",
+      "text": "rg -g \"*.liquid\" x && hrv theme publish 1",
+      "note": "allowed flag, then a real command",
+      "expect": "REFUSED_THEME_REMOTE_OP"
+    },
+    {
+      "id": "cell-subprocess-argv-publish",
+      "kind": "cell",
+      "text": "import subprocess\nsubprocess.run([\"hrv\", \"theme\", \"publish\", \"1\"])",
+      "note": "argument list"
+    },
+    {
+      "id": "cell-os-system-cd-and-publish",
+      "kind": "cell",
+      "text": "import os\nos.system(\"cd /var/www/haravan && hrv theme publish 1\")",
+      "note": "server path before a real command"
+    },
+    {
+      "id": "cell-bun-template-push",
+      "kind": "cell",
+      "text": "await Bun.$`hrv theme push --nodelete`",
+      "note": "template literal"
+    },
+    {
+      "id": "cell-exec-sync-ssh-quoted",
+      "kind": "cell",
+      "text": "const { execSync } = require(\"node:child_process\");\nexecSync(\"ssh host 'hrv theme publish 1'\");",
+      "note": "remote command in quotes"
+    },
+    {
+      "id": "cell-exec-sync-ssh-no-theme-word",
+      "kind": "cell",
+      "text": "const { execSync } = require(\"node:child_process\");\nexecSync(\"ssh host 'hrv whoiam; hrv rollback-last-push -y'\");",
+      "note": "remote command without a theme word"
+    },
+    {
+      "id": "cell-bare-cli-string-next-to-spawn",
+      "kind": "cell",
+      "text": "import subprocess\ncli = \"hrv\"\nsubprocess.run([cli, \"x\"])",
+      "note": "the string is exactly the CLI word"
+    },
+    {
+      "id": "cell-path-qualified-cli-string",
+      "kind": "cell",
+      "text": "import subprocess\ncli = \"C:/Users/someone/AppData/Roaming/npm/HRV\"\nsubprocess.run([cli, \"x\"])",
+      "note": "path to the CLI as the only string"
+    },
+    {
+      "id": "cell-bash-c-wrapper",
+      "kind": "cell",
+      "text": "import subprocess\nsubprocess.run([\"bash\", \"-c\", \"cd x && hrv theme publish 1\"])",
+      "note": "bash -c payload"
+    },
+    {
+      "id": "cell-ssh-bare-remote-cli",
+      "kind": "cell",
+      "text": "import subprocess\nsubprocess.run(\"ssh -o BatchMode=yes root@203.0.113.10 hrv logout\", shell=True)",
+      "note": "remote command word is the CLI"
+    },
+    {
+      "id": "cell-env-wrapper",
+      "kind": "cell",
+      "text": "import subprocess\nsubprocess.run(\"env FOO=1 hrv logout\", shell=True)",
+      "note": "wrapper handed the CLI"
+    },
+    {
+      "id": "cell-pipe-into-cli",
+      "kind": "cell",
+      "text": "import os\nos.system(\"printf logout|hrv\")",
+      "note": "pipe target is the CLI with no spaces"
+    },
+    {
+      "id": "cell-rg-pre-flag",
+      "kind": "cell",
+      "text": "import subprocess\nsubprocess.run(\"rg --pre hrv x src/\", shell=True)",
+      "note": "unknown flag on a data program"
+    }
+  ]
+}

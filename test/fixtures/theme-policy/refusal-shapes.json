@@ -1,0 +1,230 @@
+{
+  "description": "Shapes of real refused calls, reduced to their triggering form with placeholder hosts, paths and ids. expect: 'pass' (no theme CLI use: classifyThemeLine says none / planEvalThemeCode says allow) or the block code classifyThemeLine returns. A line is judged at the bash, terminal and eval (wrapped in os.system) doors; a cell only at the eval door. eval overrides the eval-door verdict of a line.",
+  "entries": [
+    {
+      "id": "data-ls-rg-pattern-with-cli-words",
+      "kind": "line",
+      "text": "ls \"C:/work/apps\" 2>/dev/null | rg -i \"sapo|cli|theme\" ; echo ---; ls \"C:/work/apps\" 2>/dev/null",
+      "expect": "pass",
+      "note": "search pattern that spells CLI words, listing around it"
+    },
+    {
+      "id": "data-rg-alternation-with-assignment-text",
+      "kind": "line",
+      "text": "cd \"C:/work/app\" && rg -n \"const LEFT|const STILL|h.pass = 'fulfil'|pkStatus\\(|pass = 'haravan cancelled|pass = 'pancake|const cap = Number\" scripts/clear.ts; echo \"--- scan ---\"; rg -n \"scan\\(\\)|PAGES|pages \\* 50\" scripts/clear.ts | sed -n '1,12p'",
+      "expect": "pass",
+      "note": "pattern text that reads like a CLI-word assignment; quoted parentheses"
+    },
+    {
+      "id": "data-gh-issue-create-titles",
+      "kind": "line",
+      "text": "gh issue create --repo owner/repo --label ai-handle --title \"Outbound 3xx responses retried 5 times as transient failures\" --body-file issues/a.md 2>&1; echo ===; gh issue create --repo owner/repo --label ai-handle --title \"Sapo API sends access token and client_secret through default redirect-follow fetch\" --body-file issues/b.md 2>&1; echo ===; gh issue comment 6 --repo owner/repo --body \"Closed: cannot reproduce. The storefront theme reads \\`storeDomain\\` under the same name the widget writes.\"",
+      "expect": "pass",
+      "note": "issue title that starts with a CLI word"
+    },
+    {
+      "id": "data-ls-head-rg-cli-source-folder",
+      "kind": "line",
+      "text": "ls \"C:/work/Haravan CLI/src/commands\" | head -50; rg -n \"yargs|\\.command\\(|\\.option\\(|alias\" \"C:/work/Haravan CLI/src/commands/whoiam.ts\" \"C:/work/Haravan CLI/src/commands/login.ts\"; rg -n \"refresh-all|refreshAll\" \"C:/work/Haravan CLI/src\" -l",
+      "expect": "pass",
+      "note": "folder named after the CLI, auth words as search patterns"
+    },
+    {
+      "id": "data-leader-rg-log-words",
+      "kind": "line",
+      "auth": false,
+      "text": "rg -n \"terminal_create|terminal_write|hrv theme dev|split-36|theme-sync\" \"C:/logs/session.jsonl\" -o -m 12",
+      "expect": "pass",
+      "note": "Leader terminal: log search for a CLI command line"
+    },
+    {
+      "id": "data-leader-rg-log-words-default-door",
+      "kind": "line",
+      "text": "rg -n \"terminal_create|terminal_write|hrv theme dev|split-36|theme-sync\" \"C:/logs/session.jsonl\" -o -m 12",
+      "expect": "pass",
+      "note": "same line through the worker door"
+    },
+    {
+      "id": "data-test-builtin-with-expansion",
+      "kind": "line",
+      "text": "[ \"$d\" = \"Haravan-Server--B\" ] && echo hit",
+      "expect": "pass",
+      "note": "the [ test builtin with a variable, next to a directory named after the CLI"
+    },
+    {
+      "id": "code-heredoc-regex-probe",
+      "kind": "line",
+      "text": "cd C:/work/app && cat > re-probe.mjs <<'EOF'\nconst CLI_WORD = String.raw`(?:hrv|haravan-cli|haravan|shopify|sapo)`;\nconst RE = new RegExp(CLI_WORD + '[\\\\s\\\\S]*?theme', 'i');\nEOF\nnode re-probe.mjs",
+      "expect": "REFUSED_THEME_COMPLEX",
+      "note": "heredoc that writes a probe script naming CLI words"
+    },
+    {
+      "id": "code-heredoc-policy-probe",
+      "kind": "line",
+      "text": "cd C:/work/app && cat > probe.ts <<'EOF'\nconst cmds = { A: \"hrv theme push --only a.liquid --nodelete\", B: \"sapo theme push --only a.liquid\" };\nEOF\nnode probe.ts",
+      "expect": "REFUSED_THEME_COMPLEX",
+      "note": "heredoc probe holding quoted theme commands"
+    },
+    {
+      "id": "code-node-e-quoted-theme-commands",
+      "kind": "line",
+      "text": "cd C:/work/scratch && node -e \"const fs=require('fs');let t=fs.readFileSync('a.mjs','utf8');t=t.replace('x','for (const l of [\\\"hrv theme push --nodelete\\\"]) y');fs.writeFileSync('a.mjs',t)\"",
+      "expect": "REFUSED_THEME_COMPLEX",
+      "note": "node -e that rewrites a file with quoted theme commands in it"
+    },
+    {
+      "id": "code-node-e-sample-regex",
+      "kind": "line",
+      "text": "cd C:/work/scratch && node -e \"const SUB=/subprocess|child_process|Popen|!\\s*(hrv|haravan|shopify)/; for (const l of ['a theme b']) if(/(hrv|haravan|shopify|sapo)/i.test(l)) console.log(l)\"",
+      "expect": "REFUSED_THEME_COMPLEX",
+      "note": "node -e with a regex alternation of CLI words and a later theme word"
+    },
+    {
+      "id": "code-node-e-spawn-with-cli-word-prose",
+      "kind": "line",
+      "text": "node -e 'const { spawn } = require(\"node:child_process\"); spawn(\"node\", [\"srv.js\"]); console.log(\"haravan theme probe\")'",
+      "expect": "REFUSED_THEME_COMPLEX",
+      "note": "node -e that starts a process and prints a CLI-word sentence"
+    },
+    {
+      "id": "code-printf-command-substitution",
+      "kind": "line",
+      "text": "now(){ date -u +%H:%M:%SZ; }; printf '%s\\n' \"$(now) gate PASS: the installer reads from haravan, no theme asset write\" >> notes.md",
+      "expect": "REFUSED_THEME_COMPLEX",
+      "note": "printf with a command substitution and a sentence naming the CLI"
+    },
+    {
+      "id": "code-python-c-heredoc-text",
+      "kind": "line",
+      "text": "cd C:/work/scratch && python -c \"import io\\nhead='first'\\ntask='''Check whether the earlier worker pushed to the live haravan theme and revert it.'''\\nprint(head+task)\"",
+      "expect": "REFUSED_THEME_COMPLEX",
+      "note": "python -c whose text says haravan ... theme"
+    },
+    {
+      "id": "real-fetch-chain-with-rg-filter",
+      "kind": "line",
+      "text": "ls /tmp/bak; D=C:/work/verify; mkdir -p $D && cp C:/work/theme/.haravan-cli_local.json $D/ && cd $D && hrv theme fetch 1001 --only assets/a.css snippets/b.liquid 2>&1 | rg -v \"NO_COLOR|trace-warnings\"; ls -R assets snippets 2>/dev/null",
+      "expect": "REFUSED_THEME_COMPLEX",
+      "note": "real theme command chained after copying the binding file"
+    },
+    {
+      "id": "real-info-pipe-python-and-rg",
+      "kind": "line",
+      "text": "cd C:/work/shop && hrv theme info --json 2>/dev/null | python -c \"import sys,json;d=json.loads(sys.stdin.read())\" 2>/dev/null; hrv theme info --json | rg -o '\"id\":\\s*[0-9]+|\"role\":\\s*\"[a-z]*\"' | head -4",
+      "expect": "REFUSED_THEME_COMPLEX",
+      "note": "real theme command piped into python -c"
+    },
+    {
+      "id": "real-info-pipe-node-e",
+      "kind": "line",
+      "text": "cd \"C:/work/shop\" && hrv theme info --json 2>&1 | node -e \"let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(s))\"",
+      "expect": "REFUSED_THEME_COMPLEX",
+      "note": "real theme command piped into node -e"
+    },
+    {
+      "id": "real-node-e-then-push",
+      "kind": "line",
+      "text": "cd \"C:/work/shop\" && node -e \"const fs=require('fs');console.log(fs.readFileSync('a.liquid','utf8').length)\" && hrv theme push --only snippets/a.liquid --nodelete",
+      "expect": "REFUSED_THEME_COMPLEX",
+      "note": "node -e check chained before a real push"
+    },
+    {
+      "id": "real-push-then-node-e",
+      "kind": "line",
+      "text": "hrv theme push --only assets/scripts.js.liquid --nodelete && node -e \"const { execFileSync } = require('node:child_process'); execFileSync(process.execPath,['x.js'],{stdio:'ignore'});\"",
+      "expect": "REFUSED_THEME_COMPLEX",
+      "note": "real push chained before node -e"
+    },
+    {
+      "id": "cell-sqlite-prose-names-cli",
+      "kind": "cell",
+      "text": "import json, sqlite3\nc = sqlite3.connect(\"file:C:/work/app/data/journal.sqlite?mode=ro\", uri=True)\nunits = {r[0]: r[1] for r in c.execute(\"select id, units from plan where cls='x'\")}\nt1 = 'Note: \"Refund per Pancake\" is the amount Pancake recorded. \"Refund per Haravan\" is the amount Haravan recorded. The two differ on 224 orders.'\nprint(len(units), t1)",
+      "expect": "allow",
+      "note": "execute( starts no process; the prose names the CLI word"
+    },
+    {
+      "id": "cell-comment-assignment-and-host",
+      "kind": "cell",
+      "text": "import subprocess\n# First try the common approach: POST password=haravan to /password\nimport urllib.request\nhtml = urllib.request.urlopen(\"https://demo-shop.myharavan.com/password\", timeout=30).read()\nprint(len(html))",
+      "expect": "allow",
+      "note": "comment with password=haravan, storefront host name"
+    },
+    {
+      "id": "cell-ssh-script-server-path",
+      "kind": "cell",
+      "text": "import subprocess\nscript = r'''\nset -u\nBK=/root/backups/x\nRW=/var/www/haravan\nDIRS=\"Haravan-Server--A Haravan-Server--B\"\nfor d in $DIRS; do\n  echo \"==== $d ====\"\n  if [ ! -d \"$RW/$d\" ]; then echo MISSING; continue; fi\ndone\n'''\nsubprocess.run([\"ssh\", \"-o\", \"BatchMode=yes\", \"root@203.0.113.10\", \"bash -s\"], input=script.encode())",
+      "expect": "allow",
+      "note": "ssh script with RW=/var/www/haravan"
+    },
+    {
+      "id": "cell-rg-redis-key",
+      "kind": "cell",
+      "text": "import subprocess\nr = subprocess.run(['rg', '-o', 'haravan:app:install:[0-9]+|orgsub[^,}]{0,60}', 'C:/work/dump.jsonl'], capture_output=True, text=True, timeout=120)\nprint(r.stdout[:3000])",
+      "expect": "allow",
+      "note": "colon-joined key as the rg pattern"
+    },
+    {
+      "id": "cell-rg-redis-key-escaped-quotes",
+      "kind": "cell",
+      "text": "import subprocess\nr = subprocess.run(['rg', '-o', 'haravan:app:install:[0-9]+[^\"]*|orgsub\\\\\":\\\\\"[^\\\\\"]+', 'C:/work/dump.jsonl'], capture_output=True, text=True)\nprint(r.stdout[:3000])",
+      "expect": "allow",
+      "note": "same key with escaped quotes in the pattern"
+    },
+    {
+      "id": "cell-url-path-list-and-nslookup",
+      "kind": "cell",
+      "text": "import subprocess\nfor path in [\"/x\"]:\n    if any(path.startswith(p) for p in (\"/api\", \"/install\", \"/webhook\", \"/haravan\", \"/storefront\")):\n        pass\nsubprocess.run([\"nslookup\", \"token-theme.example.com\", \"8.8.8.8\"])",
+      "expect": "allow",
+      "note": "URL path /haravan in a tuple, a host with -theme."
+    },
+    {
+      "id": "cell-ssh-git-status-server-folders",
+      "kind": "cell",
+      "text": "import subprocess\nssh_script = r\"\"\"\npm2 list\necho \"=== WHEEL GIT ===\"\ngit -C /var/www/haravan/Haravan-Wheel rev-parse HEAD\necho \"=== SAPO GIT ===\"\ngit -C /var/www/haravan/Sapo-Server--Reviews status -s\n\"\"\"\nres = subprocess.run([\"ssh\", \"-o\", \"BatchMode=yes\", \"root@203.0.113.10\", \"bash -s\"], input=ssh_script.encode(\"utf-8\"), capture_output=True)\nprint(res.stdout.decode(\"utf-8\", errors=\"replace\"))",
+      "expect": "allow",
+      "note": "git -C into /var/www/haravan/..., an echoed SAPO label"
+    },
+    {
+      "id": "cell-bun-env-name-filter",
+      "kind": "cell",
+      "text": "const regOut = await Bun.$`powershell -NoProfile -Command \"[Environment]::GetEnvironmentVariables('User').Keys\"`.text();\nconsole.log(\"User env keys:\", regOut.trim().split(/\\r?\\n/).filter(k => /CF|CLOUDFLARE|TOKEN|SECRET|HRV|SAPO/i.test(k)));",
+      "expect": "allow",
+      "note": "HRV and SAPO inside a name filter regex"
+    },
+    {
+      "id": "cell-bun-spawn-ssh-cat-env",
+      "kind": "cell",
+      "text": "// Find orgids of demo shops from Haravan CLI / Recommend / VPS DB\nconst out = Bun.spawnSync(['ssh', '-o', 'BatchMode=yes', 'root@203.0.113.10', 'cat /var/www/haravan/Haravan-Wheel/.env']).stdout.toString();\nconsole.log(out.length);",
+      "expect": "allow",
+      "note": "comment naming the CLI, ssh cat of a server path"
+    },
+    {
+      "id": "cell-bun-spawn-git-and-labels",
+      "kind": "cell",
+      "text": "const p = Bun.spawnSync(['git', 'log', '-1', '--format=%h %s'], { cwd: 'C:/work/app' });\nconsole.log(p.stdout.toString().trim());\nconst rows = [\n  { id: 3, name: 'Token_Theme', worker: 8 },\n  { id: 8, name: 'Review (Haravan)', worker: 709 },\n  { id: 9, name: 'Review_Sapo (Sapo)', worker: 9 },\n];",
+      "expect": "allow",
+      "note": "project labels that name the CLIs"
+    },
+    {
+      "id": "cell-bun-regex-literal-with-quote",
+      "kind": "cell",
+      "text": "const out = Bun.spawnSync(['ssh', 'root@203.0.113.10', 'cat /var/www/haravan/x/.env']).stdout.toString();\nconst clean = out.replace(/^[ ']|[ ']$/g, '');\nconst lines = clean.split(/\\r?\\n/);",
+      "expect": "allow",
+      "note": "a JS regex literal holding a quote must not open a string"
+    },
+    {
+      "id": "cell-bun-tar-listing-label",
+      "kind": "cell",
+      "text": "const entries = (await Bun.$`tar -tzf C:/work/backup.tar.gz`.text()).split(/\\r?\\n/).filter(Boolean);\nconst hrvEnvEntry = entries.find((e) => e.includes('review'));\nconsole.log('Haravan env entry in tar:', hrvEnvEntry);",
+      "expect": "allow",
+      "note": "log label that names the CLI"
+    },
+    {
+      "id": "cell-curl-then-record-command-text",
+      "kind": "cell",
+      "text": "import json, subprocess\nsubprocess.run([\"curl\", \"-sSL\", \"-o\", \"C:/work/after.csv\", \"https://example.com/export?format=csv\"])\nr = {\"pushed\": []}\nr[\"pushed\"].append(\"hrv theme push --only assets/a.scss.liquid --nodelete (adjust the right margin; the CDN already has the rule)\")\nprint(json.dumps(r))",
+      "expect": "allow",
+      "note": "report entry that records a push command as text, next to an unrelated curl"
+    }
+  ]
+}

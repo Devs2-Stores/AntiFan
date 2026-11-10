@@ -1031,7 +1031,7 @@ function aliasSnippet(text: string): string | null {
 function assignSnippet(text: string): string | null {
   for (const match of text.matchAll(CLI_ASSIGN_RE)) {
     const prefix = match[1] ?? "";
-    if (prefix.length > 0 && isFolderName(match[2] ?? "", prefix.charAt(prefix.length - 1))) continue;
+    if (prefix.length > 0 && (isFolderName(match[2] ?? "", prefix.charAt(prefix.length - 1)) || !isCliCommandToken(`${prefix}${match[2] ?? ""}`))) continue;
     return snippetOf(match[0], 0, match[0].length);
   }
   return null;
@@ -1415,6 +1415,13 @@ function obscuredCliSnippet(text: string): string | null {
     const rest = tokens.slice(1);
     const hit = (): string => snippetOf(segment.text, 0, segment.text.length);
     const foldedCmd = foldAll(cmd).trim().split(/\s+/)[0] ?? "";
+    if (
+      /^(?:rg|ripgrep)(?:\.exe)?$/i.test(foldedCmd) &&
+      rest.some((word) => /^--(?:pre|hostname-bin)(?:=|$)/.test(foldAll(word))) &&
+      rest.some((word) => isCliToken(foldAll(word.replace(/^--[a-z-]+=/, "")).trim()))
+    ) {
+      return hit();
+    }
     if (isCliToken(cmd) || isCliToken(foldedCmd)) {
       if (CMD_ACTIVE_RE.test(cmd)) return hit();
       let positional = 0;
@@ -1430,7 +1437,8 @@ function obscuredCliSnippet(text: string): string | null {
       if (segment.afterPipe && rest.length === 0) return hit();
       continue;
     }
-    if (/[$`*?[{]/.test(cmd)) {
+    // `[ "$d" = x ]` and `[[ ... ]]` are the test builtin, not a glob that could expand to the CLI.
+    if (cmd !== "[" && cmd !== "[[" && /[$`*?[{]/.test(cmd)) {
       const words = rest.filter((word) => !(word.length > 1 && word.startsWith("-")));
       if (rest.some((word) => OBSCURED_ACTION_SET[foldedWord(word)] === true)) return hit();
       if (words.length > 0 && /[$`]/.test(words[0] ?? "")) return hit();
@@ -1447,8 +1455,15 @@ function obscuredCliSnippet(text: string): string | null {
   return null;
 }
 
-export function themeCliEvidence(text: string, opts: { auth?: boolean } = {}): string | null {
-  if (typeof text !== "string" || text.length === 0) return null;
+/**
+ * `themeCliEvidence` reads the line with the argument text of data-only segments blanked out
+ * (`rg -n "sapo|theme" src/` names the CLI words as a search pattern, not as a command), so a CLI
+ * word inside it is no evidence. The command word of such a segment and every other segment are
+ * scanned in full, with every fold.
+ */
+export function themeCliEvidence(source: string, opts: { auth?: boolean } = {}): string | null {
+  if (typeof source !== "string" || source.length === 0) return null;
+  const text = maskDataOnlyArguments(source);
   const raw = rawThemeCliEvidence(text, opts);
   if (raw !== null) return raw;
   for (const view of foldViews(text)) {
@@ -1499,6 +1514,223 @@ function topLevelSegments(text: string): string[] {
   }
   segments.push(current);
   return segments.filter((segment) => segment.trim().length > 0);
+}
+
+/**
+ * Programs that list, count, sort or search and never run their arguments, with the flags a call
+ * may carry: an allow-list per program, so a flag that is not named (`rg --pre`, `rg -f`, `rg -z`,
+ * `sort -o`, `grep -f`) makes the whole segment an ordinary one that the CLI rules judge in full.
+ * `short` holds the letters a short flag or a bundle (`-nU`, `-A3`, `-50`) may use; digits are
+ * always allowed in a bundle; `long` holds the full names of long flags (no abbreviations).
+ */
+interface DataProgram {
+  short: string;
+  long: readonly string[];
+}
+const SEARCH_LONG = [
+  "ignore-case", "smart-case", "case-sensitive", "fixed-strings", "line-number", "no-line-number", "count", "files-with-matches",
+  "files-without-match", "no-messages", "no-heading", "heading", "no-filename", "with-filename", "hidden", "max-count", "glob", "type",
+  "type-not", "regexp", "word-regexp", "line-regexp", "invert-match", "only-matching", "no-ignore", "unrestricted", "multiline", "context",
+  "after-context", "before-context", "max-depth", "files", "color", "column", "text", "json", "recursive", "include", "exclude",
+  "exclude-dir", "extended-regexp", "perl-regexp",
+] as const;
+const DATA_PROGRAMS: Record<string, DataProgram> = {
+  rg: { short: "nilcoFEwvSsuUABCgtTemxHIaqL", long: SEARCH_LONG },
+  grep: { short: "nilcoFEPwvsSHhrRxqaIeABCmL", long: SEARCH_LONG },
+  ls: { short: "aAFhlrRSt1dpGgoUvXcuLik", long: ["all", "almost-all", "classify", "human-readable", "recursive", "reverse", "size", "color", "directory", "group-directories-first", "full-time"] },
+  dir: { short: "aAFhlrRSt1dpGgoUvXcuLik", long: ["all", "almost-all", "classify", "human-readable", "recursive", "reverse", "size", "color", "directory", "group-directories-first", "full-time"] },
+  head: { short: "ncqv", long: ["lines", "bytes", "quiet", "silent", "verbose"] },
+  tail: { short: "ncqvfFs", long: ["lines", "bytes", "quiet", "silent", "verbose", "follow"] },
+  wc: { short: "lwcmL", long: ["lines", "words", "bytes", "chars", "max-line-length"] },
+  sort: { short: "nrufhVbdgiMRsktcCz", long: ["numeric-sort", "reverse", "unique", "ignore-case", "human-numeric-sort", "version-sort", "key", "field-separator", "stable"] },
+  uniq: { short: "cdiufsw", long: ["count", "repeated", "unique", "ignore-case", "skip-fields", "skip-chars", "check-chars"] },
+  cut: { short: "dfcbs", long: ["delimiter", "fields", "characters", "bytes", "only-delimited", "complement"] },
+};
+/** `gh` is data-only for these issue and pull-request subcommands, with these long flags only. */
+const GH_SUBCOMMANDS: Record<string, readonly string[]> = {
+  issue: ["create", "comment", "edit", "view", "list", "close"],
+  pr: ["create", "comment", "edit", "view", "list"],
+};
+const GH_FLAGS: readonly string[] = ["repo", "title", "body", "body-file", "label", "assignee", "milestone", "json", "limit", "state"];
+/** Environment words that may lead a data-only segment: none of them loads a config, a pager or a program. */
+const DATA_ENV_WORD_RE = /^(?:NO_COLOR|FORCE_COLOR|LC_ALL|LANG|TZ|CI)=/;
+/** The only redirections a data-only segment may carry. */
+const DATA_REDIRECTS: Record<string, true> = { "2>/dev/null": true, "2>&1": true, ">/dev/null": true };
+/**
+ * Whether `text` holds, outside single quotes and not escaped by a backslash, a `` ` `` or a `$`
+ * that opens a command (`$(`), a parameter (`${`) or a quote (`$'`, `$"`): constructs the splitter
+ * below reads differently from the shell, so a segment between them could be mistaken for plain
+ * data. With `anyDollar`, every `$` counts (a data-only segment has none). Quoting is tracked the
+ * way the splitter does; the first such construct is found while both still agree.
+ */
+function opensExpansion(text: string, anyDollar: boolean): boolean {
+  let quote: string | null = null;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text.charAt(i);
+    if (quote === "'") {
+      if (ch === "'") quote = null;
+      else if (anyDollar && ch === "$") return true;
+      continue;
+    }
+    if (ch === "\\") i += 1;
+    else if (ch === "`") return true;
+    else if (ch === "$" && (anyDollar || "{('\"`".includes(text.charAt(i + 1)))) return true;
+    else if (ch === '"') quote = quote === '"' ? null : '"';
+    else if (ch === "'" && quote === null) quote = "'";
+  }
+  return false;
+}
+
+function hasProgram(table: Record<string, unknown>, name: string): boolean {
+  return Object.prototype.hasOwnProperty.call(table, name);
+}
+
+/**
+ * Offsets of the top-level shell segments (the `topLevelSegments` split, with offsets, backslash
+ * escapes honoured and the `&` of `2>&1` kept inside its segment), so the text of one can be
+ * replaced in place.
+ */
+function topLevelSpans(text: string): { start: number; end: number }[] {
+  const spans: { start: number; end: number }[] = [];
+  let start = 0;
+  let quote: string | null = null;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text.charAt(i);
+    if (quote !== null) {
+      if (ch === "\\" && quote === '"') i += 1;
+      else if (ch === quote) quote = null;
+    } else if (ch === "\\") {
+      i += 1;
+    } else if (ch === '"' || ch === "'" || ch === "`") {
+      quote = ch;
+    } else if (ch === ";" || ch === "|" || ch === "\r" || ch === "\n" || (ch === "&" && text.charAt(i - 1) !== ">")) {
+      spans.push({ start, end: i });
+      start = i + 1;
+    }
+  }
+  spans.push({ start, end: text.length });
+  return spans;
+}
+
+interface QuotedToken {
+  /** The token as typed, quotes included. */
+  text: string;
+  start: number;
+  /** What is left once every quoted span and escaped character is removed. */
+  bare: string;
+}
+
+/** The whitespace-separated words of one segment with their offsets; null when a quote is left open. */
+function quotedTokens(segment: string): QuotedToken[] | null {
+  const tokens: QuotedToken[] = [];
+  let text = "";
+  let bare = "";
+  let start = -1;
+  let quote: string | null = null;
+  const flush = (): void => {
+    if (start >= 0) tokens.push({ text, start, bare });
+    text = "";
+    bare = "";
+    start = -1;
+  };
+  for (let i = 0; i < segment.length; i += 1) {
+    const ch = segment.charAt(i);
+    if (quote === null && /\s/.test(ch)) {
+      flush();
+      continue;
+    }
+    if (start < 0) start = i;
+    text += ch;
+    if (quote !== null) {
+      if (ch === "\\" && quote === '"') {
+        text += segment.charAt(i + 1);
+        i += 1;
+      } else if (ch === quote) {
+        quote = null;
+      }
+    } else if (ch === "\\") {
+      text += segment.charAt(i + 1);
+      i += 1;
+    } else if (ch === '"' || ch === "'") {
+      quote = ch;
+    } else {
+      bare += ch;
+    }
+  }
+  if (quote !== null) return null;
+  flush();
+  return tokens;
+}
+
+/** Whether `args` are flags the program's allow-list names, then plain words (patterns, paths, numbers). */
+function dataProgramArgsOk(program: DataProgram, args: QuotedToken[]): boolean {
+  let flagsOver = false;
+  for (const token of args) {
+    const word = token.text;
+    if (flagsOver || !word.startsWith("-")) continue;
+    if (word === "--") {
+      flagsOver = true;
+    } else if (word.startsWith("--")) {
+      if (!program.long.includes(word.slice(2).split("=", 1)[0] ?? "")) return false;
+    } else {
+      for (const letter of word.slice(1)) if (!/\d/.test(letter) && !program.short.includes(letter)) return false;
+    }
+  }
+  return true;
+}
+
+/** `gh issue create|comment|edit|view|list|close` and `gh pr create|comment|edit|view|list` with the long flags above only. */
+function ghArgsOk(args: QuotedToken[]): boolean {
+  const subcommands = GH_SUBCOMMANDS[args[0]?.text ?? ""];
+  if (subcommands === undefined || !hasProgram(GH_SUBCOMMANDS, args[0]?.text ?? "") || !subcommands.includes(args[1]?.text ?? "")) return false;
+  for (const token of args.slice(2)) {
+    const word = token.text;
+    if (!word.startsWith("-")) continue;
+    if (!word.startsWith("--") || !GH_FLAGS.includes(word.slice(2).split("=", 1)[0] ?? "")) return false;
+  }
+  return true;
+}
+
+/**
+ * Where the arguments of a data-only segment start (just after its command word), or null when the
+ * segment is not data-only: the command word (after leading `NO_COLOR=1`-style words) is, plain or
+ * with `.exe`, a program of the table, every flag is on that program's allow-list, nothing in it
+ * expands (`$`, backtick), groups or redirects (`( ) { } < >` outside quotes, except the three
+ * redirections of DATA_REDIRECTS), has a comment (`#` outside quotes) or continues a line, and its
+ * quotes balance.
+ */
+function dataOnlyArgsStart(segment: string): number | null {
+  if (opensExpansion(segment, true) || /\\\r?\n/.test(segment)) return null;
+  const tokens = quotedTokens(segment);
+  if (tokens === null) return null;
+  for (const token of tokens) {
+    if (DATA_REDIRECTS[token.text] === true) continue;
+    if (/[(){}<>#]/.test(token.bare)) return null;
+  }
+  let first = 0;
+  while (first < tokens.length && DATA_ENV_WORD_RE.test(tokens[first]?.text ?? "")) first += 1;
+  const head = tokens[first];
+  if (head === undefined) return null;
+  const named = /^([A-Za-z]+)(?:\.exe)?$/i.exec(head.text);
+  const name = named?.[1]?.toLowerCase() ?? "";
+  const args = tokens.slice(first + 1).filter((token) => DATA_REDIRECTS[token.text] !== true);
+  if (name === "gh") return ghArgsOk(args) ? head.start + head.text.length : null;
+  if (!hasProgram(DATA_PROGRAMS, name)) return null;
+  return dataProgramArgsOk(DATA_PROGRAMS[name] as DataProgram, args) ? head.start + head.text.length : null;
+}
+
+/** `text` with the arguments of every data-only segment replaced by blanks (same length); see `dataOnlyArgsStart`. */
+function maskDataOnlyArguments(text: string): string {
+  if (opensExpansion(text, false)) return text;
+  let out = "";
+  let last = 0;
+  for (const span of topLevelSpans(text)) {
+    const from = dataOnlyArgsStart(text.slice(span.start, span.end));
+    if (from === null) continue;
+    out += text.slice(last, span.start + from) + " ".repeat(span.end - span.start - from);
+    last = span.end;
+  }
+  return last === 0 ? text : out + text.slice(last);
 }
 
 /**
@@ -1556,35 +1788,161 @@ export function classifyThemeLine(text: string, opts: { assumeDirChanged?: boole
 }
 
 /**
- * A CLI word anywhere in an eval cell that is not a workspace folder: `hrv`, `HRV`, `C:/…/npm/HRV`,
- * `shopify`, however the path to it is built (`pathlib.Path(".../HRV")`, `os.path.join(npm, "HRV")`,
- * `cli = r".../HRV"`). Unlike a shell line, a cell has no "same statement" to tie the word to `theme`,
- * so only a folder named `Haravan` or `Sapo` (the theme and app folders; `shopify` and `hrv` are bins
- * and `hrv` is the Haravan CLI's only one) is set aside.
+ * Whether `token` runs a theme CLI when it stands in command position: the bare word (`hrv`,
+ * `haravan`, `HRV`, `hrv.cmd`), or a path to the binary (an executable extension, the `hrv` or
+ * `haravan-cli` name, or a `bin`, `npm` or `node_modules` folder on the way). A directory that is
+ * merely named after the CLI (`/var/www/haravan`, `/haravan`, `E:/apps/Haravan`) is not.
  */
-function namesCliWordInCell(text: string): boolean {
-  for (const match of text.matchAll(CLI_OCCURRENCE_RE)) {
-    const word = match[1] ?? "";
-    const before = match[0].length > word.length ? match[0].charAt(0) : "";
-    if ((before === "/" || before === "\\") && /^(?:Haravan|Sapo)$/.test(word)) continue;
-    return true;
+function isCliCommandToken(token: string): boolean {
+  if (cliOf(token) === null) return false;
+  if (!/[\\/]/.test(token)) return true;
+  const base = path.win32.basename(path.posix.basename(token));
+  return (
+    /\.(?:cmd|exe|ps1|bat|js|mjs|cjs)$/i.test(base) ||
+    /^(?:hrv|haravan-cli)$/i.test(base) ||
+    /(?:^|[\\/])(?:bin|npm|node_modules)[\\/]/i.test(token)
+  );
+}
+
+/** Words of one segment with their quotes intact, split on whitespace outside quotes. */
+function shellWords(segment: string): string[] {
+  return (quotedTokens(segment) ?? segment.trim().split(/\s+/).map((text) => ({ text, start: 0, bare: text }))).map((token) => token.text).filter((word) => word.length > 0);
+}
+
+const SSH_VALUE_FLAGS: Record<string, true> = Object.fromEntries("-o -i -p -l -F -J -L -R -D -b -c -m -E -S -w -W -B -O -Q -I -e".split(" ").map((flag) => [flag, true]));
+/** Interpreters that run the text after `-c` / `/c` / `-Command` as a command line. */
+const COMMAND_STRING_SHELLS: Record<string, true> = Object.fromEntries("bash sh zsh dash ksh cmd powershell pwsh".split(" ").map((name) => [name, true]));
+const COMMAND_STRING_FLAG_RE = /^(?:-[a-z]*c|\/[ck]|-command)$/i;
+
+/**
+ * Whether the command a segment's words spell is the theme CLI: the command word is the CLI; or it
+ * is a wrapper (`env`, `xargs`, `nohup`, `npx`, ...) handed the CLI word; or a shell (`bash -c`, `cmd /c`,
+ * `powershell -Command`) or `ssh host` whose command text starts with the CLI; or it is a data
+ * program whose flags the allow-list does not know (`rg --pre hrv x`) and a bare CLI word follows.
+ */
+function wordsRunCli(allWords: string[], depth: number): boolean {
+  const words = allWords.slice();
+  while (words.length > 0 && (/^[A-Za-z_]\w*=/.test(words[0] ?? "") || /^(?:&|\.|call)$/i.test(words[0] ?? ""))) words.shift();
+  const first = foldAll(words[0] ?? "").trim();
+  if (first.length === 0 || /\s/.test(first)) return false;
+  if (isCliCommandToken(first)) return true;
+  const base = path.win32.basename(path.posix.basename(first)).toLowerCase().replace(/\.(?:cmd|exe|ps1|bat)$/, "");
+  const rest = words.slice(1);
+  const payloadRuns = (payload: string[]): boolean => payload.length > 0 && depth < 4 && shellCommandHit(foldAll(payload.join(" ")), depth + 1);
+  if (base === "ssh") {
+    let i = 0;
+    while (i < rest.length && (rest[i] ?? "").startsWith("-")) i += SSH_VALUE_FLAGS[rest[i] ?? ""] === true ? 2 : 1;
+    return payloadRuns(rest.slice(i + 1));
+  }
+  if (COMMAND_STRING_SHELLS[base] === true) {
+    const at = rest.findIndex((word) => COMMAND_STRING_FLAG_RE.test(word));
+    return at >= 0 && payloadRuns(rest.slice(at + 1));
+  }
+  if (WRAPPER_SET[base] === true) {
+    if (rest.some((word) => isCliCommandToken(foldAll(word).trim()))) return true;
+    return depth < 4 && wordsRunCli(rest.filter((word) => !word.startsWith("-")), depth + 1);
+  }
+  if (hasProgram(DATA_PROGRAMS, base) || base === "gh") {
+    return rest.some((word) => {
+      const folded = foldAll(word).trim();
+      return /^[\w.=-]+$/.test(folded) && isCliCommandToken(folded.split("=").pop() ?? "") && !/[\\/]/.test(folded);
+    });
   }
   return false;
 }
 
 /**
- * The string literals of an eval cell, each alone and every line's literals joined by a blank (the
- * argument-list form `["hrv", "l*"]`), so the shell rules can judge the text a cell hands to a shell
- * without the call syntax around it (`os.system(`, `subprocess.run([`, `r"""`).
+ * Whether any top-level segment of the shell text `text` runs the theme CLI (see `wordsRunCli`).
+ * The arguments of data-only segments are blanked first, then the text is read as typed and once
+ * and twice folded (quotes, escapes and empty expansions evaluated), as `themeCliEvidence` does. A
+ * text of one blank-free word (`CF|TOKEN|HRV|SAPO`) is a word, not a pipeline: its `|` is an alternation.
+ */
+function shellCommandHit(text: string, depth = 0): boolean {
+  const masked = maskDataOnlyArguments(text);
+  return [masked, ...foldViews(masked)].some((view) =>
+    (/\s/.test(view.trim()) ? topLevelSegments(view) : [view]).some((segment) => {
+      const words = shellWords(segment);
+      return words.length > 0 && wordsRunCli(words, depth);
+    }),
+  );
+}
+
+/** A statement that only prints, logs or stores its string (`print(...)`, `console.log(...)`, `rows.append(...)`) and starts no process. */
+function isInertSink(statement: string): boolean {
+  if (SUBPROCESS_RE.test(statement)) return false;
+  return /^\s*(?:print|console\.\w+)\s*\(/.test(statement) || /^\s*[\w.[\]"']+\.(?:append|push|write|extend|add)\s*\(/.test(statement);
+}
+
+/**
+ * The non-empty string literals of one source line (`"..."` and `'...'`, with backslash escapes).
+ * Text that is not a string is skipped so its quote characters do not open one: a `#` comment (at
+ * the start of the line or after a blank) and a JS regex literal, which is a `/.../flags` after
+ * `( , = : [ ! & | ? { } ;` or at the start of the line (`.replace(/^[ ']|[ ']$/g, '')`).
+ */
+function lineLiterals(line: string): string[] {
+  const out: string[] = [];
+  let previous = "";
+  let i = 0;
+  while (i < line.length) {
+    const ch = line.charAt(i);
+    if (ch === '"' || ch === "'") {
+      let end = i + 1;
+      while (end < line.length && line.charAt(end) !== ch) end += line.charAt(end) === "\\" ? 2 : 1;
+      if (end < line.length) {
+        if (end > i + 1) out.push(line.slice(i + 1, end));
+        i = end + 1;
+        previous = ch;
+        continue;
+      }
+    } else if (ch === "#" && (i === 0 || /\s/.test(line.charAt(i - 1)))) {
+      break;
+    } else if (ch === "/" && (previous === "" || "(,=:[!&|?{};".includes(previous)) && !"/*".includes(line.charAt(i + 1) || "/")) {
+      let end = i + 1;
+      let inClass = false;
+      while (end < line.length && (inClass || line.charAt(end) !== "/")) {
+        const c = line.charAt(end);
+        if (c === "\\") end += 1;
+        else if (c === "[") inClass = true;
+        else if (c === "]") inClass = false;
+        end += 1;
+      }
+      if (end < line.length) {
+        i = end + 1;
+        previous = "/";
+        continue;
+      }
+    }
+    if (!/\s/.test(ch)) previous = ch;
+    i += 1;
+  }
+  return out;
+}
+
+/**
+ * The shell texts an eval cell hands to a process: every string literal alone, the literals of one
+ * line joined by blanks (the argument-list form `["hrv", "l*"]`), triple-quoted and backtick
+ * strings, and the body of an IPython `!cmd` / `%cmd` line. A string that a `print`, `console.log`,
+ * `.append(` or similar statement only records or shows, in a statement that starts no process, is
+ * not handed to one and is left out.
  */
 function cellShellTexts(code: string): string[] {
   const texts: string[] = [];
-  for (const line of code.split(/\r?\n/)) {
-    const literals = [...line.matchAll(/"((?:[^"\\\n]|\\.)*)"|'((?:[^'\\\n]|\\.)*)'/g)].map((match) => match[1] ?? match[2] ?? "").filter((text) => text.length > 0);
-    texts.push(...literals);
-    if (literals.length > 1) texts.push(literals.join(" "));
+  const blocks = /"""([\s\S]*?)"""|'''([\s\S]*?)'''|`((?:[^`\\]|\\[\s\S])*)`/g;
+  for (const match of code.matchAll(blocks)) {
+    const lineStart = code.lastIndexOf("\n", (match.index ?? 0) - 1) + 1;
+    if (isInertSink(code.slice(lineStart, match.index ?? 0))) continue;
+    texts.push(match[1] ?? match[2] ?? match[3] ?? "");
   }
-  for (const match of code.matchAll(/"""([\s\S]*?)"""|'''([\s\S]*?)'''/g)) texts.push(match[1] ?? match[2] ?? "");
+  // The quotes inside a block belong to the shell text it holds, not to the cell: read the rest line by line.
+  for (const line of code.replace(blocks, (block) => block.replace(/[^\n]/g, " ")).split(/\r?\n/)) {
+    const shellLine = /^\s*[!%](.+)$/.exec(line);
+    if (shellLine !== null) texts.push(shellLine[1] ?? "");
+    if (isInertSink(line)) continue;
+    const literals = lineLiterals(line);
+    texts.push(...literals);
+    // An element that holds blanks or shell operators stays one word, as it is in the argument list.
+    if (literals.length > 1) texts.push(literals.map((text) => (/[\s|;&<>]/.test(text) && !text.includes("'") ? `'${text}'` : text)).join(" "));
+  }
   return texts;
 }
 
@@ -1592,17 +1950,18 @@ function cellShellTexts(code: string): string[] {
  * An `eval` cell (Python or JS) reaches the theme CLI only by starting a process (`subprocess`,
  * `os.system`, `!cmd`, `Bun.$`, `$\``, `child_process`), where argument lists and working-directory
  * changes cannot be read back reliably. A worker runs theme commands through the bash tool only,
- * so an eval cell that starts a process and names a CLI word is refused - read actions included.
- * A cell that only reads a file, prints text or searches for these words starts nothing and passes.
+ * so an eval cell that starts a process and hands the CLI to it is refused - read actions included.
+ * The CLI is handed over when a string of the cell (see `cellShellTexts`) holds `theme` after a CLI
+ * word, a sign-in, a shop write or an alias, or runs the CLI in command position: its first word, or
+ * after `ssh host`, `bash -c`, `cmd /c` or a wrapper. A CLI word that is only part of a path, a host
+ * name, a colon-joined key, a regex alternation or prose (`/var/www/haravan/x`,
+ * `x.myharavan.com`, `haravan:app:install`, `/CF|HRV|SAPO/`) runs nothing and passes, and so does
+ * a cell that only reads a file, prints text or searches for these words.
  */
 export function planEvalThemeCode(code: string): ThemeCommandPlan {
   if (typeof code !== "string" || !SUBPROCESS_RE.test(code)) return { decision: "allow" };
-  const namesCli =
-    namesCliWordInCell(code) ||
-    namesCliWordInCell(unquoted(code)) ||
-    foldViews(code).some(namesCliWordInCell) ||
-    mentionsThemeCli(code) ||
-    cellShellTexts(code).some((text) => mentionsThemeCli(text));
+  // A blank-free string is one word (`CF|TOKEN|HRV|SAPO`): only its own command-position reading counts, not a pipe target.
+  const namesCli = cellShellTexts(code).some((text) => (/\s/.test(text.trim()) && mentionsThemeCli(text)) || shellCommandHit(text));
   if (!namesCli) return { decision: "allow" };
   return {
     decision: "block",

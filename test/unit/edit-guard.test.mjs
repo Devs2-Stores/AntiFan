@@ -3268,3 +3268,218 @@ test("the fold evaluates quoting and empty expansions only: a value the line doe
   // an expansion in a plain argument of a command that is not the CLI is not the gate's business
   assert.equal(themePolicy.classifyThemeLine('git commit -m "$MSG"').decision, "none");
 });
+
+// ---------------------------------------------------------------------------
+// Data-only arguments and the command position of an eval cell
+// ---------------------------------------------------------------------------
+
+const POLICY_FIXTURES = path.join(REPO, "test", "fixtures", "theme-policy");
+const readCorpus = (name) => JSON.parse(fs.readFileSync(path.join(POLICY_FIXTURES, name), "utf8")).entries;
+/** A shell line as an eval cell holds it: the text of a process-starting string. */
+const wrapAsCell = (line) => `import os\nos.system(r"""\n${line}\n""")`;
+
+/** The first refusal a line meets when it is classified and its commands are planned; `pass` when it names no theme CLI. */
+function lineVerdict(text, opts = {}) {
+  const plan = themePolicy.classifyThemeLine(text, opts);
+  if (plan.decision === "none") return "pass";
+  if (plan.decision === "block") return plan.code;
+  return plan.commands.map((cmd) => themePolicy.planThemeCommand(cmd, "1001507144")).find((one) => one.decision === "block")?.code ?? "allow";
+}
+
+/** Judges one corpus entry at the doors the hooks use; returns a list of failures. */
+async function judgeCorpusEntry(entry, root, n) {
+  const failures = [];
+  if (entry.kind === "cell") {
+    const verdict = themePolicy.planEvalThemeCode(entry.text);
+    const want = entry.expect === "allow" ? "allow" : "block";
+    if (verdict.decision !== want) failures.push(`eval door: ${verdict.decision}, want ${want}`);
+    return failures;
+  }
+  const opts = entry.auth === false ? { auth: false } : {};
+  const want = entry.expect;
+  const viaClassify = lineVerdict(entry.text, opts);
+  if (viaClassify !== want) failures.push(`classifyThemeLine: ${viaClassify}, want ${want}`);
+  if (entry.auth !== false) {
+    // bash door: the worker's hook; terminal door: the input gate.
+    await asTerminal(true, async () => {
+      const refused = await runBash(root, `sess-corpus-${n}`, entry.text);
+      if (want === "pass") {
+        if (refused !== null) failures.push(`bash door refused: ${refused.reason.slice(0, 60)}`);
+      } else if (refused?.block !== true || !refused.reason.startsWith(`${want}:`)) {
+        failures.push(`bash door: ${refused?.reason?.slice(0, 60) ?? "passed"}, want ${want}`);
+      }
+    });
+    const gate = await draftProbe.gateThemeLine({ text: entry.text, cwd: root, timeoutMs: 20_000 });
+    if (want === "pass") {
+      if (gate.decision !== "pass") failures.push(`terminal door: ${gate.decision}, want pass`);
+    } else if (gate.decision !== "block" || gate.code !== want) {
+      failures.push(`terminal door: ${gate.decision} ${gate.code ?? ""}, want ${want}`);
+    }
+  }
+  const evalVerdict = themePolicy.planEvalThemeCode(wrapAsCell(entry.text));
+  const wantEval = want === "pass" ? "allow" : "block";
+  if (evalVerdict.decision !== wantEval) failures.push(`eval door: ${evalVerdict.decision}, want ${wantEval}`);
+  return failures;
+}
+
+test("real refused shapes: data-only searches pass at every door, code and chained commands keep their refusal", async () => {
+  const root = makeThemeWorkspace();
+  try {
+    const entries = readCorpus("refusal-shapes.json");
+    assert.ok(entries.length >= 30, "the corpus keeps one entry per distinct shape");
+    const failed = [];
+    let n = 0;
+    for (const entry of entries) {
+      n += 1;
+      const failures = await judgeCorpusEntry(entry, root, n);
+      if (failures.length > 0) failed.push(`${entry.id}: ${failures.join("; ")}`);
+    }
+    assert.deepEqual(failed, []);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("adversarial look-alikes of a data-only segment or a harmless cell stay refused at every door", async () => {
+  const root = makeThemeWorkspace();
+  try {
+    const entries = readCorpus("adversarial-shapes.json");
+    const failed = [];
+    let n = 1000;
+    for (const entry of entries) {
+      n += 1;
+      const failures = await judgeCorpusEntry(entry.kind === "cell" ? { ...entry, expect: "block" } : entry, root, n);
+      if (failures.length > 0) failed.push(`${entry.id}: ${failures.join("; ")}`);
+    }
+    assert.deepEqual(failed, []);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a data-only segment needs a listed program, only allow-listed flags and nothing that expands, groups or redirects", () => {
+  const pass = [
+    'rg -n "hrv theme" src/',
+    'rg -uu -g "!node_modules" --hidden -F "hrv theme push" .',
+    "rg --glob=*.ts -A3 -B 2 --max-count 5 -- 'hrv theme' src",
+    'grep -rniE "sapo|theme" docs/ 2>/dev/null',
+    'rg.exe -il "hrv theme" . >/dev/null 2>&1',
+    'ls -la "C:/work/Haravan" | head -n 5',
+    'tail -50 notes.txt | rg "hrv theme"',
+    'rg "hrv theme" f | sort -u | uniq -c | wc -l | cut -d: -f1',
+    'NO_COLOR=1 rg "hrv theme" f',
+    'gh issue comment 5 --repo o/r --body "do not run hrv theme push" --label x',
+    'gh pr view 5 --repo o/r --json title --limit 3',
+    'rg "a (group) {x} < > ;" f',
+  ];
+  for (const line of pass) assert.equal(themePolicy.classifyThemeLine(line).decision, "none", line);
+  const judgedInFull = [
+    'rg -z "hrv theme" f',
+    'rg --search-zip "hrv theme" f',
+    'rg --pre-glob "*.x" "hrv theme" f',
+    'rg --hostname-bin x "hrv theme" f',
+    'rg -f pats "hrv theme" f',
+    'rg --files-with-match-x "hrv theme" f',
+    'grep -f pats "hrv theme" f',
+    'rg "hrv theme" f > out.txt',
+    'rg "hrv theme" f 2> err.txt',
+    'rg "hrv theme" < in.txt',
+    'rg "hrv theme" f $X',
+    'rg "hrv theme" "$X"',
+    'rg "hrv theme" (x)',
+    'rg "hrv theme" {a,b}',
+    'rg "hrv theme" f # note',
+    'RIPGREP_CONFIG_PATH=c.conf rg "hrv theme" f',
+    'PAGER=hrv rg "hrv theme" f',
+    'time rg "hrv theme" f',
+    'xargs rg "hrv theme"',
+    'rg "hrv theme f',
+    "sort -o out.txt \"hrv theme\"",
+    'sort --compress-program hrv "hrv theme"',
+    'gh issue transfer 5 o/r "hrv theme"',
+    'gh issue create --web --title "hrv theme"',
+    'gh issue create --title "hrv theme" -R o/r',
+    'gh pr merge 5 --body "hrv theme"',
+    'gh alias set x "hrv theme push"',
+    'rg "hrv theme" f \\\n',
+  ];
+  for (const line of judgedInFull) assert.notEqual(themePolicy.classifyThemeLine(line).decision, "none", line);
+});
+
+test("an assignment of a directory named after the CLI is not an alias of it; an assignment of its binary is", () => {
+  assert.equal(themePolicy.classifyThemeLine("RW=/var/www/haravan; ls $RW").decision, "none");
+  assert.equal(themePolicy.classifyThemeLine("cd /var/www/haravan").decision, "none");
+  for (const line of ["X=C:/Users/me/AppData/Roaming/npm/HRV", "X=/usr/local/bin/haravan", "X=hrv", "X=./node_modules/.bin/haravan"]) {
+    assert.equal(themePolicy.classifyThemeLine(line).code, "REFUSED_THEME_COMPLEX", line);
+  }
+});
+
+test("an eval cell is refused when a string of it runs the CLI in command position and passes when the CLI word is only text", () => {
+  const blocked = [
+    'import subprocess\nsubprocess.run(["hrv", "x"])',
+    'import os\nos.system("hrv whoiam")',
+    'import os\nos.system("cd /tmp && HRV x")',
+    'import os\nos.system("FOO=1 hrv x")',
+    'import os\nos.system("nohup hrv x &")',
+    'import os\nos.system("xargs -n1 hrv")',
+    'import subprocess\nsubprocess.run("cmd /c hrv x", shell=True)',
+    'import subprocess\nsubprocess.run(["powershell", "-NoProfile", "-Command", "& C:/tools/hrv.cmd x"])',
+    'import subprocess\nsubprocess.run(["ssh", "-p", "22", "root@203.0.113.10", "cd /srv && hrv x"])',
+    'import subprocess\nsubprocess.run("ssh root@203.0.113.10 \\"cd /srv; haravan x\\"", shell=True)',
+    'import subprocess\nsubprocess.run(["C:/Users/me/AppData/Roaming/npm/hrv", "x"])',
+    'import subprocess\nsubprocess.run(["/usr/local/bin/haravan", "x"])',
+    'import subprocess\nsubprocess.run(["./node_modules/.bin/shopify", "x"])',
+    "const { execSync } = require('node:child_process');\nexecSync(`sapo whoiam`)",
+    "!hrv whoiam",
+    'import subprocess\ntask = "hrv x"\nsubprocess.run(task, shell=True)',
+    'import subprocess\nsubprocess.run("rg --pre hrv x .", shell=True)',
+    'import subprocess\nsubprocess.run("h\\"\\"rv x", shell=True)',
+    'import subprocess\nsubprocess.run(["h$(:)rv", "x"])',
+  ];
+  for (const cell of blocked) {
+    const plan = themePolicy.planEvalThemeCode(cell);
+    assert.equal(plan.decision, "block", cell);
+    assert.equal(plan.code, "REFUSED_THEME_VIA_EVAL", cell);
+  }
+  const allowed = [
+    'import subprocess\nsubprocess.run(["git", "-C", "/var/www/haravan/Haravan-Wheel", "status"])',
+    'import subprocess\nsubprocess.run(["ssh", "root@203.0.113.10", "cd /var/www/haravan && ls"])',
+    'import subprocess\nsubprocess.run("ls /var/www/haravan/Sapo-Server", shell=True)',
+    'import subprocess\nsubprocess.run(["curl", "-s", "https://demo.myharavan.com/x"])',
+    'import subprocess\nsubprocess.run(["rg", "-n", "haravan:app:install", "dump.txt"])',
+    'import subprocess\nsubprocess.run(["rg", "-n", "CF|TOKEN|HRV|SAPO", "dump.txt"])',
+    'import subprocess\nsubprocess.run(["rg", "-n", "/haravan", "dump.txt"])',
+    'import subprocess\nsubprocess.run(["node", "x.js"])\nprint("hrv theme push is for the user to run")',
+    'import subprocess\nsubprocess.run(["node", "x.js"])\nrows.append("hrv theme push --only a.liquid")',
+    "const { execSync } = require('node:child_process');\nexecSync('node x.js');\nconsole.log('run haravan theme push yourself');",
+    'import subprocess\nsubprocess.run("echo started", shell=True)  # then hrv theme push by hand',
+  ];
+  for (const cell of allowed) assert.equal(themePolicy.planEvalThemeCode(cell).decision, "allow", cell);
+  // a record or print that is also the call that starts the process is still read as a command
+  assert.equal(themePolicy.planEvalThemeCode('import subprocess\nrows.append(subprocess.run("hrv theme info", shell=True))').decision, "block");
+});
+
+test("an eval cell is read as strings: a regex literal or a comment never opens a string, a URL never hides a command", () => {
+  const allowed = [
+    "const { execSync } = require('node:child_process');\nexecSync('node x.js');\nconst clean = out.replace(/^[ ']|[ ']$/g, '');",
+    'import subprocess\nsubprocess.run(["node", "x.js"])  # don\'t run "hrv theme push" here',
+    "import subprocess\nsubprocess.run('node x.js')\n# it's hrv theme push time",
+  ];
+  for (const cell of allowed) assert.equal(themePolicy.planEvalThemeCode(cell).decision, "allow", cell);
+  const blocked = [
+    'import os\nos.system("curl http://example.com/a; hrv x")',
+    'import os\nos.system("echo a // b; hrv x")',
+    "const { execSync } = require('node:child_process');\nexecSync(\"x\".replace(/a/, '') + 'hrv x'); execSync('hrv y')",
+    'import os\nx = 1 # note\nos.system("hrv x")',
+  ];
+  for (const cell of blocked) assert.equal(themePolicy.planEvalThemeCode(cell).decision, "block", cell);
+});
+
+test("the test builtin `[` and `[[` is not a glob that could expand to the CLI", () => {
+  assert.equal(themePolicy.classifyThemeLine('[ "$d" = "Haravan-Server--B" ] && echo hit').decision, "none");
+  assert.equal(themePolicy.classifyThemeLine('[[ -d "$RW/$d" ]] || echo missing').decision, "none");
+  // a glob or variable that really leads the command word is still refused
+  for (const line of ['h?v theme push', '$X theme push', '[h]rv theme push']) {
+    assert.equal(themePolicy.classifyThemeLine(line).code, "REFUSED_THEME_COMPLEX", line);
+  }
+});
