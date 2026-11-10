@@ -20,15 +20,29 @@ import { releasePushApprovals, type PushApprovalContext, type PushApprovalUse } 
  */
 
 /** Longest logical line the buffer follows; a longer one cannot be read and is refused when it completes. */
-const LINE_MAX_CHARS = 8 * 1024;
+export const LINE_MAX_CHARS = 8 * 1024;
 /** Targets tracked at once. Only targets with a half-typed line or an untrusted cwd are kept at all. */
 const TARGET_CAP = 256;
 
 const BRACKETED_PASTE_MARKERS = /\x1b\[20[01]~/g;
-/** Cursor-key sequences and bare Esc: what a Leader types to move through or dismiss an OMP dialog. */
-const AGENT_NAVIGATION_KEYS = /\x1b\[[ABCD]|\x1b(?!\[20[01]~)/g;
+/** Left/right cursor keys and bare Esc: what a Leader types to move within or dismiss an OMP screen; agent-owned for every live run. */
+const AGENT_NAVIGATION_KEYS = /\x1b\[[CD]|\x1b(?!\[(?:20[01]~|[AB]))/g;
+/** The same plus up/down, which are agent-owned only while an ask dialog is open. */
+const AGENT_NAVIGATION_KEYS_ASK = /\x1b\[[ABCD]|\x1b(?!\[20[01]~)/g;
 /** Control characters a worker's input may carry besides printable text and DEL (0x7f). */
 const MODELLED_CONTROL_CHARS = new Set(['\t', '\n', '\r', '\b', '\x03', '\x1b']);
+/** Appended to the refusals a Leader's `input` can meet only because a chat line was typed as a shell line. */
+const MESSAGE_HINT = ' To send a chat message to a worker\'s agent prompt, pass it as `message` instead of `input`.';
+/**
+ * A character `message` never carries: every C0/C1 control character (tab and line break included), the Unicode line
+ * and paragraph separators, and the invisible format characters (zero-width, bidi marks, BOM) that could hide what a
+ * line starts with.
+ */
+export const MESSAGE_CONTROL_CHARS = /[\x00-\x1f\x7f-\x9f\u00ad\u061c\u200b-\u200f\u2028-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/;
+/** A message that starts with one of these (after whitespace) would be run by the agent CLI as a shell or code command, outside every hook. */
+export const MESSAGE_PASSTHROUGH_SIGIL = /^\s*[!$&>/]/;
+/** The first word of a line is a theme CLI (`hrv`, `C:\tools\hrv.cmd`, `"shopify"`, ...), not a word of prose that merely contains one. */
+const STARTS_WITH_THEME_CLI = /^["'`]?(?:[^\s"'`]*[\\/])?(?:hrv|haravan-cli|haravan|shopify|sapo|bizweb)(?:\.(?:cmd|exe|ps1|bat|js|mjs|cjs))?["'`]?(?![a-z0-9_-])/i;
 
 interface TargetLine {
   /** Characters typed since the last Enter that no control key has erased. */
@@ -158,12 +172,15 @@ export class WorkerTerminalInputGate {
     target: string,
     input: string,
     cwd: string | undefined,
-    options: { deadlineAt?: number; approval?: PushApprovalContext; agentOwnsInput?: boolean } = {}
+    options: { deadlineAt?: number; approval?: PushApprovalContext; agentOwnsInput?: boolean; askDialogOpen?: boolean; leaderCaller?: boolean } = {}
   ): Promise<WorkerInputVerdict> {
     const previous = this.lines.get(target);
     const before = previous ?? emptyLine();
     const state: TargetLine = { ...before };
     const claimed: PushApprovalUse[] = [];
+    // The hint never points a refused command at `message`: only a line that is neither a passthrough nor a theme command gets it.
+    const hintFor = (line: string): string =>
+      options.leaderCaller === true && !MESSAGE_PASSTHROUGH_SIGIL.test(line) && !STARTS_WITH_THEME_CLI.test(line.trimStart()) ? MESSAGE_HINT : '';
     const refuse = (code: string, reason: string, command: string): WorkerInputVerdict => {
       // Nothing of this input reaches the shell, so an approval an earlier line of it spent was never used.
       releasePushApprovals(claimed);
@@ -171,9 +188,12 @@ export class WorkerTerminalInputGate {
       return { decision: 'block', code, reason, command, interruptPending: holdsText(before) };
     };
 
-    // The keys a Leader sends to close or answer an OMP dialog (Esc, the arrows) act on the agent's own screen: when an
-    // OMP is alive in the terminal they say nothing about a shell line, so they must not taint the next line.
-    const typed = (options.agentOwnsInput === true ? input.replace(AGENT_NAVIGATION_KEYS, '') : input).replace(BRACKETED_PASTE_MARKERS, '');
+    // Left/right arrows and bare Esc, sent to a pane with a live OMP, act on the agent's own screen and say nothing about a
+    // shell line, so they do not taint the next line. Up/down are agent-owned only while an ask dialog is open
+    // (`askDialogOpen`): anywhere else the agent recalls history or a draft into its input box, a line nobody judged,
+    // so they taint the line exactly like history recall in a shell, until a Ctrl-C clears it.
+    const navigation = options.askDialogOpen === true ? AGENT_NAVIGATION_KEYS_ASK : AGENT_NAVIGATION_KEYS;
+    const typed = (options.agentOwnsInput === true ? input.replace(navigation, '') : input).replace(BRACKETED_PASTE_MARKERS, '');
     for (const ch of typed) {
       if (ch.charCodeAt(0) < 0x20 && !MODELLED_CONTROL_CHARS.has(ch)) {
         return refuse(
@@ -210,14 +230,14 @@ export class WorkerTerminalInputGate {
           if (unreadable) {
             return refuse(
               THEME_PUSH_CODES.COMPLEX,
-              `${THEME_PUSH_CODES.COMPLEX}: this input cannot be checked: it completes a line that cannot be read back (it uses an escape sequence, Tab completion or history recall, or is longer than ${LINE_MAX_CHARS} characters). Type plain text: write the command out in full as one line. If you need this, report NEEDS_INPUT to your Leader.`,
+              `${THEME_PUSH_CODES.COMPLEX}: this input cannot be checked: it completes a line that cannot be read back (it uses an escape sequence, Tab completion or history recall, or is longer than ${LINE_MAX_CHARS} characters). Type plain text: write the command out in full as one line. If you need this, report NEEDS_INPUT to your Leader.${hintFor(text)}`,
               text.slice(0, 200)
             );
           }
           if (lineContinues(text)) {
             return refuse(
               THEME_PUSH_CODES.COMPLEX,
-              `${THEME_PUSH_CODES.COMPLEX}: this line ends in a continuation (a trailing backtick, backslash, caret, pipe, ampersand or comma, or an open quote or bracket), so the shell would join it with the next line and each line cannot be checked alone. Type one complete plain command per line, and write a multi-line script to a file. If you need this, report NEEDS_INPUT to your Leader.`,
+              `${THEME_PUSH_CODES.COMPLEX}: this line ends in a continuation (a trailing backtick, backslash, caret, pipe, ampersand or comma, or an open quote or bracket), so the shell would join it with the next line and each line cannot be checked alone. Type one complete plain command per line, and write a multi-line script to a file. If you need this, report NEEDS_INPUT to your Leader.${hintFor(text)}`,
               text.slice(0, 200)
             );
           }
@@ -229,7 +249,10 @@ export class WorkerTerminalInputGate {
             timeoutMs: Math.max(1, Math.min(this.options.probeTimeoutMs, left)),
             ...(options.approval ? { approval: options.approval } : {}),
           });
-          if (outcome.decision === 'block') return refuse(outcome.code, outcome.reason, outcome.command);
+          if (outcome.decision === 'block') {
+            const unreadableShape = outcome.code === THEME_PUSH_CODES.COMPLEX && outcome.reason.includes('names the theme CLI in a shape the push rules cannot read');
+            return refuse(outcome.code, unreadableShape ? `${outcome.reason}${hintFor(text)}` : outcome.reason, outcome.command);
+          }
           if (outcome.decision === 'allow' && outcome.approved) claimed.push(...outcome.approved);
           if (startsDirChange(text)) state.cwdUntrusted = true;
           break;
@@ -255,6 +278,71 @@ export class WorkerTerminalInputGate {
           cwdUntrusted: before.cwdUntrusted || state.cwdUntrusted,
         }),
     };
+  }
+
+  /**
+   * Judge one chat message a Leader sends to the agent CLI running in `target`, where `inspect` would read the same
+   * text as a shell line. The caller has already proven that a live agent run owns the pane and proves it again before Enter.
+   *
+   * Invariants:
+   * - Text typed with `input`/`key`/`keys` goes through `inspect` and is judged as a shell line in every case; only an
+   *   explicit `message` reaches this method.
+   * - A message never reads or writes the pane's pending buffer: text still waiting there would be submitted glued to
+   *   the message, so a pane holding any is refused, and nothing here leaves anything behind for a later line.
+   * - A message that starts with a passthrough sigil (! $ & >) or a slash is refused outright: the agent CLI runs such a
+   *   line as a shell command, code or slash command without any hook seeing it, and a message is chat, never a command.
+   *   A message whose first word is a theme command is judged by the same function as a typed shell line and its refusal
+   *   is returned unchanged; while the run is `running` (a forced write) the whole message is judged that way. A CLI word
+   *   later in the line of an idle agent's message is prose.
+   * A block never asks the caller for Ctrl-C: nothing was typed.
+   * Call it only inside {@link run}.
+   */
+  public async inspectMessage(
+    target: string,
+    message: string,
+    cwd: string | undefined,
+    options: { deadlineAt?: number; approval?: PushApprovalContext; runState?: string } = {}
+  ): Promise<WorkerInputVerdict> {
+    const held = this.lines.get(target);
+    const block = (code: string, reason: string, command: string): WorkerInputVerdict => ({ decision: 'block', code, reason, command, interruptPending: false });
+    if (message.trim().length === 0 || message.length > LINE_MAX_CHARS || MESSAGE_CONTROL_CHARS.test(message)) {
+      return block(
+        THEME_PUSH_CODES.COMPLEX,
+        `${THEME_PUSH_CODES.COMPLEX}: a message must be one non-empty line of plain text of at most ${LINE_MAX_CHARS} characters, with no control characters. Put long or multi-line instructions in a file and send a message that references it.`,
+        showControls(message).slice(0, 200)
+      );
+    }
+    if (held !== undefined && holdsText(held)) {
+      return block(
+        THEME_PUSH_CODES.COMPLEX,
+        `${THEME_PUSH_CODES.COMPLEX}: this terminal holds text typed earlier that was never entered, and the message would be submitted glued to it. Clear the line first (key ctrl-c), then send the message again.`,
+        message.slice(0, 200)
+      );
+    }
+    if (MESSAGE_PASSTHROUGH_SIGIL.test(message)) {
+      return block(
+        THEME_PUSH_CODES.COMPLEX,
+        `${THEME_PUSH_CODES.COMPLEX}: a message cannot start with a shell/code passthrough sigil (! $ & >) or a slash (/): the agent CLI would run it as a shell or code command, or as a slash command (/exit, /new, ...), outside every gate. To run a command in the worker's shell use input (judged as a shell line), or ask the worker in words.`,
+        message.slice(0, 200)
+      );
+    }
+    const line = message.trimStart();
+    // While a turn runs (a forced write), the text lands in the running agent's input stream, where its own tools may read
+    // it: judge the whole message, not only a leading CLI word. An idle agent reads it as chat, so only a leading CLI word counts.
+    if (options.runState === 'running' || STARTS_WITH_THEME_CLI.test(line)) {
+      const left = options.deadlineAt === undefined ? this.options.probeTimeoutMs : options.deadlineAt - Date.now();
+      const outcome = await gateThemeLine({
+        text: line,
+        cwd: cwd ?? path.parse(process.cwd()).root,
+        assumeDirChanged: held?.cwdUntrusted === true || cwd === undefined,
+        timeoutMs: Math.max(1, Math.min(this.options.probeTimeoutMs, left)),
+        ...(options.approval ? { approval: options.approval } : {}),
+      });
+      if (outcome.decision === 'block') return block(outcome.code, outcome.reason, outcome.command);
+      const claimed: PushApprovalUse[] = outcome.decision === 'allow' && outcome.approved ? [...outcome.approved] : [];
+      return { decision: 'allow', approved: claimed, revert: () => releasePushApprovals(claimed), undelivered: () => {} };
+    }
+    return { decision: 'allow', approved: [], revert: () => {}, undelivered: () => {} };
   }
 
   private store(target: string, state: TargetLine): void {

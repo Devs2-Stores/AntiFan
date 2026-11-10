@@ -619,6 +619,273 @@ describe('A Leader worker typing through terminal.write', () => {
       }
     });
   });
+
+  describe('a Leader\'s chat message to the agent CLI of a worker pane', () => {
+    const runsDir = path.join(DATA_ROOT, 'runtime', 'runs');
+    const writeRun = (terminalId: string, state: 'idle' | 'running' | 'waiting_user' | 'ended', extra: { updatedAt?: number } = {}): void => {
+      fs.writeFileSync(
+        path.join(runsDir, `${terminalId}.json`),
+        JSON.stringify({
+          schema: 1,
+          terminalSessionId: terminalId,
+          ompSessionId: `omp-${terminalId}`,
+          pid: process.pid,
+          cwd: THEME_ROOT,
+          mode: 'unset',
+          state,
+          runSeq: 1,
+          runStartedAt: 1,
+          lastEventAt: 2,
+          promptHead: 'prompt',
+          updatedAt: extra.updatedAt ?? Date.now(),
+        }),
+        'utf8'
+      );
+    };
+    beforeEach(() => {
+      for (const name of fs.readdirSync(runsDir)) fs.rmSync(path.join(runsDir, name), { force: true });
+    });
+    after(() => {
+      for (const name of fs.readdirSync(runsDir)) fs.rmSync(path.join(runsDir, name), { force: true });
+    });
+
+    const setup = (facadeOverrides: Record<string, unknown> = {}) => {
+      const built = build({ deliveryWaitMs: 0 }, facadeOverrides);
+      const send = (sessionId: string, args: Record<string, unknown>, attachment = 'att-lead') =>
+        built.catalogue.dispatch('terminal.write', { sessionId, ...args }, attachmentContext(attachment)) as Promise<{ written: boolean; message?: string }>;
+      return { ...built, send };
+    };
+    const invalidArgument = (err: unknown): boolean => err instanceof CapabilityError && err.code === 'INVALID_ARGUMENT';
+
+    it('delivers prose that a shell line would refuse (trailing comma, open bracket, a backticked CLI mention) and presses Enter, never Ctrl-C', async () => {
+      writeRun('split-w', 'idle');
+      const { send, calls } = setup();
+      const text = 'Chạy `hrv theme dev`, rồi báo lại (xong,';
+      const result = await send('split-w', { message: text });
+      assert.strictEqual(result.written, true);
+      assert.deepStrictEqual(calls.writes, [
+        { sessionId: 'split-w', input: text },
+        { sessionId: 'split-w', input: '\r' },
+      ]);
+    });
+
+    it('cannot be used to run a history-recalled line: input, ctrl-c, up, then a message is refused and no Enter follows the up', async () => {
+      writeRun('split-w', 'idle');
+      const { send, calls } = setup();
+      await send('split-w', { input: '!hrv theme publish 1 #' });
+      await send('split-w', { key: 'ctrl-c' });
+      await send('split-w', { key: 'up' });
+      await assert.rejects(
+        () => send('split-w', { message: 'chạy đi' }),
+        (err: unknown) => err instanceof CapabilityError && err.code === 'POLICY_DENIED'
+      );
+      assert.deepStrictEqual(calls.writes.map((w) => w.input), ['!hrv theme publish 1 #', '\x03', '\x1b[A']);
+      // Ctrl-C clears the taint: the next message goes through.
+      await send('split-w', { key: 'ctrl-c' });
+      const result = await send('split-w', { message: 'chạy đi' });
+      assert.strictEqual(result.written, true);
+    });
+
+    it('refuses up+enter on an idle run, still delivers down,down,enter as one write while an ask dialog is open, and keeps esc and side arrows agent-owned', async () => {
+      writeRun('split-w', 'idle');
+      const { send, calls } = setup();
+      await assert.rejects(() => send('split-w', { keys: ['up', 'enter'] }), refusedWith('REFUSED_THEME_COMPLEX'));
+      assert.deepStrictEqual(calls.writes.filter((w) => w.input !== '\x03'), []);
+      await send('split-w', { keys: ['left', 'right'] });
+      await send('split-w', { key: 'esc' });
+      const ok = await send('split-w', { message: 'hello' });
+      assert.strictEqual(ok.written, true, 'left, right and esc left no taint behind');
+
+      writeRun('split-w', 'waiting_user');
+      calls.writes.length = 0;
+      const answered = await send('split-w', { keys: ['down', 'down', 'enter'] });
+      assert.strictEqual(answered.written, true);
+      assert.deepStrictEqual(calls.writes.map((w) => w.input), ['\x1b[B\x1b[B\r']);
+    });
+
+    it('refuses a message while an ask dialog is open, even with force', async () => {
+      writeRun('split-w', 'waiting_user');
+      const { send, calls } = setup();
+      const waiting = (err: unknown): boolean => err instanceof CapabilityError && err.code === 'TERMINAL_BUSY' && /ask dialog/.test(err.message);
+      await assert.rejects(() => send('split-w', { message: 'hello' }), waiting);
+      await assert.rejects(() => send('split-w', { message: 'hello', force: true }), waiting);
+      assert.deepStrictEqual(calls.writes, []);
+    });
+
+    it('judges the whole message while a turn runs with force:true: a theme command anywhere is refused, prose passes, esc still works', async () => {
+      writeRun('split-w', 'running');
+      const { send, calls } = setup();
+      await assert.rejects(() => send('split-w', { message: 'cd theme && hrv theme publish 1', force: true }), refusedWith('REFUSED_THEME_REMOTE_OP'));
+      assert.strictEqual(calls.writes.length, 0);
+      await send('split-w', { key: 'esc', force: true });
+      const result = await send('split-w', { message: 'bạn làm tiếp nhé', force: true });
+      assert.strictEqual(result.written, true);
+      assert.deepStrictEqual(calls.writes.map((w) => w.input), ['\x1b', 'bạn làm tiếp nhé', '\r']);
+    });
+
+    it('refuses a message that starts with a slash command, and delivers one that has a slash later', async () => {
+      writeRun('split-w', 'idle');
+      const { send, calls } = setup();
+      await assert.rejects(() => send('split-w', { message: '/exit' }), invalidArgument);
+      await assert.rejects(() => send('split-w', { message: '  /new' }), invalidArgument);
+      assert.deepStrictEqual(calls.writes, []);
+      const result = await send('split-w', { message: 'a/b' });
+      assert.strictEqual(result.written, true);
+      for (const hidden of ['\u00ad/exit', '\u061c!x', '\u2066x']) {
+        await assert.rejects(() => send('split-w', { message: hidden }), invalidArgument);
+      }
+    });
+
+    it('judges a message whose first word is a theme command as a shell line and writes nothing', async () => {
+      writeRun('split-w', 'idle');
+      const { send, calls } = setup();
+      await assert.rejects(() => send('split-w', { message: 'hrv theme publish 1' }), refusedWith('REFUSED_THEME_REMOTE_OP'));
+      await assert.rejects(() => send('split-w', { message: '  hrv theme publish 1' }), refusedWith('REFUSED_THEME_REMOTE_OP'));
+      assert.deepStrictEqual(calls.writes, []);
+    });
+
+    it('refuses every message that starts with a shell or code passthrough sigil, and writes nothing', async () => {
+      writeRun('split-w', 'idle');
+      const { send, calls } = setup();
+      for (const message of [
+        '!!hrv theme publish 1',
+        '!cd . && hrv theme push --force',
+        "$import os; os.system('hrv theme publish 1')",
+        '!cd other-folder',
+        '  !ls',
+        '$ hrv theme publish 1',
+        '!hrv theme publish 1',
+        '&x',
+        '>x',
+      ]) {
+        await assert.rejects(() => send('split-w', { message }), invalidArgument, message);
+      }
+      assert.deepStrictEqual(calls.writes, []);
+    });
+
+    it('refuses a sigil message at the gate too, so the refusal does not depend on the argument layer', async () => {
+      const gate = new WorkerTerminalInputGate({ probeTimeoutMs: 1_000 });
+      for (const message of ['!!hrv theme publish 1', ' $x', '&x', '>x']) {
+        const verdict = await gate.inspectMessage('t', message, THEME_ROOT);
+        assert.strictEqual(verdict.decision, 'block', message);
+        assert.strictEqual(verdict.decision === 'block' && verdict.code, THEME_PUSH_CODES.COMPLEX);
+        assert.strictEqual(verdict.decision === 'block' && verdict.interruptPending, false);
+      }
+      assert.strictEqual((await gate.inspectMessage('t', 'giá $5, xong chưa!', THEME_ROOT)).decision, 'allow');
+    });
+
+    it('delivers prose that carries a sigil later in the line', async () => {
+      writeRun('split-w', 'idle');
+      const { send, calls } = setup();
+      const text = 'giá $5, xong chưa!';
+      const result = await send('split-w', { message: text });
+      assert.strictEqual(result.written, true);
+      assert.deepStrictEqual(calls.writes.map((w) => w.input), [text, '\r']);
+    });
+
+    it('never points a refused command at message: a Leader input that starts with a sigil or a theme command is refused without the hint', async () => {
+      installHrvStub('main');
+      const { send, calls } = setup();
+      await assert.rejects(
+        () => send('split-w', { input: '!hrv theme publish 1\r' }),
+        (err: unknown) => err instanceof CapabilityError && err.code === 'POLICY_DENIED' && !/message/.test(err.message)
+      );
+      assert.deepStrictEqual(calls.writes, []);
+    });
+
+    it('is refused, with nothing written, for a pane without a run file, with an ended run or with a stale run', async () => {
+      const { send, calls } = setup();
+      const notRunning = (err: unknown): boolean => err instanceof CapabilityError && err.code === 'OMP_NOT_RUNNING' && /message is only for a pane running the agent CLI/.test(err.message) && /input/.test(err.message);
+      await assert.rejects(() => send('split-w', { message: 'hello' }), notRunning);
+      writeRun('split-w', 'ended');
+      await assert.rejects(() => send('split-w', { message: 'hello' }), notRunning);
+      writeRun('split-w', 'idle', { updatedAt: Date.now() - 10 * 60_000 });
+      await assert.rejects(() => send('split-w', { message: 'hello' }), notRunning);
+      assert.deepStrictEqual(calls.writes, []);
+    });
+
+    it('is TERMINAL_BUSY while a turn runs, and force:true types it anyway', async () => {
+      writeRun('split-w', 'running');
+      const { send, calls } = setup();
+      await assert.rejects(() => send('split-w', { message: 'hello' }), (err: unknown) => err instanceof CapabilityError && err.code === 'TERMINAL_BUSY');
+      assert.strictEqual(calls.writes.length, 0);
+      const forced = await send('split-w', { message: 'hello', force: true });
+      assert.strictEqual(forced.written, true);
+      assert.deepStrictEqual(calls.writes.map((w) => w.input), ['hello', '\r']);
+    });
+
+    it('refuses a multi-line message, a tab, a control character, an empty one and one over the line cap as INVALID_ARGUMENT', async () => {
+      writeRun('split-w', 'idle');
+      const { send, calls } = setup();
+      // C1 controls, Unicode line separators and invisible format characters are refused too: a zero-width
+      // character in front of `!` would otherwise hide the passthrough sigil from the leading-character rule.
+      for (const message of ['a\nb', 'a\r\nb', 'a\tb', 'a\x1bb', '   ', 'x'.repeat(8 * 1024 + 1), 'a\u0085b', 'a\u2028b', '\u200b!ls', '\ufeff$x', 'a\u202eb']) {
+        await assert.rejects(() => send('split-w', { message }), invalidArgument, JSON.stringify(message.slice(0, 20)));
+      }
+      await assert.rejects(() => send('split-w', { message: 'a\nb' }), (err: unknown) => err instanceof CapabilityError && /file/.test(err.message));
+      assert.deepStrictEqual(calls.writes, []);
+    });
+
+    it('is refused while the pane holds text typed earlier that was never entered, and leaves that text alone', async () => {
+      writeRun('split-w', 'idle');
+      const { send, calls } = setup();
+      await send('split-w', { input: 'echo half' });
+      await assert.rejects(
+        () => send('split-w', { message: 'hello' }),
+        (err: unknown) => err instanceof CapabilityError && err.code === 'POLICY_DENIED' && /Clear the line first/.test(err.message)
+      );
+      assert.deepStrictEqual(calls.writes.map((w) => w.input), ['echo half'], 'no Ctrl-C and nothing of the message');
+      // The held text is still tracked: a later Enter completes exactly that line.
+      await send('split-w', { key: 'enter' });
+      assert.strictEqual(calls.writes.at(-1)?.input, '\r');
+    });
+
+    it('is refused for a worker caller, and together with input, key or keys', async () => {
+      writeRun('split-w', 'idle');
+      const { send, calls } = setup();
+      await assert.rejects(() => send('split-w', { message: 'hello' }, 'att-w'), invalidArgument);
+      await assert.rejects(() => send('split-w', { message: 'hello', input: 'x' }), invalidArgument);
+      await assert.rejects(() => send('split-w', { message: 'hello', key: 'enter' }), invalidArgument);
+      await assert.rejects(() => send('split-w', { message: 'hello', keys: ['enter'] }), invalidArgument);
+      assert.deepStrictEqual(calls.writes, []);
+    });
+
+    it('does not press Enter when the agent ended after the text was typed: the text is cleared and the result says written:false', async () => {
+      writeRun('split-w', 'idle');
+      const writes: string[] = [];
+      const { send } = setup({
+        writeTo: async (_sessionId: string, input: string) => {
+          writes.push(input);
+          if (input === 'bye') writeRun('split-w', 'ended');
+          return true;
+        },
+      });
+      const result = await send('split-w', { message: 'bye' });
+      assert.strictEqual(result.written, false);
+      assert.match(result.message ?? '', /Enter was NOT sent/);
+      assert.deepStrictEqual(writes, ['bye', '\x03'], 'the typed text is erased the way a refused line is, and no Enter follows');
+    });
+
+    it('keeps judging input as a shell line: a theme command into a shell pane is refused as before, and a continuation refusal for a Leader names `message`', async () => {
+      installHrvStub('main');
+      const { send, calls } = setup();
+      await assert.rejects(() => send('split-w', { input: 'hrv theme dev\r' }), refusedWith('REFUSED_THEME_PUSH_LIVE'));
+      await assert.rejects(
+        () => send('split-w', { input: 'Chạy lệnh này,\r' }),
+        (err: unknown) => refusedWith('REFUSED_THEME_COMPLEX')(err) && /pass it as `message`/.test((err as Error).message)
+      );
+      await assert.rejects(
+        () => send('split-w', { input: 'ec\tho x\r' }),
+        (err: unknown) => refusedWith('REFUSED_THEME_COMPLEX')(err) && /pass it as `message`/.test((err as Error).message)
+      );
+      assert.deepStrictEqual(calls.writes.map((w) => w.input).filter((input) => input !== '\x03'), []);
+      // A worker is not a Leader: the same refusal carries no hint.
+      await assert.rejects(
+        () => send('split-w', { input: 'Chạy lệnh này,\r' }, 'att-w'),
+        (err: unknown) => refusedWith('REFUSED_THEME_COMPLEX')(err) && !/`message`/.test((err as Error).message)
+      );
+    });
+  });
 });
 
 describe('WorkerTerminalInputGate line buffer', () => {

@@ -994,6 +994,16 @@ describe('Leader scope of the terminal capabilities', () => {
       });
     });
 
+    describe('terminal.write message', () => {
+      it('is declared as a plain string argument and one of the alternatives, next to input, key and keys', () => {
+        const { catalogue } = build();
+        const schema = catalogue.get('terminal.write')?.inputSchema as { properties?: Record<string, { type?: string; enum?: unknown }>; oneOf?: Array<{ required: string[] }> } | undefined;
+        assert.strictEqual(schema?.properties?.message?.type, 'string');
+        assert.strictEqual(schema?.properties?.message?.enum, undefined);
+        assert.ok(schema?.oneOf?.some((alternative) => alternative.required.length === 1 && alternative.required[0] === 'message'));
+      });
+    });
+
     describe('terminal.wait run-idle over sessionIds', () => {
       it('returns the first terminal whose run settled, with its run and the whole id list', async () => {
         LeaderRegistry.getInstance().setLeader('terminal-lead', true);

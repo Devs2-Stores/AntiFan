@@ -28,7 +28,7 @@ import {
   type StaleHook,
 } from '../leader/leader-runtime';
 import { daemonVersionStatus, type DaemonVersionStatus } from '../terminal-daemon/daemon-spawner';
-import { WorkerTerminalInputGate } from './worker-terminal-input-gate';
+import { LINE_MAX_CHARS, MESSAGE_CONTROL_CHARS, MESSAGE_PASSTHROUGH_SIGIL, WorkerTerminalInputGate } from './worker-terminal-input-gate';
 import { APPROVAL_SELF_CODE } from '../../omp-hooks/theme-push-approval';
 import { THEME_PUSH_CODES } from '../../omp-hooks/theme-push-policy';
 import { recordLifecycleEvent } from '../diagnostics/main-lifecycle-log';
@@ -511,6 +511,42 @@ function assertLeaderTargetRunsOmp(terminal: TerminalManager, sessionId: string,
   );
 }
 
+/** The run snapshot of a pane whose agent CLI is alive (not ended, not stale), or undefined when there is none or it cannot be read. */
+function liveAgentRun(sessionId: string): TerminalRunSnapshot | undefined {
+  let run: TerminalRunSnapshot | undefined;
+  try {
+    run = leaderRunSnapshot(sessionId);
+  } catch {
+    return undefined;
+  }
+  return run !== undefined && run.state !== 'ended' && run.stale !== true ? run : undefined;
+}
+
+/**
+ * Refuse a `message` unless the pane holds a live agent run: a chat line typed anywhere else would go to a shell.
+ * Unknown (no run file, unreadable, ended, stale, a sleeping pane that a write would wake into a shell) refuses; `running`
+ * is TERMINAL_BUSY exactly as for `input`, unless the caller passed force:true.
+ */
+function assertMessageTargetLive(terminal: TerminalManager, sessionId: string, force: boolean): TerminalRunSnapshot {
+  const run = liveAgentRun(sessionId);
+  if (run === undefined || probeTerminalLifecycle(terminal, sessionId)?.state === 'sleeping') {
+    throw new CapabilityError(
+      'OMP_NOT_RUNNING',
+      `Terminal "${sessionId}" has no live OMP: message is only for a pane running the agent CLI, and a line typed anywhere else would go to a shell. Use input to type into a shell pane`,
+      { sessionId, recovery: 'input for a shell pane; for a worker whose OMP ended, an input starting with "omp " or a new worker terminal' }
+    );
+  }
+  if (run.state === 'waiting_user') {
+    throw new CapabilityError(
+      'TERMINAL_BUSY',
+      `Terminal "${sessionId}" is waiting on an ask dialog: a message would be typed into it. Answer the dialog with keys first (worker-status lists ask.questions[].answerKeys), then send the message`,
+      { sessionId, run, recovery: 'terminal.write keys with answerKeys, then message' }
+    );
+  }
+  if (!force) assertLeaderTargetNotBusy(sessionId);
+  return run;
+}
+
 /** Keys a Leader may send with `terminal.write { key }`, as the terminal itself sends them. */
 const TERMINAL_WRITE_KEY_SEQUENCES = {
   enter: '\r',
@@ -531,7 +567,27 @@ const TERMINAL_WRITE_KEYS_MAX = 16;
  * The text a `terminal.write` call types: `input`, or the sequence of `key` / `keys` (Leader only; exactly one form).
  * Whitespace-only `input` never reaches here: the argument layer refuses it as no usable value, so a bare Enter is `key: "enter"`.
  */
-function resolveWriteInput(params: { input?: string; key?: string; keys?: string[] }, isLeader: boolean): string {
+function resolveWriteInput(params: { input?: string; message?: string; key?: string; keys?: string[] }, isLeader: boolean): string {
+  if (params.message !== undefined) {
+    if (!isLeader) throw new CapabilityError('INVALID_ARGUMENT', 'message is only available to a Leader terminal; type plain text with input');
+    if (params.input !== undefined || params.key !== undefined || params.keys !== undefined) {
+      throw new CapabilityError('INVALID_ARGUMENT', 'pass exactly one of input, message, key or keys');
+    }
+    const message = params.message;
+    if (typeof message !== 'string' || message.trim().length === 0 || message.length > LINE_MAX_CHARS || MESSAGE_CONTROL_CHARS.test(message)) {
+      throw new CapabilityError(
+        'INVALID_ARGUMENT',
+        `message must be one non-empty line of plain text of at most ${LINE_MAX_CHARS} characters, with no line breaks, tabs or other control characters. Put long or multi-line instructions in a file and send a message that references its path`
+      );
+    }
+    if (MESSAGE_PASSTHROUGH_SIGIL.test(message)) {
+      throw new CapabilityError(
+        'INVALID_ARGUMENT',
+        'message cannot start with a shell/code passthrough sigil (! $ & >) or a slash (/): the agent CLI would run it as a shell or code command, or as a slash command (/exit, /new, ...), outside every gate. To run a command in the worker\'s shell use input (judged as a shell line), or ask the worker in words'
+      );
+    }
+    return message;
+  }
   if (params.key !== undefined || params.keys !== undefined) {
     if (!isLeader) throw new CapabilityError('INVALID_ARGUMENT', 'key / keys are only available to a Leader terminal; type plain text with input');
     if (params.input !== undefined || (params.key !== undefined && params.keys !== undefined)) {
@@ -852,10 +908,10 @@ export function registerTerminalCapabilities(
   const workerProbeTimeoutMs = deps.probeTimeoutMs ?? WORKER_PROBE_TIMEOUT_MS;
   const workerInputGate = new WorkerTerminalInputGate({ probeTimeoutMs: workerProbeTimeoutMs });
   const daemonStatus = deps.daemonStatus ?? daemonVersionStatus;
-  catalogue.register<{ sessionId: string; input?: string; key?: string; keys?: string[]; force?: boolean; shell?: boolean; deliveryWaitMs?: number }, TerminalWriteResult>({
+  catalogue.register<{ sessionId: string; input?: string; message?: string; key?: string; keys?: string[]; force?: boolean; shell?: boolean; deliveryWaitMs?: number }, TerminalWriteResult>({
     name: 'terminal.write',
     description:
-      'Write raw input text to one of your terminal split panes (the panes under the terminal you run in; never the terminal you run in itself). Writing to a SLEEPING pane wakes it (a fresh shell in the same cwd) and then delivers the input; the result reports woke=true. The result also carries writtenAt (epoch ms taken just before the write) and, when the terminal has an OMP run file, its run state from before the write: pass writtenAt to terminal.wait run-idle as afterEventAt to wait for the answer to THIS input. written:false means no live shell was confirmed to take the input (a dead terminal, a failed wake or a failed daemon call; a daemon call that timed out may still have delivered it): check the terminal with terminal.list before writing again, or re-create it. A Leader terminal (marked by the user) may write to any live terminal of any project except its own: a terminal whose OMP run is `running` is refused with TERMINAL_BUSY unless force:true. A terminal whose OMP has ended (it exited, crashed or stopped heartbeating) is refused with OMP_NOT_RUNNING, because the input would go to the shell and nothing would answer it: start a new OMP with an input that begins with `omp `, recycle the worker (terminal.close, terminal.create, a continuation prompt), or pass shell:true to type into the shell on purpose. After a prompt (input ending in Enter) typed into an idle OMP the result carries delivery: `started` (a run began: runSeq grew or the state left idle) or `pending` (alive but still idle after deliveryWaitMs, default 5000, maximum 7000, shortened to the call budget; 0 skips the check) or `not_running` (its OMP ended: the line went to the shell): pending is NOT a failure, a worker often needs 15 to 55 s to finish its old turn and start the run, so check `worker-status --since <writtenAt> --min-run-seq <pre-write runSeq + 1>` and treat the prompt as not received only after 90 s without a new run; not_running means recycle the worker. A Leader sends Enter, Esc, Ctrl-C, Tab and the arrow keys with `key` or `keys` instead of `input` (whitespace-only input is refused as no usable value); `keys` answers the ask dialog of a worker with the ask.questions[].answerKeys[option] list that worker-status / wait-workers print, and Esc or an arrow key sent into a terminal with a live OMP never counts as shell-line editing for the theme gate. A terminal a Leader drives (a worker) has the theme-CLI lines it types here checked like its bash tool: each completed line that names hrv/haravan/shopify theme is judged by the same rules (read actions pass; `hrv theme push [--only <files>] --nodelete` passes against the theme id the folder is bound to, live or copy alike, once `hrv theme info -j` there succeeds and reports that same id (no `--nodelete`: REFUSED_THEME_PUSH_NODELETE; a push without `--only` must add `--ignore config/settings_data.json`: REFUSED_THEME_PUSH_SETTINGS_DATA); `hrv theme dev` additionally needs a non-live theme; `--force`, `--prune`, another theme id, publish/delete and every Shopify/Sapo write are refused) and anything refused comes back as POLICY_DENIED with a REFUSED_THEME_* refusalCode: report NEEDS_INPUT to your Leader with the exact command instead of retrying. A worker may type only plain text, Enter, Backspace, Tab, Esc and Ctrl-C: any other control key, a line that ends in a continuation (a trailing backtick, backslash, caret, pipe, ampersand or comma, or an open quote or bracket) and a line that cannot be read back (after Esc or Tab, or over 8 KiB) are refused too, so write a multi-line script to a file instead',
+      'Write raw input text to one of your terminal split panes (the panes under the terminal you run in; never the terminal you run in itself). Writing to a SLEEPING pane wakes it (a fresh shell in the same cwd) and then delivers the input; the result reports woke=true. The result also carries writtenAt (epoch ms taken just before the write) and, when the terminal has an OMP run file, its run state from before the write: pass writtenAt to terminal.wait run-idle as afterEventAt to wait for the answer to THIS input. written:false means no live shell was confirmed to take the input (a dead terminal, a failed wake or a failed daemon call; a daemon call that timed out may still have delivered it): check the terminal with terminal.list before writing again, or re-create it. A Leader terminal (marked by the user) may write to any live terminal of any project except its own: a terminal whose OMP run is `running` is refused with TERMINAL_BUSY unless force:true. A terminal whose OMP has ended (it exited, crashed or stopped heartbeating) is refused with OMP_NOT_RUNNING, because the input would go to the shell and nothing would answer it: start a new OMP with an input that begins with `omp `, recycle the worker (terminal.close, terminal.create, a continuation prompt), or pass shell:true to type into the shell on purpose. After a prompt (input ending in Enter) typed into an idle OMP the result carries delivery: `started` (a run began: runSeq grew or the state left idle) or `pending` (alive but still idle after deliveryWaitMs, default 5000, maximum 7000, shortened to the call budget; 0 skips the check) or `not_running` (its OMP ended: the line went to the shell): pending is NOT a failure, a worker often needs 15 to 55 s to finish its old turn and start the run, so check `worker-status --since <writtenAt> --min-run-seq <pre-write runSeq + 1>` and treat the prompt as not received only after 90 s without a new run; not_running means recycle the worker. A Leader sends Enter, Esc, Ctrl-C, Tab and the arrow keys with `key` or `keys` instead of `input` (whitespace-only input is refused as no usable value), and a one-line chat message to a worker\'s OMP with `message` instead of `input` (live OMP run only, not while it waits on an ask dialog; Enter added; no leading ! $ & > or /; a line that starts with a theme command is still judged as one); `keys` answers the ask dialog of a worker with the ask.questions[].answerKeys[option] list that worker-status / wait-workers print, and Esc, left and right sent into a terminal with a live OMP never count as shell-line editing for the theme gate, while up/down count as such (they recall an unjudged history line, so the next Enter or message there is refused until ctrl-c) unless the run is waiting_user (an ask dialog is open). A terminal a Leader drives (a worker) has the theme-CLI lines it types here checked like its bash tool: each completed line that names hrv/haravan/shopify theme is judged by the same rules (read actions pass; `hrv theme push [--only <files>] --nodelete` passes against the theme id the folder is bound to, live or copy alike, once `hrv theme info -j` there succeeds and reports that same id (no `--nodelete`: REFUSED_THEME_PUSH_NODELETE; a push without `--only` must add `--ignore config/settings_data.json`: REFUSED_THEME_PUSH_SETTINGS_DATA); `hrv theme dev` additionally needs a non-live theme; `--force`, `--prune`, another theme id, publish/delete and every Shopify/Sapo write are refused) and anything refused comes back as POLICY_DENIED with a REFUSED_THEME_* refusalCode: report NEEDS_INPUT to your Leader with the exact command instead of retrying. A worker may type only plain text, Enter, Backspace, Tab, Esc and Ctrl-C: any other control key, a line that ends in a continuation (a trailing backtick, backslash, caret, pipe, ampersand or comma, or an open quote or bracket) and a line that cannot be read back (after Esc or Tab, or over 8 KiB) are refused too, so write a multi-line script to a file instead',
     risk: 'write',
     policy: {
       effect: 'interactive-effect',
@@ -877,6 +933,7 @@ export function registerTerminalCapabilities(
       properties: {
         sessionId: { type: 'string', description: 'Target terminal session ID' },
         input: { type: 'string', description: 'Data/commands to write into PTY stdin (plain text; for Enter, Esc, Ctrl-C or the arrow keys a Leader passes key instead)' },
+        message: { type: 'string', description: 'Leader only, instead of input: one line of chat for the agent CLI (OMP) running in the pane; Enter is added. Only for a pane with a live OMP run (else OMP_NOT_RUNNING; input is for a shell pane); long or multi-line instructions go in a file the message points to' },
         key: { type: 'string', enum: [...TERMINAL_WRITE_KEYS], description: 'Leader only, instead of input: one key sent as the terminal sends it (enter, esc, ctrl-c, tab, up, down, left, right). Use it to close an OMP ask dialog (esc) or submit a prompt already sitting in the input box (enter)' },
         keys: { type: 'array', items: { type: 'string', enum: [...TERMINAL_WRITE_KEYS] }, maxItems: TERMINAL_WRITE_KEYS_MAX, description: 'Leader only, instead of input: several keys in order, sent as one write (esc only as the last key: an Esc followed by another key in the same write reads as Alt+key). worker-status / wait-workers give the list that answers a worker\'s ask dialog as ask.questions[].answerKeys[option], e.g. ["down","down","enter"]' },
         force: { type: 'boolean', description: 'Leader only: write even while the target OMP run is running (the input lands inside the running prompt)' },
@@ -884,10 +941,10 @@ export function registerTerminalCapabilities(
         deliveryWaitMs: { type: 'number', description: `Leader only: how long to wait, after a prompt typed into an idle OMP, for a run to start (default ${TERMINAL_WRITE_DELIVERY_DEFAULT_MS}, maximum ${TERMINAL_WRITE_DELIVERY_MAX_MS}; 0 skips the check). The result then carries delivery "started", "pending" (not a failure) or "not_running"` },
       },
       required: ['sessionId'],
-      oneOf: [{ required: ['input'] }, { required: ['key'] }, { required: ['keys'] }],
+      oneOf: [{ required: ['input'] }, { required: ['message'] }, { required: ['key'] }, { required: ['keys'] }],
     },
     execute: async (
-      rawParams: { sessionId: string; input?: string; key?: string; keys?: string[]; force?: boolean; shell?: boolean; deliveryWaitMs?: number },
+      rawParams: { sessionId: string; input?: string; message?: string; key?: string; keys?: string[]; force?: boolean; shell?: boolean; deliveryWaitMs?: number },
       context?: CapabilityRequestContext | AuthenticatedCapabilityContext
     ) => {
       if (!rawParams.sessionId || typeof rawParams.sessionId !== 'string') {
@@ -897,13 +954,15 @@ export function registerTerminalCapabilities(
       const signal = (context && 'signal' in context ? context.signal : undefined) ?? (context && 'control' in context ? context.control?.signal : undefined);
       const scope = resolveTerminalCallerScope(ownership, context);
       assertTerminalOwnership(scope, rawParams.sessionId);
+      const isMessage = rawParams.message !== undefined;
       const params = { ...rawParams, input: resolveWriteInput(rawParams, scope.bound && scope.leader) };
       if (params.deliveryWaitMs !== undefined && (typeof params.deliveryWaitMs !== 'number' || !Number.isFinite(params.deliveryWaitMs) || params.deliveryWaitMs < 0)) {
         throw new CapabilityError('INVALID_ARGUMENT', 'deliveryWaitMs must be a finite number of milliseconds, 0 or more');
       }
       const deliveryWaitMs = Math.min(params.deliveryWaitMs ?? deps.deliveryWaitMs ?? TERMINAL_WRITE_DELIVERY_DEFAULT_MS, TERMINAL_WRITE_DELIVERY_MAX_MS);
       if (scope.bound && scope.leader && params.force !== true) assertLeaderTargetNotBusy(params.sessionId);
-      if (scope.bound && scope.leader && params.shell !== true) assertLeaderTargetRunsOmp(terminal, params.sessionId, params.input);
+      if (scope.bound && scope.leader && !isMessage && params.shell !== true) assertLeaderTargetRunsOmp(terminal, params.sessionId, params.input);
+      if (isMessage) assertMessageTargetLive(terminal, params.sessionId, params.force === true);
       const registry = LeaderRegistry.getInstance();
       const deliver = async (): Promise<TerminalWriteResult> => {
         const before = probeTerminalLifecycle(terminal, params.sessionId);
@@ -921,7 +980,27 @@ export function registerTerminalCapabilities(
         const writtenAt = Date.now();
         // The facade's result is read as `unknown`: only an explicit `false` means the input was not
         // delivered. An in-process manager that returns nothing, or a daemon that predates the field, is delivery.
-        const delivered = (await terminal.writeTo(params.sessionId, params.input)) as unknown;
+        let delivered = (await terminal.writeTo(params.sessionId, params.input)) as unknown;
+        let messageNote: string | undefined;
+        if (isMessage && delivered !== false) {
+          // The text is in the input box; Enter goes only to a pane whose agent is still alive. If it ended in between,
+          // the text sits in a shell line: erase it the way a refused line is erased, and report nothing was sent.
+          if (liveAgentRun(params.sessionId) !== undefined) {
+            delivered = (await terminal.writeTo(params.sessionId, '\r')) as unknown;
+          } else {
+            let cleared = true;
+            try {
+              cleared = ((await terminal.writeTo(params.sessionId, '\x03')) as unknown) !== false;
+            } catch {
+              cleared = false;
+            }
+            if (!cleared) workerInputGate.markTainted(params.sessionId);
+            delivered = false;
+            messageNote =
+              `The agent in terminal "${params.sessionId}" ended before the message was submitted, so Enter was NOT sent and the message was not delivered` +
+              (cleared ? '; the typed text was cleared.' : '; the typed text could not be cleared (Ctrl-C was not delivered), so the next input there is refused until it is.');
+          }
+        }
         // A Leader's first successful write claims the terminal as one of its workers, so the Worker board
         // shows it. A write that reached no shell claims nothing.
         let registryNote = '';
@@ -948,6 +1027,8 @@ export function registerTerminalCapabilities(
           result.message =
             `Session "${params.sessionId}" was sleeping and did not wake — the shell spawn failed, so the input was NOT delivered. ` +
             `Retry terminal.write, or re-create the session.${registryNote}`;
+        } else if (messageNote !== undefined) {
+          result.message = messageNote;
         } else if (delivered === false) {
           // A daemon call that timed out reads as `false` too, and the input may have arrived before it did.
           result.message =
@@ -958,7 +1039,7 @@ export function registerTerminalCapabilities(
         }
         // A Leader's prompt into an idle OMP: say whether a run started, so nobody has to guess from a silent worker.
         // lastEventAt is no evidence (the previous turn closing moves it); the run counter or the state is.
-        if (scope.bound && scope.leader && run?.state === 'idle' && delivered !== false && !wasSleeping && /[\r\n]$/.test(params.input) && deliveryWaitMs > 0) {
+        if (scope.bound && scope.leader && run?.state === 'idle' && delivered !== false && !wasSleeping && (isMessage || /[\r\n]$/.test(params.input)) && deliveryWaitMs > 0) {
           const left = Math.max(0, startedAt + TERMINAL_WRITE_BUDGET_MS - Date.now());
           const confirmed = await confirmRunStarted(params.sessionId, run, Math.min(deliveryWaitMs, left), signal);
           if (confirmed) {
@@ -990,12 +1071,20 @@ export function registerTerminalCapabilities(
         const cwd = terminal.listSessions(true).find((row) => row.id === params.sessionId)?.cwd;
         const approval = worker === undefined ? undefined : { dir: leaderPushApprovalsDir(), worker: workerId, leader: worker.leaderId, via: 'manager:terminal.write' };
         const ompRun = leaderRunSnapshot(params.sessionId);
-        const verdict = await workerInputGate.inspect(params.sessionId, params.input, cwd, {
-          deadlineAt: startedAt + workerProbeTimeoutMs,
-          ...(approval === undefined ? {} : { approval }),
-          // A Leader's Esc / arrow keys into a terminal with a live OMP act on the agent's dialog, not on a shell line.
-          ...(scope.bound && scope.leader && ompRun !== undefined && ompRun.state !== 'ended' && ompRun.stale !== true ? { agentOwnsInput: true } : {}),
-        });
+        const gateOptions = { deadlineAt: startedAt + workerProbeTimeoutMs, ...(approval === undefined ? {} : { approval }) };
+        // A message is only ever typed into a live agent: the queue may have delayed this call, so look again now.
+        const messageRun = isMessage ? assertMessageTargetLive(terminal, params.sessionId, params.force === true) : undefined;
+        const verdict = isMessage
+          ? await workerInputGate.inspectMessage(params.sessionId, params.input, cwd, { ...gateOptions, ...(messageRun ? { runState: messageRun.state } : {}) })
+          : await workerInputGate.inspect(params.sessionId, params.input, cwd, {
+              ...gateOptions,
+              // Left/right and Esc into a terminal with a live OMP act on the agent's screen, not on a shell line; up/down
+              // do so only while an ask dialog is open (elsewhere the agent recalls an unjudged history line: that taints).
+              ...(scope.bound && scope.leader && ompRun !== undefined && ompRun.state !== 'ended' && ompRun.stale !== true
+                ? { agentOwnsInput: true, ...(ompRun.state === 'waiting_user' ? { askDialogOpen: true } : {}) }
+                : {}),
+              ...(scope.bound && scope.leader ? { leaderCaller: true } : {}),
+            });
         if (verdict.decision === 'block') {
           if (verdict.code === THEME_PUSH_CODES.PUSH_LIVE || verdict.code === APPROVAL_SELF_CODE) {
             recordLifecycleEvent('leader.push-approval.refused', {
