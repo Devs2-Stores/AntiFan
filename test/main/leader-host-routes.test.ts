@@ -254,6 +254,79 @@ describe('Leader host: the leader-set route', () => {
   });
 });
 
+describe('Leader host: the leader-jobs route', () => {
+  const savedEnv = { jobs: process.env.LEADER_JOBS_ROOT, runs: process.env.LEADER_RUNS_DIR };
+  let jobsRoot = '';
+
+  const writeJob = (name: string, leader: string): void => {
+    const dir = path.join(jobsRoot, name);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'job.json'), JSON.stringify({
+      schema: 'leader-job/1',
+      job: name,
+      state: 'dispatched',
+      leader: { terminal: leader },
+      createdAt: Date.now() - 60_000,
+      updatedAt: Date.now() - 30_000,
+      rounds: [{ n: 1, kind: 'work', worker: { terminal: 'terminal-work' }, dispatchedAt: Date.now() - 30_000 }],
+    }));
+  };
+
+  beforeEach(() => {
+    LeaderRegistry.resetInstance();
+    fs.rmSync(REGISTRY_FILE, { force: true });
+    jobsRoot = fs.mkdtempSync(path.join(SCRATCH_DIR, 'jobs-'));
+    process.env.LEADER_JOBS_ROOT = jobsRoot;
+    process.env.LEADER_RUNS_DIR = path.join(jobsRoot, 'runs');
+  });
+  afterEach(() => {
+    (TerminalManager as unknown as { instance?: unknown }).instance = undefined;
+    if (savedEnv.jobs === undefined) delete process.env.LEADER_JOBS_ROOT;
+    else process.env.LEADER_JOBS_ROOT = savedEnv.jobs;
+    if (savedEnv.runs === undefined) delete process.env.LEADER_RUNS_DIR;
+    else process.env.LEADER_RUNS_DIR = savedEnv.runs;
+  });
+
+  it('returns the open job rows of a Leader the window shows, keyed by its terminal id', async () => {
+    const { harness } = windowFixture({ owner: PROJECT_A, rows: [LEAD_ROW, WORK_ROW] });
+    LeaderRegistry.getInstance().setLeader('terminal-lead', true);
+    writeJob('fix-header', 'terminal-lead');
+
+    const reply = (await harness.invoke(TERMINAL_CHANNELS.LEADER_JOBS)) as Record<string, Array<{ job: string; state: string; round: number | null }>>;
+    assert.deepEqual(Object.keys(reply), ['terminal-lead']);
+    assert.equal(reply['terminal-lead']?.length, 1);
+    assert.equal(reply['terminal-lead']?.[0]?.job, 'fix-header');
+    assert.equal(reply['terminal-lead']?.[0]?.state, 'dispatched');
+    assert.equal(reply['terminal-lead']?.[0]?.round, 1);
+  });
+
+  it("leaves out a registered Leader that belongs to another project, with no key at all", async () => {
+    const { harness } = windowFixture({ owner: PROJECT_A, rows: [LEAD_ROW, FOREIGN_ROW] });
+    LeaderRegistry.getInstance().setLeader('terminal-lead', true);
+    LeaderRegistry.getInstance().setLeader('terminal-foreign', true);
+    writeJob('mine', 'terminal-lead');
+    writeJob('theirs', 'terminal-foreign');
+
+    const reply = (await harness.invoke(TERMINAL_CHANNELS.LEADER_JOBS)) as Record<string, unknown>;
+    assert.deepEqual(Object.keys(reply), ['terminal-lead']);
+    assert.equal('terminal-foreign' in reply, false);
+  });
+
+  it('refuses a sender on a surface other than sidebar or terminalPopout', async () => {
+    const { host } = windowFixture({ owner: PROJECT_A, rows: [LEAD_ROW] });
+    LeaderRegistry.getInstance().setLeader('terminal-lead', true);
+    writeJob('mine', 'terminal-lead');
+    const toolbar = createChromeRouteHarness({ host: host as unknown as NativeTabHost, surface: 'toolbar' });
+    await assert.rejects(async () => toolbar.invoke(TERMINAL_CHANNELS.LEADER_JOBS));
+  });
+
+  it('answers an empty object when no terminal is marked a Leader', async () => {
+    const { harness } = windowFixture({ owner: PROJECT_A, rows: [LEAD_ROW] });
+    writeJob('orphan', 'terminal-lead');
+    assert.deepEqual(await harness.invoke(TERMINAL_CHANNELS.LEADER_JOBS), {});
+  });
+});
+
 describe('Leader host: projection, prune and placement', () => {
   beforeEach(() => {
     LeaderRegistry.resetInstance();
