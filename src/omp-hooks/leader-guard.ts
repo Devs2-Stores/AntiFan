@@ -60,7 +60,7 @@ import * as path from "node:path";
 
 import { DEVICE_PATH_RE, WRITE_TOOLS, extractTargetPaths } from "./edit-guard-policy";
 import { isInside, resolveWorkspaceShape } from "./theme-paths";
-import { SUBPROCESS_RE, classifyThemeLine, mentionsThemeCli, planThemeCommand, sapoIsReadOnly } from "./theme-push-policy";
+import { SUBPROCESS_RE, classifyThemeLine, mentionsThemeCli, planEvalThemeCode, planThemeCommand, sapoIsReadOnly } from "./theme-push-policy";
 
 export const LEADER_GUARD_CODES = {
   THEME_EDIT: "REFUSED_LEADER_THEME_EDIT",
@@ -419,7 +419,10 @@ function shellWritesTheme(command: string, cwd: string, jobsRoot: string, env: E
 function themeCliRefusal(text: string, kind: "bash" | "eval"): LeaderRefusal | null {
   if (!mentionsThemeCli(text, { auth: false })) return null;
   if (kind === "eval") {
-    if (!SUBPROCESS_RE.test(text)) return null;
+    // `mentionsThemeCli` reads the cell as shell text, so a JS template literal or a prose "hrv" next to a
+    // `${...}` looks like a hidden CLI call. The worker's cell reader tells a string handed to a process
+    // from one that is only text; the refusal needs both readings, so it never grows past the plain one.
+    if (!SUBPROCESS_RE.test(text) || planEvalThemeCode(text).decision !== "block") return null;
     return refuse(LEADER_GUARD_CODES.THEME_CLI, "this eval cell runs the theme CLI (hrv/haravan/shopify/sapo ... theme); run read-only theme commands through the bash tool instead");
   }
   const plan = classifyThemeLine(text, { auth: false });

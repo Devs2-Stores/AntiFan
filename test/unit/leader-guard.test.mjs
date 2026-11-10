@@ -406,6 +406,27 @@ test("an eval cell that starts the theme CLI is refused, one that only mentions 
   assert.equal(await hook.call("eval", { code: "text = open('report.md').read()\nprint('hrv theme push' in text)" }), undefined);
 });
 
+test("an eval cell that spawns a node script with template-literal arguments and a CLI-free storefront string is not refused", async () => {
+  const hook = makeHook();
+  const cell = [
+    "const { execFileSync } = require('child_process');",
+    "const extra = { 312: 'Trang loi: https://chalames.vn/pages/about-us (shop chalames-vn.myharavan.com).' };",
+    "for (const row of [308, 312]) {",
+    "  execFileSync('node',['E:/Work/apps/AntiFan/scripts/leader/untrusted.mjs','--in',`${dir}/customer.txt`,'--label',`#${row} message+devNote`],{cwd:'E:/Work/apps/AntiFan'});",
+    "}",
+  ].join("\n");
+  assert.equal(await hook.call("eval", { code: cell }), undefined);
+  // The same shapes that really start the CLI stay refused.
+  for (const code of [
+    "const { execFileSync } = require('child_process');\nexecFileSync('hrv', ['theme', 'push', '--only', 'a']);",
+    "const { execSync } = require('child_process');\nexecSync('hrv theme list', { cwd: dir });",
+    "import subprocess\nsubprocess.run(['bash', '-c', 'hrv theme push'])",
+    "import os\nos.system('npx hrv theme push --nodelete')",
+  ]) {
+    assertRefused(await hook.call("eval", { code }), "REFUSED_LEADER_THEME_CLI");
+  }
+});
+
 test("shell writes into a theme folder are refused (best effort), into the ledger are not", async () => {
   const hook = makeHook();
   const hero = path.join(themeRoot, "sections", "hero.liquid").replace(/\\/g, "/");
