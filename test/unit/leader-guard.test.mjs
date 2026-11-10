@@ -427,6 +427,36 @@ test("an eval cell that spawns a node script with template-literal arguments and
   }
 });
 
+test("a bash line whose command word is a variable set to a plain non-CLI literal on the same line is not refused", async () => {
+  const hook = makeHook();
+  const noted =
+    'LJ="node E:/Work/apps/AntiFan/scripts/leader/leader-job.mjs"; J=E:/Work/scratch/leader/261111-0143-note-replace-live; ' +
+    '$LJ record --job $J --round 1 --kind adhoc --status PASS --note "Leader doc lai issue qua API theo id: n=1, Stage Done; note tam khong con" && ' +
+    "node E:/Work/apps/AntiFan/scripts/leader/close-worker.mjs terminal-684 && $LJ close --job $J";
+  assert.equal(await hook.call("bash", { command: noted }), undefined);
+  assert.equal(await hook.call("bash", { command: 'LJ=node;\n${LJ} scripts/leader/leader-job.mjs record --note "qua API"' }), undefined);
+});
+
+test("a bash line that really runs the theme CLI through variables, chains or wrappers stays refused", async () => {
+  const hook = makeHook();
+  for (const command of [
+    "H=hrv; $H theme push --only a",
+    "H=hrv; ${H} api put /web/themes/1.json",
+    "A=hrv; B=theme; $A $B push --only a",
+    'LJ="node x.mjs"; hrv theme push --only a',
+    'LJ="node x.mjs"; $LJ record --note "qua API"; hrv theme push --only a',
+    // not resolvable from the line itself: an environment variable, a conditional or later reassignment, a mutator word
+    '$LJ record --job j --note "qua API xong"',
+    'H=node; false || H=hrv; $H api put /web/themes/1.json',
+    'H=node; H=hrv; $H api put /web/themes/1.json',
+    'H=node; eval "H=hrv"; $H api put /web/themes/1.json',
+    'H=node; read H <<< hrv; $H api put /web/themes/1.json',
+    'H=hrv; IFS=r; $H api put /web/themes/1.json',
+  ]) {
+    assertRefused(await hook.call("bash", { command }), "REFUSED_LEADER_THEME_CLI");
+  }
+});
+
 test("shell writes into a theme folder are refused (best effort), into the ledger are not", async () => {
   const hook = makeHook();
   const hero = path.join(themeRoot, "sections", "hero.liquid").replace(/\\/g, "/");

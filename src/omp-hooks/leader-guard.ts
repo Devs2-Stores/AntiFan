@@ -415,8 +415,46 @@ function shellWritesTheme(command: string, cwd: string, jobsRoot: string, env: E
   return null;
 }
 
+/** A value a leading shell assignment may carry and still be read as the literal it is: no quote, expansion, escape or operator. */
+const LITERAL_VALUE_RE = /^[A-Za-z0-9 _./:=,@%+-]+$/;
+const LEADING_ASSIGNMENT_RE = /^[ \t]*([A-Za-z_]\w*)=(?:"([^"$`\\\r\n]*)"|'([^'\r\n]*)'|([^\s"'$`\\;&|<>()*?~{}!]+))[ \t]*(?:;|\r?\n)/;
+/** Shell words that can change a variable after the leading assignments (or run text that does), in command position. */
+const VARIABLE_MUTATOR_RE =
+  /(?:^|[;&|(){\n])[ \t]*(?:(?:builtin|command|time|exec|nohup|then|do|else|!)[ \t]+)*["'\\]*(?:(?:eval|source|export|declare|typeset|readonly|read|mapfile|readarray|getopts|unset|local|let|set|alias|function|trap)(?![\w-])|\.(?=[ \t]))/;
+
+/**
+ * The shell line with `$NAME` / `${NAME}` replaced by the literal a leading `NAME=value;` statement gave
+ * it, so `LJ="node job.mjs"; $LJ close` is read as `node job.mjs close` rather than as an unknown command
+ * word. Only the run of plain assignment statements at the very start of the line counts (they run
+ * unconditionally, in this shell, before anything else); a value must be a plain literal; and a name is
+ * left alone when the rest of the line assigns it again, loops over it or contains a shell word that can
+ * change variables. Everything the shell would run stays in the text, so a theme CLI the variables spell
+ * out (`H=hrv; $H theme push`) shows up in the result, and a name this cannot resolve stays unresolved.
+ */
+function resolveLeadingAssignments(source: string): string {
+  const known = new Map<string, string>();
+  let rest = source;
+  for (;;) {
+    const match = LEADING_ASSIGNMENT_RE.exec(rest);
+    if (!match) break;
+    const name = match[1] ?? "";
+    const value = match[2] ?? match[3] ?? match[4] ?? "";
+    if (name === "IFS" || !LITERAL_VALUE_RE.test(value)) known.delete(name);
+    else known.set(name, value);
+    rest = rest.slice(match[0].length);
+  }
+  if (known.size === 0 || VARIABLE_MUTATOR_RE.test(rest)) return source;
+  for (const name of [...known.keys()]) {
+    if (new RegExp(`(?<![\\w$])${name}\\s*\\+?=|\\b(?:for|select)\\s+${name}\\b|printf\\s+-v\\s+${name}\\b`).test(rest)) known.delete(name);
+  }
+  if (known.size === 0) return source;
+  const expanded = rest.replace(/\$(?:\{([A-Za-z_]\w*)\}|([A-Za-z_]\w*))/g, (whole, braced?: string, bare?: string) => known.get(braced ?? bare ?? "") ?? whole);
+  return source.slice(0, source.length - rest.length) + expanded;
+}
+
 /** The refusal for a shell line or eval cell that runs the theme CLI with a write-class action. */
-function themeCliRefusal(text: string, kind: "bash" | "eval"): LeaderRefusal | null {
+function themeCliRefusal(source: string, kind: "bash" | "eval"): LeaderRefusal | null {
+  const text = kind === "bash" ? resolveLeadingAssignments(source) : source;
   if (!mentionsThemeCli(text, { auth: false })) return null;
   if (kind === "eval") {
     // `mentionsThemeCli` reads the cell as shell text, so a JS template literal or a prose "hrv" next to a
