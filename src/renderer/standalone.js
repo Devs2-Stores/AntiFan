@@ -7254,6 +7254,9 @@ let runCardsUnsubscribe = null;
 let activeLeaderBoardClose = null;
 let leaderBoardRender = null;
 let leaderBoardAttentionOnly = false;
+/** Last good Leader-job rows from Main, `{ [leaderTerminalId]: row[] }`; kept when a later read fails. */
+let leaderJobsByLeader = {};
+let leaderJobsFetchInFlight = false;
 
 /** Refusal every agent-owned row answers, verbatim from the context-menu gate. */
 const AGENT_ROW_VIEW_TITLE = 'Terminal do agent sở hữu chỉ được xem, không chuyển được';
@@ -7806,6 +7809,121 @@ function leaderBoardAgeText(timestamp) {
   return `${Math.floor(hours / 24)} ngày trước`;
 }
 
+/**
+ * Read the Leader job ledger through Main. A failed or malformed answer leaves the last good
+ * rows on screen. One read at a time: a tick that arrives while a read is still in flight is
+ * skipped, so a slow ledger read never stacks up behind the 20 s tick.
+ */
+async function fetchLeaderJobs() {
+  if (typeof api?.getLeaderJobs !== 'function' || leaderJobsFetchInFlight) return;
+  leaderJobsFetchInFlight = true;
+  let reply;
+  try {
+    reply = await api.getLeaderJobs();
+  } catch {
+    return;
+  } finally {
+    leaderJobsFetchInFlight = false;
+  }
+  if (!reply || typeof reply !== 'object' || Array.isArray(reply)) return;
+  leaderJobsByLeader = reply;
+  refreshLeaderBoard();
+}
+
+/** A job state as the run-state chip classes the board already styles. */
+const LEADER_JOB_STATE_CHIPS = {
+  open: { key: 'idle', label: 'mới mở' },
+  dispatched: { key: 'running', label: 'đang chạy' },
+  settled: { key: 'done', label: 'worker xong lượt' },
+  reported: { key: 'done', label: 'có báo cáo' },
+  needs_input: { key: 'waiting_user', label: 'chờ bạn trả lời' },
+  worker_dead: { key: 'ended', label: 'worker đã chết' },
+  verified: { key: 'done', label: 'đã kiểm chứng' },
+  'user-approved': { key: 'done', label: 'bạn đã duyệt' },
+  closed: { key: 'ended', label: 'đã đóng' },
+};
+
+/** Rows of one Leader, needs-me first; the order Main sent is kept inside each group. */
+function leaderJobRowsOf(leaderId) {
+  const rows = leaderJobsByLeader && Array.isArray(leaderJobsByLeader[leaderId]) ? leaderJobsByLeader[leaderId] : [];
+  const valid = rows.filter((r) => r && typeof r === 'object' && typeof r.job === 'string');
+  const needs = valid.filter((r) => r.needsMe === true);
+  const rest = valid.filter((r) => r.needsMe !== true);
+  return [...needs, ...rest];
+}
+
+function buildLeaderJobRow(job) {
+  const row = document.createElement('tr');
+  row.className = `leader-job-row${job.needsMe === true ? ' is-attention' : ''}`;
+  row.setAttribute('data-job', job.job);
+  const hasRound = typeof job.round === 'number' && Number.isFinite(job.round);
+  const roundText = hasRound ? `r${job.round}${typeof job.kind === 'string' && job.kind ? `/${job.kind}` : ''}` : '';
+  const chipInfo = LEADER_JOB_STATE_CHIPS[job.state] || { key: 'idle', label: String(job.state ?? '') };
+  const stateCell = document.createElement('td');
+  const chip = document.createElement('span');
+  chip.className = `leader-board-state run-${job.stale === true ? 'stale' : chipInfo.key}`;
+  chip.textContent = job.stale === true ? `${chipInfo.label} · treo` : chipInfo.label;
+  if (typeof job.blocking === 'string' && job.blocking) chip.title = job.blocking;
+  stateCell.appendChild(chip);
+
+  let silent = '';
+  if (typeof job.silentMin === 'number' && Number.isFinite(job.silentMin)) {
+    silent = `im lặng ${job.silentMin} phút`;
+    if (typeof job.lastTool === 'string' && job.lastTool) silent += ` · ${job.lastTool}`;
+  }
+  const report = typeof job.reportStatus === 'string' ? job.reportStatus : '';
+
+  const nameCell = buildLeaderBoardCell('', 'leader-board-cell-name', job.job);
+  const terminalId = typeof job.worker === 'string' && job.worker && findSession(job.worker) ? job.worker : null;
+  if (terminalId) {
+    const open = document.createElement('button');
+    open.type = 'button';
+    open.className = 'leader-job-open';
+    open.textContent = job.job;
+    open.onclick = (e) => {
+      if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
+      focusTerminalFromBoard(terminalId);
+    };
+    nameCell.appendChild(open);
+    row.onclick = () => focusTerminalFromBoard(terminalId);
+  } else {
+    nameCell.textContent = job.job;
+  }
+  row.append(
+    nameCell,
+    buildLeaderBoardCell(roundText, 'leader-job-cell-round', ''),
+    stateCell,
+    buildLeaderBoardCell(silent, 'leader-board-cell-age', silent),
+    buildLeaderBoardCell(report, 'leader-job-cell-report', ''),
+    buildLeaderBoardCell(job.needsMe === true ? 'Cần bạn' : '', 'leader-job-cell-needs', ''),
+  );
+  return row;
+}
+
+/** The jobs table of one Leader, or null when it has nothing to show. */
+function buildLeaderJobsBlock(leaderId) {
+  let jobs = leaderJobRowsOf(leaderId);
+  if (leaderBoardAttentionOnly) jobs = jobs.filter((r) => r.needsMe === true);
+  if (jobs.length === 0) return null;
+  const block = document.createElement('div');
+  block.className = 'leader-job-block';
+  const table = document.createElement('table');
+  table.className = 'leader-board-table leader-job-table';
+  const thead = document.createElement('thead');
+  const headRow = document.createElement('tr');
+  for (const label of ['Job', 'Vòng', 'Trạng thái', 'Im lặng', 'Báo cáo', '']) {
+    const th = document.createElement('th');
+    th.textContent = label;
+    headRow.appendChild(th);
+  }
+  thead.appendChild(headRow);
+  const tbody = document.createElement('tbody');
+  for (const job of jobs) tbody.appendChild(buildLeaderJobRow(job));
+  table.append(thead, tbody);
+  block.appendChild(table);
+  return block;
+}
+
 /** Project a worker belongs to, by the folder Main stamped, else its capsule's name. */
 function leaderBoardProjectOf(session) {
   if (session.folderLabel) return session.folderLabel;
@@ -7913,6 +8031,11 @@ function buildLeaderBoardSection(leader, workers) {
     hint.className = 'leader-board-orphan-hint';
     hint.textContent = 'Leader của các worker này đã bị bỏ hoặc đã đóng. Chúng vẫn bị chặn push theme; một Leader (cũ hoặc khác) ghi vào terminal của worker để nhận lại.';
     section.appendChild(hint);
+  }
+
+  if (leader) {
+    const jobsBlock = buildLeaderJobsBlock(leader.id);
+    if (jobsBlock) section.appendChild(jobsBlock);
   }
 
   const shown = leaderBoardAttentionOnly
@@ -8061,6 +8184,7 @@ function openLeaderBoard() {
   leaderBoardRender = render;
   activeLeaderBoardClose = close;
   render();
+  fetchLeaderJobs();
   dialog.style.display = 'flex';
   // The click that opened the board is still bubbling: listening for the outside click only
   // after it has passed keeps the board from closing on the gesture that opened it.
@@ -8070,7 +8194,7 @@ function openLeaderBoard() {
     document.addEventListener('keydown', onDocumentKeydown);
   }, 10);
   // "5 giây trước" goes stale between pushes, so the ages are re-read while the board is open.
-  tick = setInterval(render, LEADER_BOARD_TICK_MS);
+  tick = setInterval(() => { fetchLeaderJobs(); render(); }, LEADER_BOARD_TICK_MS);
   try { if (closeBtn) closeBtn.focus(); } catch {}
 }
 

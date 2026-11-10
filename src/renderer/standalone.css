@@ -2826,6 +2826,53 @@ button {
   background: rgba(239, 68, 68, 0.14);
 }
 
+/* Leader job rows above a Leader's worker table. */
+.leader-job-block {
+  margin-bottom: 6px;
+}
+
+.leader-job-row {
+  cursor: default;
+}
+
+.leader-job-row:hover,
+.leader-job-row:focus-within {
+  background: rgba(148, 163, 184, 0.1);
+}
+
+.leader-job-open {
+  max-width: 100%;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.leader-job-open:hover {
+  text-decoration: underline;
+}
+
+.leader-job-open:focus-visible {
+  outline: 2px solid #38bdf8;
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.leader-job-row.is-attention .leader-board-cell-name {
+  color: #fbbf24;
+}
+
+.leader-job-cell-needs {
+  color: #fbbf24;
+  font-weight: 600;
+}
+
 /* ---------------------------------------------------------------------------
    Folder-hub chrome: the manager's grouping sections, per-folder mint, the
    triage block for sessions no window owns, and the textual run badge.

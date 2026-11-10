@@ -24,6 +24,7 @@ import { buildBridgeHealthReport, subscribeBridgeHealth } from '../bridge/bridge
 import { RunStateService } from '../run/run-state-service';
 import { LeaderRegistry } from '../leader/leader-registry';
 import { registerLeaderPlacementPort, type LeaderPlacementRequest, type LeaderPlacementResult } from '../leader/leader-runtime';
+import { readLeaderJobsBoard } from '../leader/leader-jobs-board';
 import type { ExecutionBackend } from '../agent/execution-backend';
 import type { ExecutionAttachmentRecord } from '../../shared/control-plane-contracts';
 import { SESSION_TAB_LIMIT, shareTabMenuText } from '../../shared/tab-sharing';
@@ -4782,6 +4783,16 @@ export class NativeTabHost extends EventEmitter {
       }
       registry.setLeader(sessionId, raw.leader);
       return { ok: true, leader: registry.isLeader(sessionId) };
+    },
+  },
+  {
+    channel: TERMINAL_CHANNELS.LEADER_JOBS,
+    surface: ['sidebar', 'terminalPopout'],
+    run: ({ host }, event) => {
+      // Read-only, no renderer input: the job rows of the Leaders this window can see, under the
+      // same scope as its terminal list (a project window never reads another project's Leader).
+      const leaders = LeaderRegistry.getInstance().leaders().filter((id) => host.isSessionVisibleToWindow(id, undefined, event?.sender?.id));
+      return readLeaderJobsBoard({ leaders });
     },
   },
   {

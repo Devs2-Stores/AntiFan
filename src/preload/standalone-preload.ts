@@ -131,6 +131,8 @@ const api = {
   // Main answers with the flag now in force, or a refusal reason.
   setTerminalLeader: (sessionId: string, leader: boolean): Promise<TerminalLeaderSetResult> =>
     ipcRenderer.invoke(TERMINAL_CHANNELS.LEADER_SET, { sessionId, leader }),
+  // The Worker board's job rows per Leader id (read-only; Main reads the Leader job ledger).
+  getLeaderJobs: (): Promise<Record<string, unknown[]>> => ipcRenderer.invoke(TERMINAL_CHANNELS.LEADER_JOBS),
   // A terminal's URL belongs to the project that owns the session, never to whichever window has
   // focus when the link handler runs.
   openTerminalLink: (sessionId: string, url: string) =>

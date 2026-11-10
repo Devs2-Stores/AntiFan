@@ -788,6 +788,11 @@ export const TERMINAL_CHANNELS = {
    * `TerminalLeaderSetResult`. Only the user can flip it, from the Terminal Manager's context menu.
    */
   LEADER_SET: 'antifan:terminal:leader-set',
+  /**
+   * Read-only: the Leader jobs of every known Leader, `{ [leaderTerminalId]: LeaderJobRow[] }`, for the
+   * Worker board. Takes no arguments.
+   */
+  LEADER_JOBS: 'antifan:terminal:leader-jobs',
   /** Quick-Look preview of a local file referenced in terminal output. */
   READ_FILE_PREVIEW: 'antifan:terminal:read-file-preview',
   /** Open an Office, PDF or zip file referenced in terminal output with the system's default app. */
