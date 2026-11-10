@@ -220,6 +220,40 @@ test('terminal.write publishes message as a plain string and requires exactly on
   assert.deepEqual(accepts('terminal.write', { sessionId: 't-1', message: 'hello' }), []);
 });
 
+test('a capture with saveTo reports savedTo, as its saveTo description promises', () => {
+  assert.match(published('anti.screenshot.viewport').inputSchema.properties.saveTo.description, /savedTo/);
+  const ref = { id: 'artifact-1', path: 'C:\\store\\a.artifact', byteLength: 10, sha256: 'ab', mime: 'image/png' };
+  assert.equal(proxy.imageArtifactMetadata(ref, { ok: true, artifactRef: ref, savedTo: 'E:\\job\\home.png' }).savedTo, 'E:\\job\\home.png');
+  assert.deepEqual(proxy.imageArtifactMetadata(ref, { ok: true, artifactRef: ref }), { _type: 'ArtifactRef', id: 'artifact-1', path: 'C:\\store\\a.artifact', byteLength: 10, sha256: 'ab', mime: 'image/png' });
+  // Older hosts answer with the bare ref: size and hash come from it, and there is no savedTo to invent.
+  assert.deepEqual(proxy.imageArtifactMetadata({ id: 'artifact-2', bytes: 4 }, { id: 'artifact-2', bytes: 4 }), { _type: 'ArtifactRef', id: 'artifact-2', byteLength: 4, mime: 'image/png' });
+});
+
+test('a tab refusal reaches the agent with its usable tabs, who closed the tab and the next call', () => {
+  const refusal = (message, details) => Object.assign(new Error(message), { code: 'TARGET_MISMATCH', details });
+  const text = proxy.failureText(refusal('TARGET_MISMATCH: Unknown browser target: gone.', {
+    requestedTabId: 'gone', liveTabId: 'live', closedBy: 'user', closeReason: 'user-toolbar',
+    usableTabs: [{ id: 'live', url: 'https://shop.example/' }, { id: 'second' }],
+    suggestedTabId: 'live', nextCall: { tool: 'anti.browser.evaluate', args: { tabId: 'live' } },
+    transmitted: true, signedAttachmentId: 'att-1',
+  }));
+  assert.ok(text.startsWith('TARGET_MISMATCH: Unknown browser target: gone.'), 'the CODE: message prefix is kept for hooks');
+  assert.match(text, /That tab was closed by user: user-toolbar\./);
+  assert.match(text, /Tabs this session may use: live \(https:\/\/shop\.example\/\), second\./);
+  assert.match(text, /Next call: anti\.browser\.evaluate \{"tabId":"live"\}\.$/);
+  assert.doesNotMatch(text, /att-1|transmitted/, 'transport bookkeeping stays out of the text');
+
+  // A message that already lists the tabs is not given the list twice; an empty list says so.
+  const listed = proxy.failureText(refusal('TARGET_MISMATCH: outside. Tabs this session may use: live.', { usableTabs: [{ id: 'live' }] }));
+  assert.equal(listed.match(/Tabs this session may use/g).length, 1);
+  assert.match(proxy.failureText(refusal('TARGET_STALE: Tab x no longer exists', { usableTabs: [], nextCall: { tool: 'anti.browser.tabs.list', args: {} } })), /no live tab it may use.*Next call: anti\.browser\.tabs\.list \{\}\.$/);
+
+  // Refusals without tab guidance, and JSON diagnostics, are delivered exactly as before.
+  assert.equal(proxy.failureText(refusal('INVALID_ARGUMENT: bad', { capability: 'x', transmitted: true })), 'INVALID_ARGUMENT: bad');
+  const json = JSON.stringify({ code: 'CONNECTION_FAILED', message: 'down' });
+  assert.equal(proxy.failureText(refusal(json, { usableTabs: [{ id: 'live' }] })), json);
+});
+
 test('rows without aliases or relaxations are published exactly as defined', () => {
   const unrelated = {
     name: 'browser.set-device-preset',

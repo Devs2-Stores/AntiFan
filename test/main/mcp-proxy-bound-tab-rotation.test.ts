@@ -288,6 +288,13 @@ function toolCallFailed(response: Record<string, unknown>): boolean {
   return result.isError === true;
 }
 
+function toolCallText(response: Record<string, unknown>): string {
+  const result = 'result' in response ? response.result : undefined;
+  const content = typeof result === 'object' && result !== null && 'content' in result ? result.content : undefined;
+  if (!Array.isArray(content)) return '';
+  return content.map((part: unknown) => (typeof part === 'object' && part !== null && 'text' in part && typeof part.text === 'string' ? part.text : '')).join('\n');
+}
+
 // Each case starts its own harness (port-0 mock bridge, tempdir data root, proxy
 // child) and keeps its scripted counters local, so the cases share nothing and
 // their ~1 s proxy startups overlap. Bounded so the children never saturate the host.
@@ -410,6 +417,44 @@ describe('MCP proxy bound-tab default follows the authority', { concurrency: 4 }
         attempts[1]!.idempotencyKey,
         'idempotencyKey must rotate between attempts after rebind (TA-05 / VF-15)'
       );
+    } finally {
+      harness.dispose();
+    }
+  });
+
+  it('6b. a caller-chosen tab the host recorded as closed surfaces that refusal, not the refused rebind', async () => {
+    // The rebind is still attempted (rows 6-8), but a rebind to a closed tab is refused as a tab
+    // "outside this session's authority"; the caller must read that the tab was closed, by whom,
+    // and which tabs it may use instead.
+    const harness = await startHarness((capability) => {
+      if (capability === 'browser.dom') {
+        return mockFailure('TARGET_MISMATCH', `Unknown browser target: ${CALLER_TAB_ID}. This session's live target is '${BOOTSTRAP_TAB_ID}'.`, {
+          requestedTabId: CALLER_TAB_ID,
+          liveTabId: BOOTSTRAP_TAB_ID,
+          rebindTool: 'anti.browser.rebind_target',
+          closedBy: 'user',
+          closeReason: 'user-toolbar',
+          usableTabs: [{ id: BOOTSTRAP_TAB_ID, url: 'https://shop.example/' }],
+          suggestedTabId: BOOTSTRAP_TAB_ID,
+          nextCall: { tool: 'anti.inspect.dom', args: { tabId: BOOTSTRAP_TAB_ID } },
+        });
+      }
+      if (capability === 'browser.rebind-target') {
+        return mockFailure('TARGET_MISMATCH', `Tab ID '${CALLER_TAB_ID}' is outside this session's authority. It belongs to another project, session or window.`);
+      }
+      return {};
+    });
+    try {
+      const response = await harness.callTool(1, 'anti.inspect.dom', { tabId: CALLER_TAB_ID });
+      assert.equal(toolCallFailed(response), true, harness.stderrText());
+      assert.equal(harness.dispatches('browser.rebind-target').length, 1, 'the rebind is still attempted once');
+      assert.equal(harness.dispatches('browser.dom').length, 1, 'a refused rebind is not followed by a second attempt');
+      const text = toolCallText(response);
+      assert.match(text, /^TARGET_MISMATCH: Unknown browser target: tab-caller\./);
+      assert.doesNotMatch(text, /another project, session or window/);
+      assert.match(text, /That tab was closed by user: user-toolbar\./);
+      assert.match(text, new RegExp(`Tabs this session may use: ${BOOTSTRAP_TAB_ID} \\(https://shop\\.example/\\)\\.`));
+      assert.match(text, new RegExp(`Next call: anti\\.inspect\\.dom \\{"tabId":"${BOOTSTRAP_TAB_ID}"\\}\\.$`));
     } finally {
       harness.dispose();
     }

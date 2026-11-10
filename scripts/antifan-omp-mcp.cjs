@@ -2163,11 +2163,45 @@ function applyRetryHints(err, hints) {
   if (hints.retryAfterMs !== undefined) err.retryAfterMs = hints.retryAfterMs;
 }
 
+/** Most tabs a refusal's text lists; the host already bounds the list it sends. */
+const TAB_GUIDANCE_MAX_TABS = 8;
+
+/**
+ * The tab guidance a refusal carries in `details` (who closed the tab, the tabs the session may use,
+ * the call to make next), as sentences. An agent reads only the text of a failed call, so guidance
+ * left in `details` never reaches it. Empty when the refusal carries none, or when the message
+ * already lists the tabs.
+ */
+function tabGuidanceText(details, message) {
+  if (!details || typeof details !== 'object') return '';
+  const parts = [];
+  if (typeof details.closedBy === 'string' && details.closedBy) {
+    const reason = typeof details.closeReason === 'string' && details.closeReason ? `: ${details.closeReason}` : '';
+    parts.push(`That tab was closed by ${details.closedBy}${reason}.`);
+  }
+  const tabs = Array.isArray(details.usableTabs) ? details.usableTabs.filter((tab) => tab && typeof tab.id === 'string' && tab.id) : null;
+  if (tabs && !/Tabs this session may use:/.test(String(message))) {
+    parts.push(tabs.length > 0
+      ? `Tabs this session may use: ${tabs.slice(0, TAB_GUIDANCE_MAX_TABS).map((tab) => (typeof tab.url === 'string' && tab.url ? `${tab.id} (${tab.url})` : tab.id)).join(', ')}.`
+      : 'This session has no live tab it may use: open one with anti.browser.tabs.create {url, bind: false}.');
+  }
+  const next = details.nextCall && typeof details.nextCall === 'object' ? details.nextCall : null;
+  if (next && next.args && typeof next.args === 'object') {
+    const args = JSON.stringify(next.args);
+    if (typeof next.tool === 'string' && next.tool) parts.push(`Next call: ${next.tool} ${args}.`);
+    else if (typeof next.note === 'string' && next.note) parts.push(`Next: ${next.note} ${args}.`);
+  }
+  return parts.join(' ');
+}
+
 // The text a failed tool result carries. A failure that gives the caller nothing to act on (no hints,
-// or only `retryable:false`) keeps its `CODE: message` text untouched, so callers and hooks can match
-// the prefix; one that says to retry is delivered as a single JSON diagnostic naming the hints.
+// or only `retryable:false`) keeps its `CODE: message` text, so callers and hooks can match the
+// prefix, followed by the tab guidance of its details when it has any; one that says to retry is
+// delivered as a single JSON diagnostic naming the hints.
 function failureText(error) {
-  const base = error instanceof Error ? error.message : String(error);
+  const message = error instanceof Error ? error.message : String(error);
+  const guidance = message.trimStart().startsWith('{') ? '' : tabGuidanceText(error && error.details, message);
+  const base = guidance ? `${message} ${guidance}` : message;
   const hints = readRetryHints(error);
   if (hints.retryable !== true && hints.retryAfterMs === undefined) return base;
   let diagnostic = null;
@@ -2973,6 +3007,16 @@ function retargetableAmbientTabId(err, injectedAmbientTabId, ambientTargetField)
   return live;
 }
 
+/**
+ * True when the refusal carries the host's record of who closed the tab the caller named. Such a tab
+ * is gone, so a rebind to it is refused too, and that refusal describes the dead id as a tab of
+ * another project or session; the original one says what happened.
+ */
+function refusalNamesClosedTab(err) {
+  const details = err && typeof err === 'object' && err.details && typeof err.details === 'object' ? err.details : null;
+  return Boolean(details && typeof details.closedBy === 'string' && details.closedBy.length > 0);
+}
+
 // The first catalogue miss for an advertised tool asks the app which names it registered (the
 // `catalogue.digest` answer) and reports every advertised-but-unregistered tool once, instead of
 // leaving the session to discover them one failed call at a time. The probe is event-driven on
@@ -3591,8 +3635,13 @@ async function invokeResolved(method, params = {}, callerRequestId, meta) {
         rebindAttempted = true;
         // The rebind runs through invoke so policy, ledger and bound-tab recording
         // apply; its own refusal (PROJECT_MISMATCH, TARGET_STALE, ...) wins over
-        // the original mismatch because it names the real boundary.
-        await invoke('anti.browser.rebind_target', { tabId: explicitRequestedTabId });
+        // the original mismatch because it names the real boundary. The one
+        // exception is a tab the host recorded as closed: the original says so.
+        try {
+          await invoke('anti.browser.rebind_target', { tabId: explicitRequestedTabId });
+        } catch (rebindErr) {
+          throw refusalNamesClosedTab(err) ? err : rebindErr;
+        }
         everTransmitted = false;
         lastTransmittedAttachmentId = null;
         identity = resolveInvocationIdentity(undefined, {});
@@ -4122,20 +4171,7 @@ async function runCallTool(request, extra, meta) {
         (typeof ref.mime === 'string' && ref.mime.startsWith('image/'));
       if (isImage) {
         const wantsInline = request.params?.arguments?.inline !== false;
-        const artifactPath = ref.path || (data && typeof data === 'object' ? data.path : undefined);
-        const byteSize = typeof ref.byteLength === 'number'
-          ? ref.byteLength
-          : (typeof ref.bytes === 'number' ? ref.bytes : (typeof data?.byteLength === 'number' ? data.byteLength : undefined));
-        const sha = ref.sha256 || (data && typeof data === 'object' ? data.sha256 : undefined);
-        const mimeType = (typeof ref.mime === 'string' && ref.mime) || (data && typeof data === 'object' && typeof data.mime === 'string' ? data.mime : 'image/png');
-        const metadata = {
-          _type: 'ArtifactRef',
-          id: ref.id,
-          ...(artifactPath ? { path: artifactPath } : {}),
-          ...(byteSize !== undefined ? { byteLength: byteSize } : {}),
-          ...(sha ? { sha256: sha } : {}),
-          mime: mimeType,
-        };
+        const metadata = imageArtifactMetadata(ref, data);
         const metadataText = JSON.stringify(metadata, null, 2);
 
         if (!wantsInline) {
@@ -4209,6 +4245,30 @@ async function runCallTool(request, extra, meta) {
   } catch (error) {
     return { isError: true, content: [{ type: 'text', text: failureText(error) }] };
   }
+}
+
+/**
+ * What an image capture returns as text: the staged artifact (id, path, size, hash, mime) and, when
+ * the call asked for `saveTo`, the workspace file the host wrote (`savedTo`), so the caller need not
+ * list the folder to learn the save happened. `data` is the host envelope, `ref` its artifact ref.
+ */
+function imageArtifactMetadata(ref, data) {
+  const envelope = data && typeof data === 'object' ? data : {};
+  const artifactPath = ref.path || envelope.path;
+  const byteSize = typeof ref.byteLength === 'number'
+    ? ref.byteLength
+    : (typeof ref.bytes === 'number' ? ref.bytes : (typeof envelope.byteLength === 'number' ? envelope.byteLength : undefined));
+  const sha = ref.sha256 || envelope.sha256;
+  const mimeType = (typeof ref.mime === 'string' && ref.mime) || (typeof envelope.mime === 'string' ? envelope.mime : 'image/png');
+  return {
+    _type: 'ArtifactRef',
+    id: ref.id,
+    ...(artifactPath ? { path: artifactPath } : {}),
+    ...(byteSize !== undefined ? { byteLength: byteSize } : {}),
+    ...(sha ? { sha256: sha } : {}),
+    mime: mimeType,
+    ...(typeof envelope.savedTo === 'string' && envelope.savedTo ? { savedTo: envelope.savedTo } : {}),
+  };
 }
 
 function resolveImageArtifactResponse(data, artifactPayload, metadataText) {
@@ -4295,6 +4355,7 @@ if (require.main === module) {
 
 module.exports = {
   resolveImageArtifactResponse,
+  imageArtifactMetadata,
   fetchArtifactBinary,
   definitions,
   CAPABILITY_MAP,
@@ -4303,6 +4364,7 @@ module.exports = {
   createCatalogueSkewReporter,
   createStaleAppReporter,
   autoBindCandidateOf,
+  failureText,
   CORE_DISPATCH,
   invoke,
   normalizeParameterAliases,
