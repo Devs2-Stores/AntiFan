@@ -1,4 +1,4 @@
-import { resolve } from 'node:path';
+import { isAbsolute, resolve } from 'node:path';
 
 /**
  * AntiFan Browser Desktop — Shared Diagnostics Testability Filter
@@ -428,4 +428,67 @@ export function confineWorkspaceRootStrict(candidate: string | undefined, defaul
   };
   const redirected = key(root) === key(defaultRoot) && key(requested) !== key(defaultRoot);
   return { root, requested, redirected };
+}
+
+/** Where Leader job folders live; the same default and `LEADER_JOBS_ROOT` override the Leader hook and ledger CLI use. */
+const DEFAULT_LEADER_JOBS_ROOT = 'E:/Work/scratch/leader';
+
+/**
+ * Absolute directories, besides the session's workspace root, that file arguments (`expressionFile`,
+ * `saveTo`, `outputPath`) may name: the Leader jobs root plus every absolute entry of the `;`-separated
+ * `ANTIFAN_EXTRA_FILE_ROOTS`. Relative entries are dropped: a relative root would depend on the process
+ * working directory. Read per call so an override takes effect without a restart.
+ */
+export function extraFileRoots(env: NodeJS.ProcessEnv = process.env): string[] {
+  const jobs = env.LEADER_JOBS_ROOT?.trim();
+  const roots = [resolve(jobs && jobs.length > 0 ? jobs : DEFAULT_LEADER_JOBS_ROOT)];
+  for (const entry of String(env.ANTIFAN_EXTRA_FILE_ROOTS ?? '').split(';')) {
+    const trimmed = entry.trim();
+    if (!trimmed || !isAbsolute(trimmed)) continue;
+    const resolved = resolve(trimmed);
+    const key = process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+    if (!roots.some((known) => (process.platform === 'win32' ? known.toLowerCase() : known) === key)) roots.push(resolved);
+  }
+  return roots;
+}
+
+/** Extensions a tool may write (or overwrite) under an extra root: evidence artifacts, never source or scripts. */
+export const EXTRA_ROOT_WRITE_EXTENSIONS: readonly string[] = ['.png', '.jpg', '.jpeg', '.webp', '.html', '.htm', '.json', '.txt', '.md', '.csv'];
+
+const EXTRA_ROOT_FORBIDDEN_SEGMENTS: readonly string[] = ['.git', '.omp', '.ssh', 'node_modules'];
+const EXTRA_ROOT_FORBIDDEN_SUFFIXES: readonly string[] = ['.pem', '.key', '.pfx'];
+/** File-name endings of the notes a Leader job keeps next to its ledger. */
+const EXTRA_ROOT_LEDGER_SUFFIXES: readonly string[] = ['.report.md', '.prompt.md', '.followup.md'];
+
+/** True for the file names a Leader job owns (its ledger and prompt/report/follow-up notes), whatever the folder. */
+export function isLeaderLedgerFileName(name: string): boolean {
+  const base = name.replace(/[. ]+$/, '').toLowerCase();
+  return base === 'job.json' || EXTRA_ROOT_LEDGER_SUFFIXES.some((suffix) => base.endsWith(suffix));
+}
+
+/** Written files of these types are text a person or script keeps: an existing one is never overwritten, only an image or html artifact is. */
+export const EXTRA_ROOT_NO_OVERWRITE_EXTENSIONS: readonly string[] = ['.json', '.md', '.txt', '.csv'];
+
+/**
+ * Why a path below an extra root is refused on its name alone, or null. `segments` are the path's
+ * folder and file names below the root (the last one is the file). Windows drops trailing dots and
+ * spaces from a name, so `.git.` is `.git`: they are stripped before comparing.
+ */
+export function extraRootNameRefusal(segments: readonly string[], mode: 'read' | 'write'): string | null {
+  if (segments.length < 2) return 'the file must sit in a folder below the root (<root>/<folder>/...), not directly in it';
+  for (const raw of segments) {
+    const name = raw.replace(/[. ]+$/, '').toLowerCase();
+    if (EXTRA_ROOT_FORBIDDEN_SEGMENTS.includes(name) || name.startsWith('.env')) return `'${raw}' is a protected name`;
+  }
+  const last = segments[segments.length - 1] ?? '';
+  const base = last.replace(/[. ]+$/, '').toLowerCase();
+  if (base === 'id_rsa' || EXTRA_ROOT_FORBIDDEN_SUFFIXES.some((suffix) => base.endsWith(suffix))) return `'${last}' looks like key material`;
+  if (mode === 'write') {
+    // A Leader job owns its ledger and prompt/report files; a tool write there would corrupt them.
+    if (isLeaderLedgerFileName(last)) return `'${last}' is a Leader job file that tools never write`;
+    const dot = base.lastIndexOf('.');
+    const extension = dot >= 0 ? base.slice(dot) : '';
+    if (!EXTRA_ROOT_WRITE_EXTENSIONS.includes(extension)) return `only ${EXTRA_ROOT_WRITE_EXTENSIONS.join(' ')} files may be written there`;
+  }
+  return null;
 }

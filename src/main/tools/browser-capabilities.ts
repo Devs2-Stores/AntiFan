@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { randomUUID } from 'node:crypto';
-import { BrowserTarget, CapabilityRequestContext, AuthenticatedCapabilityContext, CapabilityError, CapabilityEffectPolicyInput, CapabilityRisk, ReceiptBinding, digestText } from '../../shared/control-plane-contracts';
+import { BrowserTarget, CapabilityRequestContext, AuthenticatedCapabilityContext, CapabilityError, CapabilityEffectPolicyInput, CapabilityRisk, ReceiptBinding, digestText, assertNoReparseTraversal, assertWorkspaceContained } from '../../shared/control-plane-contracts';
 import { parseCookieJarParam } from '../browser/cookie-jar';
 import { BrowserControlPort, BrowserWaitCondition, BrowserWaitParams, buildRefLookupExpression, ResponsiveBreakpointOption, VISUAL_COMPARE_EXECUTION_BUDGET_MS, VISUAL_COMPARE_CANCELLATION_ACK_MS, FULL_PAGE_CAPTURE_EXECUTION_BUDGET_MS, FULL_PAGE_CAPTURE_CANCELLATION_ACK_MS, VIEWPORT_CAPTURE_EXECUTION_BUDGET_MS, VIEWPORT_CAPTURE_CANCELLATION_ACK_MS, REFERENCE_CAPTURE_EXECUTION_BUDGET_MS, REFERENCE_CAPTURE_CANCELLATION_ACK_MS, BROWSER_WAIT_INVOCATION_BUDGET_MS, BROWSER_WAIT_MAX_TIMEOUT_MS, BROWSER_EVAL_INVOCATION_BUDGET_MS, BROWSER_EVAL_MAX_TIMEOUT_MS } from './browser-control-port';
 import { LIST_TAB_FIELDS, type BrowserWaitResult, type CheckedEvalResult } from './browser-control-port';
@@ -36,7 +36,7 @@ import { COMPARE_DEFAULT_TOLERANCE_PERCENT, mintCompareReceipt, type CompareRece
 import { ThemeQaRepairCoordinator } from '../qa/theme-qa-repair-coordinator';
 import type { CockpitPort } from './cockpit-port';
 import { registerCockpitCapabilities } from './cockpit-capabilities';
-import { confineWorkspaceRoot, confineWorkspaceRootStrict } from '../qa/diagnostics-filter';
+import { confineWorkspaceRoot, confineWorkspaceRootStrict, extraFileRoots, extraRootNameRefusal, isLeaderLedgerFileName, EXTRA_ROOT_NO_OVERWRITE_EXTENSIONS } from '../qa/diagnostics-filter';
 import { DEFAULT_QA_PROFILE } from '../qa/qa-thresholds';
 import { assertThemeWorkspaceRoot } from '../qa/workspace-markers';
 import { registerQaProbeCapabilities } from './qa-probe-capabilities';
@@ -1355,6 +1355,85 @@ function settleFailureOf(report: ThemeQaReport | undefined, err: unknown): { cod
   return null;
 }
 
+/** Largest file `expressionFile` reads from an extra root. */
+const EXTRA_ROOT_READ_MAX_BYTES = 2 * 1024 * 1024;
+
+/** The nearest existing ancestor of `target` resolved to its real path, with the not-yet-existing remainder appended. */
+function realPathOfNearestAncestor(target: string): string {
+  const missing: string[] = [];
+  let current = target;
+  for (;;) {
+    try {
+      return path.join(fs.realpathSync.native(current), ...missing.reverse());
+    } catch (err) {
+      const parent = path.dirname(current);
+      if ((err as NodeJS.ErrnoException)?.code !== 'ENOENT' || parent === current) throw err;
+      missing.push(path.basename(current));
+      current = parent;
+    }
+  }
+}
+
+/**
+ * Accepts `target` (absolute) when it is a file in a folder below one of the extra file roots
+ * (`extraFileRoots`), under rules stricter than the workspace root's:
+ *  - containment is judged on real paths (reparse-aware helpers shared with the workspace file port), so a
+ *    junction or symlink under the root that leads out, `..`, a sibling prefix, UNC / `\\?\` forms and 8.3
+ *    names that do not resolve inside the root are refused;
+ *  - the file sits at least one folder below the root, never directly in it;
+ *  - protected names (.git, .omp, .ssh, node_modules, .env*, key files) are refused;
+ *  - reads take a regular file up to a size cap; writes take an evidence extension only, never touch a
+ *    Leader job's own files (job.json, *.report.md, *.prompt.md, *.followup.md), never overwrite an existing
+ *    .json/.md/.txt/.csv file (images and html may be overwritten), and never create a folder.
+ * Returns the real path to use, or the reason the closest matching root refused it.
+ */
+function confineToExtraRoots(target: string, mode: 'read' | 'write'): { path?: string; reason?: string } {
+  const win = process.platform === 'win32';
+  const key = (value: string): string => (win ? value.toLowerCase() : value);
+  const resolvedTarget = path.resolve(target);
+  let reason: string | undefined;
+  for (const root of extraFileRoots()) {
+    const lexical = path.relative(key(root), key(resolvedTarget));
+    if (lexical === '' || lexical === '..' || lexical.startsWith(`..${path.sep}`) || path.isAbsolute(lexical)) continue;
+    // Name rules use the spelling the caller gave, below the root.
+    const spelled = path.relative(root, resolvedTarget).split(/[\\/]+/).filter(Boolean);
+    const nameRefusal = extraRootNameRefusal(spelled, mode);
+    if (nameRefusal) { reason ??= nameRefusal; continue; }
+    let real: string;
+    try {
+      assertNoReparseTraversal(root, resolvedTarget);
+      real = realPathOfNearestAncestor(resolvedTarget);
+      assertWorkspaceContained(root, real);
+    } catch {
+      reason ??= 'it resolves outside the root (symlink, junction or alias)';
+      continue;
+    }
+    // The real spelling is checked again: a link may rename what the caller wrote.
+    const realRoot = fs.realpathSync.native(root);
+    const realSegments = path.relative(key(realRoot), key(real)).split(/[\\/]+/).filter(Boolean);
+    const realNameRefusal = extraRootNameRefusal(realSegments, mode);
+    if (realNameRefusal) { reason ??= realNameRefusal; continue; }
+    let stat: fs.Stats | undefined;
+    try { stat = fs.lstatSync(real); } catch (err) {
+      if ((err as NodeJS.ErrnoException)?.code !== 'ENOENT') { reason ??= 'it cannot be inspected'; continue; }
+    }
+    if (mode === 'read') {
+      if (!stat || !stat.isFile()) { reason ??= 'it is not a regular file'; continue; }
+      if (stat.size > EXTRA_ROOT_READ_MAX_BYTES) { reason ??= `it is larger than ${EXTRA_ROOT_READ_MAX_BYTES} bytes`; continue; }
+    } else {
+      if (stat && !stat.isFile()) { reason ??= 'it exists and is not a regular file'; continue; }
+      // Creating a text file is fine; replacing an existing one (notes, ledgers, csv) is not. Only an
+      // existing image or html evidence file may be overwritten.
+      if (stat && EXTRA_ROOT_NO_OVERWRITE_EXTENSIONS.includes(path.extname(real.replace(/[. ]+$/, '')).toLowerCase())) { reason ??= 'an existing .json, .md, .txt or .csv file is never overwritten there'; continue; }
+      let parent: fs.Stats | undefined;
+      try { parent = fs.statSync(path.dirname(real)); } catch { parent = undefined; }
+      if (!parent?.isDirectory()) { reason ??= 'its folder does not exist; folders are never created there'; continue; }
+    }
+    return { path: real };
+  }
+  return reason ? { reason } : {};
+}
+
 export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, browser: BrowserControlPort, themeQaWorkflow?: ThemeQaWorkflow, getWorkspaceRoot?: () => string, receipts?: ReceiptStore, getStylesheetUrlMap?: () => Record<string, string>, cockpit?: CockpitPort): void {
   const coordinator = themeQaWorkflow ? new ThemeQaRepairCoordinator(themeQaWorkflow) : undefined;
   /**
@@ -1397,14 +1476,18 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     const resolvedTarget = path.isAbsolute(params.expressionFile)
       ? params.expressionFile
       : path.resolve(rootPath, params.expressionFile);
-    const safePath = confineWorkspaceRoot(resolvedTarget, rootPath);
+    let safePath = confineWorkspaceRoot(resolvedTarget, rootPath);
     // `confineWorkspaceRoot` falls back to the root itself when the candidate
     // escapes it, and a directory is not an expression source either way.
     if (path.resolve(safePath) === path.resolve(rootPath)) {
-      const reason = path.resolve(resolvedTarget) === path.resolve(rootPath)
-        ? `expressionFile '${params.expressionFile}' resolves to the workspace root directory '${rootPath}'; pass a file path inside the root`
-        : `expressionFile '${params.expressionFile}' resolves outside workspace root '${rootPath}'; pass a path inside the root`;
-      throw new CapabilityError('INVALID_ARGUMENT', reason);
+      if (path.resolve(resolvedTarget) === path.resolve(rootPath)) {
+        throw new CapabilityError('INVALID_ARGUMENT', `expressionFile '${params.expressionFile}' resolves to the workspace root directory '${rootPath}'; pass a file path inside the root`);
+      }
+      const extra = confineToExtraRoots(resolvedTarget, 'read');
+      if (!extra.path) {
+        throw new CapabilityError('INVALID_ARGUMENT', `expressionFile '${params.expressionFile}' resolves outside workspace root '${rootPath}'; pass a path inside an accepted root: ${[rootPath, ...extraFileRoots()].join(', ')}${extra.reason ? ` (${extra.reason})` : ''}`);
+      }
+      safePath = extra.path;
     }
     try {
       return fs.readFileSync(safePath, 'utf8');
@@ -1465,7 +1548,11 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     return browser.closeTab(params.tabId, { target: context.browserTarget, ...(creatorTabId ? { creatorTabId } : {}) });
   };
 
-  /** A workspace-relative output path confined to the bound root; the root itself and anything outside it is refused. */
+  /**
+   * A workspace-relative output path confined to the bound root (the root itself and anything outside it
+   * is refused), or a file in a folder below one of the extra file roots under the stricter rules of
+   * `confineToExtraRoots`.
+   */
   const confinedOutputFile = (requested: unknown, field: string, context: CapabilityRequestContext): string => {
     if (typeof requested !== 'string' || !requested.trim()) {
       throw new CapabilityError('INVALID_ARGUMENT', `${field} must be a non-empty file path relative to the workspace root`);
@@ -1487,10 +1574,32 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     // An explicit `.` lands on the same directory, so it is refused by the
     // same check rather than surfacing as EISDIR downstream.
     if (path.resolve(safePath) === path.resolve(rootPath)) {
-      const reason = path.resolve(resolvedTarget) === path.resolve(rootPath)
-        ? `${field} '${requested}' resolves to the workspace root directory '${rootPath}'; pass a file path inside the root`
-        : `${field} '${requested}' resolves outside workspace root '${rootPath}'; pass a path inside the root`;
-      throw new CapabilityError('INVALID_ARGUMENT', reason);
+      if (path.resolve(resolvedTarget) === path.resolve(rootPath)) {
+        throw new CapabilityError('INVALID_ARGUMENT', `${field} '${requested}' resolves to the workspace root directory '${rootPath}'; pass a file path inside the root`);
+      }
+      const extra = confineToExtraRoots(resolvedTarget, 'write');
+      if (extra.path) return extra.path;
+      throw new CapabilityError('INVALID_ARGUMENT', `${field} '${requested}' resolves outside workspace root '${rootPath}'; pass a path inside an accepted root: ${[rootPath, ...extraFileRoots()].join(', ')}${extra.reason ? ` (${extra.reason})` : ''}`);
+    }
+    // A workspace that is (or contains) a Leader job folder would otherwise reach the job's own files
+    // through this branch: the ledger names are refused wherever the real path lies under an extra
+    // root. Nothing else of the extra-root rules applies to a path the workspace admitted.
+    if (isLeaderLedgerFileName(path.basename(safePath))) {
+      const win = process.platform === 'win32';
+      const key = (value: string): string => (win ? value.toLowerCase() : value);
+      let realTarget = path.resolve(safePath);
+      try { realTarget = realPathOfNearestAncestor(realTarget); } catch {}
+      const under = (root: string, candidate: string): boolean => {
+        const rel = path.relative(key(root), key(candidate));
+        return rel !== '' && rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel);
+      };
+      for (const root of extraFileRoots()) {
+        let realRoot = path.resolve(root);
+        try { realRoot = fs.realpathSync.native(realRoot); } catch {}
+        if (under(root, safePath) || under(realRoot, realTarget) || under(root, realTarget)) {
+          throw new CapabilityError('INVALID_ARGUMENT', `${field} '${requested}' names a Leader job file ('${path.basename(safePath)}') under '${root}'; tools never write those`);
+        }
+      }
     }
     return safePath;
   };
@@ -1734,7 +1843,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         url: { type: 'string', description: 'Alias for urlPattern' },
         minGeneration: { type: 'number', description: 'Minimum document generation to wait for (generation or navigation condition)' },
         state: { type: 'string', enum: ['attached', 'visible', 'actionable', 'detached', 'hidden'] },
-        timeoutMs: { type: 'number', description: `Timeout in milliseconds (5000 default, ${BROWSER_WAIT_MAX_TIMEOUT_MS} max)` },
+        timeoutMs: { type: 'number', description: `Timeout in milliseconds (5000 default, ${BROWSER_WAIT_MAX_TIMEOUT_MS} max; a request above ${BROWSER_WAIT_MAX_TIMEOUT_MS} is clamped and an unmet wait then returns {satisfied:false, timedOut:true, clamped:true} instead of an error)` },
         ...WAIT_DURATION_ALIAS_PROPERTIES,
         idleWindowMs: { type: 'number', description: 'Debounce idle window in milliseconds (500 default)' },
         tabId: { type: 'string' },
@@ -2145,7 +2254,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
         url: { type: 'string' },
         minGeneration: { type: 'number' },
         state: { type: 'string', enum: ['attached', 'visible', 'actionable', 'detached', 'hidden'] },
-        timeoutMs: { type: 'number' },
+        timeoutMs: { type: 'number', description: `Timeout in milliseconds (5000 default, ${BROWSER_WAIT_MAX_TIMEOUT_MS} max; a request above ${BROWSER_WAIT_MAX_TIMEOUT_MS} is clamped and an unmet wait then returns {satisfied:false, timedOut:true, clamped:true} instead of an error)` },
         ...WAIT_DURATION_ALIAS_PROPERTIES,
         idleWindowMs: { type: 'number' },
         tabId: { type: 'string' },
@@ -3303,7 +3412,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
             const tabId = target?.tabId;
             const observedUrl = tabId ? await browser.getLiveTabUrl(tabId).catch(() => '') : '';
             const settleSource = finalReport?.settleReceipt;
-            const summaryExtras = (finalReport?.summary ?? {}) as { certificationReasons?: unknown; thresholdsSource?: unknown; viewport?: { width?: number; requestedWidth?: number | null; observedWidth?: number } };
+            const summaryExtras = (finalReport?.summary ?? {}) as { certificationReasons?: unknown; thresholdsSource?: unknown; readAs?: unknown; viewport?: { width?: number; requestedWidth?: number | null; observedWidth?: number } };
             const reportCertification = finalReport?.summary?.certification;
             const certification: 'CERTIFIED' | 'CERTIFIED_SCOPED' | 'STRUCTURAL' =
               reportCertification === 'CERTIFIED' || reportCertification === 'CERTIFIED_SCOPED' ? reportCertification : 'STRUCTURAL';
@@ -3332,6 +3441,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
               profile: finalReport?.profile ?? null,
               certification,
               certificationReasons,
+              ...(typeof summaryExtras.readAs === 'string' && summaryExtras.readAs ? { readAs: summaryExtras.readAs } : {}),
               thresholdsSource,
               scope: params.annotationId ? 'annotation' : certification === 'CERTIFIED' ? 'certified' : 'structural',
               // What backed a CERTIFIED verdict and where each baseline number came from: the QA gate only
