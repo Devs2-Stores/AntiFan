@@ -46,6 +46,9 @@ const ENV_KEYS = [
 	'ANTIFAN_ANTI_DIRECT_ORIGIN',
 	'ANTIFAN_CORE_MIN_SCORE',
 	'ANTIFAN_CORE_EXCLUDE_DIRS',
+	'ANTIFAN_CORE_MIN_COVERAGE',
+	'ANTIFAN_CORE_INJECT_KINDS',
+	'ANTIFAN_CORE_MIN_INJECT_CLAIMS',
 	'ANTIFAN_CORE_PACK_COOLDOWN_MS',
 ];
 
@@ -338,7 +341,9 @@ test('core available: the pack leads with the caller project claims', async () =
 	});
 	assert.equal(imported.status, 0, `fixture import must succeed: ${imported.stderr}`);
 
-	await withEnv({ SUPER_CORE_DB: db, ANTIFAN_CORE_BRIDGE_LOG: log, ANTIFAN_CORE_CLI: undefined, ANTIFAN_PROJECT_ROOT: undefined }, async () => {
+	// This test is about ranking order, not injection policy: its fixture has two claims of
+	// kind CODE, which the default allow-list and minimum would not inject.
+	await withEnv({ SUPER_CORE_DB: db, ANTIFAN_CORE_BRIDGE_LOG: log, ANTIFAN_CORE_CLI: undefined, ANTIFAN_PROJECT_ROOT: undefined, ANTIFAN_CORE_INJECT_KINDS: '*', ANTIFAN_CORE_MIN_INJECT_CLAIMS: '1' }, async () => {
 		const h = makePi();
 		bridgeHook(h.pi);
 		const messages = await h.emitBeforeAgentStart('canvas fill override', { cwd: REPO });
@@ -488,7 +493,8 @@ test('the pack request carries the score floor and the excluded source directori
 		const h = makePi();
 		bridgeHook(h.pi);
 		await h.emitBeforeAgentStart('default args prompt', { cwd: REPO });
-		assert.equal(packArgs().minScore, 0);
+		assert.equal(packArgs().minScore, 0.35, 'the default floor is the measured 0.35, not 0');
+		assert.equal(packArgs().limit, 45, 'Core is asked for three times the injected size so the filters do not starve the pack');
 		assert.deepEqual(packArgs().excludeSourceDirs, ['scratch', 'plans']);
 	});
 	await withEnv({ ...base, ANTIFAN_CORE_MIN_SCORE: '0.3', ANTIFAN_CORE_EXCLUDE_DIRS: 'scratch, drafts' }, async () => {
@@ -502,7 +508,7 @@ test('the pack request carries the score floor and the excluded source directori
 		const h = makePi();
 		bridgeHook(h.pi);
 		await h.emitBeforeAgentStart('invalid env prompt', { cwd: REPO });
-		assert.equal(packArgs().minScore, 0);
+		assert.equal(packArgs().minScore, 0.35, 'an unparseable floor falls back to the default, not to no floor');
 		assert.deepEqual(packArgs().excludeSourceDirs, [], 'an empty list turns the exclusion off');
 	});
 });
@@ -521,6 +527,239 @@ test('an empty pack is a pack, not a BRIDGE_CONTEXT_FAILED', async () => {
 		// Same task again: the empty pack is kept, Core is not asked twice.
 		await h.emitBeforeAgentStart('a prompt with no strong claims', { cwd: REPO });
 		assert.equal(rec.calls().filter((c) => c.cmd === 'pack').length, 1);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Relevance filtering of the injected pack
+// ---------------------------------------------------------------------------
+
+/** A stub CLI whose `pack` answers the given claims (each gets a claimId when none is set). */
+function packStub(dir, claims, extra = {}) {
+	const withIds = claims.map((c, i) => ({ claimId: `c${i}`, confidence: 0.8, contextPlatform: null, ...c }));
+	return recordingStub(
+		dir,
+		`console.log(JSON.stringify(${JSON.stringify({ packId: 'pack-filter', claims: withIds, conflicts: [], unknowns: [], release: null, diagnostics: null, ...extra })}));`,
+	);
+}
+
+const FILTER_ENV = (rec, dir) => ({
+	ANTIFAN_CORE_CLI: rec.stub,
+	ANTIFAN_CORE_BRIDGE_LOG: path.join(dir, 'events.jsonl'),
+	SUPER_CORE_DB: undefined,
+	ANTIFAN_PROJECT_ROOT: undefined,
+	ANTIFAN_CORE_MIN_SCORE: undefined,
+	ANTIFAN_CORE_MIN_COVERAGE: undefined,
+	ANTIFAN_CORE_INJECT_KINDS: undefined,
+	ANTIFAN_CORE_MIN_INJECT_CLAIMS: undefined,
+});
+
+const rule = (statement, score, coverage = 2, kind = 'RULE') => ({ kind, statement, score, coverage });
+const injectedClaims = (message) => JSON.parse(message.content.slice(message.content.indexOf('{'))).claims;
+const eventsOf = (h, name) => h.entries.filter((e) => e.data?.event === name).map((e) => e.data);
+
+test('a pack whose claims all sit under the score floor injects nothing and records why', async () => {
+	const dir = tmpDir('core-bridge-floor-');
+	const rec = packStub(dir, [rule('weak one', 0.2), rule('weak two', 0.25), rule('weak three', 0.3), rule('weak four', 0.1)]);
+	await withEnv(FILTER_ENV(rec, dir), async () => {
+		const h = makePi();
+		bridgeHook(h.pi);
+		const messages = await h.emitBeforeAgentStart('a prompt that matches only weak claims', { cwd: REPO });
+		assert.equal(messages.length, 0, 'no pack message');
+		assert.equal(eventsOf(h, 'BRIDGE_CONTEXT_SEEDED').length, 0);
+		const skipped = eventsOf(h, 'BRIDGE_CONTEXT_SKIPPED');
+		assert.equal(skipped.length, 1);
+		assert.match(skipped[0].reason, /^below relevance floor/);
+		assert.equal(skipped[0].claimCount, 0);
+		assert.equal(skipped[0].candidateCount, 4);
+		assert.equal(skipped[0].topScore, null, 'no survivor, so no surviving top score');
+		assert.equal(skipped[0].topCandidateScore, 0.3);
+		assert.deepEqual(skipped[0].dropped, { kind: 0, score: 4, coverage: 0, duplicate: 0 });
+		// Same prompt again: the verdict is kept, Core is not asked twice, no second event.
+		await h.emitBeforeAgentStart('a prompt that matches only weak claims', { cwd: REPO });
+		assert.equal(rec.calls().filter((c) => c.cmd === 'pack').length, 1);
+		assert.equal(eventsOf(h, 'BRIDGE_CONTEXT_SKIPPED').length, 1);
+	});
+});
+
+test('only allow-listed kinds are injected; PURPOSE and TOOLING claims are dropped', async () => {
+	const dir = tmpDir('core-bridge-kinds-');
+	const rec = packStub(dir, [
+		rule('readme intro of the project', 0.6, 2, 'PURPOSE'),
+		rule('never rewrite the lock file by hand', 0.55),
+		rule('scripts: build, test, lint', 0.58, 2, 'TOOLING'),
+		rule('prefer the repo helper over a new one', 0.5, 2, 'PRINCIPLE'),
+		rule('retry once after a stale read', 0.45, 1, 'WORKAROUND'),
+		rule('unit classified as archetype', 0.52, 2, 'ARCHETYPE'),
+	]);
+	await withEnv(FILTER_ENV(rec, dir), async () => {
+		const h = makePi();
+		bridgeHook(h.pi);
+		const messages = await h.emitBeforeAgentStart('kinds prompt', { cwd: REPO });
+		assert.equal(messages.length, 1);
+		const claims = injectedClaims(messages[0]);
+		assert.deepEqual(claims.map((c) => c.kind), ['RULE', 'PRINCIPLE', 'WORKAROUND']);
+		assert.equal(messages[0].details.claimCount, 3);
+		const seeded = eventsOf(h, 'BRIDGE_CONTEXT_SEEDED');
+		assert.equal(seeded.length, 1);
+		assert.deepEqual(seeded[0].dropped, { kind: 3, score: 0, coverage: 0, duplicate: 0 });
+		assert.deepEqual(seeded[0].kinds, { RULE: 1, PRINCIPLE: 1, WORKAROUND: 1 });
+		assert.equal(seeded[0].candidateCount, 6);
+	});
+});
+
+test('statements equal after normalisation render once and the higher score is kept', async () => {
+	const dir = tmpDir('core-bridge-dedupe-');
+	const rec = packStub(dir, [
+		{ ...rule('**Never** push to `main` directly.', 0.5), claimId: 'low' },
+		rule('another independent rule', 0.48),
+		{ ...rule('- "never push to main directly"', 0.62), claimId: 'high' },
+		rule('a third independent rule', 0.47),
+	]);
+	await withEnv(FILTER_ENV(rec, dir), async () => {
+		const h = makePi();
+		bridgeHook(h.pi);
+		const messages = await h.emitBeforeAgentStart('dedupe prompt', { cwd: REPO });
+		const claims = injectedClaims(messages[0]);
+		assert.equal(claims.length, 3);
+		const same = claims.filter((c) => /never.*push/i.test(c.statement));
+		assert.equal(same.length, 1, 'the two spellings render once');
+		assert.equal(same[0].claimId, 'high');
+		assert.equal(same[0].score, 0.62);
+		assert.equal(claims[0].claimId, 'high', 'the survivor keeps the position of the first copy');
+		assert.equal(eventsOf(h, 'BRIDGE_CONTEXT_SEEDED')[0].dropped.duplicate, 1);
+	});
+});
+
+test('fewer than three surviving claims inject nothing, three or more inject', async () => {
+	const dir = tmpDir('core-bridge-thin-');
+	const rec = packStub(dir, [rule('first strong rule', 0.6), rule('second strong rule', 0.55), rule('a feature note', 0.7, 2, 'FEATURE')]);
+	await withEnv(FILTER_ENV(rec, dir), async () => {
+		const h = makePi();
+		bridgeHook(h.pi);
+		const messages = await h.emitBeforeAgentStart('thin pack prompt', { cwd: REPO });
+		assert.equal(messages.length, 0, 'two survivors of three is below the minimum');
+		const skipped = eventsOf(h, 'BRIDGE_CONTEXT_SKIPPED');
+		assert.equal(skipped.length, 1);
+		assert.equal(skipped[0].claimCount, 2);
+		assert.equal(skipped[0].topScore, 0.6);
+		assert.equal(skipped[0].dropped.kind, 1);
+	});
+	await withEnv({ ...FILTER_ENV(rec, dir), ANTIFAN_CORE_MIN_INJECT_CLAIMS: '2' }, async () => {
+		const h = makePi();
+		bridgeHook(h.pi);
+		const messages = await h.emitBeforeAgentStart('thin pack prompt, lower minimum', { cwd: REPO });
+		assert.equal(messages.length, 1, 'the minimum is overridable');
+		assert.equal(injectedClaims(messages[0]).length, 2);
+	});
+});
+
+test('after a thin-pack skip the compaction note does not claim an injected pack', async () => {
+	const dir = tmpDir('core-bridge-skip-compact-');
+	const rec = packStub(dir, [rule('only one strong rule', 0.6)]);
+	await withEnv(FILTER_ENV(rec, dir), async () => {
+		const h = makePi();
+		bridgeHook(h.pi);
+		const ctx = { cwd: REPO };
+		const messages = await h.emitBeforeAgentStart('skip then compact', ctx);
+		assert.equal(messages.length, 0);
+		const results = await h.emit('session.compacting', { sessionId: 's1', messages: [] }, ctx);
+		const result = results.find(Boolean);
+		assert.equal(result.preserveData.packId, null, 'no injected pack identity is preserved');
+		assert.equal(result.preserveData.coreRelease, null);
+		assert.doesNotMatch(result.context.join('\n'), /was injected at agent start/);
+		assert.match(result.context.join('\n'), /skipped/);
+		// The same prompt does not ask Core again.
+		await h.emitBeforeAgentStart('skip then compact', ctx);
+		assert.equal(rec.calls().filter((c) => c.cmd === 'pack').length, 1);
+	});
+});
+
+test('the seeded event and each rendered claim carry the score, coverage and the dropped counts', async () => {
+	const dir = tmpDir('core-bridge-event-');
+	const rec = packStub(dir, [
+		rule('strong rule alpha', 0.614),
+		rule('rule beta', 0.5, 3),
+		rule('rule gamma', 0.4, 1, 'PRINCIPLE'),
+		rule('floor victim', 0.2),
+		rule('coverage victim', 0.6, 0),
+		rule('kind victim', 0.6, 2, 'DECISION'),
+	]);
+	await withEnv(FILTER_ENV(rec, dir), async () => {
+		const h = makePi();
+		bridgeHook(h.pi);
+		const messages = await h.emitBeforeAgentStart('event prompt', { cwd: REPO });
+		const claims = injectedClaims(messages[0]);
+		assert.deepEqual(claims.map((c) => [c.score, c.coverage]), [[0.61, 2], [0.5, 3], [0.4, 1]]);
+		const seeded = eventsOf(h, 'BRIDGE_CONTEXT_SEEDED')[0];
+		assert.equal(seeded.claimCount, 3);
+		assert.equal(seeded.candidateCount, 6);
+		assert.equal(seeded.topScore, 0.61);
+		assert.deepEqual(seeded.kinds, { RULE: 2, PRINCIPLE: 1 });
+		assert.deepEqual(seeded.dropped, { kind: 1, score: 1, coverage: 1, duplicate: 0 });
+		const fileSeeded = readJsonl(path.join(dir, 'events.jsonl')).find((r) => r.event === 'BRIDGE_CONTEXT_SEEDED');
+		assert.equal(fileSeeded.topScore, 0.61, 'the log file carries the same measurement');
+	});
+});
+
+test('environment overrides change the floor, the coverage floor and the kind list', async () => {
+	const dir = tmpDir('core-bridge-overrides-');
+	const claims = [
+		rule('rule one', 0.45, 1),
+		rule('rule two', 0.5, 2),
+		rule('decision note', 0.5, 2, 'DECISION'),
+		rule('rule three', 0.3, 2),
+		rule('rule four', 0.55, 1),
+	];
+	const rec = packStub(dir, claims);
+	const run = async (overrides, prompt) => {
+		let result;
+		await withEnv({ ...FILTER_ENV(rec, dir), ...overrides }, async () => {
+			const h = makePi();
+			bridgeHook(h.pi);
+			const messages = await h.emitBeforeAgentStart(prompt, { cwd: REPO });
+			result = { messages, h };
+		});
+		return result;
+	};
+
+	const base = await run({}, 'override base');
+	assert.deepEqual(injectedClaims(base.messages[0]).map((c) => c.statement), ['rule one', 'rule two', 'rule four'], 'default: 0.3 under the floor, DECISION not allowed');
+
+	const noFloor = await run({ ANTIFAN_CORE_MIN_SCORE: '0' }, 'override no floor');
+	assert.equal(injectedClaims(noFloor.messages[0]).length, 4, 'MIN_SCORE=0 keeps the weak rule');
+
+	const highFloor = await run({ ANTIFAN_CORE_MIN_SCORE: '0.5' }, 'override high floor');
+	assert.equal(highFloor.messages.length, 0, 'two claims reach 0.5, below the minimum');
+	assert.equal(eventsOf(highFloor.h, 'BRIDGE_CONTEXT_SKIPPED')[0].dropped.score, 2);
+
+	const coverage = await run({ ANTIFAN_CORE_MIN_COVERAGE: '2' }, 'override coverage');
+	assert.equal(coverage.messages.length, 0, 'only one rule matches two terms and clears the floor');
+	assert.equal(eventsOf(coverage.h, 'BRIDGE_CONTEXT_SKIPPED')[0].dropped.coverage, 2);
+
+	const kinds = await run({ ANTIFAN_CORE_INJECT_KINDS: 'decision, rule' }, 'override kinds');
+	assert.equal(injectedClaims(kinds.messages[0]).length, 4, 'a listed kind (any case) is injected');
+
+	const every = await run({ ANTIFAN_CORE_INJECT_KINDS: '' }, 'override all kinds');
+	assert.equal(injectedClaims(every.messages[0]).some((c) => c.kind === 'DECISION'), true, 'an empty list injects every kind');
+
+	const always = await run({ ANTIFAN_CORE_MIN_SCORE: '0.9', ANTIFAN_CORE_MIN_INJECT_CLAIMS: '0' }, 'override always inject');
+	assert.equal(always.messages.length, 1, 'a minimum of 0 injects even an empty survivor list');
+	assert.equal(injectedClaims(always.messages[0]).length, 0);
+});
+
+test('a claim without score or coverage is not judged on them', async () => {
+	const dir = tmpDir('core-bridge-unscored-');
+	const rec = packStub(dir, [{ kind: 'RULE', statement: 'unscored one' }, { kind: 'RULE', statement: 'unscored two' }, { kind: 'RULE', statement: 'unscored three' }]);
+	await withEnv(FILTER_ENV(rec, dir), async () => {
+		const h = makePi();
+		bridgeHook(h.pi);
+		const messages = await h.emitBeforeAgentStart('unscored prompt', { cwd: REPO });
+		assert.equal(messages.length, 1);
+		const claims = injectedClaims(messages[0]);
+		assert.equal(claims.length, 3);
+		assert.equal(claims[0].score, null);
+		assert.equal(eventsOf(h, 'BRIDGE_CONTEXT_SEEDED')[0].topScore, null);
 	});
 });
 

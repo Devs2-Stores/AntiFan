@@ -389,11 +389,78 @@ function envInt(name: string, fallback: number, max: number): number {
 	return Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, max) : fallback;
 }
 
-/** `ANTIFAN_CORE_MIN_SCORE`: lowest claim score (0..1) worth injecting. Unset or invalid means 0 (no floor). */
+/**
+ * Default relevance floor on a claim's composite score (0..1).
+ *
+ * Measured on 32 real prompts against a copy of the live store (1,171 returned
+ * claims, 327 of them labelled for relevance by hand, 14 relevant): the score
+ * does not separate relevant from irrelevant claims. Relevant claims scored
+ * 0.38-0.63 (median 0.52), irrelevant ones 0.39-0.69 (median 0.51); no claim
+ * scored below 0.38. A floor of 0.5 would drop 40% of the noise but also 43%
+ * of the relevant claims, 0.6 drops 95% of the noise and 64% of the relevant
+ * ones. So this default is only a guard against zero-match filler (the scorer
+ * gives a claim that matched nothing about 0.2-0.3), not a discriminator.
+ * Relevance is carried by `DEFAULT_INJECT_KINDS` and the thin-pack skip.
+ */
+const DEFAULT_MIN_SCORE = 0.35;
+/**
+ * Default floor on `coverage` (how many distinct content terms of the prompt a
+ * claim matched). 1 means "matched at least one term". A higher floor does not
+ * help: relevant claims matched 1 or 2 terms (9 of 14 matched 2, none matched
+ * 3 or more), so coverage >= 2 drops 36% of them and coverage >= 3 drops all.
+ */
+const DEFAULT_MIN_COVERAGE = 1;
+/** Fewer surviving claims than this and nothing is injected: a pack of one or two leftovers is noise with a header. */
+const DEFAULT_MIN_INJECT_CLAIMS = 3;
+/**
+ * Kinds worth injecting as guidance. In the labelled sample the relevant claims
+ * were RULE (8 of 178), PRINCIPLE (2 of 19), BUGFIX (1 of 31) and FIX_PATTERN
+ * (1 of 14), plus one PURPOSE and one TOOL claim that matched a tool name typed
+ * in the prompt. ARCHETYPE (0 of 30), ANTIPATTERN (0 of 13, generic section
+ * titles), DECISION (0 of 7), OUTCOME (0 of 8), FEATURE (0 of 8), TOOLING,
+ * SKILL, COMMERCIAL and PRACTICE_PARITY (0 of 11) contributed none, so they are
+ * not injected. WORKAROUND, HIDDEN_REQUIREMENT and RISK had too few samples
+ * (0 of 3 for WORKAROUND and RISK, none for HIDDEN_REQUIREMENT) to judge and
+ * are guidance by nature, so they stay in.
+ */
+const DEFAULT_INJECT_KINDS = ["RULE", "PRINCIPLE", "BUGFIX", "FIX_PATTERN", "WORKAROUND", "HIDDEN_REQUIREMENT", "RISK"];
+
+/**
+ * `ANTIFAN_CORE_MIN_SCORE`: lowest claim score (0..1) worth injecting. Unset or
+ * invalid means `DEFAULT_MIN_SCORE`; `0` turns the floor off.
+ */
 function minScoreFromEnv(): number {
 	const raw = process.env.ANTIFAN_CORE_MIN_SCORE;
 	const parsed = raw ? Number.parseFloat(raw) : Number.NaN;
-	return Number.isFinite(parsed) ? Math.max(0, Math.min(1, parsed)) : 0;
+	return Number.isFinite(parsed) ? Math.max(0, Math.min(1, parsed)) : DEFAULT_MIN_SCORE;
+}
+
+/** `ANTIFAN_CORE_MIN_COVERAGE`: fewest matched prompt terms a claim needs. Unset or invalid means `DEFAULT_MIN_COVERAGE`; `0` turns it off. */
+function minCoverageFromEnv(): number {
+	const raw = process.env.ANTIFAN_CORE_MIN_COVERAGE;
+	const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN;
+	return Number.isFinite(parsed) && parsed >= 0 ? parsed : DEFAULT_MIN_COVERAGE;
+}
+
+/** `ANTIFAN_CORE_MIN_INJECT_CLAIMS`: survivors needed before a pack is injected. Unset or invalid means the default; `0` always injects. */
+function minInjectClaimsFromEnv(): number {
+	const raw = process.env.ANTIFAN_CORE_MIN_INJECT_CLAIMS;
+	const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN;
+	return Number.isFinite(parsed) && parsed >= 0 ? parsed : DEFAULT_MIN_INJECT_CLAIMS;
+}
+
+/**
+ * `ANTIFAN_CORE_INJECT_KINDS`: comma list of claim kinds to inject (case
+ * insensitive). Set to an empty string, or `*`, to inject every kind.
+ * Returns null for "no kind filter".
+ */
+function injectKindsFromEnv(): Set<string> | null {
+	const raw = process.env.ANTIFAN_CORE_INJECT_KINDS;
+	const list = raw === undefined
+		? DEFAULT_INJECT_KINDS
+		: raw.split(",").map((part) => part.trim().toUpperCase()).filter((part) => part.length > 0);
+	if (list.length === 0 || list.includes("*")) return null;
+	return new Set(list.map((kind) => kind.toUpperCase()));
 }
 
 /** `ANTIFAN_CORE_EXCLUDE_DIRS`: comma list; set to an empty string to exclude nothing. */
@@ -792,14 +859,123 @@ function isAntiDirectForbiddenTool(toolName: string, input: Record<string, unkno
 // Message rendering
 // ---------------------------------------------------------------------------
 
-function renderPackContent(pack: CorePack, taskHash: string, projectRoot: string): string {
-	const claims = pack.claims.slice(0, MAX_CLAIMS_IN_MESSAGE).map((c) => ({
-		claimId: c.claimId,
-		kind: c.kind,
-		statement: typeof c.statement === "string" ? c.statement.slice(0, MAX_STATEMENT_CHARS) : c.statement,
-		confidence: c.confidence,
-		contextPlatform: c.contextPlatform ?? null,
-	}));
+/** What each filter removed from a pack, in the order the filters run. */
+interface DroppedCounts {
+	kind: number;
+	score: number;
+	coverage: number;
+	duplicate: number;
+}
+
+interface FilteredClaims {
+	kept: Array<Record<string, unknown>>;
+	candidateCount: number;
+	dropped: DroppedCounts;
+	/** Highest score among the kept claims, rounded; null when none survived or none carried a score. */
+	topScore: number | null;
+	/** Highest score among every claim Core returned, rounded; tells a tuner how far a floor sits from the pack. */
+	topCandidateScore: number | null;
+	kinds: Record<string, number>;
+}
+
+/**
+ * The statement as a comparison key: lower-case, markdown markers, list bullets,
+ * quotes and trailing punctuation removed, whitespace collapsed. Two claims
+ * imported from different files with the same words key identically.
+ */
+function normalizeStatement(statement: unknown): string {
+	if (typeof statement !== "string") return "";
+	return statement
+		.toLowerCase()
+		.replace(/^[ \t]*(?:[-+*•]|\d+[.)])[ \t]+/gm, "")
+		.replace(/[`*_~#>"'“”‘’]/g, "")
+		.replace(/\s+/g, " ")
+		.trim()
+		.replace(/[\s.,;:!?…]+$/u, "");
+}
+
+function finiteNumber(value: unknown): number | null {
+	return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function roundScore(value: number): number {
+	return Math.round(value * 100) / 100;
+}
+
+/**
+ * Decides which of Core's claims are injected: kind allow-list, score floor,
+ * coverage floor, then de-duplication on the normalised statement (best score
+ * wins, in the position of its first copy). A claim without a numeric score or
+ * coverage is not judged on it: Core always supplies both, so a missing one
+ * means a different producer, not a weak claim.
+ */
+function filterClaims(claims: Array<Record<string, unknown>>): FilteredClaims {
+	const kindsAllowed = injectKindsFromEnv();
+	const minScore = minScoreFromEnv();
+	const minCoverage = minCoverageFromEnv();
+	const dropped: DroppedCounts = { kind: 0, score: 0, coverage: 0, duplicate: 0 };
+	const kept: Array<Record<string, unknown>> = [];
+	const slotByKey = new Map<string, number>();
+	let topCandidate: number | null = null;
+	for (const claim of claims) {
+		const score = finiteNumber(claim.score);
+		if (score !== null && (topCandidate === null || score > topCandidate)) topCandidate = score;
+		const kind = typeof claim.kind === "string" ? claim.kind.toUpperCase() : "";
+		if (kindsAllowed && !kindsAllowed.has(kind)) {
+			dropped.kind++;
+			continue;
+		}
+		if (score !== null && score < minScore) {
+			dropped.score++;
+			continue;
+		}
+		const coverage = finiteNumber(claim.coverage);
+		if (coverage !== null && coverage < minCoverage) {
+			dropped.coverage++;
+			continue;
+		}
+		const key = normalizeStatement(claim.statement);
+		const slot = key ? slotByKey.get(key) : undefined;
+		if (slot !== undefined) {
+			dropped.duplicate++;
+			const held = finiteNumber(kept[slot].score);
+			if (score !== null && (held === null || score > held)) kept[slot] = claim;
+			continue;
+		}
+		if (key) slotByKey.set(key, kept.length);
+		kept.push(claim);
+	}
+	let top: number | null = null;
+	const kinds: Record<string, number> = {};
+	for (const claim of kept) {
+		const score = finiteNumber(claim.score);
+		if (score !== null && (top === null || score > top)) top = score;
+		const kind = typeof claim.kind === "string" ? claim.kind : "unknown";
+		kinds[kind] = (kinds[kind] ?? 0) + 1;
+	}
+	return {
+		kept,
+		candidateCount: claims.length,
+		dropped,
+		topScore: top === null ? null : roundScore(top),
+		topCandidateScore: topCandidate === null ? null : roundScore(topCandidate),
+		kinds,
+	};
+}
+
+function renderPackContent(pack: CorePack, taskHash: string, projectRoot: string, injected: Array<Record<string, unknown>>): string {
+	const claims = injected.slice(0, MAX_CLAIMS_IN_MESSAGE).map((c) => {
+		const score = finiteNumber(c.score);
+		return {
+			claimId: c.claimId,
+			kind: c.kind,
+			statement: typeof c.statement === "string" ? c.statement.slice(0, MAX_STATEMENT_CHARS) : c.statement,
+			confidence: c.confidence,
+			score: score === null ? null : roundScore(score),
+			coverage: finiteNumber(c.coverage),
+			contextPlatform: c.contextPlatform ?? null,
+		};
+	});
 	const body = {
 		source: "antifan-core-bridge",
 		packId: pack.packId,
@@ -808,7 +984,7 @@ function renderPackContent(pack: CorePack, taskHash: string, projectRoot: string
 		coreRelease: pack.release?.releaseId ?? null,
 		permissionScope: pack.permissionScope,
 		generatedAt: pack.generatedAt,
-		claimCount: pack.claims.length,
+		claimCount: claims.length,
 		conflictCount: pack.conflicts.length,
 		unknowns: pack.unknowns,
 		diagnostics: pack.diagnostics ?? null,
@@ -1176,7 +1352,10 @@ export default function antifanCoreBridgeHook(pi: BridgeAPI): void {
 				"pack",
 				JSON.stringify({
 					task,
-					limit: envInt("ANTIFAN_CORE_PACK_LIMIT", MAX_CLAIMS_IN_MESSAGE, 50),
+					// Ask for more than is injected: the kind, floor and duplicate filters
+					// run here after Core's own cut, and filtering a pack of exactly the
+					// injected size would starve it.
+					limit: Math.min(50, envInt("ANTIFAN_CORE_PACK_LIMIT", MAX_CLAIMS_IN_MESSAGE, 50) * 3),
 					// Scope the pack to the project being worked on. The store
 					// spans every analysed root, so without this the pack for a
 					// task in this repo is filled from every other project's
@@ -1213,18 +1392,47 @@ export default function antifanCoreBridgeHook(pi: BridgeAPI): void {
 
 			const pack = result.pack;
 			state.coreStatus = "available";
+			// state.pack is kept either way so the same prompt does not ask Core
+			// twice; the injected-pack identity is set only once a message is returned.
 			state.pack = pack;
+			state.packId = null;
+			state.coreRelease = null;
+			const filtered = filterClaims(pack.claims);
+			const minInject = minInjectClaimsFromEnv();
+			// A pack Core returned empty stays a pack (identity + diagnostics). A pack
+			// that had candidates but too few survivors is injected as nothing: a
+			// header with one or two leftover claims costs context and misleads.
+			if (pack.claims.length > 0 && filtered.kept.length < minInject) {
+				recordEvent("BRIDGE_CONTEXT_SKIPPED", {
+					packId: pack.packId,
+					taskHash,
+					reason: `below relevance floor: ${filtered.kept.length} of ${filtered.candidateCount} claims survived the filters, fewer than ${minInject}`,
+					claimCount: filtered.kept.length,
+					candidateCount: filtered.candidateCount,
+					topScore: filtered.topScore,
+					topCandidateScore: filtered.topCandidateScore,
+					dropped: filtered.dropped,
+					minInjectClaims: minInject,
+				});
+				log("info", `core pack skipped: ${filtered.kept.length}/${filtered.candidateCount} claims survived (taskHash=${taskHash ?? "none"})`);
+				return undefined;
+			}
 			state.packId = pack.packId;
 			state.coreRelease = pack.release?.releaseId ?? null;
 			recordEvent("BRIDGE_CONTEXT_SEEDED", {
 				packId: pack.packId,
 				coreRelease: state.coreRelease,
-				claimCount: pack.claims.length,
+				claimCount: Math.min(filtered.kept.length, MAX_CLAIMS_IN_MESSAGE),
+				candidateCount: filtered.candidateCount,
+				topScore: filtered.topScore,
+				topCandidateScore: filtered.topCandidateScore,
+				kinds: filtered.kinds,
+				dropped: filtered.dropped,
 			});
 			return {
 				message: {
 					customType: BRIDGE_MESSAGE_TYPE,
-					content: renderPackContent(pack, taskHash ?? "", state.projectRoot),
+					content: renderPackContent(pack, taskHash ?? "", state.projectRoot, filtered.kept),
 					display: true,
 					details: {
 						kind: "core-context-pack",
@@ -1233,7 +1441,7 @@ export default function antifanCoreBridgeHook(pi: BridgeAPI): void {
 						projectRoot: state.projectRoot,
 						coreRelease: state.coreRelease,
 						permissionScope: pack.permissionScope ?? "eligible-content-only",
-						claimCount: pack.claims.length,
+						claimCount: Math.min(filtered.kept.length, MAX_CLAIMS_IN_MESSAGE),
 						conflictCount: pack.conflicts.length,
 						generatedAt: pack.generatedAt,
 					},
@@ -1328,6 +1536,8 @@ export default function antifanCoreBridgeHook(pi: BridgeAPI): void {
 				? `AntiFan Core pack skipped (anti-direct policy active, triggeredBy=${state.antiDirectTrigger ?? "user_skill_invocation"}).`
 				: state.packId
 				? `AntiFan Core pack ${state.packId} (release ${state.coreRelease ?? "none"}, taskHash ${state.taskHash ?? "none"}) was injected at agent start; permissionScope=eligible-content-only.`
+				: state.pack
+				? "AntiFan Core pack skipped (too few claims cleared the relevance filters); session ran without Core context."
 				: `AntiFan Core unavailable (${state.unavailableReason ?? "not seeded"}); session ran without Core context.`;
 			return { context: [contextLine], preserveData };
 		} catch {
