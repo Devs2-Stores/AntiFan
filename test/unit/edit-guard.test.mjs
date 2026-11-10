@@ -3483,3 +3483,29 @@ test("the test builtin `[` and `[[` is not a glob that could expand to the CLI",
     assert.equal(themePolicy.classifyThemeLine(line).code, "REFUSED_THEME_COMPLEX", line);
   }
 });
+
+test('the prelude shell engine and nested bash tool calls are process sinks judged like subprocess', () => {
+  const blocked = [
+    'sh("hrv theme publish 1")',
+    'out = sh(command="hrv theme push --force")',
+    'sh("cd theme && hrv theme publish 1", cwd="E:/x")',
+    'await sh("hrv theme publish 1")',
+    'await sh\`hrv theme publish 1\`',
+    'await sh("hrv theme publish 1", { cwd: "E:/x" })',
+    'await tool.bash({ command: "hrv theme publish 1" })',
+    'await tool.bash({"command": "hrv theme publish 1"})',
+    'const t = tool; await t.bash({ command: "hrv theme publish 1" })',
+    'await tool["bash"]({ command: "hrv theme publish 1" })',
+    'cmd = "hrv theme publish 1"\nsh(cmd)',
+  ];
+  for (const cell of blocked) assert.equal(themePolicy.planEvalThemeCode(cell).decision, 'block', cell);
+  const allowed = [
+    'sh("rg -n hrv src/")',
+    'await sh("ls E:/Work/apps | rg -i sapo")',
+    'await tool.read({ path: "E:/Work/apps/Haravan CLI/README.md" })',
+    'await tool.grep({ pattern: "hrv theme push", path: "docs" })',
+    'print("hrv theme publish 1")',
+    'self.sh("x"); print("hrv theme push")',
+  ];
+  for (const cell of allowed) assert.equal(themePolicy.planEvalThemeCode(cell).decision, 'allow', cell);
+});

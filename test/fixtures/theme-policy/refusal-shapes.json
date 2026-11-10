@@ -225,6 +225,41 @@
       "text": "import json, subprocess\nsubprocess.run([\"curl\", \"-sSL\", \"-o\", \"C:/work/after.csv\", \"https://example.com/export?format=csv\"])\nr = {\"pushed\": []}\nr[\"pushed\"].append(\"hrv theme push --only assets/a.scss.liquid --nodelete (adjust the right margin; the CDN already has the rule)\")\nprint(json.dumps(r))",
       "expect": "allow",
       "note": "report entry that records a push command as text, next to an unrelated curl"
+    },
+    {
+      "id": "cell-prelude-sh-rg-log",
+      "kind": "cell",
+      "text": "sh(\"rg -n \\\"hrv theme dev\\\" C:/logs/x.jsonl\")",
+      "note": "data-only reader through sh",
+      "expect": "allow"
+    },
+    {
+      "id": "cell-prelude-sh-ls-rg",
+      "kind": "cell",
+      "text": "await sh(\"ls E:/Work/apps | rg -i sapo\")",
+      "note": "data-only pipeline through sh",
+      "expect": "allow"
+    },
+    {
+      "id": "cell-prelude-tool-read",
+      "kind": "cell",
+      "text": "await tool.read({ path: \"E:/Work/apps/Haravan CLI/README.md\" })",
+      "note": "reader tool",
+      "expect": "allow"
+    },
+    {
+      "id": "cell-prelude-tool-grep",
+      "kind": "cell",
+      "text": "await tool.grep({ pattern: \"hrv theme push\", path: \"docs\" })",
+      "note": "grep tool",
+      "expect": "allow"
+    },
+    {
+      "id": "cell-prelude-print",
+      "kind": "cell",
+      "text": "print(\"hrv theme publish 1\")",
+      "note": "print only",
+      "expect": "allow"
     }
   ]
 }

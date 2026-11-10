@@ -198,6 +198,66 @@
       "kind": "cell",
       "text": "import subprocess\nsubprocess.run(\"rg --pre hrv x src/\", shell=True)",
       "note": "unknown flag on a data program"
+    },
+    {
+      "id": "cell-prelude-sh-py",
+      "kind": "cell",
+      "text": "sh(\"hrv theme publish 1\")",
+      "note": "prelude bash engine"
+    },
+    {
+      "id": "cell-prelude-sh-assign-kw",
+      "kind": "cell",
+      "text": "out = sh(command=\"hrv theme push --force\")",
+      "note": "keyword argument"
+    },
+    {
+      "id": "cell-prelude-sh-cwd",
+      "kind": "cell",
+      "text": "sh(\"cd theme && hrv theme publish 1\", cwd=\"E:/x\")",
+      "note": "chained after cd"
+    },
+    {
+      "id": "cell-prelude-sh-await",
+      "kind": "cell",
+      "text": "await sh(\"hrv theme publish 1\")",
+      "note": "js await"
+    },
+    {
+      "id": "cell-prelude-sh-template",
+      "kind": "cell",
+      "text": "await sh`hrv theme publish 1`",
+      "note": "tagged template"
+    },
+    {
+      "id": "cell-prelude-sh-opts",
+      "kind": "cell",
+      "text": "await sh(\"hrv theme publish 1\", { cwd: \"E:/x\" })",
+      "note": "options object"
+    },
+    {
+      "id": "cell-prelude-tool-bash",
+      "kind": "cell",
+      "text": "await tool.bash({ command: \"hrv theme publish 1\" })",
+      "note": "nested bash tool"
+    },
+    {
+      "id": "cell-prelude-tool-bash-py",
+      "kind": "cell",
+      "text": "await tool.bash({\"command\": \"hrv theme publish 1\"})",
+      "note": "python dict"
+    },
+    {
+      "id": "cell-prelude-tool-alias",
+      "kind": "cell",
+      "text": "const t = tool; await t.bash({ command: \"hrv theme publish 1\" })",
+      "note": "aliased tool"
+    },
+    {
+      "id": "cell-prelude-tool-index",
+      "kind": "cell",
+      "text": "await tool[\"bash\"]({ command: \"hrv theme publish 1\" })",
+      "note": "indexed member"
     }
   ]
 }

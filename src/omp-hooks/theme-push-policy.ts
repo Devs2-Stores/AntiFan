@@ -1482,7 +1482,7 @@ export function mentionsThemeCli(text: string, opts: { auth?: boolean } = {}): b
  * Signs that an `eval` cell starts a process: `subprocess`, `os.system`, `child_process`, `Bun.$`,
  * `spawn(`, `exec(`, or an IPython `!cmd` / `%cmd` line.
  */
-export const SUBPROCESS_RE = /subprocess|os\.(?:system|popen|exec|spawn)|child_process|Bun\.(?:\$|spawn)|Deno\.(?:run|Command)|shelljs|\$`|\bspawn\w*\s*\(|\bexec\w*\s*\(|(?:^|\n)\s*[!%]/;
+export const SUBPROCESS_RE = /subprocess|os\.(?:system|popen|exec|spawn)|child_process|Bun\.(?:\$|spawn)|Deno\.(?:run|Command)|shelljs|\$`|\bspawn\w*\s*\(|\bexec\w*\s*\(|(?<![\w.$])sh\s*(?:\(|`)|\.bash\s*\(|\[\s*["']bash["']\s*\]\s*\(|(?:^|\n)\s*[!%]/;
 
 export type ThemeLinePlan =
   /** No theme-CLI mention: nothing to gate. */
