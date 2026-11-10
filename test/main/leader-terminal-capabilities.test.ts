@@ -20,6 +20,7 @@ import {
   type LeaderPlacementRequest,
   type LeaderPlacementResult,
   registerLeaderProjectRemovalPort,
+  type LeaderMintedCapsuleRemoval,
   type LeaderMintedProjectRemoval,
 } from '../../src/main/leader/leader-runtime';
 import {
@@ -1168,18 +1169,26 @@ describe('Leader scope of the terminal capabilities', () => {
       let restoreRoots: () => void;
       let previousRoots: string | undefined;
       const removals: string[] = [];
+      const capsuleRemovals: Array<{ capsuleId: string; mintedBy: string }> = [];
       let removalOutcome: () => Promise<LeaderMintedProjectRemoval>;
+      let capsuleOutcome: () => Promise<LeaderMintedCapsuleRemoval>;
       let unregisterRemoval: () => void;
 
       beforeEach(() => {
         previousRoots = process.env.ANTIFAN_LEADER_SCRATCH_ROOTS;
         process.env.ANTIFAN_LEADER_SCRATCH_ROOTS = SCRATCH_ROOT;
         removals.length = 0;
+        capsuleRemovals.length = 0;
         removalOutcome = async () => ({ status: 'REMOVED', projectId: 'project-gone' });
+        capsuleOutcome = async () => ({ status: 'NOT_ORPHAN' });
         unregisterRemoval = registerLeaderProjectRemovalPort({
           removeMintedProject: async ({ capsuleId }) => {
             removals.push(capsuleId);
             return removalOutcome();
+          },
+          removeMintedCapsule: async (request) => {
+            capsuleRemovals.push(request);
+            return capsuleOutcome();
           },
         });
         restoreRoots = () => {
@@ -1273,6 +1282,52 @@ describe('Leader scope of the terminal capabilities', () => {
           assert.strictEqual(done.projectRemoval.status, 'REMOVED');
           assert.deepStrictEqual(removals, ['capsule-9', 'capsule-9']);
           assert.strictEqual(LeaderRegistry.getInstance().mintedOf('terminal-b'), undefined, 'a removed project leaves no record');
+        });
+      });
+
+      it('a minted capsule that never became a project is removed even outside a scratch folder, and its record goes with it', async () => {
+        await withRestore(async () => {
+          capsuleOutcome = async () => ({ status: 'REMOVED_CAPSULE', capsuleId: 'capsule-9' });
+          const { catalogue } = await placeAndBuild(path.join(SCRATCH_DIR, 'customizes-like'), true);
+          const result = (await catalogue.dispatch('terminal.close', { sessionId: 'terminal-new', removeMintedProject: true }, ctx())) as {
+            closed: boolean; projectRemoval: { status: string; capsuleId?: string };
+          };
+          assert.strictEqual(result.closed, true);
+          assert.deepStrictEqual(result.projectRemoval, { status: 'REMOVED_CAPSULE', capsuleId: 'capsule-9' });
+          assert.deepStrictEqual(capsuleRemovals, [{ capsuleId: 'capsule-9', mintedBy: 'caller' }]);
+          assert.deepStrictEqual(removals, [], 'the project path was not asked');
+          assert.strictEqual(LeaderRegistry.getInstance().mintedOf('terminal-new'), undefined);
+        });
+      });
+
+      it('a refused capsule removal keeps the record, so the last worker closed in that folder can finish it', async () => {
+        await withRestore(async () => {
+          capsuleOutcome = async () => ({ status: 'REFUSED', reason: 'CAPSULE_HAS_OTHER_TERMINALS', capsuleId: 'capsule-9' });
+          const { catalogue } = await placeAndBuild(path.join(SCRATCH_DIR, 'customizes-like'), true);
+          const result = (await catalogue.dispatch('terminal.close', { sessionId: 'terminal-new', removeMintedProject: true }, ctx())) as {
+            projectRemoval: { status: string; reason?: string };
+          };
+          assert.deepStrictEqual(result.projectRemoval, { status: 'REFUSED', reason: 'CAPSULE_HAS_OTHER_TERMINALS', capsuleId: 'capsule-9' });
+          assert.deepStrictEqual(removals, [], 'a capsule the host called an orphan never falls through to the project path');
+          assert.strictEqual(LeaderRegistry.getInstance().mintedOf('terminal-new')?.capsuleId, 'capsule-9', 'the capsule record is still there');
+        });
+      });
+
+      it('tells the host whether the Leader that closes the worker is the one that minted the capsule', async () => {
+        await withRestore(async () => {
+          const registry = LeaderRegistry.getInstance();
+          registry.setLeader('terminal-lead', true);
+          const cwd = path.join(SCRATCH_ROOT, 'job-h');
+          const { catalogue } = build([...rowsOf(), { id: 'terminal-other', cwd, state: 'running', ownerKey: 'project:p9' }, { id: 'terminal-old', cwd, state: 'running', ownerKey: 'project:p9' }]);
+          assert.strictEqual(registry.recordMinted('terminal-other', { capsuleId: 'capsule-x', workspacePath: cwd, leaderId: 'terminal-lead-2' }), true);
+          assert.strictEqual(registry.recordMinted('terminal-old', { capsuleId: 'capsule-y', workspacePath: cwd }), true);
+          for (const sessionId of ['terminal-other', 'terminal-old']) {
+            await catalogue.dispatch('terminal.close', { sessionId, removeMintedProject: true }, ctx());
+          }
+          assert.deepStrictEqual(capsuleRemovals, [
+            { capsuleId: 'capsule-x', mintedBy: 'other' },
+            { capsuleId: 'capsule-y', mintedBy: 'unknown' },
+          ]);
         });
       });
 

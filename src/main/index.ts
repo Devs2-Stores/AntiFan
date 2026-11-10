@@ -29,7 +29,7 @@ import { WorkspaceCapsuleManager, findReusableCapsule, type WorkspaceCapsule } f
 import { ProjectRegistry } from './project/project-registry';
 import { ProjectPreferences, PROJECT_PREFERENCES_FILE } from './project/project-preferences';
 import { reconcileProjectRecords } from './project/project-reconcile';
-import { isUnderLeaderScratchRoot, registerLeaderProjectRemovalPort, type LeaderMintedProjectRemoval } from './leader/leader-runtime';
+import { isUnderLeaderScratchRoot, registerLeaderProjectRemovalPort, type LeaderMintedCapsuleRemoval, type LeaderMintedProjectRemoval, type LeaderMintOwner } from './leader/leader-runtime';
 import { classifyProjectTerminals, createProjectInactivityCloser, type ProjectTerminalFacts, type ProjectTerminalStates } from './project/project-inactivity-closer';
 import {
   hasValidatedAffiliation,
@@ -3259,7 +3259,81 @@ export async function removeLeaderMintedProject(capsuleId: string): Promise<Lead
   }
 }
 
-registerLeaderProjectRemovalPort({ removeMintedProject: ({ capsuleId }) => removeLeaderMintedProject(capsuleId) });
+/**
+ * The host half of a Leader's `terminal.close { removeMintedProject: true }` for a capsule the placement
+ * minted that never became a project: remove the capsule record, and nothing else (the folder on disk is
+ * never touched, and no scratch allowlist applies: a capsule no project claims holds no project data).
+ *
+ * A capsule that carries a project or workspace id is `NOT_ORPHAN` and goes the project way. Every other
+ * safety fact is re-derived here from the live stores, and each one that cannot be proven refuses with its
+ * own code, so the record stays for the next close in that folder: the Leader that is closing the worker
+ * must be the one that minted the capsule; the capsule is not the active one, sits in no open window
+ * (window affiliation or live tab), keeps no saved browser or terminal tab (its own state, or the saved-tabs
+ * file) and no brief or Chrome profile a person chose; and no other terminal, open or sleeping, is still
+ * attributed to it. A store Main cannot read refuses instead of being assumed empty.
+ */
+export async function removeLeaderMintedCapsule(request: { capsuleId: string; mintedBy: LeaderMintOwner }): Promise<LeaderMintedCapsuleRemoval> {
+  const { capsuleId } = request;
+  if (!capsuleManager) return { status: 'FAILED', reason: 'CAPSULE_STORE_UNAVAILABLE', capsuleId };
+  let capsule: WorkspaceCapsule;
+  try {
+    capsule = capsuleManager.get(capsuleId);
+  } catch {
+    return { status: 'NOT_ORPHAN' };
+  }
+  if (capsule.projectId || capsule.workspaceId) return { status: 'NOT_ORPHAN' };
+  const refuse = (reason: string): LeaderMintedCapsuleRemoval => {
+    recordLifecycleEvent('capsule-remove.minted-refused', { capsuleId, reason });
+    return { status: 'REFUSED', reason, capsuleId };
+  };
+  if (request.mintedBy === 'other') return refuse('MINTED_BY_ANOTHER_LEADER');
+  if (request.mintedBy === 'unknown') return refuse('MINT_OWNER_UNKNOWN');
+  if (capsuleManager.getActive()?.id === capsuleId) return refuse('CAPSULE_IS_ACTIVE');
+  if (capsule.state.browserTabs.length > 0) return refuse('CAPSULE_HAS_SAVED_BROWSER_TABS');
+  if (capsule.state.terminalTabs.length > 0) return refuse('CAPSULE_HAS_SAVED_TERMINAL_TABS');
+  if (capsule.brief) return refuse('CAPSULE_HAS_BRIEF');
+  if (capsule.state.chromeProfileId) return refuse('CAPSULE_HAS_CHROME_PROFILE');
+  const savedTabs = savedTabsFilePath();
+  const savedDocument = readSavedTabsDocument(savedTabs);
+  if (!savedDocument && fs.existsSync(savedTabs)) return refuse('SAVED_TABS_UNREADABLE');
+  for (const record of Object.values(savedDocument?.owners ?? {})) {
+    if (record?.tabs?.some((tab) => tab?.capsuleId === capsuleId)) return refuse('CAPSULE_HAS_SAVED_TABS');
+  }
+  try {
+    for (const host of tabAuthorities.hosts()) {
+      if (host.getWindowWorkspaceAffiliation()?.capsuleId === capsuleId) return refuse('CAPSULE_IN_OPEN_WINDOW');
+      if (host.getTabList().some((tab) => host.getTabCapsuleId(tab.id) === capsuleId)) return refuse('CAPSULE_IN_OPEN_WINDOW');
+    }
+  } catch (err) {
+    recordLifecycleEvent('capsule-remove.minted-refused', { capsuleId, reason: 'WINDOWS_UNREADABLE', detail: String(err) });
+    return { status: 'REFUSED', reason: 'WINDOWS_UNREADABLE', capsuleId };
+  }
+  try {
+    const terminals = TerminalManager.getInstance();
+    for (const summary of terminals.listSessions()) {
+      const sessionId = summary?.id;
+      if (typeof sessionId !== 'string' || !sessionId || summary.state === 'closed') continue;
+      if (terminals.sessionCapsuleId(sessionId) === capsuleId) return refuse('CAPSULE_HAS_OTHER_TERMINALS');
+    }
+  } catch (err) {
+    recordLifecycleEvent('capsule-remove.minted-refused', { capsuleId, reason: 'TERMINALS_UNREADABLE', detail: String(err) });
+    return { status: 'REFUSED', reason: 'TERMINALS_UNREADABLE', capsuleId };
+  }
+  try {
+    capsuleManager.remove(capsuleId);
+  } catch (err) {
+    recordLifecycleEvent('capsule-remove.failed', { capsuleId, detail: String(err) });
+    return { status: 'FAILED', reason: redactCredentials(String(err)), capsuleId };
+  }
+  recordLifecycleEvent('capsule-removed', { capsuleId });
+  broadcastProjectInventoryChanged();
+  return { status: 'REMOVED_CAPSULE', capsuleId };
+}
+
+registerLeaderProjectRemovalPort({
+  removeMintedProject: ({ capsuleId }) => removeLeaderMintedProject(capsuleId),
+  removeMintedCapsule: (request) => removeLeaderMintedCapsule(request),
+});
 
 /**
  * The modal's explicit answer to a `CONFIRM_REQUIRED` ask. `confirmed: true` is the

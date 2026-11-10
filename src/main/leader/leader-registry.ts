@@ -29,6 +29,8 @@ export interface LeaderMintedRecord {
   /** Absolute folder of the capsule, as the placement named it. */
   workspacePath: string;
   mintedAt: number;
+  /** The Leader terminal whose placement created the capsule. Absent on a record written before this field existed. */
+  leaderId?: string;
 }
 
 interface LeaderRegistryFile {
@@ -125,6 +127,7 @@ export class LeaderRegistry extends EventEmitter {
           capsuleId: record.capsuleId,
           workspacePath: record.workspacePath,
           mintedAt: typeof record.mintedAt === 'number' ? record.mintedAt : 0,
+          ...(typeof record.leaderId === 'string' && record.leaderId ? { leaderId: record.leaderId } : {}),
         });
         if (key !== record.capsuleId) this.placements.set(key, record.capsuleId);
       }
@@ -241,14 +244,20 @@ export class LeaderRegistry extends EventEmitter {
   }
 
   /**
-   * Record that the placement which minted `workerId` also created capsule `capsuleId` for `workspacePath`.
-   * Returns whether the record is persisted. A worker's terminal id is placed in at most one capsule.
+   * Record that the placement which minted `workerId` also created capsule `capsuleId` for `workspacePath`,
+   * on behalf of Leader `leaderId`. Returns whether the record is persisted. A worker's terminal id is
+   * placed in at most one capsule.
    */
-  public recordMinted(workerId: string, record: { capsuleId: string; workspacePath: string }): boolean {
+  public recordMinted(workerId: string, record: { capsuleId: string; workspacePath: string; leaderId?: string }): boolean {
     if (!workerId || !record.capsuleId || !record.workspacePath) return false;
     const previousRecord = this.mintedRecords.get(record.capsuleId);
     const previousPlacement = this.placements.get(workerId);
-    this.mintedRecords.set(record.capsuleId, { capsuleId: record.capsuleId, workspacePath: record.workspacePath, mintedAt: Date.now() });
+    this.mintedRecords.set(record.capsuleId, {
+      capsuleId: record.capsuleId,
+      workspacePath: record.workspacePath,
+      mintedAt: Date.now(),
+      ...(record.leaderId ? { leaderId: record.leaderId } : {}),
+    });
     this.placements.set(workerId, record.capsuleId);
     if (this.commit()) return true;
     if (previousRecord) this.mintedRecords.set(record.capsuleId, previousRecord);

@@ -484,6 +484,24 @@ export class WorkspaceCapsuleManager {
     return this.clone(capsule);
   }
 
+  /**
+   * Drop a capsule record. Only the record leaves the store: the workspace folder is never touched. The
+   * active capsule is refused, so the manager is never left pointing at nothing. A store that cannot be
+   * written keeps the record in memory too, so memory and disk never disagree.
+   */
+  remove(capsuleId: string): void {
+    const capsule = this.capsules.get(capsuleId);
+    if (!capsule) throw new Error(`Capsule not found: ${capsuleId}`);
+    if (this.activeCapsuleId === capsuleId) throw new Error('The active capsule cannot be removed');
+    this.capsules.delete(capsuleId);
+    try {
+      this.persist();
+    } catch (err) {
+      this.capsules.set(capsuleId, capsule);
+      throw err;
+    }
+  }
+
   getBrief(capsuleId: string): CapsuleBriefResult {
     const capsule = this.capsules.get(capsuleId);
     if (!capsule) {

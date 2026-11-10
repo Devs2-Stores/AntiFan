@@ -58,15 +58,30 @@ export function getLeaderPlacementPort(): LeaderPlacementPort | undefined {
 /** What removing the project a Leader placement minted came to. */
 export interface LeaderMintedProjectRemoval {
   /**
-   * `REMOVED`: the project record was removed from the manager list. `NO_PROJECT`: the capsule never
-   * became a project (it carries no validated affiliation), so there is nothing to remove. `REFUSED`: a
-   * safety rule held it back (see `reason`). `FAILED`: the removal started and did not complete.
+   * `REMOVED`: the project record was removed from the manager list. `REMOVED_CAPSULE`: the capsule the
+   * placement minted never became a project, so the capsule itself (and nothing on disk) was removed.
+   * `NO_PROJECT`: the capsule never became a project (it carries no validated affiliation), so there is
+   * nothing to remove. `REFUSED`: a safety rule held it back (see `reason`). `FAILED`: the removal started
+   * and did not complete.
    */
-  status: 'REMOVED' | 'NO_PROJECT' | 'REFUSED' | 'FAILED';
+  status: 'REMOVED' | 'REMOVED_CAPSULE' | 'NO_PROJECT' | 'REFUSED' | 'FAILED';
   reason?: string;
   projectId?: string;
+  capsuleId?: string;
   liveSessions?: number;
 }
+
+/**
+ * What removing a minted capsule that never became a project came to. `NOT_ORPHAN` means the capsule has a
+ * project (or is unknown), so the project path decides instead.
+ */
+export type LeaderMintedCapsuleRemoval =
+  | { status: 'REMOVED_CAPSULE'; capsuleId: string }
+  | { status: 'REFUSED' | 'FAILED'; reason: string; capsuleId: string }
+  | { status: 'NOT_ORPHAN' };
+
+/** Who minted the capsule, as far as the registry can tell relative to the Leader that closes the worker. */
+export type LeaderMintOwner = 'caller' | 'other' | 'unknown';
 
 /**
  * The host half of `terminal.close { removeMintedProject: true }`. Main installs it, because project
@@ -74,6 +89,7 @@ export interface LeaderMintedProjectRemoval {
  */
 export interface LeaderProjectRemovalPort {
   removeMintedProject(request: { capsuleId: string }): Promise<LeaderMintedProjectRemoval>;
+  removeMintedCapsule(request: { capsuleId: string; mintedBy: LeaderMintOwner }): Promise<LeaderMintedCapsuleRemoval>;
 }
 
 let projectRemovalPort: LeaderProjectRemovalPort | undefined;

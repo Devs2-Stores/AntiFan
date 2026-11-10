@@ -308,6 +308,15 @@ describe("close-worker verifies instead of trusting the call", () => {
     assert.deepEqual(results[0].projectRemoval, { status: "REMOVED" });
   });
 
+  test("the status for a removed capsule that never became a project is printed as the host sent it, next to closed", async () => {
+    const removal = { status: "REMOVED_CAPSULE", capsuleId: "capsule-1" };
+    const h = harness({ registry, open: (_id, calls) => calls < 1, closeCall: () => ({ closed: true, projectRemoval: removal }) });
+    const { results, code } = await closeWorkers(["terminal-10"], h.deps, opts);
+    assert.equal(results[0].result, "closed");
+    assert.deepEqual(results[0].projectRemoval, removal);
+    assert.equal(code, 0);
+  });
+
   test("another Leader's worker, a Leader terminal and an open unregistered terminal are refused with no call made", async () => {
     const h = harness({ registry, open: () => true, closeCall: () => ({ closed: true }) });
     const { results, code } = await closeWorkers(["terminal-20", LEADER, OTHER_LEADER, "terminal-99"], h.deps, opts);

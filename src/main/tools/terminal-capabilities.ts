@@ -24,6 +24,8 @@ import {
   leaderRunSnapshot,
   waitForAnyRunSettled,
   waitForRunSettled,
+  type LeaderMintOwner,
+  type LeaderMintedCapsuleRemoval,
   type LeaderMintedProjectRemoval,
   type StaleHook,
 } from '../leader/leader-runtime';
@@ -797,7 +799,7 @@ async function placeLeaderWorker(
   // remove exactly it later. A record that cannot be saved only means the capsule is left for the user to remove.
   // A worker placed in a capsule an earlier placement minted is recorded as joined, so its close can finish a
   // removal that the earlier worker's close had to refuse while this one was still open.
-  const minted = placed.minted && registry.recordMinted(placed.sessionId, { capsuleId: placed.minted.capsuleId, workspacePath: path.resolve(cwd) })
+  const minted = placed.minted && registry.recordMinted(placed.sessionId, { capsuleId: placed.minted.capsuleId, workspacePath: path.resolve(cwd), leaderId: homeId })
     ? { capsuleId: placed.minted.capsuleId }
     : undefined;
   if (!placed.minted && placed.capsuleId) registry.recordJoined(placed.sessionId, placed.capsuleId);
@@ -831,26 +833,41 @@ function unrecordedWorkerError(label: string, sessionId: string, closed: boolean
 }
 
 /**
- * Remove the project a Leader's worker placement minted, after that worker's terminal was closed.
+ * Remove what a Leader's worker placement minted, after that worker's terminal was closed.
  *
- * Only a record written by the placement itself qualifies, and only while the folder it named is inside a
- * Leader scratch folder; the host repeats both checks against the live capsule. The caller reads the record
+ * Only a record written by the placement itself qualifies. The host first tries the capsule on its own (a
+ * capsule that never became a project carries no user data and is removed whatever folder it names); a
+ * capsule that has a project goes the project way, which also requires the folder to be inside a Leader
+ * scratch folder. The host repeats every check against the live stores. The caller reads the record
  * before closing, because closing a terminal drops its placement. The record itself belongs to the capsule
- * and stays until the capsule's project is removed or is found to be gone, so a refused removal (a sibling
- * worker still open, a window the user opened) can be asked again by closing the last worker in the folder.
+ * and stays until the capsule or its project is removed or is found to be gone, so a refused removal (a
+ * sibling worker still open, a window the user opened) can be asked again by closing the last worker in
+ * the folder.
  */
 async function removeMintedProjectOf(
   registry: LeaderRegistry,
-  minted: LeaderMintedRecord | undefined
+  minted: LeaderMintedRecord | undefined,
+  callerLeaderId: string
 ): Promise<TerminalProjectRemoval> {
   if (!minted) {
     return { status: 'SKIPPED', reason: 'NOT_MINTED_BY_PLACEMENT: this terminal did not create its project (it was minted in a folder that already had one, or the record is gone)' };
   }
+  const port = getLeaderProjectRemovalPort();
+  if (!port) return { status: 'FAILED', reason: 'REMOVAL_PORT_UNAVAILABLE: Main has not installed project removal' };
+  const mintedBy: LeaderMintOwner = !minted.leaderId ? 'unknown' : minted.leaderId === callerLeaderId ? 'caller' : 'other';
+  let capsuleOutcome: LeaderMintedCapsuleRemoval;
+  try {
+    capsuleOutcome = await port.removeMintedCapsule({ capsuleId: minted.capsuleId, mintedBy });
+  } catch (err) {
+    return { status: 'FAILED', reason: String(err instanceof Error ? err.message : err) };
+  }
+  if (capsuleOutcome.status !== 'NOT_ORPHAN') {
+    if (capsuleOutcome.status === 'REMOVED_CAPSULE') registry.clearMinted(minted.capsuleId);
+    return capsuleOutcome;
+  }
   if (!isUnderLeaderScratchRoot(minted.workspacePath)) {
     return { status: 'REFUSED', reason: 'OUTSIDE_SCRATCH_ALLOWLIST: the folder is not under a Leader scratch folder, so its project is left for the user to remove' };
   }
-  const port = getLeaderProjectRemovalPort();
-  if (!port) return { status: 'FAILED', reason: 'REMOVAL_PORT_UNAVAILABLE: Main has not installed project removal' };
   let outcome: LeaderMintedProjectRemoval;
   try {
     outcome = await port.removeMintedProject({ capsuleId: minted.capsuleId });
@@ -1561,7 +1578,7 @@ export function registerTerminalCapabilities(
   catalogue.register<{ sessionId: string; isSplit?: boolean; removeMintedProject?: boolean }, { closed: boolean; projectRemoval?: TerminalProjectRemoval }>({
     name: 'terminal.close',
     description:
-      'Close one of YOUR terminal split panes (a pane under the terminal you run in) and safely terminate its process tree. The terminal you run in and every terminal outside it are refused. A Leader terminal (marked by the user) may close any live terminal of any project except its own, and with removeMintedProject:true also removes the manager project that THIS worker\'s terminal.create minted (the result carries `minted`), but only when the folder is under a Leader scratch folder and no other terminal still lives in that project; a project that existed before the placement is never touched. The outcome is `projectRemoval` { status: REMOVED | NO_PROJECT | REFUSED | FAILED | SKIPPED, reason }',
+      'Close one of YOUR terminal split panes (a pane under the terminal you run in) and safely terminate its process tree. The terminal you run in and every terminal outside it are refused. A Leader terminal (marked by the user) may close any live terminal of any project except its own, and with removeMintedProject:true also removes the manager project that THIS worker\'s terminal.create minted (the result carries `minted`), but only when the folder is under a Leader scratch folder and no other terminal still lives in that project; a project that existed before the placement is never touched. A capsule that placement minted and no project ever claimed is removed as itself (the folder on disk is untouched) once nothing else uses it, whatever folder it names. The outcome is `projectRemoval` { status: REMOVED | REMOVED_CAPSULE | NO_PROJECT | REFUSED | FAILED | SKIPPED, reason }',
     risk: 'write',
     policy: {
       effect: 'management',
@@ -1618,7 +1635,7 @@ export function registerTerminalCapabilities(
       if (closed === false) {
         return { closed, projectRemoval: { status: 'SKIPPED', reason: 'TERMINAL_NOT_CLOSED: the terminal is still open, so its project was not touched' } };
       }
-      return { closed, projectRemoval: await removeMintedProjectOf(registry, minted) };
+      return { closed, projectRemoval: await removeMintedProjectOf(registry, minted, scope.bound ? scope.homeId : '') };
     },
   });
 }

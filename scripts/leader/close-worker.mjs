@@ -21,6 +21,9 @@
 // attempts, projectRemoval?, error?, note?}` and a final `{type:"summary", exit, closed, lingering, stillOpen, refused}`.
 // `run-file-lingering`: terminal.list and the registry no longer show the terminal but its run file is still there after
 // --settle-sec; `leader-job.mjs status` counts that worker as open until the Manager removes the file.
+// `projectRemoval.status` is the host's own word, printed unchanged: REMOVED (the project the worker's placement minted),
+// REMOVED_CAPSULE (a capsule the placement minted that no project ever claimed; the folder is untouched), NO_PROJECT,
+// REFUSED (`reason` is a code; the record stays, so closing the last worker in that folder asks again), FAILED, SKIPPED.
 // Exit: 0 every id closed (or already gone), 1 at least one still open or lingering, 4 at least one refused, 2 usage.
 
 import { spawn } from "node:child_process";
