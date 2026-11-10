@@ -52,6 +52,8 @@ Commands
        (never PASS) and the sheet is not a required verification.
   dispatch --job DIR --worker TERMINAL [--prompt FILE] [--kind work|followup|close|review]
        [--mode auto|fresh|followup] [--allow-busy] [--allow-low-memory] [--allow-low-disk] [--allow-extra-round --reason "<text>"]
+       Without --prompt a work/followup round uses the round's own prompt file (<slug>.prompt.md that init wrote, later
+       <slug>.rN.prompt.md) and is refused when that file does not exist; close and review write their template there.
        Stamp dispatchedAt/preRunSeq, append a round, state=dispatched, print {input} for terminal.write. A followup round
        (typed into a pane that already runs the agent CLI) also prints {message}: pass it as terminal.write {message}, not
        {input}. closeNow lists
@@ -626,9 +628,12 @@ async function cmdDispatch(flags) {
   const reportPath = reportPathFor(dir, job, n);
   let promptPath = one(flags, "prompt") ? fwd(path.resolve(one(flags, "prompt"))) : null;
   if (!promptPath) {
-    if (kind !== "close" && kind !== "review") throw new CliError(EXIT.USAGE, "missing required --prompt");
     promptPath = promptPathFor(dir, job, n);
-    fs.writeFileSync(promptPath, readTemplate(kind === "close" ? "close-followup.md" : "review-followup.md"));
+    if (kind === "close" || kind === "review") {
+      fs.writeFileSync(promptPath, readTemplate(kind === "close" ? "close-followup.md" : "review-followup.md"));
+    } else if (!fs.existsSync(promptPath)) {
+      throw new CliError(EXIT.USAGE, `missing required --prompt (round ${n} has no ${path.basename(promptPath)} to default to)`);
+    }
   }
   let text;
   try {

@@ -93,6 +93,21 @@ describe("an ad-hoc job through the whole ledger", () => {
     assert.equal(c.last.state, "closed");
   });
 
+  test("dispatch without --prompt uses the prompt init wrote, and a later round with no prompt file is refused", () => {
+    const w = world();
+    const j = adhocJob(w);
+    writeRun(w, "terminal-7", { runSeq: 0, state: "idle" });
+    const d = cli(w, ["dispatch", "--job", j.dir, "--worker", "terminal-7"]);
+    assert.equal(d.code, 0, d.stderr);
+    assert.equal(path.resolve(d.last.promptPath), path.resolve(j.prompt));
+    assert.match(d.last.input, /cleanup\.prompt\.md/);
+    settle(w, { dir: j.dir }, "terminal-7", 1);
+    const next = cli(w, ["dispatch", "--job", j.dir, "--worker", "terminal-7"]);
+    assert.equal(next.code, 2);
+    assert.match(next.last.error, /missing required --prompt \(round 2 has no cleanup\.r2\.prompt\.md/);
+    assert.equal(j.job().rounds.length, 1, "a refused dispatch leaves no round");
+  });
+
   test("a summary-only report does not reach verified without a recorded PASS", () => {
     const w = world();
     const j = adhocJob(w);
