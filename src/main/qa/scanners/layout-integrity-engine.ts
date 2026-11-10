@@ -1774,6 +1774,93 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
   }
 
   mark('controlStack');
+  // ---- 6a. sibling content overlapping (grid, flex and absolute layouts too; warning only) -----
+  // Two children of one container that both carry visible text or are controls, and whose boxes
+  // cross by a real share of the smaller one. Boxes that nest, sit on different stacking levels,
+  // are badges laid inside the other, float as sticky/fixed chrome, ride a carousel or move are
+  // designed overlap and are skipped; a pair a stricter rule already reported is not repeated.
+  // Pairs reported here are remembered so the in-flow rule below does not list them again.
+  const siblingPairs = new Map();
+  const siblingPairSeen = (a, b) => {
+    const s = siblingPairs.get(a);
+    return Boolean(s && s.has(b));
+  };
+  try {
+    const hasText = new Set();
+    for (let i = 0; i < runs.length; i++) {
+      const run = runs[i];
+      if (!run.vis) continue;
+      for (let e = run.p; e && e !== body && !hasText.has(e); e = e.parentElement) hasText.add(e);
+    }
+    const controlSet = new Set();
+    for (let i = 0; i < controls.length; i++) controlSet.add(controls[i].el);
+    const strictOverlaps = [];
+    for (let i = 0; i < findings.length; i++) {
+      if (findings[i].kind === 'overlap' && findings[i].severity === 'critical' && findings[i].rect) strictOverlaps.push(findings[i].rect);
+    }
+    // The share of a reported rect (or of the new one, whichever is smaller) that the pair's overlap covers.
+    const reportedStrictly = (ov) => {
+      const ow = ov.right - ov.left;
+      const oh = ov.bottom - ov.top;
+      for (let i = 0; i < strictOverlaps.length; i++) {
+        const q = strictOverlaps[i];
+        const shared = span(ov.left, ov.right, q.x, q.x + q.w) * span(ov.top, ov.bottom, q.y, q.y + q.h);
+        if (shared > 0 && shared >= 0.5 * Math.min(ow * oh, q.w * q.h)) return true;
+      }
+      return false;
+    };
+    const stackLevel = (k, s, flexOrGridItem) => (s.zIndex !== 'auto' && (s.position !== 'static' || flexOrGridItem) ? s.zIndex : 'auto');
+    const holds = (outer, inner) => inner.left >= outer.left - 1 && inner.right <= outer.right + 1 && inner.top >= outer.top - 1 && inner.bottom <= outer.bottom + 1;
+    for (let i = 0; i < elementLimit; i++) {
+      const parent = allElements[i];
+      if (parent.children.length < 2 || parent.closest('svg, head') || parent.closest(CAROUSEL_SLIDE)) continue;
+      // Candidates are cut before any pair is formed: only children with text or a control role are measured.
+      let cands = null;
+      for (let c = 0; c < parent.children.length; c++) {
+        const k = parent.children[c];
+        if (!hasText.has(k) && !controlSet.has(k)) continue;
+        if (!cands) {
+          const ps = cs(parent);
+          if (ps.display === 'none' || ps.display === 'contents' || !painted(parent)) break;
+          cands = [];
+        }
+        const s = cs(k);
+        if (s.position === 'sticky' || s.position === 'fixed' || s.display === 'inline' || s.display === 'contents' || s.display === 'none') continue;
+        if (hasRealTransform(s) || !painted(k) || isSrOnly(k) || unsettled(k)) continue;
+        if (k.closest('[aria-hidden="true"]') || k.closest(CAROUSEL_SLIDE) || k.closest(PLATFORM_PREVIEW_CHROME)) continue;
+        const r = k.getBoundingClientRect();
+        if (r.width < 8 || r.height < 8) continue;
+        const pdisp = cs(parent).display;
+        cands.push({ k: k, r: r, area: r.width * r.height, z: stackLevel(k, s, pdisp.indexOf('flex') !== -1 || pdisp.indexOf('grid') !== -1) });
+      }
+      if (!cands || cands.length < 2) continue;
+      let reportedHere = 0;
+      for (let a = 0; a < cands.length && reportedHere < 3; a++) {
+        for (let b = a + 1; b < cands.length && reportedHere < 3; b++) {
+          const A = cands[a];
+          const B = cands[b];
+          if (A.z !== B.z) continue;
+          const ix = span(A.r.left, A.r.right, B.r.left, B.r.right);
+          const iy = span(A.r.top, A.r.bottom, B.r.top, B.r.bottom);
+          if (ix < 6 || iy < 6) continue;
+          const area = ix * iy;
+          if (area < 64 || area < 0.2 * Math.min(A.area, B.area)) continue;
+          if (holds(A.r, B.r) || holds(B.r, A.r)) continue;
+          if (overlaysInside(A.k, B.k, A.r, B.r) || overlaysInside(B.k, A.k, B.r, A.r)) continue;
+          const ov = { left: Math.max(A.r.left, B.r.left), top: Math.max(A.r.top, B.r.top), right: Math.min(A.r.right, B.r.right), bottom: Math.min(A.r.bottom, B.r.bottom) };
+          if (reportedStrictly(ov)) continue;
+          if (!siblingPairs.has(A.k)) siblingPairs.set(A.k, new Set());
+          siblingPairs.get(A.k).add(B.k);
+          reportedHere++;
+          push({ kind: 'overlap', ruleId: 'sibling-content-overlap', severity: 'warning', selector: getSelector(B.k), relatedSelector: getSelector(A.k), details: 'Sibling content overlaps ' + Math.round(ix) + 'x' + Math.round(iy) + 'px (' + Math.round(100 * area / Math.min(A.area, B.area)) + '% of the smaller box): ' + getSelector(A.k) + ' and ' + getSelector(B.k), rect: toRect(ov) });
+        }
+      }
+    }
+  } catch (err) {
+    detectorFailed('overlap', err);
+  }
+
+  mark('siblingContent');
   // ---- 6. in-flow sibling boxes overlapping (ambiguous: warning only) -------------------------
   try {
     for (let i = 0; i < elementLimit; i++) {
@@ -1795,6 +1882,7 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
       }
       for (let a = 0; a < kids.length; a++) {
         for (let b = a + 1; b < kids.length; b++) {
+          if (siblingPairSeen(kids[a].k, kids[b].k)) continue;
           const ix = span(kids[a].r.left, kids[a].r.right, kids[b].r.left, kids[b].r.right);
           const iy = span(kids[a].r.top, kids[a].r.bottom, kids[b].r.top, kids[b].r.bottom);
           if (ix > 4 && iy > 4) {
@@ -2496,6 +2584,7 @@ export class LayoutIntegrityEngine {
    * 3. clipped text: a line box sliced or cut by a clipping ancestor
    * 4. text painted over text
    * 5. actionable controls stacked on each other
+   * 6a. sibling content (text or controls) overlapping in grid, flex and absolute layouts (warning only)
    * 6. in-flow sibling boxes overlapping (warning only)
    * 7. covered text / covered controls, swept over the full page (occlusion, sticky-obstruction)
    * 8. layout-shift witness (buffered entries, read synchronously; warning)

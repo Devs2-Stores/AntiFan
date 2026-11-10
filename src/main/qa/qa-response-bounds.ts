@@ -69,7 +69,7 @@ function trim(value: unknown, cap: number, path: string, cuts: QaResponseCut[]):
 /** Top-level keys that make up the verdict; the last-resort response keeps nothing else. */
 const SKELETON_KEYS = [
   'runId', 'attemptId', 'summary', 'verification', 'execution', 'recovery', 'profile', 'thresholdsSource', 'coverage',
-  'coverageFloor', 'viewport', 'waivers', 'ignoredWaivers', 'receipt',
+  'coverageFloor', 'viewport', 'waivers', 'ignoredWaivers', 'receipt', 'readAs',
 ] as const;
 
 /**

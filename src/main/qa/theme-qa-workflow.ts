@@ -195,6 +195,8 @@ export interface ThemeQaSummary {
   matrixVerdict?: 'PASS' | 'FAIL' | 'INCONCLUSIVE';
   /** Why `certification` is STRUCTURAL: the unmeasured viewports/dimensions and evidence gaps. Empty when CERTIFIED. */
   certificationReasons?: string[];
+  /** One sentence telling a reader how to read `verdict` and `certification`; a structural-only PASS says it is not a visual approval. */
+  readAs?: string;
   /** Where the registry thresholds came from: explicit caller value, the workspace contract, or the built-in defaults. */
   thresholdsSource?: QaThresholdsSource;
   /** What backed a CERTIFIED verdict: a baseline comparison per viewport, or a declared greenfield run. Absent when STRUCTURAL. */
@@ -3591,6 +3593,19 @@ export class ThemeQaWorkflow {
     if (pageCriticalCount > listedCriticalCount) {
       summary.unlistedCriticalCount = pageCriticalCount - listedCriticalCount;
       summary.certificationReasons.push(`${summary.unlistedCriticalCount} of ${pageCriticalCount} critical finding(s) are counted but not listed by any rule (byRule)`);
+    }
+    const visualWarningCount = findings.visualAmbiguities?.length ?? 0;
+    if (summaryVerdict === 'INCONCLUSIVE') {
+      const cause = environment ? `the capture environment degraded (${environment.code})` : settleReceipt?.domUnstable === true ? 'the page was still changing while it was measured' : 'required evidence is missing';
+      summary.readAs = `Inconclusive: not a pass and not a fail; ${cause}, ${evidenceGaps.length} evidence gap(s) in findings.evidenceGaps and ${summary.certificationReasons.length} reason(s) in certificationReasons. The certification field does not make this run an approval; fix the cause and run again before reporting the page.`;
+    } else if (summary.certification === 'CERTIFIED_SCOPED') {
+      summary.readAs = `Certified for the declared scope only (certificationScope: ${summary.certificationScope}); the rest of the page is not certified, see certificationReasons.${summaryVerdict === 'FAIL' ? ` The page verdict is FAIL with ${pageCriticalCount} critical finding(s): do not report the page as passing.` : ''}`;
+    } else if (summaryVerdict === 'FAIL') {
+      summary.readAs = `Failed: ${pageCriticalCount} critical finding(s); read summary.byRule, summary.criticalCodes and the listed findings for what failed, and do not report the page as passing.`;
+    } else if (summary.certification === 'STRUCTURAL') {
+      summary.readAs = `NOT a visual approval: structural checks passed only; overlap, spacing and visual fidelity are unverified at unmeasured widths, so do not report the page as visually OK. ${summary.certificationReasons.length} reason(s) in certificationReasons, ${visualWarningCount} warning(s) in findings.visualAmbiguities.`;
+    } else {
+      summary.readAs = `Certified for the whole page (certificationScope: ${summary.certificationScope}) against ${summary.certificationBasis === 'greenfield' ? 'the declared greenfield run' : 'the compared visual baselines'}.`;
     }
     const viewportsTested = buildViewportsTested(responsiveMap, qaMatrix, greenfieldReason !== undefined);
     // 11. Generate PII-sanitized report JSON (RT-02 mitigation)
