@@ -27,8 +27,9 @@ export function shareTabMenuText(shared: boolean, withIcon: boolean): string {
 
 /**
  * Guidance appended to refusals that name a tab outside the session's authority. The owner of
- * the browser (not the agent) is the only one who can widen that authority, and the grant is a
- * context-menu entry on the tab itself, so a user who pastes a tab id is told where to find it.
+ * the browser (not the agent) is the only one who can widen that authority, and the grant is an
+ * entry of the page's context menu (not of the tab-strip menu), so a user who pastes a tab id is
+ * told where to find it.
  */
 export const SHARE_TAB_GUIDANCE =
-  `To work in a tab this session does not manage (for example one the user opened), the user must right-click that tab and choose '${SHARE_TAB_MENU_LABEL}'; then call anti.browser.rebind_target with its tabId.`;
+  `To work in a tab this session does not manage (for example one the user opened), the user must right-click INSIDE THE PAGE of that tab (not on the tab strip) and choose '${SHARE_TAB_MENU_LABEL}'; then call anti.browser.rebind_target with its tabId.`;

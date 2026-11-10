@@ -680,6 +680,16 @@ export class WorkflowEngine {
           timeoutMs: maxWaitMs,
           tabId,
         });
+        // A wait asked for more than the single-wait ceiling resolves a clamped, unsatisfied result
+        // instead of rejecting; the step must still fail as an unmet wait always did.
+        const waitData = res.data as { satisfied?: boolean; clamped?: boolean; requestedTimeoutMs?: number; maxTimeoutMs?: number; durationMs?: number } | null | undefined;
+        if (!waitData || waitData.satisfied !== true) {
+          throw new CapabilityError(
+            'LEASE_EXPIRED',
+            `Wait for selector '${selector}' was not satisfied${waitData?.clamped ? ` within the ${waitData.maxTimeoutMs}ms ceiling of one wait (step asked for ${waitData.requestedTimeoutMs}ms)` : ''}`,
+            { selector, deadline: 'wait', ...(waitData ?? {}) }
+          );
+        }
         return { data: { found: true, wait: res.data }, replacementRevision: res.replacementRevision };
       }
 

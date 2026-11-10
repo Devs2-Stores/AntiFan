@@ -7,7 +7,7 @@ import { WorkflowEngine, normalizeStepParams } from '../../src/main/workflow/wor
 import { WorkflowDefinition } from '../../src/main/workflow/workflow-schema';
 import { registerWorkflowCapabilities } from '../../src/main/workflow/workflow-capabilities';
 import { CapabilityCatalogue } from '../../src/main/tools/capability-catalogue';
-import { BrowserControlPort, BrowserHostPort } from '../../src/main/tools/browser-control-port';
+import { BrowserControlPort, BrowserHostPort, WaitRegistry } from '../../src/main/tools/browser-control-port';
 import { registerBrowserCapabilities } from '../../src/main/tools/browser-capabilities';
 import { WorkspaceFilePort } from '../../src/main/tools/workspace-file-port';
 import { registerFileCapabilities } from '../../src/main/tools/file-capabilities';
@@ -1189,6 +1189,49 @@ describe('Workflow Engine', () => {
     const data = passed.stepResults[0]?.data as { found?: boolean; wait?: { satisfied?: boolean } };
     assert.strictEqual(data?.found, true);
     assert.strictEqual(data?.wait?.satisfied, true);
+  });
+
+  it('fails browser.wait_for_selector when the wait is clamped and the selector never appears', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-wf-wait-clamp-'));
+    const projectId = makeControlPlaneId('project');
+    const workspaceId = makeControlPlaneId('workspace');
+    const lease = issueRuntimeLease(projectId, workspaceId, 30_000, 1);
+    const target: BrowserTarget = {
+      projectId,
+      workspaceId,
+      runtimeId: lease.runtimeId,
+      tabId: 'tab-1',
+      browserEpoch: 1,
+      documentGeneration: 1,
+    };
+    const host = createMockHost({ getDom: async () => '' });
+    const artifacts = new ArtifactStore({ root: path.join(root, 'artifacts') });
+    const browser = new BrowserControlPort(host, artifacts);
+    // Shorten only the single-wait ceiling so a step asking for more than it is clamped without a 30 s test.
+    Object.defineProperty(browser, 'waitRegistry', { value: new WaitRegistry({ maxTimeoutMs: 200 }) });
+    const catalogue = new CapabilityCatalogue({
+      runtime: { mode: 'standalone', lifecycle: 'active' },
+      projectId,
+      workspaceId,
+      runtimeId: lease.runtimeId,
+      hostEpoch: 1,
+    });
+    registerBrowserCapabilities(catalogue, browser);
+    const engine = new WorkflowEngine({ catalogue, artifacts });
+    const workflow: WorkflowDefinition = {
+      version: '1.0',
+      name: 'Clamped wait for absent selector',
+      steps: [
+        { id: 'wait-clamped', name: 'Wait', type: 'browser.wait_for_selector', params: { selector: '#never-rendered' }, timeoutMs: 5000, retryCount: 0, continueOnError: false },
+      ],
+    };
+    const result = await engine.execute({ workflow, target, lease, runId: 'run-wait-clamp', attemptId: 'attempt-1', grant: 'write',
+      dispatchChildIntent: createStubDispatcher(catalogue, { lease, leaseToken: lease.token, projectId, workspaceId, browserTarget: target, grant: 'write' }),
+    });
+    assert.strictEqual(result.status, 'failed', 'a clamped, unmet wait must not pass the step');
+    assert.strictEqual(result.passedSteps, 0);
+    assert.strictEqual(result.stepResults[0]?.status, 'failed');
+    assert.match(String(result.stepResults[0]?.error), /never-rendered/);
   });
 
   it('emits step:end skipped for every remaining step after an abort', async () => {

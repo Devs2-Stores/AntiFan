@@ -40,6 +40,42 @@ export function splitReviewNote(isSplit: boolean | undefined): string {
     : '';
 }
 
+export interface TabRefusalGuide {
+  usableTabs?: UsableTab[];
+  suggestedTabId: string | null;
+  /** `tool` is absent when the refusal cannot name the capability to re-issue; `note` then says what to do. */
+  nextCall: { tool?: string; args: Record<string, unknown>; note?: string };
+}
+
+/**
+ * The tab to use after a tab refusal, and the call that gets there: the session's bound tab when
+ * it is live, else the tab the host names as its survivor, else the first tab the session may
+ * use. A suggestion equal to the bound tab asks for the same call again with that tabId; any other
+ * suggestion asks for an explicit rebind. `usableTabs` undefined means the host could not list
+ * tabs, in which case the bound tab is assumed live.
+ */
+export function buildTabRefusalGuide(input: {
+  boundTabId: string;
+  usableTabs?: readonly UsableTab[];
+  failoverTabId?: string;
+  /** The capability the refused caller invoked; omitted when the refusal site does not know it. */
+  retryTool?: string;
+}): TabRefusalGuide {
+  const { boundTabId, usableTabs, failoverTabId, retryTool } = input;
+  const boundLive = usableTabs ? usableTabs.some((tab) => tab.id === boundTabId) : true;
+  const suggestedTabId = boundLive
+    ? boundTabId
+    : failoverTabId || usableTabs?.[0]?.id || null;
+  const nextCall: TabRefusalGuide['nextCall'] = suggestedTabId === null
+    ? { tool: 'anti.browser.tabs.list', args: {} }
+    : suggestedTabId === boundTabId
+      ? (retryTool
+          ? { tool: retryTool, args: { tabId: suggestedTabId } }
+          : { args: { tabId: suggestedTabId }, note: 're-issue the same call with this tabId' })
+      : { tool: 'anti.browser.rebind_target', args: { tabId: suggestedTabId } };
+  return { ...(usableTabs ? { usableTabs: [...usableTabs] } : {}), suggestedTabId, nextCall };
+}
+
 function withValidFields(err: unknown, inputSchema: Record<string, unknown> | undefined): unknown {
   if (!(err instanceof CapabilityError) || err.code !== 'INVALID_ARGUMENT' || !err.details || typeof err.details.capability !== 'string') return err;
   const properties = inputSchema && typeof inputSchema.properties === 'object' && inputSchema.properties !== null
@@ -347,6 +383,20 @@ export class CapabilityCatalogue {
     } catch {
       return undefined;
     }
+  }
+
+  /**
+   * The tab a refused caller should use instead, as additive refusal details. This is advice
+   * only: the refused call is never re-run on the suggested tab, and the requested tab is never
+   * silently replaced, so the exact-target rule holds and the caller re-issues the call itself.
+   */
+  tabRefusalGuide(boundTabId: string, retryTool: string): TabRefusalGuide {
+    return buildTabRefusalGuide({
+      boundTabId,
+      usableTabs: this.listUsableTabs(boundTabId),
+      failoverTabId: this.resolveFailoverTabId(boundTabId),
+      retryTool,
+    });
   }
 
   /**
@@ -833,6 +883,7 @@ export class CapabilityCatalogue {
         // refusal names the live target it can retarget onto; the code stays the
         // fail-closed mismatch the explicit-foreign-id contract pins.
         const closedTab = this.describeClosedTab(reqTabId);
+        const unknownGuide = this.tabRefusalGuide(context.browserTarget.tabId, capabilityName);
         throw new CapabilityError(
           'TARGET_MISMATCH',
           `Unknown browser target: ${reqTabId}. This session's live target is '${context.browserTarget.tabId}'; rebind with anti.browser.rebind_target.`,
@@ -841,6 +892,7 @@ export class CapabilityCatalogue {
             liveTabId: context.browserTarget.tabId,
             rebindTool: 'anti.browser.rebind_target',
             ...(closedTab ?? {}),
+            ...unknownGuide,
             recovery: `Retry with tabId '${context.browserTarget.tabId}' (this session's live target), or list live tabs with anti.browser.tabs.list and call anti.browser.rebind_target {tabId} with one of them.`,
           }
         );
@@ -900,6 +952,7 @@ export class CapabilityCatalogue {
                 } catch {
                   ownership = undefined;
                 }
+                const mismatchGuide = this.tabRefusalGuide(context.browserTarget.tabId, capabilityName);
                 throw new CapabilityError(
                   'TARGET_MISMATCH',
                   `Tab ID mismatch: expected ${context.browserTarget.tabId}, got ${reqTabId}.${splitReviewNote(this.options.isTabSplit?.(context.browserTarget.tabId))} ${SHARE_TAB_GUIDANCE}`,
@@ -909,6 +962,7 @@ export class CapabilityCatalogue {
                     candidateTabIds: [context.browserTarget.tabId],
                     cause: 'not-in-session-pool',
                     ...(ownership ? { ownership } : {}),
+                    ...mismatchGuide,
                     recovery: `Retry with tabId '${context.browserTarget.tabId}' (this session's bound tab), or call anti.browser.rebind_target {tabId} with a tab this session manages, or anti.browser.tabs.create {url} to reopen the page in an agent tab. ${SHARE_TAB_GUIDANCE}`,
                   }
                 );

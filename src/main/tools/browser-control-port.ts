@@ -102,7 +102,7 @@ import type { PageCloseAdmission } from '../run/attachment-registry';
 import { carriesSemanticRef, sequenceDependsOnPriorDocument, SEQUENCE_STEP_TYPES } from './sequence-fence.js';
 import { AntiBotLatch, DEFAULT_ANTI_BOT_PARTITION, antiBotChallengeError, classifyAntiBotUrl, isOrdinaryPageOnHost } from './anti-bot-challenge.js';
 import { PLATFORM_PREVIEW_CHROME, PLATFORM_PREVIEW_CHROME_SELECTORS } from '../qa/platform-preview-chrome.js';
-import { splitReviewNote } from './capability-catalogue';
+import { buildTabRefusalGuide, splitReviewNote } from './capability-catalogue';
 import { describeUsableTabs, listUsableTabs, type UsableTab } from './usable-tabs';
 import { SESSION_TAB_LIMIT, SHARE_TAB_GUIDANCE } from '../../shared/tab-sharing';
 /**
@@ -807,6 +807,13 @@ export interface BrowserWaitResult {
   condition: string;
   durationMs: number;
   details?: Record<string, unknown>;
+  /** Set when the wait ended on the deadline (only reported for a clamped request; see `clamped`). */
+  timedOut?: boolean;
+  /** The caller asked for longer than the wait ceiling and the wait was cut at the ceiling. */
+  clamped?: boolean;
+  requestedTimeoutMs?: number;
+  maxTimeoutMs?: number;
+  message?: string;
 }
 
 export interface BrowserArtifactStageInput {
@@ -1116,8 +1123,18 @@ export class WaitRegistry {
   private readonly MAX_PER_TAB = 4;
   private readonly MAX_GLOBAL = 16;
   private readonly DEFAULT_TIMEOUT_MS = 5_000;
-  private readonly MAX_TIMEOUT_MS = BROWSER_WAIT_MAX_TIMEOUT_MS;
+  private readonly MAX_TIMEOUT_MS: number;
   private closeAdmission?: PageCloseAdmission;
+
+  /** `maxTimeoutMs` defaults to the production wait ceiling; a smaller value only shortens deadlines (tests). */
+  constructor(options?: { maxTimeoutMs?: number }) {
+    this.MAX_TIMEOUT_MS = options?.maxTimeoutMs ?? BROWSER_WAIT_MAX_TIMEOUT_MS;
+  }
+
+  /** Longest deadline this registry honours; a longer request is clamped to it. */
+  get maxTimeoutMs(): number {
+    return this.MAX_TIMEOUT_MS;
+  }
 
   /** Injects the close-admission seam (see `PageCloseAdmission`); absent = previous behaviour. */
   setCloseAdmission(admission?: PageCloseAdmission): void {
@@ -1157,8 +1174,9 @@ export class WaitRegistry {
         options.signal.addEventListener('abort', onParentAbort, { once: true });
       }
 
+      // `details.deadline` tells this deadline apart from the viewport timers that share the code.
       timer = setTimeout(() => {
-        controller.abort(new CapabilityError('LEASE_EXPIRED', `Wait execution exceeded ${timeoutMs}ms deadline`));
+        controller.abort(new CapabilityError('LEASE_EXPIRED', `Wait execution exceeded ${timeoutMs}ms deadline`, { deadline: 'wait', timeoutMs }));
       }, timeoutMs);
 
       return await action(controller.signal);
@@ -2845,8 +2863,8 @@ export class BrowserControlPort {
     if (!inScope) {
       throw new CapabilityError(
         'POLICY_DENIED',
-        `Tab '${tabId}' is outside this session's project/workspace scope; use anti.browser.tabs.list for the tabs this session may address`,
-        { tabId, recovery: 'anti.browser.tabs.list' }
+        `Tab '${tabId}' is outside this session's project/workspace scope; use anti.browser.tabs.list for the tabs this session may address. ${SHARE_TAB_GUIDANCE}`,
+        { tabId, recovery: 'anti.browser.tabs.list', shareRecovery: SHARE_TAB_GUIDANCE, ...this.tabRefusalGuide(boundTabId) }
       );
     }
     const tab = this.tabRecord(tabId, boundTabId);
@@ -4641,7 +4659,8 @@ export class BrowserControlPort {
     params = { ...params, condition: effectiveCondition };
     if (params.condition === 'timeout') {
       const tabId = this.resolveTargetTab(target, explicitTabId || params.tabId);
-      const delayMs = Math.min(Math.max(typeof params.timeoutMs === 'number' && Number.isFinite(params.timeoutMs) ? params.timeoutMs : 1000, 0), BROWSER_WAIT_MAX_TIMEOUT_MS);
+      const delayMs = Math.min(Math.max(typeof params.timeoutMs === 'number' && Number.isFinite(params.timeoutMs) ? params.timeoutMs : 1000, 0), this.waitRegistry.maxTimeoutMs);
+      const sleepStartedAt = Date.now();
       return this.waitRegistry.execute(tabId, async (waitSignal) => {
         const startTime = Date.now();
         const { promise, resolve, reject } = Promise.withResolvers<void>();
@@ -4660,12 +4679,17 @@ export class BrowserControlPort {
         } finally {
           waitSignal.removeEventListener('abort', onAbort);
         }
-        return {
+        // A requested delay above the ceiling was cut short: report that instead of a plain success.
+        return this.clampedWaitResult(params, 'timeout', startTime) ?? {
           satisfied: true,
           condition: 'timeout',
           durationMs: Date.now() - startTime,
         };
-      }, { timeoutMs: delayMs + 2000, signal });
+      }, { timeoutMs: delayMs + 2000, signal }).catch((err: unknown) => {
+        const clamped = this.clampedWaitResult(params, 'timeout', sleepStartedAt, err);
+        if (clamped) return clamped;
+        throw err;
+      });
     }
     if (params.condition === 'images-settled') {
       if (typeof params.timeoutMs === 'number' && !Number.isFinite(params.timeoutMs)) {
@@ -4685,6 +4709,7 @@ export class BrowserControlPort {
     const tabId = this.resolveTargetTab(target, explicitTabId || params.tabId);
     const effectivePane = paneId || params.paneId || 'desktop';
 
+    const waitStartedAt = Date.now();
     return this.waitRegistry.execute(tabId, async (waitSignal) => {
       if (waitSignal.aborted) {
         throw (waitSignal.reason || new CapabilityError('WAIT_ABORTED', 'Wait was aborted'));
@@ -5010,7 +5035,36 @@ export class BrowserControlPort {
         condition: params.condition,
         durationMs: Date.now() - startTime,
       };
-    }, { timeoutMs: params.timeoutMs, signal });
+    }, { timeoutMs: params.timeoutMs, signal }).catch((err: unknown) => {
+      const clamped = this.clampedWaitResult(params, String(params.condition), waitStartedAt, err);
+      if (clamped) return clamped;
+      throw err;
+    });
+  }
+
+  /**
+   * The result a wait resolves with when the caller asked for more than the wait ceiling and the
+   * wait ended on that ceiling: not an error, the caller simply calls wait again for the rest.
+   * Only the wait registry's own deadline qualifies; a wait at or under the ceiling keeps rejecting.
+   */
+  private clampedWaitResult(params: BrowserWaitParams, condition: string, startedAt: number, err?: unknown): BrowserWaitResult | null {
+    const requested = params.timeoutMs;
+    const max = this.waitRegistry.maxTimeoutMs;
+    if (typeof requested !== 'number' || !Number.isFinite(requested) || requested <= max) return null;
+    if (err !== undefined) {
+      const details = err instanceof CapabilityError ? (err.details as Record<string, unknown> | undefined) : undefined;
+      if (!(err instanceof CapabilityError) || err.code !== 'LEASE_EXPIRED' || details?.deadline !== 'wait') return null;
+    }
+    return {
+      satisfied: false,
+      timedOut: true,
+      clamped: true,
+      requestedTimeoutMs: requested,
+      maxTimeoutMs: max,
+      condition,
+      durationMs: Date.now() - startedAt,
+      message: `The condition was not met within the ${max}ms ceiling of one wait (requested ${requested}ms). Call wait again for the remaining time.`,
+    };
   }
 
   /**
@@ -5577,7 +5631,7 @@ export class BrowserControlPort {
           recovery: 'anti.browser.tabs.list, then pass a listed tabId or a #N index within the list',
         });
       }
-      throw this.tabGoneError(tabId, 'anti.browser.tabs.list');
+      throw this.tabGoneError(tabId, 'anti.browser.tabs.list', context.target.tabId);
     }
 
     if (isAgentPlane) {
@@ -10104,8 +10158,29 @@ export class BrowserControlPort {
     };
   }
 
-  private tabGoneError(tabId: string, recovery: string): CapabilityError {
-    return new CapabilityError('TARGET_STALE', `Tab '${tabId}' no longer exists`, staleDetails('tab-gone', { tabId, canRebind: true, recovery }));
+  /**
+   * Where a refused caller should go next: the bound tab when live, else the tab the host names
+   * as its survivor, else the first usable tab. Advice only — the refused call is never re-run on
+   * the suggested tab and the requested tab is never silently replaced, so the exact-target rule
+   * holds and the caller re-issues the call (or rebinds) itself.
+   */
+  private tabRefusalGuide(boundTabId: string | undefined): Record<string, unknown> {
+    if (!boundTabId || boundTabId.trim().length === 0) {
+      return { suggestedTabId: null, nextCall: { tool: 'anti.browser.tabs.list', args: {} } };
+    }
+    const bound = boundTabId.trim();
+    let failoverTabId: string | undefined;
+    try {
+      const failover = this.host.getFailoverTargetTab?.(bound);
+      if (failover && this.isTabLive(failover)) failoverTabId = failover;
+    } catch {
+      failoverTabId = undefined;
+    }
+    return { ...buildTabRefusalGuide({ boundTabId: bound, usableTabs: this.usableTabs(bound), failoverTabId }) };
+  }
+
+  private tabGoneError(tabId: string, recovery: string, boundTabId?: string): CapabilityError {
+    return new CapabilityError('TARGET_STALE', `Tab '${tabId}' no longer exists`, staleDetails('tab-gone', { tabId, canRebind: true, recovery, ...this.tabRefusalGuide(boundTabId) }));
   }
 
   private boundTabGoneError(boundTabId: string, target?: BrowserTarget): CapabilityError {
@@ -10113,7 +10188,7 @@ export class BrowserControlPort {
     return new CapabilityError(
       'TARGET_STALE',
       `Bound tab '${boundTabId}' no longer exists. Rebind the session to a live tab (anti.browser.rebind_target; list tabs with anti.browser.tabs.list), then retry.${autoBindCandidate ? ` Tab '${autoBindCandidate}' is the only one on this project's storefront host: anti.browser.rebind_target with tabId 'auto' binds to it.` : ''}`,
-      { cause: 'tab-gone', boundTabId, canRebind: true, recovery: 'anti.browser.rebind_target', ...(autoBindCandidate ? { autoBindCandidate } : {}) }
+      { cause: 'tab-gone', boundTabId, canRebind: true, recovery: 'anti.browser.rebind_target', ...(autoBindCandidate ? { autoBindCandidate } : {}), ...this.tabRefusalGuide(boundTabId) }
     );
   }
   /**
@@ -10204,7 +10279,7 @@ export class BrowserControlPort {
             throw this.boundTabGoneError(boundId, target);
           }
         } else {
-          throw this.tabGoneError(explicitTabId, 'anti.browser.tabs.list');
+          throw this.tabGoneError(explicitTabId, 'anti.browser.tabs.list', boundId);
         }
       }
       if ((operationType === 'write' || operationType === 'lifecycle') && target?.tabId && target.tabId.trim().length > 0 && candidate !== target.tabId.trim()) {

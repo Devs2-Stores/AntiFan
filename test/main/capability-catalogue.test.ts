@@ -1308,6 +1308,7 @@ describe('Capability catalogue', () => {
       hostEpoch: 1,
       resolveTabId: (id: string) => (id === 'tab-live' || id === 'tab-other' ? id : undefined),
       getDocumentGeneration: () => 1,
+      listUsableTabs: (bound: string) => [{ id: bound, url: 'https://example.com/live' }],
     });
     const browser = new BrowserControlPort(mockHost);
     registerBrowserCapabilities(catalogue, browser);
@@ -1343,6 +1344,10 @@ describe('Capability catalogue', () => {
     assert.strictEqual(payload.details.requestedTabId, 'tab-closed-default');
     assert.strictEqual(payload.details.liveTabId, 'tab-live');
     assert.strictEqual(payload.details.rebindTool, 'anti.browser.rebind_target');
+    assert.strictEqual(payload.details.suggestedTabId, 'tab-live');
+    assert.deepStrictEqual(payload.details.usableTabs, [{ id: 'tab-live', url: 'https://example.com/live' }]);
+    assert.deepStrictEqual(payload.details.nextCall.args, { tabId: 'tab-live' });
+    assert.match(payload.details.nextCall.tool, /dom/);
     assert.strictEqual(domReads, 0, 'A refused target must not execute the capability');
 
     // Positive control: the live id still executes, so the zero above is a refusal signal
@@ -1350,6 +1355,74 @@ describe('Capability catalogue', () => {
     const liveCall = await server.callTool('anti.inspect.dom', { tabId: 'tab-live' });
     assert.strictEqual(liveCall.isError, undefined, 'The live target must remain usable');
     assert.strictEqual(domReads, 1, 'The live target must reach the host');
+  });
+
+  it('a refused foreign live tab names the session tab to use and never runs on another tab', async () => {
+    let domReads = 0;
+    const mockHost = {
+      getTabList: () => [
+        { id: 'tab-live', url: 'https://example.com/live' },
+        { id: 'tab-sibling', url: 'https://example.com/sibling' },
+        { id: 'tab-foreign', url: 'https://other.example/' },
+      ],
+      getActiveTabId: () => 'tab-live',
+      navigate: () => true,
+      reload: () => true,
+      getDom: async () => {
+        domReads += 1;
+        return '<html><body>x</body></html>';
+      },
+      captureScreenshot: async () => '',
+      evalJs: async () => null,
+    };
+    const projectId = makeControlPlaneId('project');
+    const workspaceId = makeControlPlaneId('workspace');
+    const lease = issueRuntimeLease(projectId, workspaceId, 30_000, 1);
+    const catalogue = new CapabilityCatalogue({
+      runtime: { mode: 'standalone', lifecycle: 'active' },
+      projectId,
+      workspaceId,
+      runtimeId: lease.runtimeId,
+      hostEpoch: 1,
+      resolveTabId: (id: string) => (['tab-live', 'tab-sibling', 'tab-foreign'].includes(id) ? id : undefined),
+      isTabAllowed: (bound: string, requested: string) => requested === bound || requested === 'tab-sibling',
+      listUsableTabs: (bound: string) => [{ id: bound, url: 'https://example.com/live' }, { id: 'tab-sibling', url: 'https://example.com/sibling' }],
+      getDocumentGeneration: () => 1,
+    });
+    registerBrowserCapabilities(catalogue, new BrowserControlPort(mockHost));
+    const registry = new AttachmentRegistry();
+    const server = new AntiFanMcpServer(mockHost as unknown as NativeTabHost, false, new CapabilityTransportAdapter(catalogue, registry));
+    const { launch } = await registry.issueAttachment(makeControlPlaneId('run'), makeControlPlaneId('attempt'), projectId, workspaceId, {
+      lease,
+      leaseToken: lease.token,
+      hostEpoch: 1,
+      grant: 'write',
+      tabId: 'tab-live',
+      backendId: 'codex',
+      browserTarget: { projectId, workspaceId, runtimeId: lease.runtimeId, tabId: 'tab-live', browserEpoch: 1, documentGeneration: 1 },
+    });
+    server.setBoundSession({
+      attachmentId: launch.attachmentId,
+      attachmentSecret: launch.secret,
+      authorityRevision: launch.authorityRevision,
+    });
+
+    const refused = await server.callTool('anti.inspect.dom', { tabId: 'tab-foreign' });
+    assert.strictEqual(refused.isError, true);
+    const payload = JSON.parse(refused.content[0]?.text || '{}');
+    assert.strictEqual(payload.code, 'TARGET_MISMATCH');
+    assert.strictEqual(payload.details.requestedTabId, 'tab-foreign');
+    assert.strictEqual(payload.details.suggestedTabId, 'tab-live');
+    assert.deepStrictEqual(payload.details.usableTabs.map((tab: { id: string }) => tab.id), ['tab-live', 'tab-sibling']);
+    assert.deepStrictEqual(payload.details.nextCall.args, { tabId: 'tab-live' });
+    assert.match(payload.details.nextCall.tool, /dom/);
+    assert.strictEqual(domReads, 0, 'The refused call must not run on any other tab');
+
+    // The suggestion is advice: the same call with the suggested tab is what executes.
+    const retried = await server.callTool('anti.inspect.dom', payload.details.nextCall.args);
+    assert.strictEqual(retried.isError, undefined);
+    assert.strictEqual(domReads, 1);
+
   });
 
   it('rejects caller credential smuggling in arguments and converges deterministically on retry with InvocationLedger', async () => {

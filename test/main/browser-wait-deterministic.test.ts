@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { BrowserControlPort, BrowserHostPort, WaitRegistry } from '../../src/main/tools/browser-control-port';
 import { BrowserTarget, CapabilityError, AuthenticatedCapabilityContext } from '../../src/shared/control-plane-contracts';
+import { SHARE_TAB_GUIDANCE, SHARE_TAB_MENU_LABEL } from '../../src/shared/tab-sharing';
 import { FirstPartyNetworkTracker } from '../../src/main/browser/first-party-network-tracker';
 import { CapabilityCatalogue } from '../../src/main/tools/capability-catalogue';
 import { registerBrowserCapabilities } from '../../src/main/tools/browser-capabilities';
@@ -551,5 +552,101 @@ describe('Phase 03: Browser Deterministic Wait & Registry Capacity Invariants', 
         return true;
       }
     );
+  });
+
+  // A port whose wait ceiling is shortened to `maxTimeoutMs`, so the clamp is reachable without a
+  // 30 s test. Production keeps BROWSER_WAIT_MAX_TIMEOUT_MS.
+  const portWithCeiling = (host: BrowserHostPort, maxTimeoutMs: number): BrowserControlPort => {
+    const port = new BrowserControlPort(host);
+    Object.defineProperty(port, 'waitRegistry', { value: new WaitRegistry({ maxTimeoutMs }) });
+    return port;
+  };
+
+  it('a wait asking for more than the ceiling resolves a timed-out clamped result instead of rejecting', async () => {
+    const port = portWithCeiling(createMockHost(undefined, { getDocumentGeneration: () => 1 }), 100);
+    const result = await port.wait(baseTarget, { condition: 'generation', minGeneration: 5, timeoutMs: 35_000 });
+    assert.strictEqual(result.satisfied, false);
+    assert.strictEqual(result.timedOut, true);
+    assert.strictEqual(result.clamped, true);
+    assert.strictEqual(result.requestedTimeoutMs, 35_000);
+    assert.strictEqual(result.maxTimeoutMs, 100);
+    assert.strictEqual(result.condition, 'generation');
+    assert.ok(result.durationMs >= 50, `durationMs reflects the wait, got ${result.durationMs}`);
+    assert.match(String(result.message), /again/);
+  });
+
+  it('a wait at or under the ceiling that never holds still rejects with LEASE_EXPIRED', async () => {
+    const port = portWithCeiling(createMockHost(undefined, { getDocumentGeneration: () => 1 }), 100);
+    await assert.rejects(
+      () => port.wait(baseTarget, { condition: 'generation', minGeneration: 5, timeoutMs: 100 }),
+      (err: unknown) => err instanceof CapabilityError && err.code === 'LEASE_EXPIRED'
+    );
+  });
+
+  it('a clamped timeout condition reports the shortened sleep instead of a plain success', async () => {
+    const port = portWithCeiling(createMockHost(), 100);
+    const clamped = await port.wait(baseTarget, { condition: 'timeout', timeoutMs: 5_000 });
+    assert.strictEqual(clamped.satisfied, false);
+    assert.strictEqual(clamped.clamped, true);
+    assert.strictEqual(clamped.timedOut, true);
+    assert.strictEqual(clamped.requestedTimeoutMs, 5_000);
+    assert.strictEqual(clamped.maxTimeoutMs, 100);
+
+    const plain = await port.wait(baseTarget, { condition: 'timeout', timeoutMs: 20 });
+    assert.strictEqual(plain.satisfied, true);
+    assert.strictEqual(plain.clamped, undefined);
+  });
+
+  it('a bound tab that is gone suggests the live sibling of its session and never runs on it', async () => {
+    let clicks = 0;
+    const host = createMockHost(undefined, {
+      hasTab: (id?: string) => id === 'tab-wait-2',
+      getManagedTabIds: () => new Set(['tab-wait-1', 'tab-wait-2']),
+      getFailoverTargetTab: () => undefined,
+      agentClick: async () => {
+        clicks += 1;
+        return true;
+      },
+    });
+    const port = new BrowserControlPort(host);
+    await assert.rejects(
+      () => port.agentClick({ selector: 'button' }, baseTarget),
+      (err: unknown) => {
+        assert.ok(err instanceof CapabilityError);
+        assert.strictEqual(err.code, 'TARGET_STALE');
+        assert.strictEqual(err.details?.cause, 'tab-gone');
+        assert.strictEqual(err.details?.suggestedTabId, 'tab-wait-2');
+        assert.deepStrictEqual((err.details?.usableTabs as Array<{ id: string }>).map((tab) => tab.id), ['tab-wait-2']);
+        assert.deepStrictEqual(err.details?.nextCall, { tool: 'anti.browser.rebind_target', args: { tabId: 'tab-wait-2' } });
+        return true;
+      }
+    );
+    assert.strictEqual(clicks, 0, 'the refused call must not run on the sibling');
+  });
+
+  it('anti.browser.tabs.get outside the session scope lists the usable tabs and the share guidance', async () => {
+    const host = createMockHost(undefined, {
+      getTabList: () => [{ id: 'tab-wait-1' }, { id: 'tab-foreign' }],
+      resolveTabAffiliation: () => ({ projectId: 'other-proj', workspaceId: 'other-ws' }),
+    });
+    const port = new BrowserControlPort(host);
+    assert.throws(
+      () => port.getTab(baseTarget, 'tab-foreign', { authenticatedProjectId: baseTarget.projectId, authenticatedWorkspaceId: baseTarget.workspaceId }),
+      (err: unknown) => {
+        assert.ok(err instanceof CapabilityError);
+        assert.strictEqual(err.code, 'POLICY_DENIED');
+        assert.deepStrictEqual((err.details?.usableTabs as Array<{ id: string }>).map((tab) => tab.id), ['tab-wait-1']);
+        assert.strictEqual(err.details?.suggestedTabId, 'tab-wait-1');
+        // The port does not know the capability the caller invoked, so it names no tool at all.
+        assert.deepStrictEqual(err.details?.nextCall, { args: { tabId: 'tab-wait-1' }, note: 're-issue the same call with this tabId' });
+        assert.ok(err.message.includes(SHARE_TAB_GUIDANCE));
+        return true;
+      }
+    );
+  });
+
+  it('the share guidance sends the user into the page of the tab, not the tab strip', () => {
+    assert.ok(SHARE_TAB_GUIDANCE.includes('INSIDE THE PAGE'));
+    assert.ok(SHARE_TAB_GUIDANCE.includes(SHARE_TAB_MENU_LABEL));
   });
 });
