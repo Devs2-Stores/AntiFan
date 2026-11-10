@@ -151,6 +151,7 @@ import {
 import { pruneOldCrashDumps } from './diagnostics/crash-dump-retention';
 import { intakeCrashReports } from './diagnostics/crash-report-intake';
 import { startCommitPressureWatch, formatGb, commitPressureStateBody, COMMIT_PRESSURE_STATE_FILE, type CommitReading } from './diagnostics/commit-pressure';
+import { startDiskPressureWatch, diskPressureStateBody, boundedDirSize, DISK_ALARM_FREE_BYTES, DISK_PRESSURE_STATE_FILE, type DiskVolumeReading } from './diagnostics/disk-pressure';
 import { rankTerminalHolders, snapshotProcessMemory, type TerminalMemoryHolder } from './diagnostics/memory-holders';
 import { IssueRegister } from './session/issue-register';
 
@@ -4267,6 +4268,7 @@ async function createWindow(): Promise<void> {
   startLifecycleHeartbeat();
   startHotProcessReporting();
   startCommitPressureAlarm();
+  startDiskPressureAlarm();
   // The bootstrap host got everything that existed when it was built; the control plane
   // only exists now, so this is where it (and the phone status behind it) reaches the
   // window. Later windows get both from the same helper (see `attachSharedServices`).
@@ -4992,6 +4994,63 @@ function publishCommitPressure(reading: CommitReading, alarmed: boolean): void {
     .finally(() => { commitPressureWriteInFlight = false; });
 }
 
+/** Stores AntiFan itself grows on the data drive, measured when a disk alarm is shown. */
+const DISK_ALARM_STORES = ['baselines', 'Profile', 'runtime'] as const;
+const DISK_ALARM_WALK_MAX_ENTRIES = 200_000;
+const DISK_ALARM_WALK_MAX_MS = 4_000;
+
+let stopDiskPressureWatch: (() => void) | null = null;
+/**
+ * Warns while the owner can still act when a volume the app, the workspace, the temp dir or the
+ * system pagefile live on is nearly full. Nothing is deleted: the stores listed hold QA evidence,
+ * so the notice only says where the space went. The dialog shows once per raised alarm (the
+ * hysteresis latch) and runs outside the sampling loop.
+ */
+function startDiskPressureAlarm(): void {
+  const dataRoot = StorageLocations.getDataRoot();
+  const systemDrive = `${process.env.SystemDrive || 'C:'}\\`;
+  const dirs = [dataRoot, path.dirname(path.resolve(dataRoot)), os.tmpdir(), ...(process.platform === 'win32' ? [systemDrive] : [])];
+  const showAlarm = async (v: { path: string; freeBytes: number }): Promise<void> => {
+    const sizes = await Promise.all(DISK_ALARM_STORES.map(async (name) => ({
+      name,
+      size: await boundedDirSize(path.join(dataRoot, name), { maxEntries: DISK_ALARM_WALK_MAX_ENTRIES, maxMs: DISK_ALARM_WALK_MAX_MS }),
+    })));
+    recordLifecycleEvent('diskPressure.stores', { volume: v.path, stores: sizes.map((s) => ({ name: s.name, bytes: s.size.bytes, capped: s.size.capped })) });
+    const list = sizes.map((s) => `• ${path.join(dataRoot, s.name)}: ${s.size.capped ? 'ít nhất ' : ''}${formatGb(s.size.bytes)}`);
+    await dialog.showMessageBox({
+      type: 'warning',
+      title: 'AntiFan — Ổ đĩa sắp đầy',
+      message: `Ổ ${v.path} chỉ còn ${formatGb(v.freeBytes)} trống (ngưỡng cảnh báo ${formatGb(DISK_ALARM_FREE_BYTES)}).`,
+      detail: 'Khi ổ đầy hẳn, mọi thao tác ghi (log, ảnh baseline, phiên agent, pagefile của Windows) sẽ lỗi và Windows có thể tắt tiến trình bất kỳ. '
+        + `Các kho dữ liệu của AntiFan:\n${list.join('\n')}\n\nAntiFan không tự xóa gì vì các kho này chứa bằng chứng QA; hãy dọn các thư mục khác trên ổ này hoặc quyết định kho nào được xóa.`,
+      buttons: ['Đã hiểu'],
+    });
+  };
+  stopDiskPressureWatch = startDiskPressureWatch({
+    dirs,
+    onAlarm: (v) => {
+      recordLifecycleEvent('diskPressure.alarm', { volume: v.path, freeBytes: v.freeBytes, floorBytes: DISK_ALARM_FREE_BYTES });
+      console.warn(`[index] disk nearly full: ${v.path} has ${formatGb(v.freeBytes)} free`);
+      showAlarm(v).catch(() => {});
+    },
+    onClear: (v) => recordLifecycleEvent('diskPressure.clear', { volume: v.path, freeBytes: v.freeBytes }),
+    onSample: publishDiskPressure,
+  });
+}
+
+let diskPressureWriteInFlight = false;
+/** Same temp-file-and-rename publication as the commit reading, with the same in-flight skip. */
+function publishDiskPressure(volumes: DiskVolumeReading[]): void {
+  if (diskPressureWriteInFlight || volumes.length === 0) return;
+  diskPressureWriteInFlight = true;
+  const file = path.join(StorageLocations.getRuntimeDir(), DISK_PRESSURE_STATE_FILE);
+  const tmp = `${file}.tmp-${process.pid}`;
+  fs.promises.writeFile(tmp, diskPressureStateBody(Date.now(), volumes))
+    .then(() => fs.promises.rename(tmp, file))
+    .catch(() => fs.promises.unlink(tmp).catch(() => {}))
+    .finally(() => { diskPressureWriteInFlight = false; });
+}
+
 let shutdownPromise: Promise<void> | null = null;
 /**
  * Bound on one teardown step. The committed shutdown is awaited by the quit path before
@@ -5049,6 +5108,8 @@ function shutdown(): Promise<void> {
     await step('bridgeServer.dispose', () => bridgeServer?.dispose());
     await step('localIpcServer.close', () => localIpcServer?.close());
     await step('terminal.dispose', () => TerminalManager.getInstance().dispose());
+    stopDiskPressureWatch?.();
+    stopDiskPressureWatch = null;
     try {
       profileLease?.markCleanShutdown();
       profileLease?.release();
