@@ -23,7 +23,7 @@ const DEFAULT_JOBS_ROOT = "E:/Work/scratch/leader";
 const DEFAULT_DATA_ROOT = "E:/Work/.antifan-data";
 const JOB_SCHEMA = "leader-job/1";
 const HOST = "Taiz";
-const BOOL_FLAGS = new Set(["help", "allow-busy", "allow-low-memory", "allow-low-disk", "force", "all", "allow-outstanding", "without-done", "no-sheet", "keep-workers", "allow-extra-round", "text"]);
+const BOOL_FLAGS = new Set(["help", "allow-busy", "allow-low-memory", "allow-low-disk", "allow-no-owner", "force", "all", "allow-outstanding", "without-done", "no-sheet", "keep-workers", "allow-extra-round", "text"]);
 const VERIFY_KINDS = ["sheet", "dashboard", "storefront", "adhoc"];
 const VERIFY_STATUSES = ["PASS", "WARN", "FAIL", "UNREADABLE"];
 const PROBES = { themeId: "themeId.js", overflow: "overflow.js", "element-rect": "element-rect.js", "dashboard-issue": "dashboard-issue.js" };
@@ -56,7 +56,7 @@ Commands
        or the marker is gone). --customer-file holds customer-written text (dashboard message, devNote, comments): it
        is fenced by untrusted.mjs and placed before the task text, so the Leader never assembles a prompt by hand.
   dispatch --job DIR --worker TERMINAL [--prompt FILE] [--kind work|followup|close|review]
-       [--mode auto|fresh|followup] [--allow-busy] [--allow-low-memory] [--allow-low-disk] [--allow-extra-round --reason "<text>"]
+       [--mode auto|fresh|followup] [--allow-busy] [--allow-low-memory] [--allow-low-disk] [--allow-no-owner] [--allow-extra-round --reason "<text>"]
        Without --prompt a work/followup round uses the round's own prompt file (<slug>.prompt.md that init wrote, later
        <slug>.rN.prompt.md) and is refused when that file does not exist; close and review write their template there.
        Stamp dispatchedAt/preRunSeq, append a round, state=dispatched, print {input} for terminal.write. A followup round
@@ -67,6 +67,11 @@ Commands
        floor; --allow-low-memory overrides that only on the user's say-so. Any dispatch (fresh or followup) is refused
        (exit 4, "disk is short: ...") while AntiFan's disk-pressure.json reports a volume under its floor; --allow-low-disk
        overrides that only on the user's say-so.
+       Refused (exit 4) when the Leader registry records that the worker's terminal was filed under no AntiFan project
+       (terminal.create placed it in a folder no open project owns): its OMP cannot reach the browser tools. Close it with
+       close-worker.mjs and create it again in a folder that has a project (for example E:/Work/customizes);
+       --allow-no-owner overrides that for a task that needs no browser tool. A worker the registry has no owner record for
+       (created before the field existed, or the registry is unreadable) is not refused; the output says ownerCheck "unknown".
        A work/followup round past ${MAX_ROUNDS_PER_JOB} live rounds, or any dispatch past ${MAX_DEAD_ROUNDS} dead rounds, is refused (exit 4)
        unless --allow-extra-round --reason "<why>" (stored on the round). close and review rounds never count.
        --kind review starts a read-only reviewer over the earlier rounds' reports (template review-followup.md); its
@@ -633,6 +638,24 @@ function cmdFillTask(flags) {
   return EXIT.OK;
 }
 
+/**
+ * Whether the terminal a round goes to is filed under an AntiFan project, from the registry record terminal.create
+ * wrote: "ok" (a `project:*` owner), "allowed" (no owner, overridden), "unknown" (no record or no owner field: a worker
+ * made before the field existed, or an unreadable registry). Throws EXIT.REFUSED for a recorded "no owner" unless allowed.
+ */
+function checkWorkerOwner(registry, worker, allowNoOwner) {
+  const record = registry?.workers && typeof registry.workers === "object" && Object.hasOwn(registry.workers, worker) ? registry.workers[worker] : null;
+  const ownerKey = record && typeof record.ownerKey === "string" && record.ownerKey ? record.ownerKey : null;
+  if (!ownerKey) return "unknown";
+  if (ownerKey.startsWith("project:")) return "ok";
+  if (allowNoOwner) return "allowed";
+  throw new CliError(
+    EXIT.REFUSED,
+    `worker ${worker} is filed under no AntiFan project (registry ownerKey "${ownerKey}"), so its OMP cannot reach the AntiFan browser tools (MCP antifan-browser not connected). Close it with close-worker.mjs ${worker}, create it again in a folder that has a project (for example E:/Work/customizes), then dispatch; pass --allow-no-owner only for a task that needs no browser tool`,
+    { worker, ownerKey },
+  );
+}
+
 async function cmdDispatch(flags) {
   const { dir, job } = loadJob(flags);
   if (job.state === "closed") throw new CliError(EXIT.REFUSED, "job is closed");
@@ -699,6 +722,7 @@ async function cmdDispatch(flags) {
   if (run && (run.state === "running" || run.state === "waiting_user") && !one(flags, "allow-busy")) {
     throw new CliError(EXIT.REFUSED, `worker ${worker} is ${run.state} (runSeq ${run.runSeq}); wait for idle or pass --allow-busy`, { worker, runState: run.state });
   }
+  const ownerCheck = checkWorkerOwner(readLeaderRegistry(), worker, one(flags, "allow-no-owner") === true);
   let mode = one(flags, "mode") || "auto";
   if (!["auto", "fresh", "followup"].includes(mode)) throw new CliError(EXIT.USAGE, "--mode must be auto, fresh or followup");
   if (mode === "auto") mode = run && run.ompSessionId && run.state !== "ended" ? "followup" : "fresh";
@@ -766,6 +790,7 @@ async function cmdDispatch(flags) {
     kind,
     mode,
     worker,
+    ownerCheck,
     state: job.state,
     input,
     ...(mode === "followup" ? { message: followupText } : {}),

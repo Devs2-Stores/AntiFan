@@ -19,12 +19,15 @@ export function world(extraEnv = {}) {
   const root = path.join(TEMP, `w${++counter}`);
   const jobs = path.join(root, "jobs");
   const runs = path.join(root, "runs");
+  const config = path.join(root, "config");
   fs.mkdirSync(jobs, { recursive: true });
   fs.mkdirSync(runs, { recursive: true });
+  fs.mkdirSync(config, { recursive: true });
   const env = {};
   for (const [k, v] of Object.entries(process.env)) if (!k.startsWith("ANTIFAN_") && k !== "ELECTRON_RUN_AS_NODE" && k !== "SUPER_CORE_DB") env[k] = v;
-  Object.assign(env, { LEADER_JOBS_ROOT: jobs, LEADER_RUNS_DIR: runs, ANTIFAN_TERMINAL_SESSION_ID: "terminal-1", LEADER_LEARN: "off", ...extraEnv });
-  return { root, jobs, runs, env };
+  // ANTIFAN_CONFIG_DIR keeps dispatch off the real Leader registry (the default is the live data root).
+  Object.assign(env, { LEADER_JOBS_ROOT: jobs, LEADER_RUNS_DIR: runs, ANTIFAN_CONFIG_DIR: config, ANTIFAN_TERMINAL_SESSION_ID: "terminal-1", LEADER_LEARN: "off", ...extraEnv });
+  return { root, jobs, runs, config, env };
 }
 
 export function cli(w, args, envOverride = {}) {

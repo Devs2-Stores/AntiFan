@@ -787,7 +787,9 @@ async function placeLeaderWorker(
   const registry = LeaderRegistry.getInstance();
   registry.forget(placed.sessionId);
   clearRunFilesOf(placed.sessionId);
-  if (!registry.assignWorker(placed.sessionId, homeId, name || undefined)) {
+  const projectOwnerKey = placed.ownerKey && placed.ownerKey.startsWith('project:') ? placed.ownerKey : undefined;
+  // The registry keeps what the warning below is based on, so a later dispatch can refuse a worker whose OMP cannot reach the browser tools.
+  if (!registry.assignWorker(placed.sessionId, homeId, name || undefined, projectOwnerKey ?? 'unassigned')) {
     const closed = await closeUnrecordedTerminal(() => terminal.closeSession(placed.sessionId));
     throw unrecordedWorkerError('The worker terminal', placed.sessionId, closed);
   }
@@ -803,7 +805,7 @@ async function placeLeaderWorker(
     sessionId: placed.sessionId,
     cwd,
     workerOf: homeId,
-    ...(placed.ownerKey && placed.ownerKey.startsWith('project:') ? { ownerKey: placed.ownerKey } : { warning: NO_PROJECT_OWNER_WARNING }),
+    ...(projectOwnerKey ? { ownerKey: projectOwnerKey } : { warning: NO_PROJECT_OWNER_WARNING }),
     ...(placed.capsuleId ? { capsuleId: placed.capsuleId } : {}),
     ...(minted ? { minted } : {}),
   };

@@ -447,17 +447,24 @@ describe('Leader scope of the terminal capabilities', () => {
         assert.strictEqual(bare.capsuleId, 'capsule-1');
         assert.match(bare.warning ?? '', /^NO_PROJECT_OWNER: /);
         assert.strictEqual(LeaderRegistry.getInstance().workerOf('terminal-new')?.leaderId, 'terminal-lead', 'the worker is still registered and gated');
+        const registryFile = path.join(CONFIG_DIR, 'leader-terminals.json');
+        assert.strictEqual(LeaderRegistry.getInstance().workerOf('terminal-new')?.ownerKey, 'unassigned', 'the registry says the worker has no project, for leader-job dispatch to read');
+        assert.strictEqual(JSON.parse(fs.readFileSync(registryFile, 'utf8')).workers['terminal-new'].ownerKey, 'unassigned');
 
         // The manager's own key is not a project owner either.
         ownerKey = 'unassigned';
         const manager = (await catalogue.dispatch('terminal.create', { cwd: 'E:/Work/customizes/Sunriseplus' }, ctx())) as { ownerKey?: string; warning?: string };
         assert.strictEqual(manager.ownerKey, undefined);
         assert.match(manager.warning ?? '', /^NO_PROJECT_OWNER: /);
+        assert.strictEqual(LeaderRegistry.getInstance().workerOf('terminal-new')?.ownerKey, 'unassigned');
 
         ownerKey = 'project:p9';
         const owned = (await catalogue.dispatch('terminal.create', { cwd: 'E:/Work/f1genz' }, ctx())) as { ownerKey?: string; warning?: string };
         assert.strictEqual(owned.ownerKey, 'project:p9');
         assert.strictEqual(owned.warning, undefined);
+        assert.strictEqual(LeaderRegistry.getInstance().workerOf('terminal-new')?.ownerKey, 'project:p9', 'a re-placed id carries no owner from its previous incarnation');
+        LeaderRegistry.resetInstance();
+        assert.strictEqual(LeaderRegistry.getInstance().workerOf('terminal-new')?.ownerKey, 'project:p9', 'the owner survives a restart');
       } finally {
         release();
       }

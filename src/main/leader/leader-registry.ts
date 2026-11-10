@@ -8,6 +8,13 @@ export interface LeaderWorkerRecord {
   leaderId: string;
   title?: string;
   assignedAt: number;
+  /**
+   * Who the Terminal Manager filed the terminal under when a Leader's terminal.create placed it: the
+   * `project:<id>` key of the AntiFan project that owns the folder, or `unassigned` when no open project does
+   * (an OMP started there may not reach the AntiFan browser tools). Absent on a record written without a
+   * placement (a terminal a Leader adopted by writing to it) or before this field existed: owner unknown.
+   */
+  ownerKey?: string;
 }
 
 /**
@@ -106,6 +113,7 @@ export class LeaderRegistry extends EventEmitter {
           leaderId: record.leaderId,
           ...(typeof record.title === 'string' && record.title ? { title: record.title } : {}),
           assignedAt: typeof record.assignedAt === 'number' ? record.assignedAt : 0,
+          ...(typeof record.ownerKey === 'string' && record.ownerKey ? { ownerKey: record.ownerKey } : {}),
         });
       }
     }
@@ -183,25 +191,28 @@ export class LeaderRegistry extends EventEmitter {
    * Record that `leaderId` drives `workerId`. Ignored unless `leaderId` is a Leader, and a Leader
    * is never its own worker nor another Leader's. A worker another live Leader already drives is never
    * taken from it; a record whose Leader is no longer a Leader may be adopted. A repeat assignment
-   * keeps its `assignedAt`, and the title carries over unless a new one is given.
+   * keeps its `assignedAt`, and the title and owner key carry over unless a new one is given.
    *
    * Returns true when the record names `leaderId` and is persisted, false when nothing was recorded
    * (a refused assignment, or a file that could not be written).
    */
-  public assignWorker(workerId: string, leaderId: string, title?: string): boolean {
+  public assignWorker(workerId: string, leaderId: string, title?: string, ownerKey?: string): boolean {
     if (!workerId || !leaderId || workerId === leaderId) return false;
     if (!this.leaderIds.has(leaderId) || this.leaderIds.has(workerId)) return false;
     const existing = this.workerRecords.get(workerId);
     if (existing && existing.leaderId !== leaderId && this.leaderIds.has(existing.leaderId)) return false;
     const cleanTitle = typeof title === 'string' ? title.trim().slice(0, TITLE_MAX_CHARS) : '';
+    const cleanOwner = typeof ownerKey === 'string' ? ownerKey.trim() : '';
     const sameLeader = existing?.leaderId === leaderId ? existing : undefined;
     const nextTitle = cleanTitle || existing?.title;
-    if (sameLeader && nextTitle === sameLeader.title) return true;
+    const nextOwner = cleanOwner || existing?.ownerKey;
+    if (sameLeader && nextTitle === sameLeader.title && nextOwner === sameLeader.ownerKey) return true;
     const previous = existing;
     this.workerRecords.set(workerId, {
       leaderId,
       ...(nextTitle ? { title: nextTitle } : {}),
       assignedAt: sameLeader?.assignedAt ?? Date.now(),
+      ...(nextOwner ? { ownerKey: nextOwner } : {}),
     });
     if (this.commit()) return true;
     // The change is not on disk: the hook reads the file, so an unsaved record gates nothing. Keep memory honest.
