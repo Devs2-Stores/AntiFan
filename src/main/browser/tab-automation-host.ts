@@ -55,6 +55,41 @@ import { buildCdpKeyEvents } from './keyboard-normalizer';
  */
 const BLOCKING_PREFLIGHT_CODES: Record<string, true> = { TARGET_OBSCURED: true, TARGET_ZERO_SIZE: true };
 
+/**
+ * DOM events a click that reached the page produces. The trusted click is verified by a capture
+ * listener for these in the isolated agent world (invisible to the page): CDP answers a dispatched
+ * mouse event as soon as it is queued, so a renderer that drops real mouse input still lets every
+ * call succeed. A point over a frame (`iframe`, `embed`, `object`) or over nothing the page can name
+ * (`elementFromPoint` answers null) is not verified: a frame's events stay inside the child document.
+ */
+const CLICK_PROBE_EVENT_TYPES = ['pointerdown', 'mousedown', 'touchstart', 'pointerup', 'mouseup', 'touchend', 'click'];
+const clickProbeArmScript = (x: number, y: number): string => `(() => {
+  try {
+    const w = window;
+    if (w.__antifanClickProbe) { w.__antifanClickProbe.off(); delete w.__antifanClickProbe; }
+    const hit = document.elementFromPoint(${JSON.stringify(x)}, ${JSON.stringify(y)});
+    if (!hit || /^(?:IFRAME|FRAME|EMBED|OBJECT)$/.test(hit.tagName)) return false;
+    const types = ${JSON.stringify(CLICK_PROBE_EVENT_TYPES)};
+    const state = { seen: 0, off: null };
+    const handler = () => { state.seen += 1; };
+    for (const t of types) w.addEventListener(t, handler, true);
+    state.off = () => { for (const t of types) w.removeEventListener(t, handler, true); };
+    w.__antifanClickProbe = state;
+    return true;
+  } catch { return false; }
+})()`;
+const clickProbeReadScript = (disarm: boolean): string => `(() => {
+  try {
+    const p = window.__antifanClickProbe;
+    if (!p) return null;
+    const seen = p.seen;
+    ${disarm ? 'p.off(); delete window.__antifanClickProbe;' : ''}
+    return seen;
+  } catch { return null; }
+})()`;
+/** How long the page gets, after the release was acknowledged, to run its handlers before a click counts as dropped. */
+const CLICK_PROBE_SETTLE_MS = 40;
+
 /** The reason reported when the WebContents is gone after an action dispatched. */
 const NAVIGATED_DURING_ACTION = 'Document navigated during action execution';
 /** How long `expectNavigation` waits for a navigation to start when the caller names no window. */
@@ -780,6 +815,43 @@ export class TabAutomationHost {
     console.warn(`[tab-automation-host] trusted ${action} downgraded to synthetic: ${res.reason || 'no reason reported'}`);
   }
 
+  /** Arms the delivery probe; false when the isolated world could not run it (the click then goes unverified). */
+  private async armClickProbe(wc: Electron.WebContents, x: number, y: number): Promise<boolean> {
+    try {
+      return (await this.executeInIsolatedWorld(wc, clickProbeArmScript(x, y))) === true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Whether the page saw the click: `delivered` when a press, release or click event arrived,
+   * `dropped` when none did after a short settle, `unknown` when the probe is gone (the document
+   * was replaced, usually by the click itself) or unreadable.
+   */
+  private async readClickProbe(wc: Electron.WebContents): Promise<'delivered' | 'dropped' | 'unknown'> {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const last = attempt === 1;
+      let seen: unknown;
+      try {
+        seen = await this.executeInIsolatedWorld(wc, clickProbeReadScript(last));
+      } catch {
+        return 'unknown';
+      }
+      if (typeof seen !== 'number') return 'unknown';
+      if (seen > 0) {
+        if (!last) void this.executeInIsolatedWorld(wc, clickProbeReadScript(true)).catch(() => {});
+        return 'delivered';
+      }
+      if (!last) {
+        const settle = Promise.withResolvers<void>();
+        setTimeout(() => settle.resolve(), CLICK_PROBE_SETTLE_MS);
+        await settle.promise;
+      }
+    }
+    return 'dropped';
+  }
+
   private async executeTrustedClick(
     wc: Electron.WebContents,
     focusScript?: string,
@@ -878,6 +950,7 @@ export class TabAutomationHost {
         // dispatches exactly one mouseMoved -> mousePressed -> mouseReleased and reports
         // `inputType: 'touch'`. A second press/release pair here would double-fire the click and,
         // on a rejected mouseReleased, cross tiers after the press had already landed.
+        const probeArmed = await this.armClickProbe(wc, Number(clickX), Number(clickY));
         await this.sendCdpInputCommand(wc, 'Input.dispatchMouseEvent', {
           type: 'mouseMoved',
           x: clickX,
@@ -904,6 +977,30 @@ export class TabAutomationHost {
           clickCount: 1,
         });
         dispatchStage = 'released';
+
+        if (probeArmed && (await this.readClickProbe(wc)) === 'dropped') {
+          const reason =
+            `CLICK_NOT_DELIVERED: a trusted click was dispatched at (${Math.round(clickX)}, ${Math.round(clickY)}) but the page received no mousedown, mouseup or click, so nothing happened on it. ` +
+            'The renderer dropped the real mouse input (the tab still accepts scripts and typed text). ' +
+            'Retry with trusted:false (a synthetic click whose events carry isTrusted:false), or click through anti.browser.evaluate (element.click()), and check the page afterwards.';
+          return {
+            success: false,
+            fallbackNeeded: false,
+            executionTier: 'cdp_trusted',
+            reason,
+            data: {
+              ok: false,
+              code: 'CLICK_NOT_DELIVERED',
+              error: reason,
+              tier: 'cdp_trusted',
+              executionTier: 'cdp_trusted',
+              x: clickX,
+              y: clickY,
+              rect,
+              recovery: 'retry with trusted:false, or anti.browser.evaluate on the element',
+            },
+          };
+        }
 
         return {
           success: true,

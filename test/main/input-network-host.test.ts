@@ -254,6 +254,49 @@ describe('zero-size targets through the host', () => {
   });
 });
 
+describe('a trusted click the page never received', () => {
+  /** The renderer drops every real mouse event: each CDP call still succeeds, nothing reaches the document. */
+  function dropRealMouse(h: Harness): void {
+    const send = h.wc.debugger.sendCommand;
+    h.wc.debugger.sendCommand = async (command: string, params: unknown) => {
+      if (command === 'Input.dispatchMouseEvent') {
+        h.cdp.push({ command, params });
+        return {};
+      }
+      return send(command, params);
+    };
+  }
+
+  it('fails with CLICK_NOT_DELIVERED and sends no synthetic click behind it', async () => {
+    const h = harness('<button id="pay">Pay</button>', CARD);
+    let clicks = 0;
+    h.doc.getElementById('pay')!.addEventListener('click', () => { clicks++; });
+    dropRealMouse(h);
+    const res = await h.host.dispatchAgentAction('click', { selector: '#pay', tabId: 'tab-1' });
+    assert.equal(res.success, false);
+    assert.equal((res.data as Record<string, unknown>).code, 'CLICK_NOT_DELIVERED');
+    assert.equal(clicks, 0);
+    assert.equal(h.cdp.filter((c) => c.command === 'Input.dispatchMouseEvent' && c.params.type === 'mouseReleased').length, 1);
+  });
+
+  it('is still clickable with trusted:false, which reaches the page as a synthetic event', async () => {
+    const h = harness('<button id="pay">Pay</button>', CARD);
+    let clicks = 0;
+    h.doc.getElementById('pay')!.addEventListener('click', () => { clicks++; });
+    dropRealMouse(h);
+    const res = await h.host.dispatchAgentAction('click', { selector: '#pay', tabId: 'tab-1', trusted: false });
+    assert.equal(res.success, true, JSON.stringify(res));
+    assert.equal(clicks, 1);
+  });
+
+  it('does not judge a click that lands on a frame: its events stay inside the child document', async () => {
+    const h = harness('<iframe id="pay"></iframe>', CARD);
+    dropRealMouse(h);
+    const res = await h.host.dispatchAgentAction('click', { selector: '#pay', tabId: 'tab-1' });
+    assert.equal(res.success, true, JSON.stringify(res));
+  });
+});
+
 describe('locator through the host', () => {
   const page = '<button id="pay">Pay now</button><button id="other">Pay now</button>';
 
