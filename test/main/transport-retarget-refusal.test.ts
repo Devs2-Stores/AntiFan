@@ -14,7 +14,7 @@ const FOREIGN = 'tab-user-youtube';
 
 async function refuse(
   listUsableTabs?: CapabilityCatalogueOptions['listUsableTabs'],
-  gone?: { closedBy: 'user'; closeReason: string },
+  gone?: { closedBy: 'user'; closeReason: string } | 'unrecorded',
 ) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-retarget-refusal-'));
   const projectId = makeControlPlaneId('project');
@@ -28,7 +28,7 @@ async function refuse(
     runtimeId: lease.runtimeId,
     hostEpoch: 1,
     resolveTabId: (id) => (gone && id === FOREIGN ? undefined : id),
-    ...(gone ? { describeClosedTab: (id: string) => (id === FOREIGN ? { closedBy: gone.closedBy, closeReason: gone.closeReason, closedAt: 1 } : undefined) } : {}),
+    ...(gone && gone !== 'unrecorded' ? { describeClosedTab: (id: string) => (id === FOREIGN ? { closedBy: gone.closedBy, closeReason: gone.closeReason, closedAt: 1 } : undefined) } : {}),
     resolveFailoverTabId: () => undefined,
     getDocumentGeneration: () => 1,
     isTabAllowed: (primary, requested) => primary === requested,
@@ -118,5 +118,14 @@ describe('a retarget outside the session authority names the tabs the session ma
     assert.match(resp.error?.message ?? '', /no longer exists/);
     assert.doesNotMatch(resp.error?.message ?? '', /another project, session or window/);
     assert.match(resp.error?.message ?? '', /Tabs this session may use: tab-agent-bound/);
+  });
+
+  it('still says gone when the host kept no record of the close, without inventing who closed it', async () => {
+    const { resp } = await refuse(() => [{ id: BOUND, url: 'https://shop.example/' }], 'unrecorded');
+    assert.strictEqual(resp.error?.code, 'TARGET_STALE');
+    const details = resp.error?.details as Record<string, unknown>;
+    assert.strictEqual(details.cause, 'tab-gone');
+    assert.ok(!('closedBy' in details));
+    assert.match(resp.error?.message ?? '', /no longer exists/);
   });
 });
