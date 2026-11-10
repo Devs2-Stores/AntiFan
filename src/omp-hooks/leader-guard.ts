@@ -408,12 +408,12 @@ function shellWritesTheme(command: string, cwd: string, jobsRoot: string, env: E
 
 /** The refusal for a shell line or eval cell that runs the theme CLI with a write-class action. */
 function themeCliRefusal(text: string, kind: "bash" | "eval"): LeaderRefusal | null {
-  if (!mentionsThemeCli(text)) return null;
+  if (!mentionsThemeCli(text, { auth: false })) return null;
   if (kind === "eval") {
     if (!SUBPROCESS_RE.test(text)) return null;
     return refuse(LEADER_GUARD_CODES.THEME_CLI, "this eval cell runs the theme CLI (hrv/haravan/shopify/sapo ... theme); run read-only theme commands through the bash tool instead");
   }
-  const plan = classifyThemeLine(text);
+  const plan = classifyThemeLine(text, { auth: false });
   if (plan.decision === "none") return null;
   if (plan.decision === "block") {
     return refuse(

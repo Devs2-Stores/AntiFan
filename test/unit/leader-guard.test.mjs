@@ -381,6 +381,14 @@ test("write-class theme CLI commands are refused, read-only ones pass", async ()
   }
 });
 
+test("a Leader keeps running Haravan sign-in commands: the worker rule for them does not reach the Leader", async () => {
+  const hook = makeHook();
+  for (const command of ["hrv whoiam", "hrv select", "hrv select 1000123", "hrv login", "hrv login --no-open", "hrv logout", "hrv refresh-all --force", "hrv whoiam && hrv theme info -j"]) {
+    assert.equal(await hook.call("bash", { command }), undefined, command);
+  }
+  assertRefused(await hook.call("bash", { command: "hrv whoiam; hrv theme push --only a" }), "REFUSED_LEADER_THEME_CLI");
+});
+
 test("a Leader is refused a fully scoped shopify theme push that a worker may run after verification", async () => {
   const hook = makeHook();
   assertRefused(

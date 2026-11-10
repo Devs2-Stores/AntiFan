@@ -2695,3 +2695,576 @@ test("a worker's bash call runs the Sapo rules end to end", async () => {
     fs.rmSync(stub.dir, { recursive: true, force: true });
   }
 });
+
+// ---- Haravan sign-in commands of a worker (hrv whoiam | refresh-all | select <org> | login --no-open) ----
+
+/** `allow` or the refusal code for the first command of one `hrv` auth line, or a line-level refusal code. */
+function planHrvAuthLine(line, opts = {}) {
+  const parsed = themePolicy.classifyThemeLine(line, opts);
+  if (parsed.decision === "block") return parsed.code;
+  assert.equal(parsed.decision, "commands", line);
+  const plans = parsed.commands.map((cmd) => themePolicy.planThemeCommand(cmd, "1001507144"));
+  return plans.map((plan) => (plan.decision === "block" ? plan.code : plan.decision)).join(",");
+}
+
+for (const line of [
+  "hrv whoiam",
+  "haravan whoiam",
+  "haravan-cli whoiam",
+  "./node_modules/.bin/haravan whoiam",
+  "hrv whoiam --help",
+  "hrv whoiam -h",
+  "hrv refresh-all",
+  "hrv refresh-all --help",
+  "hrv select 1000123456",
+  "hrv login --no-open",
+  "hrv login --help",
+  "hrv logout --help",
+]) {
+  test(`a worker may run '${line}'`, () => {
+    assert.equal(planHrvAuthLine(line), "allow");
+  });
+}
+
+for (const [label, line, code] of [
+  ["an unknown option", "hrv whoiam --json", "REFUSED_THEME_REMOTE_OP"],
+  ["an argument", "hrv whoiam extra", "REFUSED_THEME_REMOTE_OP"],
+  ["--force", "hrv refresh-all --force", "REFUSED_THEME_REMOTE_OP"],
+  ["-f", "hrv refresh-all -f", "REFUSED_THEME_REMOTE_OP"],
+  ["another option", "hrv refresh-all --foo", "REFUSED_THEME_REMOTE_OP"],
+  ["select with no org (the interactive menu)", "hrv select", "REFUSED_THEME_REMOTE_OP"],
+  ["select with a name", "hrv select abc", "REFUSED_THEME_REMOTE_OP"],
+  ["select with two ids", "hrv select 1 2", "REFUSED_THEME_REMOTE_OP"],
+  ["select with an option", "hrv select 12 --foo", "REFUSED_THEME_REMOTE_OP"],
+  ["a bare login (opens a browser)", "hrv login", "REFUSED_THEME_REMOTE_OP"],
+  ["login with --print-url", "hrv login --no-open --print-url", "REFUSED_THEME_REMOTE_OP"],
+  ["login with --print-url alone", "hrv login --print-url", "REFUSED_THEME_REMOTE_OP"],
+  ["login with -t", "hrv login -t abc", "REFUSED_THEME_REMOTE_OP"],
+  ["login with --token", "hrv login --token abc", "REFUSED_THEME_REMOTE_OP"],
+  ["login with a positional", "hrv login --no-open extra", "REFUSED_THEME_REMOTE_OP"],
+  ["a logout", "hrv logout", "REFUSED_THEME_REMOTE_OP"],
+  ["a logout of one org", "hrv logout 1000123", "REFUSED_THEME_REMOTE_OP"],
+  ["an option in front of the command", "hrv -x whoiam", "REFUSED_THEME_REMOTE_OP"],
+  ["an option with a value in front of the command", "hrv -t 5 login --no-open", "REFUSED_THEME_COMPLEX"],
+  ["a command chained after another", "hrv whoiam && hrv theme info -j", "REFUSED_THEME_REMOTE_OP,allow"],
+  ["a command chained before another", "ls && hrv login --no-open", "REFUSED_THEME_REMOTE_OP"],
+  ["a pipe", "hrv whoiam | head", "REFUSED_THEME_REMOTE_OP"],
+  ["a redirect to a file", "hrv whoiam > out.txt", "REFUSED_THEME_REMOTE_OP"],
+  ["a 2>&1 redirect", "hrv whoiam 2>&1", "REFUSED_THEME_REMOTE_OP"],
+  ["a cd before it", "cd ../other && hrv whoiam", "REFUSED_THEME_REMOTE_OP"],
+  ["a logout on the next line", "hrv whoiam\nhrv logout", "REFUSED_THEME_REMOTE_OP,REFUSED_THEME_REMOTE_OP"],
+  ["a bash -c wrapper", 'bash -c "hrv whoiam"', "REFUSED_THEME_COMPLEX"],
+  ["a cmd /c wrapper", "cmd /c hrv whoiam", "REFUSED_THEME_COMPLEX"],
+  ["npx", "npx hrv login --no-open", "REFUSED_THEME_COMPLEX"],
+  ["a subshell", "(hrv whoiam)", "REFUSED_THEME_COMPLEX"],
+  ["a command substitution", "$(hrv whoiam)", "REFUSED_THEME_COMPLEX"],
+  ["a quote-split CLI word", 'h""rv whoiam', "REFUSED_THEME_COMPLEX"],
+  ["a line continuation", "hrv login \\\n --no-open", "REFUSED_THEME_COMPLEX"],
+]) {
+  test(`a worker's Haravan sign-in line with ${label} is refused`, () => {
+    assert.equal(planHrvAuthLine(line), code, line);
+  });
+}
+
+test("a Haravan sign-in refusal names the Leader-approved rule, and a cd carried over from an earlier line refuses too", () => {
+  const refused = themePolicy.planThemeCommand(themePolicy.parseThemeCommands("hrv logout")[0], null);
+  assert.equal(refused.decision, "block");
+  assert.match(refused.reason, /Đăng nhập Haravan do Leader duyệt/);
+  assert.match(refused.reason, /AGENTS\.md §8/);
+  assert.equal(planHrvAuthLine("hrv whoiam", { assumeDirChanged: true }), "REFUSED_THEME_REMOTE_OP");
+});
+
+test("Haravan sign-in words in a folder name, a search pattern or another command's argument are not the CLI", () => {
+  for (const line of [
+    "rg whoiam src/",
+    "rg -n select src/",
+    "cd E:/Work/themes/Haravan && ls select",
+    "dir E:/Work/themes/Haravan login",
+    "cat hrv-login.txt",
+    "cat hrv.liquid whoiam",
+    "git commit -F msg.txt",
+    "hrv info",
+    "hrv doctor",
+  ]) {
+    assert.equal(themePolicy.classifyThemeLine(line).decision, "none", line);
+  }
+});
+
+test("the sign-in rules leave every theme, api and Sapo verdict as it was", () => {
+  const BOUND = "1001507144";
+  const verdictOf = (line) => {
+    const parsed = themePolicy.classifyThemeLine(line);
+    if (parsed.decision === "block") return parsed.code;
+    const plan = themePolicy.planThemeCommand(parsed.commands[0], parsed.commands[0].cli === "sapo" ? "1035075" : BOUND);
+    return plan.decision === "block" ? plan.code : plan.decision;
+  };
+  for (const [line, verdict] of [
+    ["hrv theme push --only x --nodelete", "verify-draft"],
+    ["hrv theme push --only x", "REFUSED_THEME_PUSH_NODELETE"],
+    ["hrv theme dev", "verify-draft"],
+    ["hrv theme info -j", "allow"],
+    ["hrv theme list", "allow"],
+    ["hrv theme publish 1", "REFUSED_THEME_REMOTE_OP"],
+    ["sapo theme push --only x", "verify-sapo-bound"],
+    ["sapo whoiam", "allow"],
+    ["sapo logout", "REFUSED_THEME_REMOTE_OP"],
+    ["hrv api put /web/themes/1.json", "REFUSED_THEME_REMOTE_OP"],
+    ["hrv rollback-last-push", "REFUSED_THEME_REMOTE_OP"],
+    ["bizweb theme list", "REFUSED_THEME_REMOTE_OP"],
+    ["shopify theme publish 1", "REFUSED_THEME_REMOTE_OP"],
+  ]) {
+    assert.equal(verdictOf(line), verdict, line);
+  }
+});
+
+test("the auth:false view (what a Leader's guard uses) does not see sign-in commands at all", () => {
+  for (const line of ["hrv whoiam", "hrv logout", "hrv select", "hrv login -t x", "bash -c \"hrv login\""]) {
+    assert.equal(themePolicy.mentionsThemeCli(line), true, line);
+    assert.equal(themePolicy.mentionsThemeCli(line, { auth: false }), false, line);
+    assert.deepEqual(themePolicy.classifyThemeLine(line, { auth: false }), { decision: "none" }, line);
+  }
+  assert.deepEqual(
+    themePolicy.parseThemeCommands("hrv whoiam; hrv theme info -j", { auth: false }).map((cmd) => cmd.action),
+    ["info"],
+  );
+});
+
+test("a worker's bash and terminal.write paths gate Haravan sign-in with no CLI call", async () => {
+  const root = makeThemeWorkspace();
+  try {
+    for (const text of ["hrv whoiam", "hrv refresh-all", "hrv select 1000123", "hrv login --no-open"]) {
+      assert.deepEqual(await draftProbe.gateThemeLine({ text, cwd: root, timeoutMs: 20_000 }), { decision: "allow", verified: [] }, text);
+    }
+    const refused = await draftProbe.gateThemeLine({ text: "hrv logout", cwd: root, timeoutMs: 20_000 });
+    assert.equal(refused.code, "REFUSED_THEME_REMOTE_OP");
+    assert.equal(refused.command, "hrv logout");
+    await asTerminal(true, async () => {
+      assert.equal(await runBash(root, "sess-auth-ok", "hrv whoiam"), null);
+      assert.equal(await runBash(root, "sess-auth-login", "hrv login --no-open"), null);
+      const logout = await runBash(root, "sess-auth-logout", "hrv logout");
+      assert.equal(logout?.block, true);
+      assert.ok(logout.reason.startsWith("REFUSED_THEME_REMOTE_OP:"), logout.reason);
+      const token = await runBash(root, "sess-auth-token", "hrv login -t abc");
+      assert.equal(token?.block, true);
+    });
+    await asTerminal(false, async () => {
+      assert.equal(await runBash(root, "sess-auth-user", "hrv logout"), null, "a session that is not a worker is not gated");
+    });
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// ---- Shell escapes that make the analyzer read other words than the shell runs ----
+
+for (const [label, line] of [
+  ["a backslash before the action", "hrv \\logout"],
+  ["a backslash inside the action", "hrv l\\ogout"],
+  ["a backslash-newline inside the action", "hrv log\\\nout"],
+  ["a backslash-newline before the action", "hrv \\\nlogout"],
+  ["a trailing backslash", "hrv logout\\"],
+  ["a backslash-newline after the action", "hrv theme publish\\\n 1"],
+  ["a backslash-CRLF after the action", "hrv theme publish\\\r\n 1"],
+  ["a backslash inside theme", "hrv th\\eme publish 1"],
+  ["a backslash before theme", "hrv \\theme publish 1"],
+  ["a backslash inside the CLI word", "h\\rv theme publish 1"],
+  ["a backslash-newline before api put", "hrv api \\\nput x"],
+  ["a backslash inside api put", "hrv api p\\ut x"],
+  ["a backslash-newline before a flag", "hrv login --no-open \\\n--force"],
+  ["a backslash before a flag", "hrv login --no-open \\--force"],
+  ["a backslash before --force on a push", "hrv theme push --only a.liquid --nodelete \\--force"],
+  ["a backslash-newline after whoiam", "hrv whoiam\\\n"],
+  ["a backslash inside a push action", "hrv theme pu\\sh --only a.liquid"],
+  ["a backslash before sapo logout", "sapo \\logout"],
+  ["a backslash inside sapo login", "sapo l\\ogin --oauth -s x"],
+  ["a backslash inside a sapo push", "sapo theme pu\\sh --only a.liquid"],
+  ["a backslash inside shopify theme", "shopify th\\eme push --live"],
+  ["a backslash-newline in a shopify push", "shopify theme push\\\n --live"],
+  ["a quote inside the action", 'hrv lo""gout'],
+  ["a quoted action", 'hrv "logout"'],
+  ["a caret inside the action", "hrv lo^gout"],
+]) {
+  test(`a worker's line with ${label} is refused`, () => {
+    const refusal = planHrvAuthLine(line);
+    assert.match(refusal, /^REFUSED_THEME_(?:COMPLEX|REMOTE_OP|PUSH_\w+)(?:,.*)?$/, JSON.stringify(line));
+  });
+}
+
+for (const [label, line] of [
+  ["a backslash before the action", "hrv \\logout"],
+  ["a backslash inside the action", "hrv l\\ogout"],
+  ["a backslash-newline inside the action", "hrv log\\\nout"],
+  ["a backslash inside theme", "hrv th\\eme publish 1"],
+  ["a backslash-newline before api put", "hrv api \\\nput x"],
+  ["a backslash before --force", "hrv theme push --only a.liquid --nodelete \\--force"],
+  ["a backslash inside a sapo login", "sapo l\\ogin --oauth -s x"],
+  ["a backslash inside shopify theme", "shopify th\\eme push --live"],
+]) {
+  test(`the escape rule refuses ${label} as a shape it cannot read`, () => {
+    const parsed = themePolicy.classifyThemeLine(line);
+    assert.equal(parsed.decision, "block", JSON.stringify(line));
+    assert.equal(parsed.code, "REFUSED_THEME_COMPLEX", JSON.stringify(line));
+    assert.equal(themePolicy.mentionsThemeCli(line), true, JSON.stringify(line));
+  });
+}
+
+test("a backslash that only separates a path leaves the sign-in and theme verdicts alone", () => {
+  assert.equal(planHrvAuthLine("C:\\Users\\Admin\\AppData\\Roaming\\npm\\hrv.cmd login --no-open"), "allow");
+  assert.equal(planHrvAuthLine("C:\\Users\\Admin\\AppData\\Roaming\\npm\\hrv.cmd whoiam"), "allow");
+  assert.equal(planHrvAuthLine("hrv theme push --only layout\\theme.liquid --nodelete"), "verify-draft");
+  assert.equal(planHrvAuthLine("hrv theme fetch 1001 --only config\\settings_schema.json"), "allow");
+  assert.equal(planHrvAuthLine("hrv theme info --json"), "allow");
+  assert.equal(themePolicy.classifyThemeLine("cd E:\\Work\\themes\\Haravan && rg theme.liquid layout\\").decision, "none");
+});
+
+test("a worker's bash call is refused for an escaped sign-in or theme command", async () => {
+  const root = makeThemeWorkspace();
+  try {
+    await asTerminal(true, async () => {
+      for (const [id, command] of [
+        ["esc-logout", "hrv l\\ogout"],
+        ["esc-newline", "hrv \\\nlogout"],
+        ["esc-publish", "hrv th\\eme publish 1"],
+      ]) {
+        const refused = await runBash(root, `sess-${id}`, command);
+        assert.equal(refused?.block, true, command);
+        assert.ok(refused.reason.startsWith("REFUSED_THEME_COMPLEX:"), refused.reason);
+      }
+    });
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// ---- Words the shell assembles from quotes, expansions, globs and braces ----
+
+/** Forms the round-1 backslash rule let through: the shell runs a refused command, the raw text shows none. */
+const ASSEMBLED_FORMS = [
+  ["an empty command substitution inside the action", "hrv l$(:)ogout"],
+  ["an empty backtick substitution inside the action", "hrv l`:`ogout"],
+  ["an unset variable inside the action", "hrv l${z}ogout"],
+  ["an empty default expansion inside the action", "hrv l${z:-}ogout"],
+  ["an empty brace list inside the action", "hrv l{,}ogout"],
+  ["a glob star after the action letters", "hrv lo*"],
+  ["a glob question mark in the action", "hrv logou?"],
+  ["a bracket class in the action", "hrv [l]ogout"],
+  ["a home tilde before the action", "hrv ~/logout"],
+  ["an empty substitution inside theme", "hrv th$(:)eme publish 1"],
+  ["an empty substitution inside the CLI word", "h$(:)rv theme publish 1"],
+  ["an empty substitution inside the CLI word of a logout", "h$(:)rv logout"],
+  ["a default expansion as the CLI word", "${X:-hrv} logout"],
+  ["$0 as the CLI word", "$0 logout"],
+  ["a variable that holds part of the CLI word", "z=r; h${z}v logout"],
+  ["a variable as the command after an assignment", "FOO=1 $X logout"],
+  ["an ANSI-C quoted flag on a push", "hrv theme push --only a.liquid --nodelete --$'force'"],
+  ["a variable flag on a push", "hrv theme push --only a.liquid --nodelete $F"],
+  ["an ANSI-C quoted api verb", "hrv api $'put' x"],
+  ["an ANSI-C quoted value of an api flag", "hrv api get x --method $'DELETE'"],
+  ["a glob after an assignment prefix", "FOO=1 hrv l*"],
+  ["$IFS as the blank", "hrv$IFS logout"],
+  ["${IFS} as the blank", "hrv${IFS}logout"],
+  ["$IFS$9 as the blank", "hrv$IFS$9logout"],
+  ["a brace list as the whole command", "{hrv,logout}"],
+  ["a glob in the command path", "/usr/bin/h?v logout"],
+  ["a variable path with a glob command", "$HOME/bin/h?v logout"],
+  ["xargs handed the bare CLI", "echo logout | xargs hrv"],
+  ["the bare CLI as a pipe target", "printf logout | hrv"],
+  ["an escaped CLI word inside a double-quoted sh -c", 'sh -c "h\\\\rv logout"'],
+  ["an empty substitution inside a single-quoted bash -c", "bash -c 'h$(:)rv logout'"],
+  ["$IFS inside a single-quoted sh -c", "sh -c 'hrv$IFS logout'"],
+  ["an empty substitution inside the Sapo word", "s$(:)apo logout"],
+  ["an empty substitution inside the Shopify word", "sho$(:)pify theme push --live"],
+  ["an empty substitution inside the Sapo action", "sapo l$(:)ogout"],
+];
+
+/** Other spellings of the same refusals: already refused before the fold, kept so a later change cannot lose them. */
+const ASSEMBLED_FORMS_REFUSED_BEFORE = [
+  ["ANSI-C hex before the action", "hrv $'\\x6c'ogout"],
+  ["ANSI-C hex inside the action", "hrv $'l\\x6fgout'"],
+  ["a single-quoted first letter", "hrv 'l'ogout"],
+  ["empty single quotes inside the action", "hrv l''ogout"],
+  ["a double-quoted first letter", 'hrv "l"ogout'],
+  ["empty double quotes inside the action", 'hrv l""ogout'],
+  ["a $\"...\" action", 'hrv $"logout"'],
+  ["a brace list as the action", "hrv {logout,x}"],
+  ["a pu$(:)blish action", "hrv theme pu$(:)blish 1"],
+  ["an ANSI-C quoted theme word", "hrv $'theme' publish 1"],
+  ["$IFS after an api verb", "hrv api put$IFS x"],
+  ["an ANSI-C quoted CLI word", "$'h'rv logout"],
+  ["a double-quoted CLI prefix", '"hr"v logout'],
+  ["an alias for the CLI", "alias h=hrv; h logout"],
+  ["an ANSI-C quoted flag on a refresh", "hrv login --no-open --$'force'"],
+  ["a command substitution inside a flag", "hrv refresh-all --for$(:)ce"],
+  ["an ANSI-C quoted short flag", "hrv login -$'t' x"],
+  ["a command substitution before --force", "hrv theme push --only a.liquid --nodelete $(:)--force"],
+  ["a variable word", "x=logout; hrv $x"],
+  ["a braced variable word", "hrv ${x}"],
+  ["an eval of split quotes", 'eval "hrv lo""gout"'],
+  ["a command substitution word", "hrv $(echo logout)"],
+  ["a backtick word", "hrv `echo logout`"],
+  ["bash -c", "bash -c 'hrv logout'"],
+  ["env", "env hrv logout"],
+  ["command", "command hrv logout"],
+  ["exec", "exec hrv logout"],
+  ["nohup", "nohup hrv logout"],
+  ["time", "time hrv logout"],
+  ["a subshell", "(hrv logout)"],
+  ["a brace group", "{ hrv logout; }"],
+  ["a background job", "hrv logout &"],
+  ["a here-string", 'bash <<< "hrv logout"'],
+  ["a heredoc", "bash <<EOF\nhrv logout\nEOF"],
+  ["an escaped here-string", 'bash <<< "hrv l\\ogout"'],
+  ["a PowerShell string", 'hrv ("log"+"out")'],
+  ["a PowerShell array", "hrv @('logout')"],
+  ["Start-Process", "Start-Process hrv -ArgumentList logout"],
+  ["cmd.exe carets", "hrv ^l^o^g^o^u^t"],
+  ["a trailing backtick", "hrv `logout"],
+];
+
+for (const [label, line] of ASSEMBLED_FORMS) {
+  test(`a worker's line with ${label} is refused as a shape it cannot read`, () => {
+    const parsed = themePolicy.classifyThemeLine(line);
+    assert.equal(parsed.decision, "block", JSON.stringify(line));
+    assert.equal(parsed.code, "REFUSED_THEME_COMPLEX", JSON.stringify(line));
+    assert.equal(themePolicy.mentionsThemeCli(line), true, JSON.stringify(line));
+  });
+}
+
+test("the Leader's own view (no sign-in rule) refuses an assembled theme command and still reads plain ones", () => {
+  for (const line of ["hrv th$(:)eme publish 1", "h$(:)rv theme publish 1", "hrv theme push --only a.liquid --nodelete --$'force'", "hrv lo*"]) {
+    assert.equal(themePolicy.classifyThemeLine(line, { auth: false }).code, "REFUSED_THEME_COMPLEX", line);
+  }
+  for (const line of ["hrv theme info --json", "hrv theme info -j", "sapo theme info --json", "shopify theme list --json", "hrv login --no-open", "hrv logout"]) {
+    const plan = themePolicy.classifyThemeLine(line, { auth: false });
+    assert.notEqual(plan.code, "REFUSED_THEME_COMPLEX", line);
+  }
+});
+
+for (const [label, line] of ASSEMBLED_FORMS_REFUSED_BEFORE) {
+  test(`a worker's line with ${label} stays refused`, () => {
+    const refusal = planHrvAuthLine(line);
+    assert.match(refusal, /^REFUSED_THEME_(?:COMPLEX|REMOTE_OP|PUSH_\w+)(?:,.*)?$/, JSON.stringify(line));
+  });
+}
+
+test("the fold sees what the shell assembles and leaves path quoting, globs in values and plain reads alone", () => {
+  const allowed = [
+    "hrv theme info --json",
+    "hrv theme info -j",
+    "hrv theme --help",
+    "hrv theme push --only layout/theme.liquid --nodelete",
+    "hrv theme push --only layout\\theme.liquid --nodelete",
+    "hrv theme push --only layout/*.liquid --nodelete",
+    "hrv theme push --only=layout/*.liquid --nodelete",
+    'hrv theme push --only "layout/theme.liquid" --nodelete',
+    "hrv theme push --only='layout/theme.liquid' --nodelete",
+    'hrv theme push --only "sections/a b.liquid" --nodelete',
+    'hrv theme fetch 1001 --only "config/*.json"',
+    "hrv theme push --only layout/*.liquid sections/*.liquid --nodelete",
+    "hrv theme push --nodelete --ignore config/settings_data.json",
+    "hrv theme fetch 1001 --only config/settings_data.json",
+    "hrv theme fetch 1001 --only config\\settings_schema.json",
+    "hrv theme dev",
+    "hrv whoiam",
+    "hrv refresh-all",
+    "hrv select 200001229247",
+    'hrv select "200001229247"',
+    "hrv login --no-open",
+    "hrv api get /web/themes.json",
+    'hrv api get "/web/themes.json?limit=5"',
+    "hrv --version",
+    "C:\\Users\\Admin\\AppData\\Roaming\\npm\\hrv.cmd login --no-open",
+    "C:\\Users\\Admin\\AppData\\Roaming\\npm\\hrv.cmd theme info --json",
+    "./node_modules/.bin/haravan theme info -j",
+    "sapo theme info --json",
+    "sapo whoiam",
+    "shopify theme list --json",
+    "hrv theme info --json | jq .role",
+    "hrv theme info --json && echo done",
+  ];
+  for (const line of allowed) {
+    const parsed = themePolicy.classifyThemeLine(line);
+    assert.equal(parsed.decision === "block" && /COMPLEX/.test(parsed.code), false, `${JSON.stringify(line)} must not become COMPLEX`);
+  }
+  for (const line of ["hrv theme info --json", "hrv whoiam", "hrv theme fetch 1001 --only config/settings_data.json", "hrv login --no-open"]) {
+    assert.equal(planHrvAuthLine(line), "allow", line);
+  }
+  assert.equal(planHrvAuthLine("hrv theme push --only layout/*.liquid --nodelete"), "verify-draft");
+  assert.equal(planHrvAuthLine('hrv theme push --only "layout/theme.liquid" --nodelete'), "verify-draft");
+  assert.equal(planHrvAuthLine("hrv theme push --only='layout/theme.liquid' --nodelete"), "verify-draft");
+});
+
+test("lines that are not the theme CLI keep quotes, expansions, globs and backslashes", () => {
+  for (const line of [
+    "rg -n select src/",
+    "rg -n logout src/ docs/",
+    "rg -n 'select|logout' src/ --glob '*.ts'",
+    "rg -n hrv src/",
+    "git add layout\\theme.liquid",
+    "git add layout/theme.liquid && git status",
+    "git commit -F msg.txt",
+    "git push origin main",
+    "echo $HOME",
+    'echo "$HOME/x"',
+    'cd "E:/Work/customizes/Districtfour"',
+    'cd "E:/Work/customizes/Districtfour" && rg -n price sections/',
+    "cd E:\\Work\\themes\\Haravan && rg theme.liquid layout\\",
+    "ls ~/",
+    "cat 'a b.txt'",
+    "node scripts/x.mjs --flag=$X",
+    "npm run dev",
+    '"$BUN" run dev',
+    "$HOME/.bun/bin/bun test",
+    "for f in layout/*.liquid; do echo $f; done",
+    "echo ${HOME:-x} | rg x",
+    "ls hrv.liquid",
+    "cat docs/hrv-notes.md",
+    "node --test test/unit/edit-guard.test.mjs",
+    "sed -n '1,5p' layout/theme.liquid",
+    "python -c \"print('hi')\"",
+    "echo select",
+    "echo logout > notes.txt",
+    'grep -rn "theme" layout/',
+  ]) {
+    assert.equal(themePolicy.classifyThemeLine(line).decision, "none", line);
+    assert.equal(themePolicy.mentionsThemeCli(line), false, line);
+  }
+});
+
+/** Lines whose whole point is to be refused at every door: the bash hook, the Manager's terminal.write and an eval cell. */
+const DOOR_FORMS = [
+  "hrv l$(:)ogout",
+  "hrv lo*",
+  "hrv th$(:)eme publish 1",
+  "h$(:)rv theme publish 1",
+  "${X:-hrv} logout",
+  "$0 logout",
+  "hrv theme push --only a.liquid --nodelete --$'force'",
+  "hrv${IFS}logout",
+  "echo logout | xargs hrv",
+  "printf logout | hrv",
+  'sh -c "h\\\\rv logout"',
+  "s$(:)apo logout",
+];
+
+test("a worker's bash call is refused for every assembled form", async () => {
+  const root = makeThemeWorkspace();
+  try {
+    await asTerminal(true, async () => {
+      let n = 0;
+      for (const command of DOOR_FORMS) {
+        n += 1;
+        const refused = await runBash(root, `sess-asm-${n}`, command);
+        assert.equal(refused?.block, true, command);
+        assert.ok(refused.reason.startsWith("REFUSED_THEME_COMPLEX:"), `${command}: ${refused.reason}`);
+      }
+      for (const command of ["echo $HOME", "rg -n select src/", 'cd "E:/Work/customizes/Districtfour"', "git add layout\\theme.liquid"]) {
+        n += 1;
+        assert.equal(await runBash(root, `sess-asm-${n}`, command), null, command);
+      }
+    });
+    await asTerminal(false, async () => {
+      assert.equal(await runBash(root, "sess-asm-user", "hrv l$(:)ogout"), null, "a session that is not a worker is not gated");
+    });
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("the terminal.write gate refuses every assembled form and lets plain lines pass", async () => {
+  const root = makeThemeWorkspace();
+  try {
+    for (const text of DOOR_FORMS) {
+      const outcome = await draftProbe.gateThemeLine({ text, cwd: root, timeoutMs: 20_000 });
+      assert.equal(outcome.decision, "block", text);
+      assert.equal(outcome.code, "REFUSED_THEME_COMPLEX", text);
+    }
+    for (const text of ["echo $HOME", "rg -n select src/", 'cd "E:/Work/customizes/Districtfour"']) {
+      assert.deepEqual(await draftProbe.gateThemeLine({ text, cwd: root, timeoutMs: 20_000 }), { decision: "pass" }, text);
+    }
+    assert.deepEqual(await draftProbe.gateThemeLine({ text: "hrv theme info --json", cwd: root, timeoutMs: 20_000 }), { decision: "allow", verified: [] });
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("an eval cell that starts a process is refused when the shell string assembles the CLI word", () => {
+  for (const shellLine of ["h$(:)rv theme publish 1", "h$(:)rv logout", "s$(:)apo logout", "sho$(:)pify theme push --live", "$'h'rv logout", "h${z}rv logout", "h$9rv logout", "h\\rv theme publish 1", "hrv l\\ogout"]) {
+    for (const cell of [
+      `import subprocess\nsubprocess.run("${shellLine}", shell=True)`,
+      `import os\nos.system("${shellLine}")`,
+    ]) {
+      const plan = themePolicy.planEvalThemeCode(cell);
+      assert.equal(plan.decision, "block", cell);
+      assert.equal(plan.code, "REFUSED_THEME_VIA_EVAL", cell);
+    }
+  }
+  for (const cell of [
+    'import subprocess\nsubprocess.run("echo $HOME", shell=True)',
+    'import os\nos.system("rg -n select src/")',
+    'import subprocess\nsubprocess.run(["node", "scripts/x.mjs", "--flag=$X"])',
+    'import subprocess\nsubprocess.run(["git", "push", "origin", "main"])',
+    'import os\nos.system("$HOME/.bun/bin/bun test")',
+  ]) {
+    assert.equal(themePolicy.planEvalThemeCode(cell).decision, "allow", cell);
+  }
+});
+
+test("an eval cell is refused for every assembled form however the string is wrapped (call, r-triple-quote, argument list)", () => {
+  const forms = [
+    "h\\rv theme publish 1",
+    "hrv l\\ogout",
+    "${X:-hrv} logout",
+    "$0 logout",
+    "h$(:)rv logout",
+    "s$(:)apo logout",
+    "z=r; h${z}v logout",
+    "/usr/bin/h?v logout",
+    "$HOME/bin/h?v logout",
+    "FOO=1 $X logout",
+    "hrv lo*",
+  ];
+  for (const form of forms) {
+    for (const cell of [`import os\nos.system(r"""${form}""")`, `import os\nos.system('''${form}''')`, `import subprocess\nsubprocess.run(r'${form}', shell=True)`]) {
+      const plan = themePolicy.planEvalThemeCode(cell);
+      assert.equal(plan.decision, "block", cell);
+      assert.equal(plan.code, "REFUSED_THEME_VIA_EVAL", cell);
+    }
+  }
+  for (const argv of ['["h$(:)rv", "logout"]', '["hrv", "l*"]', '["$X", "logout"]']) {
+    const plan = themePolicy.planEvalThemeCode(`import subprocess\nsubprocess.run(${argv})`);
+    assert.equal(plan.decision, "block", argv);
+  }
+  for (const cell of [
+    'import os\nos.system(r"""echo $HOME""")',
+    "import os\nos.system('''rg -n select src/''')",
+    'import subprocess\nsubprocess.run(["rg", "-n", "logout", "src/"])',
+    'import subprocess\nsubprocess.run(["git", "add", "layout\\\\theme.liquid"])',
+  ]) {
+    assert.equal(themePolicy.planEvalThemeCode(cell).decision, "allow", cell);
+  }
+});
+
+// KNOWN LIMITS: these lines run a refused command (or may) and the line-level rules still pass them,
+// because the command is assembled outside the text the gate reads. The tests pin today's behaviour so
+// the limit is visible; they are not a claim that the lines are safe.
+test("KNOWN LIMIT: a command built outside the line (script file, symlink, string built in code) is not seen", () => {
+  for (const line of [
+    "./wrap.sh logout",
+    "bash go.sh",
+    "ln -s $(which hrv) /tmp/x; /tmp/x logout",
+    "python -c \"import os; os.system('h'+'rv logout')\"",
+    "node -e \"require('child_process').execSync(['h','rv'].join('') + ' logout')\"",
+    "$X lo*",
+  ]) {
+    assert.equal(themePolicy.classifyThemeLine(line).decision, "none", `${line}: documented limit`);
+  }
+});
+
+test("the fold evaluates quoting and empty expansions only: a value the line does not state stays an expansion", () => {
+  // `$X` may hold anything, so an expansion in the CLI's own words is refused instead of guessed at.
+  assert.equal(themePolicy.classifyThemeLine("x=logout; hrv $x").code, "REFUSED_THEME_COMPLEX");
+  assert.equal(themePolicy.classifyThemeLine("hrv theme push --only layout/theme.liquid --nodelete $F").code, "REFUSED_THEME_COMPLEX");
+  // an expansion in a plain argument of a command that is not the CLI is not the gate's business
+  assert.equal(themePolicy.classifyThemeLine('git commit -m "$MSG"').decision, "none");
+});

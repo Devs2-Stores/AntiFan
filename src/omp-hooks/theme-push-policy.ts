@@ -50,6 +50,8 @@ export interface ThemeCommand {
   chained: boolean;
   /** The command text from the CLI word on, for refusals and the audit row. */
   text: string;
+  /** Set on `hrv login|logout|select|whoiam|refresh-all` (Haravan sign-in): judged by `planHrvAuthCommand`, not as a theme action. */
+  auth?: true;
 }
 
 const HRV_READ_ACTIONS: Record<string, true> = {
@@ -150,7 +152,7 @@ function cliOf(token: string): "hrv" | "shopify" | "sapo" | "bizweb" | null {
  * over-detected on purpose - a false refusal is a question to the user, a missed
  * push is a changed shop.
  */
-export function parseThemeCommands(command: string): ThemeCommand[] {
+export function parseThemeCommands(command: string, opts: { auth?: boolean } = {}): ThemeCommand[] {
   if (typeof command !== "string" || command.length === 0) return [];
   const found: ThemeCommand[] = [];
   const segments = parserSegments(command);
@@ -174,6 +176,22 @@ export function parseThemeCommands(command: string): ThemeCommand[] {
             dirChanged,
             chained,
             text: tokens.slice(i).join(" "),
+          });
+          break;
+        }
+      }
+      if (cli === "hrv" && opts.auth !== false) {
+        const word = tokens.slice(i + 1).find((token) => !token.startsWith("-"))?.toLowerCase();
+        if (word !== undefined && HRV_AUTH_SET[word] === true) {
+          found.push({
+            cli,
+            action: word,
+            themeId: null,
+            flags: tokens.slice(i + 1).filter((token) => token.startsWith("-")).map((token) => token.toLowerCase()),
+            dirChanged,
+            chained,
+            text: tokens.slice(i).join(" "),
+            auth: true,
           });
           break;
         }
@@ -223,6 +241,55 @@ export type ThemeCommandPlan =
 const ASK =
   "Stop and report STATUS: NEEDS_INPUT to the Leader with the exact command; only the user can approve it.";
 
+const HRV_AUTH_WORDS = "login|logout|select|whoiam|refresh-all";
+const HRV_AUTH_SET: Record<string, true> = Object.fromEntries(HRV_AUTH_WORDS.split("|").map((word) => [word, true]));
+const HRV_AUTH_ALLOWED_TEXT = "hrv whoiam, hrv refresh-all (no --force), hrv select <org_id>, hrv login --no-open";
+
+/**
+ * One Haravan sign-in command of a worker (user rule 09/11/2026): `whoiam`, `refresh-all` without
+ * `--force`, `select <org_id>` and `login --no-open`, each alone on its line and with no option
+ * before the command word. Everything else (`logout`, a bare `select` or `login`, `-t`/`--token`,
+ * `--print-url`) stays the user's. The hook cannot tell whether the Leader named the line in the
+ * worker's prompt; that part of the rule lives in the prompt.
+ */
+function planHrvAuthCommand(cmd: ThemeCommand): ThemeCommandPlan {
+  const block = (why: string): ThemeCommandPlan => ({
+    decision: "block",
+    code: THEME_PUSH_CODES.REMOTE_OP,
+    reason: `${THEME_PUSH_CODES.REMOTE_OP}: '${cmd.text}' ${why} Haravan sign-in is approved only by the Leader in the worker's prompt (E:/Work/AGENTS.md §8, bullet "Đăng nhập Haravan do Leader duyệt"), and only as ${HRV_AUTH_ALLOWED_TEXT}, each alone on its line. ${ASK}`,
+  });
+  const tokens = cmd.text.split(/\s+/).filter(Boolean);
+  if ((tokens[1] ?? "").startsWith("-")) return block("has an option before the command word.");
+  const args = tokens.slice(2).map((token) => token.toLowerCase());
+  if (args.some((arg) => arg === "--help" || arg === "-h")) return { decision: "allow" };
+  if (cmd.chained) {
+    return block("is chained with another command on the same line (;, &&, ||, |, &, line break, or a redirect such as 2>&1).");
+  }
+  if (cmd.dirChanged) {
+    return block("may not run in the folder that was checked: a cd, pushd, Set-Location or script ran before it in this line or earlier in this terminal.");
+  }
+  switch (cmd.action) {
+    case "whoiam":
+      return args.length === 0 ? { decision: "allow" } : block("takes no argument or option.");
+    case "refresh-all":
+      if (args.length === 0) return { decision: "allow" };
+      if (args.some((arg) => arg === "--force" || arg.startsWith("--force=") || isShortBundleWith(arg, "f"))) {
+        return block("uses --force, which rotates the token of every org, fresh ones included.");
+      }
+      return block("takes no argument or option.");
+    case "select":
+      return args.length === 1 && /^\d+$/.test(args[0] ?? "")
+        ? { decision: "allow" }
+        : block("must be 'select <org_id>' with one numeric org id and nothing else; a bare select opens an interactive menu.");
+    case "login":
+      return args.length === 1 && args[0] === "--no-open"
+        ? { decision: "allow" }
+        : block("must be exactly 'login --no-open'; a bare login opens a browser, and -t/--token, --print-url or any other option is refused.");
+    default:
+      return block(`is '${cmd.action}', which a worker may not run.`);
+  }
+}
+
 /**
  * One command against the worker's bound theme id (`null` when the workspace has
  * no `.haravan-cli_local.json`).
@@ -237,6 +304,7 @@ export function planThemeCommand(cmd: ThemeCommand, boundThemeId: string | null)
     };
   }
   if (cmd.cli === "sapo") return planSapoCommand(cmd, boundThemeId);
+  if (cmd.auth === true) return planHrvAuthCommand(cmd);
   if (cmd.cli === "hrv" && cmd.flags.some((flag) => flag === "--prune" || flag.startsWith("--prune="))) {
     if (!cmd.flags.some((flag) => flag === "--help" || flag === "-h")) {
       return {
@@ -1025,6 +1093,21 @@ function sapoTopSnippet(text: string): string | null {
   return match === null ? null : match[0].replace(/\s+/g, " ").trim().slice(0, 120);
 }
 
+const HRV_CLI_WORD = String.raw`(?:hrv|haravan-cli|haravan)(?:\.(?:cmd|exe|ps1|bat|js|mjs|cjs))?`;
+const HRV_AUTH_RE = new RegExp(
+  String.raw`(${CLI_START})(${HRV_CLI_WORD})${CLI_END}(?:\s+-\S+(?:\s+[^\s-]\S*)?)*\s+(?:${HRV_AUTH_WORDS})(?![a-z0-9_.-])`,
+  "gi",
+);
+
+/** `hrv login|logout|select|whoiam|refresh-all` (Haravan sign-in), which names no `theme` word. A folder named `Haravan` is not the CLI. */
+function hrvAuthSnippet(text: string): string | null {
+  for (const match of text.matchAll(HRV_AUTH_RE)) {
+    if (isFolderName(match[2] ?? "", match[1] ?? "")) continue;
+    return match[0].replace(/\s+/g, " ").trim().slice(0, 120);
+  }
+  return null;
+}
+
 /**
  * The text that makes `text` a use of the theme CLI the gate has to judge: `hrv|haravan|
  * haravan-cli|shopify ... theme`, a shop write through `hrv api` / `hrv rollback-last-push`, or an
@@ -1034,21 +1117,350 @@ function sapoTopSnippet(text: string): string | null {
  * changed shop. A folder named after a CLI (`.../Haravan`) and a keyword quoted inside a search
  * pattern are not uses of it.
  */
-export function themeCliEvidence(text: string): string | null {
-  if (typeof text !== "string" || text.length === 0) return null;
+function rawThemeCliEvidence(text: string, opts: { auth?: boolean }): string | null {
   return (
     themeMentionSnippet(text) ??
     themeMentionSnippet(unquoted(text)) ??
     remoteWriteSnippet(text) ??
     sapoTopSnippet(text) ??
     sapoTopSnippet(unquoted(text)) ??
+    (opts.auth === false ? null : (hrvAuthSnippet(text) ?? hrvAuthSnippet(unquoted(text)))) ??
     indirectionSnippet(text)
   );
 }
 
+/** What bash makes of the escapes inside `$'...'`: `\x6c` is `l`, `\n` a line break; an unknown escape stays as typed. */
+const ANSI_C_SIMPLE: Record<string, string> = {
+  n: "\n", t: "\t", r: "\r", a: "\x07", b: "\b", e: "\x1b", E: "\x1b", f: "\f", v: "\v", "\\": "\\", "'": "'", '"': '"', "?": "?",
+};
+
+function ansiCDecode(body: string): string {
+  let out = "";
+  for (let i = 0; i < body.length; i += 1) {
+    const ch = body.charAt(i);
+    if (ch !== "\\" || i === body.length - 1) {
+      out += ch;
+      continue;
+    }
+    const next = body.charAt(i + 1);
+    const tail = body.slice(i + 2);
+    const numeric =
+      next === "x" ? /^[0-9a-fA-F]{1,2}/.exec(tail) : next === "u" ? /^[0-9a-fA-F]{1,4}/.exec(tail) : next === "U" ? /^[0-9a-fA-F]{1,8}/.exec(tail) : /^[0-7]{0,2}/.exec(tail);
+    if (/[xuU0-7]/.test(next) && numeric !== null && (next >= "0" && next <= "7" ? true : numeric[0].length > 0)) {
+      const digits = (next >= "0" && next <= "7" ? next : "") + numeric[0];
+      const code = parseInt(digits, next >= "0" && next <= "7" ? 8 : 16);
+      out += code <= 0x10ffff ? String.fromCodePoint(code) : "";
+      i += 1 + numeric[0].length;
+    } else if (ANSI_C_SIMPLE[next] !== undefined) {
+      out += ANSI_C_SIMPLE[next];
+      i += 1;
+    } else {
+      out += ch;
+    }
+  }
+  return out;
+}
+
+/**
+ * Expansions whose value is known without running anything: `$IFS` / `${IFS}` (a blank, the classic
+ * way to spell a space), and the ones that are empty on an ordinary shell: `$(:)`, `$(true)`,
+ * `` `:` ``, `${z}`, `${z:-}`, `${z-}`, `$1`..`$9`, `$@`, `$*`.
+ */
+const STATIC_EXPANSION_RE = /^(?:(\$\{IFS\}|\$IFS(?![A-Za-z0-9_]))|\$\(\s*(?::|true)\s*\)|`\s*(?::|true)\s*`|\$\{[A-Za-z_][A-Za-z0-9_]*(?::?-)?\}|\$[1-9@*]|\$\{[1-9@*]\})/;
+
+function staticExpansion(here: string): { length: number; value: string } | null {
+  const match = here.charAt(0) === "$" || here.charAt(0) === "`" ? STATIC_EXPANSION_RE.exec(here) : null;
+  return match === null ? null : { length: match[0].length, value: match[1] === undefined ? "" : " " };
+}
+
+/**
+ * One static pass of what bash does to a line before it runs a command: `\<newline>` joins the lines,
+ * `\x` is `x`, `'a'` and `"a"` are `a`, `$'\x6c'` is `l`, `$"a"` is `a`, and an empty expansion
+ * (`$(:)`, `` `:` ``, `${z}`) vanishes. Nothing is executed: a command substitution that is not
+ * provably empty, a variable and a glob stay as typed. The analyzer reads raw characters, so
+ * `hrv l\ogout`, `hrv 'l'ogout`, `hrv l$(:)ogout` or `h$(:)rv theme publish 1` look like other
+ * words to it while the shell runs `hrv logout` and `hrv theme publish 1`.
+ */
+function foldOnce(text: string): string {
+  let out = "";
+  let i = 0;
+  const n = text.length;
+  while (i < n) {
+    const ch = text.charAt(i);
+    const rest = text.slice(i);
+    if (ch === "\\") {
+      const next = text.charAt(i + 1);
+      if (next === "\r" && text.charAt(i + 2) === "\n") i += 3;
+      else if (next === "\n") i += 2;
+      else if (next === "") {
+        out += ch;
+        i += 1;
+      } else {
+        out += next;
+        i += 2;
+      }
+    } else if (ch === "'" || (ch === "$" && text.charAt(i + 1) === "'")) {
+      const ansi = ch === "$";
+      const start = i + (ansi ? 2 : 1);
+      let end = start;
+      while (end < n && text.charAt(end) !== "'") end += ansi && text.charAt(end) === "\\" ? 2 : 1;
+      if (end >= n) {
+        out += rest;
+        break;
+      }
+      const body = text.slice(start, end);
+      out += ansi ? ansiCDecode(body) : body;
+      i = end + 1;
+    } else if (ch === '"' || (ch === "$" && text.charAt(i + 1) === '"')) {
+      const start = i + (ch === "$" ? 2 : 1);
+      let end = start;
+      while (end < n && text.charAt(end) !== '"') end += text.charAt(end) === "\\" ? 2 : 1;
+      if (end >= n) {
+        out += rest;
+        break;
+      }
+      let inner = "";
+      for (let k = start; k < end; ) {
+        const here = text.slice(k, end);
+        const known = staticExpansion(here);
+        if (known !== null) {
+          inner += known.value;
+          k += known.length;
+        } else if (here.charAt(0) === "\\" && /^\\[\\"$`\n]/.test(here)) {
+          inner += here.charAt(1);
+          k += 2;
+        } else {
+          inner += here.charAt(0);
+          k += 1;
+        }
+      }
+      out += inner;
+      i = end + 1;
+    } else {
+      const known = staticExpansion(rest);
+      if (known !== null) {
+        out += known.value;
+        i += known.length;
+      } else {
+        out += ch;
+        i += 1;
+      }
+    }
+  }
+  return out;
+}
+
+const FOLD_TRIGGER_RE = /[\\'"$`{]/;
+
+/**
+ * Bash brace expansion of comma lists, word by word: `l{,}ogout` is `logout logout`, `{hrv,logout}`
+ * is `hrv logout`. `${x:-a,b}` is a parameter expansion, not a brace list.
+ */
+function expandBraces(text: string): string {
+  return text.replace(/\S+/g, (word) => {
+    let words = [word];
+    for (let round = 0; round < 4; round += 1) {
+      let changed = false;
+      const next: string[] = [];
+      for (const candidate of words) {
+        const match = /^([\s\S]*?)\{([^{}]*,[^{}]*)\}([\s\S]*)$/.exec(candidate);
+        if (match === null || (match[1] ?? "").endsWith("$")) {
+          next.push(candidate);
+          continue;
+        }
+        changed = true;
+        for (const alternative of (match[2] ?? "").split(",")) next.push(`${match[1]}${alternative}${match[3]}`);
+      }
+      words = next.slice(0, 64);
+      if (!changed) break;
+    }
+    return words.join(" ");
+  });
+}
+
+/**
+ * The line as the shell reads it, once and twice folded (`sh -c "h\\rv logout"` is `h\rv logout` for
+ * the outer shell and `hrv logout` for the inner one) and with its brace lists expanded; only the
+ * views that differ from `text`.
+ */
+function foldViews(text: string): string[] {
+  if (!FOLD_TRIGGER_RE.test(text)) return [];
+  const once = foldOnce(text);
+  const twice = foldOnce(once);
+  const views: string[] = [];
+  // The backslash-only view stays: an eval cell holds Python or JS source, where `r"""h\rv"""` is no shell quoting.
+  const bareEscapes = text.replace(/\\\r?\n/g, "").replace(/\\([^\r\n])/g, "$1");
+  for (const view of [once, twice, bareEscapes, expandBraces(text), expandBraces(once), expandBraces(twice)]) {
+    if (view !== text && !views.includes(view)) views.push(view);
+  }
+  return views;
+}
+
+/** What a line asks the CLI to do, as comparable keys: parsed commands plus shop writes. */
+function commandKeys(text: string, opts: { auth?: boolean }): Set<string> {
+  const keys = new Set<string>();
+  for (const cmd of parseThemeCommands(text, opts)) {
+    const flagNames = cmd.flags.map((flag) => flag.split("=", 1)[0]).join(" ");
+    keys.add(`${cmd.cli}|${cmd.action}|${cmd.themeId ?? ""}|${flagNames}`);
+  }
+  const write = remoteWriteSnippet(text);
+  if (write !== null) keys.add(`write|${write.toLowerCase()}`);
+  return keys;
+}
+
+/**
+ * True when the shell's own reading of the line (escapes, quotes, empty expansions folded away) asks
+ * the CLI for a command or a flag that the raw text does not show. A backslash that only separates a
+ * path (`C:\npm\hrv.cmd login`, `--only layout\theme.liquid`) or a quote around a path leaves the
+ * commands alone and is not one.
+ */
+function escapeHidesCommand(text: string, opts: { auth?: boolean }): boolean {
+  const views = foldViews(text);
+  if (views.length === 0) return false;
+  const shown = commandKeys(text, opts);
+  for (const view of views) for (const key of commandKeys(view, opts)) if (!shown.has(key)) return true;
+  return false;
+}
+
+interface ShellSegment {
+  text: string;
+  /** The segment is the target of a single `|`. */
+  afterPipe: boolean;
+}
+
+/** Segments split on `;`, `&`, `|` and line breaks outside quotes, keeping whether a single `|` led into each. */
+function shellSegments(text: string): ShellSegment[] {
+  const segments: ShellSegment[] = [];
+  let current = "";
+  let quote: string | null = null;
+  let afterPipe = false;
+  let pipeNext = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text.charAt(i);
+    if (quote !== null) {
+      if (ch === quote) quote = null;
+      current += ch;
+    } else if (ch === "\\") {
+      current += ch + text.charAt(i + 1);
+      i += 1;
+    } else if (ch === '"' || ch === "'" || ch === "`") {
+      quote = ch;
+      current += ch;
+    } else if (ch === ";" || ch === "|" || ch === "&" || ch === "\r" || ch === "\n") {
+      if (current.trim().length > 0) segments.push({ text: current, afterPipe });
+      current = "";
+      afterPipe = pipeNext || (ch === "|" && text.charAt(i - 1) !== "|" && text.charAt(i + 1) !== "|");
+      pipeNext = false;
+      if (ch !== "|" && ch !== "\r" && ch !== "\n") afterPipe = false;
+    } else {
+      current += ch;
+    }
+  }
+  if (current.trim().length > 0) segments.push({ text: current, afterPipe });
+  return segments;
+}
+
+/** Characters that make a command word something other than the letters it shows. `\` and `~` are left out: a path has them. */
+const CMD_ACTIVE_RE = /[$`'"{}*?[\]^%!]/;
+/** The same for the words after it: a quote, expansion, glob, brace list, home `~`, escape or cmd.exe `^` / `%`. */
+const ARG_ACTIVE_RE = /[$`'"{}()@*?[\]~^%!\\]/;
+/** A whole word in plain quotes with only path characters inside: `"1001"`, `'push'`. The parser already reads it as that word. */
+const WHOLE_QUOTED_RE = /^(["'])[A-Za-z0-9_.\-/:@=,+]*\1$/;
+/** Words that make a command line a sign-in, a push or a shop write when they follow a CLI word hidden behind an expansion. */
+const OBSCURED_ACTION_SET: Record<string, true> = Object.fromEntries(
+  "login logout select whoiam refresh-all theme api rollback-last-push push publish restore backup".split(" ").map((word) => [word, true]),
+);
+/** Words that run the next word as a command (`env hrv logout`, `xargs hrv`, `Start-Process hrv -ArgumentList ...`). */
+const WRAPPER_SET: Record<string, true> = Object.fromEntries(
+  "xargs parallel env command exec nohup time sudo builtin nice timeout watch stdbuf setsid start start-process saps call cmd powershell pwsh bash sh zsh dash npx node bun deno"
+    .split(" ")
+    .map((word) => [word, true]),
+);
+
+function foldAll(token: string): string {
+  return foldOnce(foldOnce(token));
+}
+
+/** `hrv`, `C:\npm\hrv.cmd`, `./node_modules/.bin/haravan` are the CLI; a folder named `Haravan` is not. */
+function isCliToken(token: string): boolean {
+  if (cliOf(token) === null) return false;
+  if (!/[\\/]/.test(token)) return true;
+  return !isFolderName(path.win32.basename(path.posix.basename(token)), "/");
+}
+
+/** The word the shell hands over once quotes and escapes are folded, lower-cased (`l\ogout` and `"push"` are `logout` and `push`). */
+function foldedWord(token: string): string {
+  return foldAll(token).trim().toLowerCase();
+}
+
+/**
+ * A theme CLI the shell runs under a word the raw characters do not show, or hides behind an
+ * expansion: the text of the first such segment, else null. A segment whose command word is the
+ * CLI (spelled plainly or, once quotes and empty expansions are folded, spelled so) is refused
+ * when the command word itself, the first two words after it (`theme push`, `api put`, `login`) or
+ * a flag name carries a quote, expansion, glob, brace list, `~`, escape or cmd.exe `^`/`%`, or when
+ * any later word holds `$` or a backtick (an expansion may split into more flags). Quotes, globs and
+ * `~` in the values of the rest (`--only "layout/*.liquid"`, `--only=sections/*.liquid`) are the
+ * user's own arguments and stay legal. A command word that is itself an expansion (`${X:-hrv}`,
+ * `$0`) is refused when an action word of the CLIs follows it; a wrapper (`xargs`, `env`, `nohup`,
+ * `Start-Process`, `bash`, ...) that is handed the CLI word is refused; and so is a bare CLI word that
+ * is the target of a pipe (`printf logout | hrv`).
+ */
+function obscuredCliSnippet(text: string): string | null {
+  for (const segment of shellSegments(text)) {
+    const tokens = segment.text.trim().split(/\s+/).filter(Boolean);
+    while (tokens.length > 0 && /^[A-Za-z_]\w*=/.test(tokens[0] ?? "")) tokens.shift();
+    const cmd = tokens[0];
+    if (cmd === undefined) continue;
+    const rest = tokens.slice(1);
+    const hit = (): string => snippetOf(segment.text, 0, segment.text.length);
+    const foldedCmd = foldAll(cmd).trim().split(/\s+/)[0] ?? "";
+    if (isCliToken(cmd) || isCliToken(foldedCmd)) {
+      if (CMD_ACTIVE_RE.test(cmd)) return hit();
+      let positional = 0;
+      for (const word of rest) {
+        if (/[$`]/.test(word)) return hit();
+        if (word.length > 1 && word.startsWith("-")) {
+          if (ARG_ACTIVE_RE.test(word.split("=", 1)[0] ?? "")) return hit();
+        } else if (positional < 2) {
+          positional += 1;
+          if (ARG_ACTIVE_RE.test(word) && !WHOLE_QUOTED_RE.test(word)) return hit();
+        }
+      }
+      if (segment.afterPipe && rest.length === 0) return hit();
+      continue;
+    }
+    if (/[$`*?[{]/.test(cmd)) {
+      const words = rest.filter((word) => !(word.length > 1 && word.startsWith("-")));
+      if (rest.some((word) => OBSCURED_ACTION_SET[foldedWord(word)] === true)) return hit();
+      if (words.length > 0 && /[$`]/.test(words[0] ?? "")) return hit();
+      continue;
+    }
+    const base = path.win32.basename(path.posix.basename(foldedCmd)).toLowerCase().replace(/\.(?:cmd|exe|ps1|bat)$/, "");
+    if (WRAPPER_SET[base] !== true) continue;
+    for (let i = 0; i < rest.length; i += 1) {
+      if (!isCliToken(foldAll(rest[i] ?? ""))) continue;
+      const next = rest[i + 1];
+      if (next === undefined || next.startsWith("-") || OBSCURED_ACTION_SET[foldedWord(next)] === true) return hit();
+    }
+  }
+  return null;
+}
+
+export function themeCliEvidence(text: string, opts: { auth?: boolean } = {}): string | null {
+  if (typeof text !== "string" || text.length === 0) return null;
+  const raw = rawThemeCliEvidence(text, opts);
+  if (raw !== null) return raw;
+  for (const view of foldViews(text)) {
+    const seen = rawThemeCliEvidence(view, opts);
+    if (seen !== null) return seen;
+  }
+  return obscuredCliSnippet(text);
+}
+
 /** True when `themeCliEvidence` finds a use of the theme CLI in `text`. */
-export function mentionsThemeCli(text: string): boolean {
-  return themeCliEvidence(text) !== null;
+export function mentionsThemeCli(text: string, opts: { auth?: boolean } = {}): boolean {
+  return themeCliEvidence(text, opts) !== null;
 }
 
 /**
@@ -1096,14 +1508,15 @@ function topLevelSegments(text: string): string[] {
  * line-continued CLI word, a global option before `theme`, or a write to the binding file
  * hides what runs, so it is refused as COMPLEX instead of being guessed at.
  */
-export function classifyThemeLine(text: string, opts: { assumeDirChanged?: boolean } = {}): ThemeLinePlan {
-  if (typeof text !== "string" || !mentionsThemeCli(text)) return { decision: "none" };
+export function classifyThemeLine(text: string, opts: { assumeDirChanged?: boolean; auth?: boolean } = {}): ThemeLinePlan {
+  const authOpts = { auth: opts.auth };
+  if (typeof text !== "string" || !mentionsThemeCli(text, authOpts)) return { decision: "none" };
   const command = text.trim().slice(0, 200);
   const complex = (why: string): ThemeLinePlan => ({
     decision: "block",
     code: THEME_PUSH_CODES.COMPLEX,
     command,
-    reason: `${THEME_PUSH_CODES.COMPLEX}: '${command}' names the theme CLI in a shape the push rules cannot read (${why}). Run each theme command on its own as one plain bash command - hrv theme <action> ... - with the bash tool's cwd set to the theme folder; no wrapper (bash -c, cmd /c, powershell -c, npx), no ( ), $( ), { }, backtick or backslash-newline, no quoted CLI word, no global option before 'theme', and no mention of the CLI inside another command's text (git commit -F <file> instead of -m). ${ASK}`,
+    reason: `${THEME_PUSH_CODES.COMPLEX}: '${command}' names the theme CLI in a shape the push rules cannot read (${why}). Run each theme command on its own as one plain bash command - hrv theme <action> ... - with the bash tool's cwd set to the theme folder; no wrapper (bash -c, cmd /c, powershell -c, npx), no ( ), $( ), { }, backtick, backslash-newline or backslash inside a command word, no quoted CLI word, no global option before 'theme', and no mention of the CLI inside another command's text (git commit -F <file> instead of -m). ${ASK}`,
   });
   if (remoteWriteSnippet(text) !== null) {
     return {
@@ -1119,16 +1532,22 @@ export function classifyThemeLine(text: string, opts: { assumeDirChanged?: boole
   if (COMPLEX_SHAPE_RE.test(text)) {
     return complex("subshell, grouping, backtick, line continuation or .haravan-cli_local.json / .sapo-cli_local.json");
   }
+  if (escapeHidesCommand(text, authOpts)) {
+    return complex("an escape, quote or empty expansion changes which command or flag the shell runs");
+  }
+  if (obscuredCliSnippet(text) !== null) {
+    return complex("a quote, expansion, glob or escape in the CLI word, its command word or a flag hides what the shell runs");
+  }
   let mentioningSegments = 0;
   for (const segment of topLevelSegments(text)) {
-    if (!mentionsThemeCli(segment)) continue;
+    if (!mentionsThemeCli(segment, authOpts)) continue;
     mentioningSegments += 1;
     const first = segment.trim().split(/\s+/)[0] ?? "";
     if (cliOf(first) === null) return complex("the segment does not start with the CLI");
-    if (parseThemeCommands(segment).length === 0) return complex("no 'theme <action>' directly after the CLI word");
+    if (parseThemeCommands(segment, authOpts).length === 0) return complex("no 'theme <action>' directly after the CLI word");
   }
   if (mentioningSegments === 0) return complex("the CLI word and 'theme' are not in the same command");
-  const commands = parseThemeCommands(text).map((cmd) => ({
+  const commands = parseThemeCommands(text, authOpts).map((cmd) => ({
     ...cmd,
     dirChanged: cmd.dirChanged || opts.assumeDirChanged === true,
   }));
@@ -1154,6 +1573,22 @@ function namesCliWordInCell(text: string): boolean {
 }
 
 /**
+ * The string literals of an eval cell, each alone and every line's literals joined by a blank (the
+ * argument-list form `["hrv", "l*"]`), so the shell rules can judge the text a cell hands to a shell
+ * without the call syntax around it (`os.system(`, `subprocess.run([`, `r"""`).
+ */
+function cellShellTexts(code: string): string[] {
+  const texts: string[] = [];
+  for (const line of code.split(/\r?\n/)) {
+    const literals = [...line.matchAll(/"((?:[^"\\\n]|\\.)*)"|'((?:[^'\\\n]|\\.)*)'/g)].map((match) => match[1] ?? match[2] ?? "").filter((text) => text.length > 0);
+    texts.push(...literals);
+    if (literals.length > 1) texts.push(literals.join(" "));
+  }
+  for (const match of code.matchAll(/"""([\s\S]*?)"""|'''([\s\S]*?)'''/g)) texts.push(match[1] ?? match[2] ?? "");
+  return texts;
+}
+
+/**
  * An `eval` cell (Python or JS) reaches the theme CLI only by starting a process (`subprocess`,
  * `os.system`, `!cmd`, `Bun.$`, `$\``, `child_process`), where argument lists and working-directory
  * changes cannot be read back reliably. A worker runs theme commands through the bash tool only,
@@ -1162,7 +1597,13 @@ function namesCliWordInCell(text: string): boolean {
  */
 export function planEvalThemeCode(code: string): ThemeCommandPlan {
   if (typeof code !== "string" || !SUBPROCESS_RE.test(code)) return { decision: "allow" };
-  if (!namesCliWordInCell(code) && !namesCliWordInCell(unquoted(code)) && !mentionsThemeCli(code)) return { decision: "allow" };
+  const namesCli =
+    namesCliWordInCell(code) ||
+    namesCliWordInCell(unquoted(code)) ||
+    foldViews(code).some(namesCliWordInCell) ||
+    mentionsThemeCli(code) ||
+    cellShellTexts(code).some((text) => mentionsThemeCli(text));
+  if (!namesCli) return { decision: "allow" };
   return {
     decision: "block",
     code: THEME_PUSH_CODES.VIA_EVAL,
