@@ -1741,3 +1741,86 @@ test('the packs, conflicts and evidence lookups are served by indexes', () => {
     raw.close();
   }
 });
+
+// Every v4 JSONL table as importScout reads it: file, table and the [column, line field] pairs; the first pair is the key.
+const V4_JSONL_TABLES: Array<[string, string, Array<[string, string]>]> = [
+  ['experience-nodes', 'experience_nodes', [['nodeId', 'nodeId'], ['kind', 'kind'], ['refId', 'refId'], ['label', 'label'], ['context', 'context'], ['createdAt', 'createdAt']]],
+  ['experience-edges', 'experience_edges', [['edgeId', 'edgeId'], ['fromNodeId', 'fromNodeId'], ['toNodeId', 'toNodeId'], ['kind', 'kind'], ['evidence', 'evidence'], ['createdAt', 'createdAt']]],
+  ['anti-patterns', 'anti_patterns', [['patternId', 'patternId'], ['name', 'name'], ['whatNotToDo', 'whatNotToDo'], ['symptoms', 'symptoms'], ['evidence', 'evidence'], ['affectedPlatform', 'affectedPlatform'], ['replacement', 'replacement'], ['status', 'status'], ['createdAt', 'createdAt']]],
+  ['workarounds', 'workarounds', [['workaroundId', 'workaroundId'], ['problem', 'problem'], ['condition', 'condition'], ['solution', 'solution'], ['reason', 'reason'], ['platform', 'platform'], ['version', 'version'], ['evidence', 'evidence'], ['stillValid', 'stillValid'], ['createdAt', 'createdAt']]],
+  ['fix-patterns', 'fix_patterns', [['fixId', 'fixId'], ['before', 'before'], ['after', 'after'], ['why', 'why'], ['evidence', 'evidence'], ['lesson', 'lesson'], ['platform', 'platform'], ['createdAt', 'createdAt']]],
+  ['hidden-requirements', 'hidden_requirements', [['reqId', 'reqId'], ['task', 'task'], ['explicitReq', 'explicitReq'], ['inferredReq', 'inferredReq'], ['likelihood', 'likelihood'], ['evidence', 'evidence'], ['createdAt', 'createdAt']]],
+  ['commercial-intel', 'commercial_intel', [['intelId', 'intelId'], ['taskType', 'taskType'], ['quote', 'quote'], ['scope', 'scope'], ['estimate', 'estimate'], ['actual', 'actual'], ['risk', 'risk'], ['revisionCount', 'revisionCount'], ['createdAt', 'createdAt']]],
+  ['tool-intel', 'tool_intel', [['toolId', 'toolId'], ['name', 'name'], ['problemSolved', 'problemSolved'], ['workflowStage', 'workflowStage'], ['inputs', 'inputs'], ['outputs', 'outputs'], ['failureModes', 'failureModes'], ['timeSaved', 'timeSaved'], ['maintenanceCost', 'maintenanceCost'], ['roi', 'roi'], ['usageFrequency', 'usageFrequency'], ['status', 'status'], ['createdAt', 'createdAt']]],
+  ['archetypes', 'archetypes', [['archetypeId', 'archetypeId'], ['name', 'name'], ['platform', 'platform'], ['maturityLevel', 'maturityLevel'], ['evidenceJson', 'evidence'], ['createdAt', 'createdAt']]],
+  ['platform-semantics', 'platform_semantics', [['semanticId', 'semanticId'], ['platform', 'platform'], ['semanticRole', 'semanticRole'], ['propertyName', 'propertyName'], ['cssFact', 'cssFact'], ['semanticTruth', 'semanticTruth'], ['evidence', 'evidence'], ['createdAt', 'createdAt']]],
+  ['practice-parity', 'practice_parity', [['parityId', 'parityId'], ['practice', 'practice'], ['declared', 'declared'], ['observed', 'observed'], ['gap', 'gap'], ['evidence', 'evidence'], ['createdAt', 'createdAt']]],
+  ['skill-versions', 'skill_versions', [['versionId', 'versionId'], ['skillId', 'skillId'], ['version', 'version'], ['failure', 'failure'], ['fix', 'fix'], ['production', 'production'], ['createdAt', 'createdAt']]],
+];
+const V4_NUMERIC_FIELDS = new Set(['stillValid', 'quote', 'estimate', 'actual', 'revisionCount', 'timeSaved', 'maintenanceCost', 'roi', 'maturityLevel']);
+
+// Every field of every line carries a value unique to its position and line, so a column bound to the wrong field cannot pass.
+function v4JsonlValue(table: string, field: string, position: number, line: number): string | number | string[] {
+  if (V4_NUMERIC_FIELDS.has(field)) return (position + 1) * 10 + line;
+  if (table === 'archetypes' && field === 'evidence') return [`evidence-${line}`];
+  return `${field}-${position}-${line}`;
+}
+
+function fixtureV4Jsonl(lines: number) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'core-v4-jsonl-'));
+  fs.writeFileSync(path.join(dir, 'project-register.json'), JSON.stringify({ runId: 't', units: [] }));
+  fs.writeFileSync(path.join(dir, 'skills-register.json'), JSON.stringify({ skills: [] }));
+  for (const [file, table, cols] of V4_JSONL_TABLES) {
+    const rows: string[] = [];
+    for (let line = 1; line <= lines; line++) {
+      const row: Record<string, unknown> = {};
+      cols.forEach(([, field], position) => { row[field] = v4JsonlValue(table, field, position, line); });
+      rows.push(JSON.stringify(row));
+    }
+    fs.writeFileSync(path.join(dir, `${file}.jsonl`), rows.join('\n') + '\n');
+  }
+  return dir;
+}
+
+test('importScout loads every v4 JSONL table column for column and is idempotent', () => {
+  const dir = fixtureV4Jsonl(2);
+  const dbPath = path.join(dir, 'core.db');
+  const core = openCore(dbPath);
+  const raw = new DatabaseSync(dbPath);
+  try {
+    core.importScout(dir);
+    core.importScout(dir);
+    for (const [, table, cols] of V4_JSONL_TABLES) {
+      const rows = raw.prepare(`SELECT * FROM ${table} ORDER BY ${cols[0][0]}`).all() as Array<Record<string, unknown>>;
+      assert.equal(rows.length, 2, `${table}: two rows after importing twice`);
+      rows.forEach((row, i) => {
+        cols.forEach(([column, field], position) => {
+          const sent = v4JsonlValue(table, field, position, i + 1);
+          const expected = Array.isArray(sent) ? JSON.stringify(sent) : sent;
+          assert.deepEqual(row[column], expected, `${table}.${column} line ${i + 1}`);
+        });
+      });
+    }
+  } finally {
+    raw.close();
+    core.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('importScout prepares its JSONL statements once per table, not once per line', () => {
+  const small = fixtureV4Jsonl(2);
+  const large = fixtureV4Jsonl(12);
+  const smallCore = openCore(path.join(small, 'core.db'));
+  const largeCore = openCore(path.join(large, 'core.db'));
+  try {
+    const few = countPrepares(smallCore, () => { smallCore.importScout(small); });
+    const many = countPrepares(largeCore, () => { largeCore.importScout(large); });
+    assert.equal(many, few, 'the statement count does not grow with the number of lines');
+  } finally {
+    smallCore.close();
+    largeCore.close();
+    fs.rmSync(small, { recursive: true, force: true });
+    fs.rmSync(large, { recursive: true, force: true });
+  }
+});

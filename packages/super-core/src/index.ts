@@ -362,6 +362,12 @@ export class Core {
     const jsonl = (f: string) => fs.existsSync(f)
       ? fs.readFileSync(f, 'utf8').split(/\r?\n/).filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { skippedLines++; return null; } }).filter(Boolean)
       : [];
+    // Prepares the statement once and runs it per JSONL line; `row` lists the
+    // bind values in the column order of `sql`.
+    const loadJsonl = (file: string, sql: string, row: (l: Record<string, unknown>) => unknown[]) => {
+      const stmt = this.db.prepare(sql);
+      for (const l of jsonl(path.join(reportsDir, file))) stmt.run(...row(l) as never[]);
+    };
 
     this.db.exec('BEGIN');
     try {
@@ -399,26 +405,16 @@ export class Core {
         ins.conflict.run(c.id, c.kind, c.subject ?? null, JSON.stringify(c.positions ?? []), c.state ?? 'UNRESOLVED', c.classification ?? null, c.note ?? null, c.platform ?? null, cUnit);
       }
       // v4: new JSONL types
-      for (const l of jsonl(path.join(reportsDir, 'experience-nodes.jsonl'))) {
-        this.db.prepare('INSERT OR REPLACE INTO experience_nodes(nodeId,kind,refId,label,context,createdAt) VALUES (?,?,?,?,?,?)')
-          .run(l.nodeId ?? `exp-${uuid()}`, l.kind, l.refId ?? null, l.label ?? null, l.context ?? null, l.createdAt ?? now());
-      }
-      for (const l of jsonl(path.join(reportsDir, 'experience-edges.jsonl'))) {
-        this.db.prepare('INSERT OR REPLACE INTO experience_edges(edgeId,fromNodeId,toNodeId,kind,evidence,createdAt) VALUES (?,?,?,?,?,?)')
-          .run(l.edgeId ?? `edge-${uuid()}`, l.fromNodeId, l.toNodeId, l.kind, l.evidence ?? null, l.createdAt ?? now());
-      }
-      for (const l of jsonl(path.join(reportsDir, 'anti-patterns.jsonl'))) {
-        this.db.prepare('INSERT OR REPLACE INTO anti_patterns(patternId,name,whatNotToDo,symptoms,evidence,affectedPlatform,replacement,status,createdAt) VALUES (?,?,?,?,?,?,?,?,?)')
-          .run(l.patternId ?? `ap-${uuid()}`, l.name, l.whatNotToDo ?? null, l.symptoms ?? null, l.evidence ?? null, l.affectedPlatform ?? null, l.replacement ?? null, l.status ?? 'OBSERVED', l.createdAt ?? now());
-      }
-      for (const l of jsonl(path.join(reportsDir, 'workarounds.jsonl'))) {
-        this.db.prepare('INSERT OR REPLACE INTO workarounds(workaroundId,problem,condition,solution,reason,platform,version,evidence,stillValid,createdAt) VALUES (?,?,?,?,?,?,?,?,?,?)')
-          .run(l.workaroundId ?? `wa-${uuid()}`, l.problem, l.condition ?? null, l.solution ?? null, l.reason ?? null, l.platform ?? null, l.version ?? null, l.evidence ?? null, l.stillValid ?? 1, l.createdAt ?? now());
-      }
-      for (const l of jsonl(path.join(reportsDir, 'fix-patterns.jsonl'))) {
-        this.db.prepare('INSERT OR REPLACE INTO fix_patterns(fixId,before,after,why,evidence,lesson,platform,createdAt) VALUES (?,?,?,?,?,?,?,?)')
-          .run(l.fixId ?? `fix-${uuid()}`, l.before ?? null, l.after ?? null, l.why ?? null, l.evidence ?? null, l.lesson ?? null, l.platform ?? null, l.createdAt ?? now());
-      }
+      loadJsonl('experience-nodes.jsonl', 'INSERT OR REPLACE INTO experience_nodes(nodeId,kind,refId,label,context,createdAt) VALUES (?,?,?,?,?,?)',
+        (l) => [l.nodeId ?? `exp-${uuid()}`, l.kind, l.refId ?? null, l.label ?? null, l.context ?? null, l.createdAt ?? now()]);
+      loadJsonl('experience-edges.jsonl', 'INSERT OR REPLACE INTO experience_edges(edgeId,fromNodeId,toNodeId,kind,evidence,createdAt) VALUES (?,?,?,?,?,?)',
+        (l) => [l.edgeId ?? `edge-${uuid()}`, l.fromNodeId, l.toNodeId, l.kind, l.evidence ?? null, l.createdAt ?? now()]);
+      loadJsonl('anti-patterns.jsonl', 'INSERT OR REPLACE INTO anti_patterns(patternId,name,whatNotToDo,symptoms,evidence,affectedPlatform,replacement,status,createdAt) VALUES (?,?,?,?,?,?,?,?,?)',
+        (l) => [l.patternId ?? `ap-${uuid()}`, l.name, l.whatNotToDo ?? null, l.symptoms ?? null, l.evidence ?? null, l.affectedPlatform ?? null, l.replacement ?? null, l.status ?? 'OBSERVED', l.createdAt ?? now()]);
+      loadJsonl('workarounds.jsonl', 'INSERT OR REPLACE INTO workarounds(workaroundId,problem,condition,solution,reason,platform,version,evidence,stillValid,createdAt) VALUES (?,?,?,?,?,?,?,?,?,?)',
+        (l) => [l.workaroundId ?? `wa-${uuid()}`, l.problem, l.condition ?? null, l.solution ?? null, l.reason ?? null, l.platform ?? null, l.version ?? null, l.evidence ?? null, l.stillValid ?? 1, l.createdAt ?? now()]);
+      loadJsonl('fix-patterns.jsonl', 'INSERT OR REPLACE INTO fix_patterns(fixId,before,after,why,evidence,lesson,platform,createdAt) VALUES (?,?,?,?,?,?,?,?)',
+        (l) => [l.fixId ?? `fix-${uuid()}`, l.before ?? null, l.after ?? null, l.why ?? null, l.evidence ?? null, l.lesson ?? null, l.platform ?? null, l.createdAt ?? now()]);
       for (const l of jsonl(path.join(reportsDir, 'principles.jsonl'))) {
         // Content-addressed insert: a repeat of the same normalized sentence
         // merges its provenance into the existing row instead of stacking a
@@ -434,34 +430,20 @@ export class Core {
           this.mergePrincipleProvenance(l.statement, src, df);
         }
       }
-      for (const l of jsonl(path.join(reportsDir, 'hidden-requirements.jsonl'))) {
-        this.db.prepare('INSERT OR REPLACE INTO hidden_requirements(reqId,task,explicitReq,inferredReq,likelihood,evidence,createdAt) VALUES (?,?,?,?,?,?,?)')
-          .run(l.reqId ?? `req-${uuid()}`, l.task, l.explicitReq ?? null, l.inferredReq ?? null, l.likelihood ?? null, l.evidence ?? null, l.createdAt ?? now());
-      }
-      for (const l of jsonl(path.join(reportsDir, 'commercial-intel.jsonl'))) {
-        this.db.prepare('INSERT OR REPLACE INTO commercial_intel(intelId,taskType,quote,scope,estimate,actual,risk,revisionCount,createdAt) VALUES (?,?,?,?,?,?,?,?,?)')
-          .run(l.intelId ?? `ci-${uuid()}`, l.taskType, l.quote ?? null, l.scope ?? null, l.estimate ?? null, l.actual ?? null, l.risk ?? null, l.revisionCount ?? null, l.createdAt ?? now());
-      }
-      for (const l of jsonl(path.join(reportsDir, 'tool-intel.jsonl'))) {
-        this.db.prepare('INSERT OR REPLACE INTO tool_intel(toolId,name,problemSolved,workflowStage,inputs,outputs,failureModes,timeSaved,maintenanceCost,roi,usageFrequency,status,createdAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
-          .run(l.toolId ?? `tool-${uuid()}`, l.name, l.problemSolved ?? null, l.workflowStage ?? null, l.inputs ?? null, l.outputs ?? null, l.failureModes ?? null, l.timeSaved ?? null, l.maintenanceCost ?? null, l.roi ?? null, l.usageFrequency ?? null, l.status ?? 'OBSERVED', l.createdAt ?? now());
-      }
-      for (const l of jsonl(path.join(reportsDir, 'archetypes.jsonl'))) {
-        this.db.prepare('INSERT OR REPLACE INTO archetypes(archetypeId,name,platform,maturityLevel,evidenceJson,createdAt) VALUES (?,?,?,?,?,?)')
-          .run(l.archetypeId ?? `arch-${uuid()}`, l.name, l.platform ?? null, l.maturityLevel ?? null, JSON.stringify(l.evidence ?? []), l.createdAt ?? now());
-      }
-      for (const l of jsonl(path.join(reportsDir, 'platform-semantics.jsonl'))) {
-        this.db.prepare('INSERT OR REPLACE INTO platform_semantics(semanticId,platform,semanticRole,propertyName,cssFact,semanticTruth,evidence,createdAt) VALUES (?,?,?,?,?,?,?,?)')
-          .run(l.semanticId ?? `sem-${uuid()}`, l.platform, l.semanticRole, l.propertyName ?? null, l.cssFact ?? null, l.semanticTruth ?? null, l.evidence ?? null, l.createdAt ?? now());
-      }
-      for (const l of jsonl(path.join(reportsDir, 'practice-parity.jsonl'))) {
-        this.db.prepare('INSERT OR REPLACE INTO practice_parity(parityId,practice,declared,observed,gap,evidence,createdAt) VALUES (?,?,?,?,?,?,?)')
-          .run(l.parityId ?? `pp-${uuid()}`, l.practice, l.declared ?? null, l.observed ?? null, l.gap ?? null, l.evidence ?? null, l.createdAt ?? now());
-      }
-      for (const l of jsonl(path.join(reportsDir, 'skill-versions.jsonl'))) {
-        this.db.prepare('INSERT OR REPLACE INTO skill_versions(versionId,skillId,version,failure,fix,production,createdAt) VALUES (?,?,?,?,?,?,?)')
-          .run(l.versionId ?? `sv-${uuid()}`, l.skillId, l.version ?? null, l.failure ?? null, l.fix ?? null, l.production ?? null, l.createdAt ?? now());
-      }
+      loadJsonl('hidden-requirements.jsonl', 'INSERT OR REPLACE INTO hidden_requirements(reqId,task,explicitReq,inferredReq,likelihood,evidence,createdAt) VALUES (?,?,?,?,?,?,?)',
+        (l) => [l.reqId ?? `req-${uuid()}`, l.task, l.explicitReq ?? null, l.inferredReq ?? null, l.likelihood ?? null, l.evidence ?? null, l.createdAt ?? now()]);
+      loadJsonl('commercial-intel.jsonl', 'INSERT OR REPLACE INTO commercial_intel(intelId,taskType,quote,scope,estimate,actual,risk,revisionCount,createdAt) VALUES (?,?,?,?,?,?,?,?,?)',
+        (l) => [l.intelId ?? `ci-${uuid()}`, l.taskType, l.quote ?? null, l.scope ?? null, l.estimate ?? null, l.actual ?? null, l.risk ?? null, l.revisionCount ?? null, l.createdAt ?? now()]);
+      loadJsonl('tool-intel.jsonl', 'INSERT OR REPLACE INTO tool_intel(toolId,name,problemSolved,workflowStage,inputs,outputs,failureModes,timeSaved,maintenanceCost,roi,usageFrequency,status,createdAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        (l) => [l.toolId ?? `tool-${uuid()}`, l.name, l.problemSolved ?? null, l.workflowStage ?? null, l.inputs ?? null, l.outputs ?? null, l.failureModes ?? null, l.timeSaved ?? null, l.maintenanceCost ?? null, l.roi ?? null, l.usageFrequency ?? null, l.status ?? 'OBSERVED', l.createdAt ?? now()]);
+      loadJsonl('archetypes.jsonl', 'INSERT OR REPLACE INTO archetypes(archetypeId,name,platform,maturityLevel,evidenceJson,createdAt) VALUES (?,?,?,?,?,?)',
+        (l) => [l.archetypeId ?? `arch-${uuid()}`, l.name, l.platform ?? null, l.maturityLevel ?? null, JSON.stringify(l.evidence ?? []), l.createdAt ?? now()]);
+      loadJsonl('platform-semantics.jsonl', 'INSERT OR REPLACE INTO platform_semantics(semanticId,platform,semanticRole,propertyName,cssFact,semanticTruth,evidence,createdAt) VALUES (?,?,?,?,?,?,?,?)',
+        (l) => [l.semanticId ?? `sem-${uuid()}`, l.platform, l.semanticRole, l.propertyName ?? null, l.cssFact ?? null, l.semanticTruth ?? null, l.evidence ?? null, l.createdAt ?? now()]);
+      loadJsonl('practice-parity.jsonl', 'INSERT OR REPLACE INTO practice_parity(parityId,practice,declared,observed,gap,evidence,createdAt) VALUES (?,?,?,?,?,?,?)',
+        (l) => [l.parityId ?? `pp-${uuid()}`, l.practice, l.declared ?? null, l.observed ?? null, l.gap ?? null, l.evidence ?? null, l.createdAt ?? now()]);
+      loadJsonl('skill-versions.jsonl', 'INSERT OR REPLACE INTO skill_versions(versionId,skillId,version,failure,fix,production,createdAt) VALUES (?,?,?,?,?,?,?)',
+        (l) => [l.versionId ?? `sv-${uuid()}`, l.skillId, l.version ?? null, l.failure ?? null, l.fix ?? null, l.production ?? null, l.createdAt ?? now()]);
       for (const d of jsonl(path.join(reportsDir, 'decisions.jsonl'))) {
         ins.decision.run(d.decisionId, d.unitId, d.statement, d.context ?? null, d.alternatives ?? null, d.chosen ?? null, JSON.stringify(d.evidence ?? []), d.problem ?? null, d.tradeoffs ?? null, d.outcome ?? null, d.confidence ?? null, d.platform ?? null, d.createdAt ?? now(), d.namespace ?? (d.platform ? 'PLATFORM_KNOWLEDGE' : null));
       }
