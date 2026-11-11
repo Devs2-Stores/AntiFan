@@ -744,7 +744,7 @@ export class BridgeServer {
     if (this.isDisposed) return;
     let existing: string[];
     try {
-      existing = fs.readdirSync(this.pairingQueueDir);
+      existing = await fs.promises.readdir(this.pairingQueueDir);
     } catch (err) {
       // The queue dir can vanish mid-replenish when dispose() runs during an
       // in-flight async refill; that teardown race is not a real failure.
@@ -752,22 +752,20 @@ export class BridgeServer {
       throw err;
     }
     const now = Date.now();
-    let activeCount = 0;
-    for (const file of existing) {
-      if (!file.endsWith('.json')) continue;
+    const verdicts = await Promise.all(existing.filter((file) => file.endsWith('.json')).map(async (file) => {
       const filePath = path.join(this.pairingQueueDir, file);
       try {
-        const raw = fs.readFileSync(filePath, 'utf8');
-        const data = JSON.parse(raw);
-        if (!data || !data.code || !data.expiresAt || now > data.expiresAt) {
-          fs.unlinkSync(filePath);
-        } else {
-          activeCount++;
-        }
+        const data = JSON.parse(await fs.promises.readFile(filePath, 'utf8'));
+        if (data && data.code && data.expiresAt && now <= data.expiresAt) return true;
       } catch {
-        try { fs.unlinkSync(filePath); } catch {}
+        // corrupt or half-written: purged below
       }
-    }
+      await fs.promises.unlink(filePath).catch(() => {});
+      return false;
+    }));
+    let activeCount = 0;
+    for (const live of verdicts) if (live) activeCount++;
+    if (this.isDisposed) return;
 
     const needed = Math.max(0, 16 - activeCount);
     const itemsToWrite: Array<{ targetPath: string; content: string }> = [];

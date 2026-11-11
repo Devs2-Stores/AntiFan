@@ -1296,6 +1296,37 @@ describe('Bridge discovery & pairing queue isolation from the live data root', (
     });
   });
 
+  it('replenish keeps one live challenge, purges expired and corrupt files, and tops up to 16', async () => {
+    await withIsolatedRoots(async () => {
+      const server = new BridgeServer(new MockTabHost() as unknown as NativeTabHost, 0, true);
+      try {
+        await server.start();
+        const queueDir = (server as unknown as { pairingQueueDir: string }).pairingQueueDir;
+        for (const file of fs.readdirSync(queueDir)) fs.unlinkSync(path.join(queueDir, file));
+        const seed = (name: string, content: string) => fs.writeFileSync(path.join(queueDir, name), content);
+        seed('challenge-live.json', JSON.stringify({ challengeId: 'live', code: 'live-code', expiresAt: Date.now() + 600_000 }));
+        seed('challenge-expired.json', JSON.stringify({ challengeId: 'expired', code: 'old-code', expiresAt: Date.now() - 1000 }));
+        seed('challenge-corrupt.json', 'not-json');
+        seed('challenge-incomplete.json', JSON.stringify({ challengeId: 'incomplete' }));
+
+        await (server as unknown as { replenishPairingQueue(): Promise<void> }).replenishPairingQueue();
+
+        const files = fs.readdirSync(queueDir).filter((f) => f.endsWith('.json'));
+        assert.strictEqual(files.length, 16, 'the queue is topped up to exactly 16 live files');
+        assert.ok(files.includes('challenge-live.json'), 'the live challenge survives');
+        for (const gone of ['challenge-expired.json', 'challenge-corrupt.json', 'challenge-incomplete.json']) {
+          assert.ok(!files.includes(gone), `${gone} must be purged`);
+        }
+        for (const file of files) {
+          const parsed = JSON.parse(fs.readFileSync(path.join(queueDir, file), 'utf8')) as { code?: string; expiresAt?: number };
+          assert.ok(parsed.code && parsed.expiresAt && parsed.expiresAt > Date.now(), `${file} must hold a live challenge`);
+        }
+      } finally {
+        server.dispose();
+      }
+    });
+  });
+
   it('honors a challenge file that outlived the instance that minted it', async () => {
     await withIsolatedRoots(async () => {
       const mockHost = new MockTabHost() as unknown as NativeTabHost;
