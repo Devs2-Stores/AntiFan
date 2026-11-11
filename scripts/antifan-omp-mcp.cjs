@@ -212,7 +212,7 @@ const definitions = [
   ['core.replay_regression', 'Re-execute a recorded regression\'s checks against live state and write replayResult + replayedAt.', { regressionId: { type: 'string' } }, ['regressionId']],
   ['core.record_observation', 'Record a raw observation (source, kind, payload) into the learning loop.', { source: { type: 'string' }, kind: { type: 'string' }, payload: {} }, ['source', 'kind']],
   // v4: Principles
-  ['core.record_principle', 'Record a personal engineering principle.', { statement: { type: 'string' }, source: { type: 'string' }, derivedFrom: { type: 'string' } }, ['statement']],
+  ['core.record_principle', 'Record a personal engineering principle. Needs source (where the lesson came from, e.g. "leader-session:2026-11-03:user correction about X") or derivedFrom (JSON list of anchors); a principle without either is refused.', { statement: { type: 'string' }, source: { type: 'string' }, derivedFrom: { type: 'string' } }, ['statement']],
   ['core.principles', 'List principles. Newest first; pages of limit (default 100, max 1000) from offset.', { status: { type: 'string' }, limit: { type: 'number' }, offset: { type: 'number' } }],
   // v4: Hidden Requirements
   ['core.record_hidden_requirement', 'Record a hidden requirement inferred from a task.', { task: { type: 'string' }, explicitReq: { type: 'string' }, inferredReq: { type: 'string' }, likelihood: { type: 'string' }, evidence: { type: 'string' } }, ['task']],

@@ -283,7 +283,7 @@ export function registerCoreCapabilities(catalogue: CapabilityCatalogue, core: C
     WRITE_POLICY, (p: Record<string, unknown>) => core.recordObservation(p));
 
   // v4: Principles
-  reg('core.record_principle', 'Record a personal engineering principle.',
+  reg('core.record_principle', 'Record a personal engineering principle. Needs source (where the lesson came from, e.g. "leader-session:2026-11-03:user correction about X") or derivedFrom (JSON list of anchors); a principle without either is refused.',
     { type: 'object', properties: { statement: { type: 'string' }, source: { type: 'string' }, derivedFrom: { type: 'string' } }, required: ['statement'] },
     WRITE_POLICY, (p: Record<string, unknown>) => core.recordPrinciple(p));
   reg('core.principles', 'List principles. Newest first; pages of limit (default 100, max 1000) from offset.',

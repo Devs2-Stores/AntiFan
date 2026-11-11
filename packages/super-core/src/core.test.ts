@@ -3,6 +3,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -1334,6 +1335,39 @@ test('a merge flattens list-shaped provenance and leaves nothing for the next op
     } finally {
       raw.close();
     }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a principle with no provenance is refused and a later sourced repeat anchors an orphan row', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'core-principle-provenance-'));
+  const dbPath = path.join(dir, 'core.db');
+  try {
+    const core = openCore(dbPath);
+    for (const bad of [{}, { source: '' }, { source: '   ' }, { derivedFrom: '[]' }, { source: ' ', derivedFrom: '' }]) {
+      assert.throws(() => core.recordPrinciple({ statement: 'Always cite where a lesson came from', ...bad }), /PRINCIPLE_PROVENANCE_REQUIRED/, `refused: ${JSON.stringify(bad)}`);
+    }
+    assert.equal(core.principles().length, 0, 'a refused principle leaves nothing behind');
+    assert.equal(core.checkPhaseGate('v4', 'principles').passed, true, 'an empty store passes the principles gate');
+
+    // A row that already exists without provenance (written before the refusal) is repaired by a sourced repeat.
+    const raw = new DatabaseSync(dbPath);
+    try {
+      raw.prepare("INSERT INTO principles(principleId,statement,source,derivedFrom,status,createdAt,statementHash) VALUES ('prin-legacy','Legacy lesson',NULL,'[]','OBSERVED','2026-11-03T00:00:00.000Z',?)")
+        .run(crypto.createHash('sha1').update('legacy lesson').digest('hex'));
+      assert.equal(core.checkPhaseGate('v4', 'principles').passed, false, 'the orphan row fails the gate');
+      const { principleId } = core.recordPrinciple({ statement: 'legacy   lesson', source: ' unverified-legacy:origin ' });
+      assert.equal(principleId, 'prin-legacy', 'the repeat folds into the orphan instead of adding a second row');
+      const row = raw.prepare('SELECT source, derivedFrom FROM principles WHERE principleId = ?').get('prin-legacy') as { source: string; derivedFrom: string };
+      assert.equal(row.source, 'unverified-legacy:origin', 'the stored source is trimmed');
+      assert.deepEqual(JSON.parse(row.derivedFrom), ['unverified-legacy:origin']);
+      assert.equal(raw.prepare('SELECT COUNT(*) AS n FROM principles').get()!.n, 1, 'no second row was added');
+      assert.equal(core.checkPhaseGate('v4', 'principles').passed, true, 'the repaired row passes the gate');
+    } finally {
+      raw.close();
+    }
+    core.close();
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

@@ -1743,11 +1743,19 @@ export class Core {
 
   // ---- v4: Principles (§23) -----------------------------------------------------
   recordPrinciple(opts: { statement: string; source?: string; derivedFrom?: string }) {
+    // A principle with no provenance can never be traced or merged later and
+    // fails the `principles` phase gate, so refuse it here instead of storing it.
+    const source = typeof opts.source === 'string' && opts.source.trim() !== '' ? opts.source.trim() : null;
+    const derivedFrom = typeof opts.derivedFrom === 'string' && opts.derivedFrom.trim() !== '' ? opts.derivedFrom : null;
+    const anchors = principleAnchors(source, derivedFrom);
+    if (anchors.length === 0) {
+      throw new Error('PRINCIPLE_PROVENANCE_REQUIRED: record_principle needs `source` (where the lesson came from, e.g. "leader-session:2026-11-03:user correction about <topic>") or `derivedFrom` (a JSON list of anchors); a principle without either is refused.');
+    }
     const principleId = `prin-${uuid()}`;
     const res = this.db.prepare('INSERT OR IGNORE INTO principles(principleId,statement,source,derivedFrom,status,createdAt,statementHash) VALUES (?,?,?,?,?,?,?)')
-      .run(principleId, opts.statement, opts.source ?? null, canonicalDerivedFrom(principleAnchors(opts.source ?? null, opts.derivedFrom ?? null)), 'OBSERVED', now(), principleHash(opts.statement));
+      .run(principleId, opts.statement, source, canonicalDerivedFrom(anchors), 'OBSERVED', now(), principleHash(opts.statement));
     if (res.changes === 0) {
-      const existing = this.mergePrincipleProvenance(opts.statement, opts.source ?? null, opts.derivedFrom ?? null);
+      const existing = this.mergePrincipleProvenance(opts.statement, source, derivedFrom);
       return { principleId: existing };
     }
     return { principleId };
