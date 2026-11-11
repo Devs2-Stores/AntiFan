@@ -847,6 +847,34 @@ describe("full lifecycle: verify, approve, close round, close", () => {
     assert.equal(cli(w, ["dispatch", "--job", j.dir, "--worker", "terminal-7", "--kind", "followup", "--prompt", "x"]).code, 4, "closed jobs take no more rounds");
   });
 
+  test("a later round that edits no cell is not charged with the cells an earlier verified round claimed", () => {
+    const w = world();
+    const j = initJob(w, "whenever");
+    assert.equal(dispatch(w, j, "terminal-7").code, 0);
+    assert.equal(settle(w, j, "terminal-7").code, 0);
+    let job = j.job();
+    const claimed = claimsFromDiff(fixture("whenever-before.csv"), fixture("whenever-after.csv"), WHENEVER_COLS);
+    fs.writeFileSync(job.rounds[0].reportPath, reportText(job, 1, { sheet: { cells: claimed } }));
+    assert.equal(cli(w, ["validate-report", "--job", j.dir]).code, 0);
+    const current = path.join(w.root, "current.csv");
+    fs.writeFileSync(current, fixture("whenever-after.csv"));
+    assert.equal(cli(w, ["verify-sheet", "--job", j.dir, "--round", "1", "--current-file", current]).last.status, "PASS");
+
+    const prompt = path.join(w.root, "round2.md");
+    fs.writeFileSync(prompt, "Vòng kiểm, không ghi sheet. issue 9282 host Taiz.\nGhi report vào {{REPORT_PATH}}\n");
+    const d = dispatch(w, j, "terminal-7", ["--kind", "followup", "--prompt", prompt]);
+    assert.equal(d.code, 0, d.stderr);
+    assert.equal(settle(w, j, "terminal-7", { runSeq: 2 }).code, 0);
+    job = j.job();
+    fs.writeFileSync(job.rounds[1].reportPath, reportText(job, 2, { dashboard: { commentsAdded: 0, stageBefore: "Feedback", stageAfter: "Feedback" } }));
+    assert.equal(cli(w, ["validate-report", "--job", j.dir, "--round", "2"]).code, 0);
+    const vs = cli(w, ["verify-sheet", "--job", j.dir, "--round", "2", "--current-file", current]);
+    assert.equal(vs.code, 0, vs.stderr);
+    assert.equal(vs.last.status, "PASS");
+    assert.equal(vs.last.foreign, 0);
+    assert.equal(vs.last.changedCells, 0);
+  });
+
   test("a FAIL sheet verification keeps the job in reported; UNREADABLE via a missing file", () => {
     const w = world();
     const j = initJob(w, "whenever");

@@ -1146,7 +1146,12 @@ async function cmdVerifySheet(flags) {
     return EXIT.OK;
   }
   const rep = JSON.parse(extractJson(fs.readFileSync(round.reportPath, "utf8")));
-  const before = fs.readFileSync(path.join(dir, job.snapshotBefore), "utf8");
+  // A later round is judged against the sheet as the last verified round left it: the cells an earlier
+  // round claimed are not this round's edits and must not come back as "foreign".
+  const prior = job.rounds
+    .filter((r) => r.n < round.n && ["PASS", "WARN"].includes(r.verification?.sheet?.status) && fs.existsSync(path.join(dir, `sheet-after.r${r.n}.csv`)))
+    .at(-1);
+  const before = fs.readFileSync(path.join(dir, prior ? `sheet-after.r${prior.n}.csv` : job.snapshotBefore), "utf8");
   let afterText = null;
   let readError;
   try {

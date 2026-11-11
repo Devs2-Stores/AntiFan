@@ -7,6 +7,8 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 ## [v1.3.6] - Unreleased
 
 - **`leader-job.mjs wait-any` theo dõi cả job được dispatch sau khi nó đã chạy:** trước đây nó chốt danh sách job `dispatched` lúc khởi động, nên vòng đóng của #313 (dispatch lúc `wait-any` đang chạy) xong rồi mà không ai báo, Leader chỉ biết khi user hỏi. Nay mỗi 5 giây (hoặc `--poll-ms` nếu nhỏ hơn) nó quét lại và thêm job mới vào danh sách chờ; test `leader-job-wait-any-late.test.mjs`.
+- **Report Leader nhận cột sheet không có tiêu đề (`scripts/leader/report.mjs`):** sheet Levents có cột Stage (cột A) trống tiêu đề nên report DONE hợp lệ của #316 bị `validate-report` từ chối ("col must be a header text"). Nay ô đó khai bằng `"col": "", "colLetter": "A"` (hoặc `"col": "colA"`, đúng tên parser đặt), `verify-sheet` đối chiếu như cột có tiêu đề; test `leader-report-headerless-col.test.mjs`.
+- **`verify-sheet` của vòng sau so với sheet mà vòng đã kiểm trước để lại (`leader-job.mjs`):** vòng kiểm không ghi sheet của #316 bị báo WARN 4 "foreign edit" vì vẫn so với `snapshot-before.csv`, tức tính lại các ô vòng 1 đã khai. Nay nếu có vòng trước đã PASS/WARN thì lấy `sheet-after.r<N>.csv` của vòng đó làm mốc.
 
 ### Sửa/Thêm — Theo audit chat OMP 04-10/11/2026 (`plans/reports/261110-omp-chat-audit-04-10-11.md`)
 

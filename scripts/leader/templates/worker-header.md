@@ -55,12 +55,12 @@ Bạn là WORKER do Leader giao (job {{JOB}}, vòng {{ROUND}}), chạy không ng
        "cells": [ { "keyText": "<chữ cột {{COL_WORK}}>", "col": "{{COL_NOTE}}", "expect": "<nội dung ô>" } ],
        "skipped": [ { "keyText": "<chữ cột {{COL_WORK}}>", "reason": "..." } ]
      },
-     // cột không có chữ tiêu đề (vd cột Stage ở cột A): "col": "", "colLetter": "A" (hoặc "col": "colA")
 <!-- endif -->
      "dashboard": { "commentsAdded": 1, "stageBefore": "Feedback", "stageAfter": "Feedback" },
      "storefront": { "measurements": [ { "probe": "overflow", "url": "...", "viewport": "375x812", "selector": "...", "value": "..." } ] },
      "notChecked": ["..."]
    }
    ```
+   Ô sheet ở cột không có chữ tiêu đề (vd cột Stage nằm ở cột A): khai `"col": "", "colLetter": "A"`.
    Sau khi ghi report thì kết thúc lượt. Không dùng tool ask.
 8. Cần Leader biết NGAY khi đang chạy (vướng, cần quyền/duyệt, cần user trả lời, bị chặn bởi hook): ghi ngay dòng đầu của `{{REPORT_PATH}}` thành `STATUS: NEEDS_INPUT` (kèm một dòng nêu vướng gì, đúng dòng lệnh nếu là lệnh), rồi làm tiếp phần không phụ thuộc hoặc dừng. Leader theo dõi cả đội bằng `wait-workers.mjs --mine` và thấy thay đổi dòng đầu trong ~2 giây, không cần bạn kết thúc lượt. Khi xong thì GHI ĐÈ cả file bằng báo cáo cuối đúng định dạng mục 7 (dòng 1 `STATUS: DONE|PENDING|FAILED`), không để lại dòng NEEDS_INPUT cũ.
