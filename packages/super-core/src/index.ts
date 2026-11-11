@@ -529,6 +529,30 @@ export class Core {
     return rows.length === 1 ? rows[0].p : null;
   }
 
+  // Batched unitPlatform: the unanimous claim platform of each unit (null when
+  // absent or ambiguous). Falsy ids map to null; ids are chunked so the IN list
+  // stays well under SQLite's variable limit.
+  private unitPlatforms(unitIds: Array<string | null | undefined>): Map<string, string | null> {
+    const result = new Map<string, string | null>();
+    const ids = [...new Set(unitIds.filter((u): u is string => !!u))];
+    for (const u of ids) result.set(u, null);
+    for (let i = 0; i < ids.length; i += 500) {
+      const chunk = ids.slice(i, i + 500);
+      const rows = this.db.prepare(
+        `SELECT DISTINCT unitId, contextPlatform AS p FROM claims
+         WHERE contextPlatform IS NOT NULL AND unitId IN (${chunk.map(() => '?').join(',')})`,
+      ).all(...chunk as never[]) as Array<{ unitId: string; p: string }>;
+      const seen = new Map<string, string[]>();
+      for (const r of rows) {
+        const list = seen.get(r.unitId) ?? [];
+        list.push(r.p);
+        seen.set(r.unitId, list);
+      }
+      for (const [u, list] of seen) result.set(u, list.length === 1 ? list[0] : null);
+    }
+    return result;
+  }
+
   /**
    * Units belonging to a project root. Unit relPaths are stored relative to the
    * ingest root, which the store does not record, and a caller knows its project
@@ -816,8 +840,9 @@ export class Core {
     unknownSql += ' GROUP BY unitId';
     let unknowns = this.db.prepare(unknownSql).all(...unknownArgs as never[]) as Array<{ unitId: string; n: number }>;
     if (opts.platform) {
+      const platforms = this.unitPlatforms(unknowns.map((u) => u.unitId));
       unknowns = unknowns.filter((u) => {
-        const p = this.unitPlatform(u.unitId);
+        const p = platforms.get(u.unitId) ?? null;
         return p === opts.platform || (opts.includeGlobal && p === null);
       });
     }
@@ -852,7 +877,7 @@ export class Core {
       // that is the permanent red-banner failure mode. Store-wide hygiene is
       // the job of health()/corpusAudit(), which stay unscoped.
       const diagUnits = opts.unitIds?.length ? opts.unitIds : projectScope?.unitIds;
-      const decay = this.decayCheck({ platform: opts.platform, unitIds: diagUnits, includeGlobal: opts.includeGlobal });
+      const decay = this.decayCounts({ platform: opts.platform, unitIds: diagUnits, includeGlobal: opts.includeGlobal });
       const gaps = this.knowledgeGaps({ platform: opts.platform });
       // PENDING candidates scoped like the conflict surface: explicit units
       // win, then platform (via the case's platform tag); with neither, the
@@ -880,13 +905,13 @@ export class Core {
       const gapKinds = (gaps.gaps as PackDiagnostics['gapKinds'])
         .filter((g) => g.kind !== 'NONE');
       diagnostics = {
-        staleClaims: decay.stale.length,
-        agingClaims: decay.aging.length,
+        staleClaims: decay.staleCount,
+        agingClaims: decay.agingCount,
         gapKinds,
         pendingCount: pendingTotal,
         pendingTop,
         // healthy gates the banner: nothing stale, no gaps, no pending debt.
-        healthy: decay.stale.length === 0 && gapKinds.length === 0 && pendingTotal === 0,
+        healthy: decay.staleCount === 0 && gapKinds.length === 0 && pendingTotal === 0,
       };
     }
     return {
@@ -1329,7 +1354,9 @@ export class Core {
   }
 
   // ---- v4: Knowledge Decay (§36) ---------------------------------------------
-  decayCheck(opts?: { staleDays?: number; platform?: string; unitIds?: string[]; includeGlobal?: boolean }) {
+  // Shared where/args for decayCheck (rows) and decayCounts (counts) so both
+  // describe exactly the same scope.
+  private decayScope(opts?: { staleDays?: number; platform?: string; unitIds?: string[]; includeGlobal?: boolean }) {
     const staleDays = opts?.staleDays ?? 90;
     const cutoff = new Date(Date.now() - staleDays * 86400_000).toISOString();
     // Diagnostics is a caller-scoped contract: when a platform or units are
@@ -1360,6 +1387,11 @@ export class Core {
       agingWhere.push(platformCond);
       agingArgs.push(opts.platform);
     }
+    return { staleWhere, staleArgs, agingWhere, agingArgs, cutoff };
+  }
+
+  decayCheck(opts?: { staleDays?: number; platform?: string; unitIds?: string[]; includeGlobal?: boolean }) {
+    const { staleWhere, staleArgs, agingWhere, agingArgs, cutoff } = this.decayScope(opts);
     const stale = this.db.prepare(
       `SELECT claimId, statement, status, lastSeen, createdAt FROM claims
        WHERE ${staleWhere.join(' AND ')}`,
@@ -1369,6 +1401,17 @@ export class Core {
        WHERE ${agingWhere.join(' AND ')}`,
     ).all(...agingArgs as never[]);
     return { stale, aging, cutoff };
+  }
+
+  // Same scope as decayCheck, counts only: the pack diagnostics need two
+  // numbers and must not materialise every decayed claim statement per turn.
+  private decayCounts(opts?: { staleDays?: number; platform?: string; unitIds?: string[]; includeGlobal?: boolean }) {
+    const { staleWhere, staleArgs, agingWhere, agingArgs } = this.decayScope(opts);
+    const staleCount = Number((this.db.prepare(`SELECT COUNT(*) AS n FROM claims WHERE ${staleWhere.join(' AND ')}`)
+      .get(...staleArgs as never[]) as { n: number }).n);
+    const agingCount = Number((this.db.prepare(`SELECT COUNT(*) AS n FROM claims WHERE ${agingWhere.join(' AND ')}`)
+      .get(...agingArgs as never[]) as { n: number }).n);
+    return { staleCount, agingCount };
   }
 
   // `record: true` appends a `corpus_audit` row; every other call computes the
@@ -1433,23 +1476,29 @@ export class Core {
          UNION SELECT platform FROM platform_semantics WHERE platform IS NOT NULL
        ) ORDER BY p`,
     ).all() as Array<{ p: string }>).map((r) => r.p);
+    const scoped = opts?.platform;
+    // One aggregate for every platform: active/fresh claim counts and unresolved
+    // conflicts. A platform-scoped call narrows both arms to that platform.
+    const stats = new Map<string, { active: number; fresh: number; unresolved: number }>();
+    const aggregate = this.db.prepare(
+      `SELECT p, SUM(active) AS active, SUM(fresh) AS fresh, SUM(unresolved) AS unresolved FROM (
+         SELECT contextPlatform AS p, 1 AS active,
+                CASE WHEN createdAt >= ? OR lastSeen >= ? THEN 1 ELSE 0 END AS fresh, 0 AS unresolved
+         FROM claims
+         WHERE contextPlatform IS NOT NULL AND status NOT IN ('STALE_SOURCE_CHANGED','REVOKED','SUPERSEDED')
+         ${scoped ? 'AND contextPlatform = ?' : ''}
+         UNION ALL
+         SELECT platform AS p, 0, 0, 1 FROM conflicts
+         WHERE state = 'UNRESOLVED' AND platform IS NOT NULL ${scoped ? 'AND platform = ?' : ''}
+       ) GROUP BY p`,
+    ).all(...(scoped ? [cutoff, cutoff, scoped, scoped] : [cutoff, cutoff]) as never[]) as Array<{ p: string; active: number; fresh: number; unresolved: number }>;
+    for (const r of aggregate) stats.set(r.p, { active: Number(r.active), fresh: Number(r.fresh), unresolved: Number(r.unresolved) });
     const gaps = platforms
       // A platform-scoped pack reports only its own platform's gap; an
       // out-of-scope gap the caller cannot act on must not flip healthy.
-      .filter((p) => !opts?.platform || p === opts.platform)
+      .filter((p) => !scoped || p === scoped)
       .map((platform) => {
-      const active = (this.db.prepare(
-        `SELECT COUNT(*) AS n FROM claims WHERE contextPlatform = ?
-         AND status NOT IN ('STALE_SOURCE_CHANGED','REVOKED','SUPERSEDED')`,
-      ).get(platform) as { n: number }).n;
-      const fresh = (this.db.prepare(
-        `SELECT COUNT(*) AS n FROM claims WHERE contextPlatform = ?
-         AND status NOT IN ('STALE_SOURCE_CHANGED','REVOKED','SUPERSEDED')
-         AND (createdAt >= ? OR lastSeen >= ?)`,
-      ).get(platform, cutoff, cutoff) as { n: number }).n;
-      const unresolved = (this.db.prepare(
-        "SELECT COUNT(*) AS n FROM conflicts WHERE platform = ? AND state = 'UNRESOLVED'",
-      ).get(platform) as { n: number }).n;
+      const { active, fresh, unresolved } = stats.get(platform) ?? { active: 0, fresh: 0, unresolved: 0 };
       const kind = active === 0 ? 'NO_EVIDENCE' : unresolved > 0 ? 'CONFLICTED' : fresh === 0 ? 'STALE' : 'NONE';
       return { platform, kind, activeClaims: active, freshClaims: fresh, unresolvedConflicts: unresolved };
     });

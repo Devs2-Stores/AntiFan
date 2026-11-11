@@ -520,6 +520,117 @@ test('knowledgeGaps distinguishes never/stale/conflicted per platform', () => {
   core.close();
 });
 
+// Counts how many statements a call prepares. Per-row or per-platform loops show
+// up as a count that grows with the data; a batched query does not.
+function countPrepares(core: Core, fn: () => void): number {
+  const handle = (core as unknown as { db: DatabaseSync }).db;
+  const original = handle.prepare.bind(handle);
+  let n = 0;
+  handle.prepare = ((sql: string) => { n++; return original(sql); }) as typeof handle.prepare;
+  try { fn(); } finally { handle.prepare = original; }
+  return n;
+}
+
+test('knowledgeGaps({platform}) returns only that platform with the counts of the unscoped call, in a fixed number of statements', () => {
+  const dir = fixturePlatforms();
+  const core = openCore(path.join(dir, 'core.db'));
+  try {
+    core.importScout(dir);
+    const all = core.knowledgeGaps({ staleDays: 90 });
+    for (const g of all.gaps) {
+      for (const key of ['activeClaims', 'freshClaims', 'unresolvedConflicts'] as const) {
+        assert.equal(typeof g[key], 'number', `${g.platform}.${key} is a number`);
+      }
+    }
+    for (const platform of ['haravan', 'sapo', 'shopify']) {
+      const scoped = core.knowledgeGaps({ staleDays: 90, platform });
+      assert.deepEqual(scoped.gaps, all.gaps.filter((g) => g.platform === platform), `${platform} scoped equals its unscoped row`);
+      assert.equal(scoped.gaps.length, 1);
+    }
+    const sapo = all.gaps.find((g) => g.platform === 'sapo');
+    assert.deepEqual(sapo, { platform: 'sapo', kind: 'CONFLICTED', activeClaims: 2, freshClaims: 2, unresolvedConflicts: 1 });
+    assert.deepEqual(all.gaps.find((g) => g.platform === 'shopify'), { platform: 'shopify', kind: 'STALE', activeClaims: 1, freshClaims: 0, unresolvedConflicts: 0 });
+
+    const few = countPrepares(core, () => { core.knowledgeGaps(); });
+    for (const p of ['magento', 'prestashop', 'woo', 'bigcommerce', 'wix']) core.recordPlatformSemantic({ platform: p, semanticRole: 'x' });
+    const many = countPrepares(core, () => { core.knowledgeGaps(); });
+    assert.equal(many, few, 'the statement count does not grow with the number of platforms');
+  } finally {
+    core.close();
+  }
+});
+
+test('pack diagnostics report the same stale and aging counts as decayCheck for the same scope without loading the rows', () => {
+  const dir = fixturePlatforms();
+  const core = openCore(path.join(dir, 'core.db'));
+  try {
+    core.importScout(dir);
+    const handle = (core as unknown as { db: DatabaseSync }).db;
+    handle.prepare("UPDATE claims SET agingSince = '2020-01-01T00:00:00Z' WHERE claimId IN ('c-old-1','c-har-1')").run();
+    const scopes: Array<{ platform?: string; includeGlobal?: boolean }> = [
+      { platform: 'shopify' }, { platform: 'haravan' }, { platform: 'haravan', includeGlobal: true }, {},
+    ];
+    const expected = scopes.map((s) => {
+      const d = core.decayCheck({ platform: s.platform, includeGlobal: s.includeGlobal });
+      return { stale: d.stale.length, aging: d.aging.length };
+    });
+    assert.ok(expected[0].stale > 0, 'positive control: the old shopify claim is stale');
+    assert.ok(expected[0].aging > 0 && expected[1].aging > 0, 'positive control: aging claims exist');
+
+    const rowReader = core.decayCheck;
+    core.decayCheck = () => { throw new Error('diagnostics must count in SQL, not load decayed rows'); };
+    try {
+      scopes.forEach((s, i) => {
+        const pack = core.contextPack({ task: 'settings schema', platform: s.platform, includeGlobal: s.includeGlobal, diagnostics: true });
+        assert.equal(pack.diagnostics?.staleClaims, expected[i].stale, `stale count for ${JSON.stringify(s)}`);
+        assert.equal(pack.diagnostics?.agingClaims, expected[i].aging, `aging count for ${JSON.stringify(s)}`);
+      });
+    } finally {
+      core.decayCheck = rowReader;
+    }
+  } finally {
+    core.close();
+  }
+});
+
+test('platform-scoped pack filters unknowns by the unanimous platform of each unit, including global units, in a fixed number of statements', () => {
+  const dir = fixturePlatforms();
+  // u-har now carries claims from two platforms: its platform is ambiguous, so it counts as global.
+  fs.appendFileSync(path.join(dir, 'units', 'u-har', 'claims.jsonl'), JSON.stringify({
+    claimId: 'c-har-3', statement: 'haravan unit also holds a sapo rule', kind: 'RULE', status: 'OBSERVED', extractorVersion: 't',
+    context: { platform: 'sapo' }, evidenceRefs: [{ entryId: 'e-u-har', revision: 'r1', path: 'p', anchor: 'a' }],
+  }) + '\n');
+  const core = openCore(path.join(dir, 'core.db'));
+  const handle = (core as unknown as { db: DatabaseSync }).db;
+  try {
+    core.importScout(dir);
+    handle.prepare("UPDATE artifacts SET disposition = 'PENDING'").run();
+    const unknownIds = (opts: { platform: string; includeGlobal?: boolean }) =>
+      core.contextPack({ task: 'settings schema', ...opts }).unknowns.map((u) => u.unitId).sort();
+    assert.deepEqual(unknownIds({ platform: 'sapo' }), ['u-sapo']);
+    assert.deepEqual(unknownIds({ platform: 'sapo', includeGlobal: true }), ['u-gen', 'u-har', 'u-sapo']);
+    assert.deepEqual(unknownIds({ platform: 'haravan' }), []);
+    assert.deepEqual(unknownIds({ platform: 'haravan', includeGlobal: true }), ['u-gen', 'u-har']);
+    assert.deepEqual(unknownIds({ platform: 'shopify' }), ['u-old']);
+
+    const addUnits = (from: number, to: number) => {
+      for (let i = from; i < to; i++) {
+        handle.prepare('INSERT INTO units(unitId,rootId,relPath,kind,disposition,parentId,markers,dossierPath) VALUES (?,?,?,?,?,?,?,?)')
+          .run(`u-bulk-${i}`, 'work-root', `bulk\\${i}`, 'package', 'ELIGIBLE', null, '[]', `reports/units/u-bulk-${i}/dossier.md`);
+        handle.prepare('INSERT INTO artifacts(entryId,unitId,rootId,relPath,absPath,type,size,mtime,sha256,contentPolicy,disposition,reason,coverage,observedAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+          .run(`e-bulk-${i}`, `u-bulk-${i}`, 'work-root', `b${i}.json`, `E:\\b\\${i}.json`, 'file', 1, null, 'h', 'ALLOWED', 'PENDING', null, null, '2026-01-01T00:00:00Z');
+      }
+    };
+    addUnits(0, 2);
+    const few = countPrepares(core, () => { core.contextPack({ task: 'settings schema', platform: 'sapo' }); });
+    addUnits(2, 40);
+    const many = countPrepares(core, () => { core.contextPack({ task: 'settings schema', platform: 'sapo' }); });
+    assert.equal(many, few, 'the statement count does not grow with the number of units');
+  } finally {
+    core.close();
+  }
+});
+
 test('populated core.db: baseline non-empty, migration v7, isolation, perf bound', { timeout: 300000 }, () => {
   const src = path.resolve(__dirname, '..', '..', '..', '.super-core', 'core.db');
   assert.ok(fs.existsSync(src), `populated core.db required at ${src}`);
