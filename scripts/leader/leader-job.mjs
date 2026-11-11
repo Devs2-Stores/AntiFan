@@ -1120,7 +1120,7 @@ function applyVerification(job, round) {
   }
   // A summary alone never verifies an ad-hoc job: the Leader records at least one check of the stated outcome.
   if (adhoc && round.kind !== "close") missing.push(...adhocMissing(round).filter((m) => !missing.includes(m)));
-  if (!missing.length && latest) {
+  if (!missing.length && latest && job.state !== "closed") {
     if (round.kind === "close") {
       job.state = "user-approved";
       job.closeVerifiedAt = Date.now();
