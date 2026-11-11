@@ -13,9 +13,9 @@ import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 
 export interface SafeStorageLike {
-  isEncryptionAvailable(): boolean;
-  encryptString(plainText: string): Buffer;
-  decryptString(encrypted: Buffer): string;
+  isAsyncEncryptionAvailable(): Promise<boolean>;
+  encryptStringAsync(plainText: string): Promise<Buffer>;
+  decryptStringAsync(encrypted: Buffer): Promise<{ result: string; shouldReEncrypt?: boolean }>;
 }
 
 export interface IpcMainLike {
@@ -32,7 +32,7 @@ export interface VaultEntryMeta {
 }
 
 export interface VaultEntry extends VaultEntryMeta {
-  passwordEnc: string; // base64(safeStorage.encryptString(password))
+  passwordEnc: string; // base64(safeStorage.encryptStringAsync(password))
 }
 
 export interface DecryptedCredential {
@@ -200,7 +200,7 @@ export class LocalCredentialVault {
    * Saves (or updates) one credential for an origin. Fail-closed: if OS-level
    * encryption is unavailable, the password is NOT persisted.
    */
-  public save(origin: string, username: string, password: string): VaultResult<VaultEntryMeta> {
+  public async save(origin: string, username: string, password: string): Promise<VaultResult<VaultEntryMeta>> {
     const cleanOrigin = this.sanitizeOrigin(origin);
     if (!cleanOrigin) {
       return { ok: false, error: `INVALID_ORIGIN: ${origin}` };
@@ -210,11 +210,11 @@ export class LocalCredentialVault {
     if (cleanPassword.length === 0) {
       return { ok: false, error: 'EMPTY_PASSWORD' };
     }
-    if (!this.safeStorage.isEncryptionAvailable()) {
+    if (!(await this.safeStorage.isAsyncEncryptionAvailable())) {
       return { ok: false, error: 'ENCRYPTION_UNAVAILABLE' };
     }
 
-    const encrypted = this.safeStorage.encryptString(cleanPassword);
+    const encrypted = await this.safeStorage.encryptStringAsync(cleanPassword);
     const passwordEnc = encrypted.toString('base64');
     const now = Date.now();
 
@@ -248,14 +248,14 @@ export class LocalCredentialVault {
    * Returns decrypted credentials for autofill. Empty when encryption is
    * unavailable or nothing matches the origin.
    */
-  public getForOrigin(origin: string): DecryptedCredential[] {
+  public async getForOrigin(origin: string): Promise<DecryptedCredential[]> {
     const cleanOrigin = this.sanitizeOrigin(origin);
-    if (!cleanOrigin || !this.safeStorage.isEncryptionAvailable()) return [];
+    if (!cleanOrigin || !(await this.safeStorage.isAsyncEncryptionAvailable())) return [];
     const result: DecryptedCredential[] = [];
     for (const entry of this.entries) {
       if (entry.origin !== cleanOrigin) continue;
       try {
-        const password = this.safeStorage.decryptString(Buffer.from(entry.passwordEnc, 'base64'));
+        const { result: password } = await this.safeStorage.decryptStringAsync(Buffer.from(entry.passwordEnc, 'base64'));
         result.push({ id: entry.id, origin: entry.origin, username: entry.username, password });
       } catch (err) {
         console.warn(`[LocalCredentialVault] Failed to decrypt credential ${entry.id}:`, err);
@@ -356,7 +356,7 @@ export class LocalCredentialVault {
     // Autofill: origin is always the sender frame's origin — no renderer
     // argument can request another site's decrypted credential.
     this.ipc.removeHandler('antifan:password:get-for-origin');
-    this.ipc.handle('antifan:password:get-for-origin', (event: unknown) => {
+    this.ipc.handle('antifan:password:get-for-origin', async (event: unknown) => {
       if (this.isUserPlaneSender && !this.isUserPlaneSender(event)) {
         return [];
       }

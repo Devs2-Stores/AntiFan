@@ -35,7 +35,7 @@ app
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'af-vault-smoke-'));
     const filePath = path.join(dir, 'password-vault.json');
     try {
-      const encAvailable = safeStorage.isEncryptionAvailable();
+      const encAvailable = await safeStorage.isAsyncEncryptionAvailable();
       check('safeStorage encryption available', encAvailable, `platform=${process.platform}`);
       if (!encAvailable) {
         console.log('SMOKE_VAULT: FAILED');
@@ -45,7 +45,7 @@ app
       const vault = new LocalCredentialVault({ safeStorage, filePath });
       const PASSWORD = 'smoke-pass-ABC123!';
 
-      const saved = vault.save('https://smoke.example.com', 'smoke-user', PASSWORD);
+      const saved = await vault.save('https://smoke.example.com', 'smoke-user', PASSWORD);
       check('save ok', saved.ok === true && saved.data?.username === 'smoke-user', `id=${saved.data?.id}`);
       check('vault file created', fs.existsSync(filePath));
 
@@ -54,7 +54,7 @@ app
       const parsed = JSON.parse(raw);
       check('store shape v1 + single entry', parsed.version === 1 && parsed.entries.length === 1);
 
-      const creds = vault.getForOrigin('https://smoke.example.com');
+      const creds = await vault.getForOrigin('https://smoke.example.com');
       check('autofill decrypt round-trip', creds.length === 1 && creds[0].password === PASSWORD && creds[0].username === 'smoke-user');
 
       const relisted = vault.list();

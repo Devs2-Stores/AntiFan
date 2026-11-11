@@ -14,30 +14,33 @@ const PREFIX = `ENC:${FAKE_KEY}:`;
 class FakeSafeStorage implements SafeStorageLike {
   public encryptionAvailable = true;
 
-  public isEncryptionAvailable(): boolean {
+  public async isAsyncEncryptionAvailable(): Promise<boolean> {
     return this.encryptionAvailable;
   }
 
-  public encryptString(plainText: string): Buffer {
+  public async encryptStringAsync(plainText: string): Promise<Buffer> {
     return Buffer.from(`${PREFIX}${plainText}`, 'utf8');
   }
 
-  public decryptString(encrypted: Buffer): string {
+  /** Plaintexts listed here fail to decrypt, to model one corrupt entry. */
+  public readonly undecryptable = new Set<string>();
+
+  public async decryptStringAsync(encrypted: Buffer): Promise<{ result: string }> {
     const text = encrypted.toString('utf8');
-    if (!text.startsWith(PREFIX)) {
+    if (!text.startsWith(PREFIX) || this.undecryptable.has(text.slice(PREFIX.length))) {
       throw new Error('FakeSafeStorage: bad ciphertext');
     }
-    return text.slice(PREFIX.length);
+    return { result: text.slice(PREFIX.length) };
   }
 }
 
-function makeVault(options?: { safeStorage?: SafeStorageLike; filePath?: string; withSeed?: boolean }) {
+async function makeVault(options?: { safeStorage?: SafeStorageLike; filePath?: string; withSeed?: boolean }) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'afbvault-'));
   const filePath = options?.filePath ?? path.join(dir, 'password-vault.json');
   const safeStorage = options?.safeStorage ?? new FakeSafeStorage();
   const vault = new LocalCredentialVault({ safeStorage, filePath });
   if (options?.withSeed) {
-    vault.save('https://accounts.example.com', 'admin', 's3cret!');
+    await vault.save('https://accounts.example.com', 'admin', 's3cret!');
   }
   return { vault, filePath, dir, safeStorage };
 }
@@ -49,10 +52,10 @@ function cleanup(dir: string): void {
 }
 
 describe('LocalCredentialVault', () => {
-  it('saves a credential encrypted at rest (no plaintext on disk, no tmp leftovers)', () => {
-    const { vault, filePath, dir } = makeVault();
+  it('saves a credential encrypted at rest (no plaintext on disk, no tmp leftovers)', async () => {
+    const { vault, filePath, dir } = await makeVault();
     try {
-      const res = vault.save('https://accounts.example.com', 'admin', 'hunter2');
+      const res = await vault.save('https://accounts.example.com', 'admin', 'hunter2');
       assert.strictEqual(res.ok, true);
       assert.ok(res.data);
       assert.strictEqual(res.data.origin, 'https://accounts.example.com');
@@ -73,17 +76,17 @@ describe('LocalCredentialVault', () => {
     }
   });
 
-  it('updates the existing entry for the same origin+username instead of duplicating', () => {
-    const { vault, dir } = makeVault();
+  it('updates the existing entry for the same origin+username instead of duplicating', async () => {
+    const { vault, dir } = await makeVault();
     try {
-      const first = vault.save('https://a.example.com', 'u', 'pass-one');
+      const first = await vault.save('https://a.example.com', 'u', 'pass-one');
       assert.strictEqual(first.ok, true);
       const firstId = first.data!.id;
-      const second = vault.save('https://a.example.com', 'u', 'pass-two');
+      const second = await vault.save('https://a.example.com', 'u', 'pass-two');
       assert.strictEqual(second.ok, true);
       assert.strictEqual(second.data!.id, firstId);
       assert.strictEqual(vault.list().length, 1);
-      const [liveCred] = vault.getForOrigin('https://a.example.com');
+      const [liveCred] = await vault.getForOrigin('https://a.example.com');
       assert.ok(liveCred, 'expected a decrypted credential');
       assert.strictEqual(liveCred.password, 'pass-two');
     } finally {
@@ -91,14 +94,14 @@ describe('LocalCredentialVault', () => {
     }
   });
 
-  it('rejects non-http(s) origins and never persists them', () => {
-    const { vault, filePath, dir } = makeVault();
+  it('rejects non-http(s) origins and never persists them', async () => {
+    const { vault, filePath, dir } = await makeVault();
     try {
-      const bad = vault.save('ftp://files.example.com', 'u', 'p');
+      const bad = await vault.save('ftp://files.example.com', 'u', 'p');
       assert.strictEqual(bad.ok, false);
       assert.match(bad.error || '', /INVALID_ORIGIN/);
-      assert.strictEqual(vault.save('not-a-url', 'u', 'p').ok, false);
-      assert.strictEqual(vault.save('', 'u', 'p').ok, false);
+      assert.strictEqual((await vault.save('not-a-url', 'u', 'p')).ok, false);
+      assert.strictEqual((await vault.save('', 'u', 'p')).ok, false);
       assert.strictEqual(vault.list().length, 0);
       assert.ok(!fs.existsSync(filePath), 'no store file should be written for rejected inputs');
     } finally {
@@ -106,10 +109,10 @@ describe('LocalCredentialVault', () => {
     }
   });
 
-  it('rejects empty passwords (fail-closed)', () => {
-    const { vault, dir } = makeVault();
+  it('rejects empty passwords (fail-closed)', async () => {
+    const { vault, dir } = await makeVault();
     try {
-      const res = vault.save('https://a.example.com', 'u', '');
+      const res = await vault.save('https://a.example.com', 'u', '');
       assert.strictEqual(res.ok, false);
       assert.strictEqual(res.error, 'EMPTY_PASSWORD');
       assert.strictEqual(vault.list().length, 0);
@@ -118,27 +121,27 @@ describe('LocalCredentialVault', () => {
     }
   });
 
-  it('fails closed when OS-level encryption is unavailable (nothing persisted)', () => {
+  it('an unavailable async encryption refuses to save and returns no credentials', async () => {
     const safeStorage = new FakeSafeStorage();
     safeStorage.encryptionAvailable = false;
-    const { vault, filePath, dir } = makeVault({ safeStorage });
+    const { vault, filePath, dir } = await makeVault({ safeStorage });
     try {
-      const res = vault.save('https://a.example.com', 'u', 'p');
+      const res = await vault.save('https://a.example.com', 'u', 'p');
       assert.strictEqual(res.ok, false);
       assert.strictEqual(res.error, 'ENCRYPTION_UNAVAILABLE');
-      assert.deepStrictEqual(vault.getForOrigin('https://a.example.com'), []);
+      assert.deepStrictEqual(await vault.getForOrigin('https://a.example.com'), []);
       assert.ok(!fs.existsSync(filePath));
     } finally {
       cleanup(dir);
     }
   });
 
-  it('lists meta by origin without exposing passwords', () => {
-    const { vault, dir } = makeVault();
+  it('lists meta by origin without exposing passwords', async () => {
+    const { vault, dir } = await makeVault();
     try {
-      vault.save('https://one.example.com', 'a', 'pa');
-      vault.save('https://one.example.com', 'b', 'pb');
-      vault.save('https://two.example.com', 'c', 'pc');
+      await vault.save('https://one.example.com', 'a', 'pa');
+      await vault.save('https://one.example.com', 'b', 'pb');
+      await vault.save('https://two.example.com', 'c', 'pc');
       const one = vault.list('https://one.example.com');
       assert.strictEqual(one.length, 2);
       assert.deepStrictEqual(one.map((e) => e.username).sort(), ['a', 'b']);
@@ -153,27 +156,27 @@ describe('LocalCredentialVault', () => {
     }
   });
 
-  it('returns decrypted credentials only for the matching origin', () => {
-    const { vault, dir } = makeVault();
+  it('returns decrypted credentials only for the matching origin', async () => {
+    const { vault, dir } = await makeVault();
     try {
-      vault.save('https://one.example.com', 'a', 'pa');
-      const creds = vault.getForOrigin('https://one.example.com');
+      await vault.save('https://one.example.com', 'a', 'pa');
+      const creds = await vault.getForOrigin('https://one.example.com');
       assert.strictEqual(creds.length, 1);
       const [firstCred] = creds;
       assert.ok(firstCred, 'expected a decrypted credential');
       assert.strictEqual(firstCred.password, 'pa');
-      assert.deepStrictEqual(vault.getForOrigin('https://other.example.com'), []);
+      assert.deepStrictEqual(await vault.getForOrigin('https://other.example.com'), []);
     } finally {
       cleanup(dir);
     }
   });
 
-  it('persists across instances (same file, same encryption key)', () => {
-    const { filePath, dir } = makeVault({ withSeed: true });
+  it('persists across instances (same file, same encryption key)', async () => {
+    const { filePath, dir } = await makeVault({ withSeed: true });
     try {
       const reloaded = new LocalCredentialVault({ safeStorage: new FakeSafeStorage(), filePath });
       assert.strictEqual(reloaded.list().length, 1);
-      const [reloadedCred] = reloaded.getForOrigin('https://accounts.example.com');
+      const [reloadedCred] = await reloaded.getForOrigin('https://accounts.example.com');
       assert.ok(reloadedCred, 'expected a decrypted credential');
       assert.strictEqual(reloadedCred.password, 's3cret!');
     } finally {
@@ -181,11 +184,11 @@ describe('LocalCredentialVault', () => {
     }
   });
 
-  it('removes a single credential by id and clears all', () => {
-    const { vault, dir } = makeVault();
+  it('removes a single credential by id and clears all', async () => {
+    const { vault, dir } = await makeVault();
     try {
-      vault.save('https://one.example.com', 'a', 'pa');
-      vault.save('https://two.example.com', 'b', 'pb');
+      await vault.save('https://one.example.com', 'a', 'pa');
+      await vault.save('https://two.example.com', 'b', 'pb');
       const target = vault.list('https://one.example.com')[0];
       assert.ok(target, 'expected a seeded credential');
       const removed = vault.remove(target.id);
@@ -201,7 +204,7 @@ describe('LocalCredentialVault', () => {
     }
   });
 
-  it('quarantines a corrupt store instead of overwriting it', () => {
+  it('quarantines a corrupt store instead of overwriting it', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'afbvault-'));
     try {
       const filePath = path.join(dir, 'password-vault.json');
@@ -210,8 +213,23 @@ describe('LocalCredentialVault', () => {
       assert.strictEqual(vault.list().length, 0);
       const quarantined = fs.readdirSync(dir).filter((f) => f.startsWith('password-vault.json.corrupt-'));
       assert.strictEqual(quarantined.length, 1, 'corrupt file must be quarantined, not lost');
-      const saved = vault.save('https://a.example.com', 'u', 'p');
+      const saved = await vault.save('https://a.example.com', 'u', 'p');
       assert.strictEqual(saved.ok, true);
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  it('a decrypt failure on one entry does not hide the others', async () => {
+    const safeStorage = new FakeSafeStorage();
+    const { vault, dir } = await makeVault({ safeStorage });
+    try {
+      await vault.save('https://a.example.com', 'first', 'good-one');
+      await vault.save('https://a.example.com', 'second', 'poisoned');
+      await vault.save('https://a.example.com', 'third', 'good-two');
+      safeStorage.undecryptable.add('poisoned');
+      const creds = await vault.getForOrigin('https://a.example.com');
+      assert.deepStrictEqual(creds.map((c) => c.password), ['good-one', 'good-two']);
     } finally {
       cleanup(dir);
     }

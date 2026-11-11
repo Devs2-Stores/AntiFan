@@ -19,17 +19,17 @@ const PREFIX = `ENC:${FAKE_KEY}:`;
 class FakeSafeStorage implements SafeStorageLike {
   public encryptionAvailable = true;
 
-  public isEncryptionAvailable(): boolean {
+  public async isAsyncEncryptionAvailable(): Promise<boolean> {
     return this.encryptionAvailable;
   }
 
-  public encryptString(plainText: string): Buffer {
+  public async encryptStringAsync(plainText: string): Promise<Buffer> {
     return Buffer.from(`${PREFIX}${plainText}`, 'utf8');
   }
 
-  public decryptString(encrypted: Buffer): string {
+  public async decryptStringAsync(encrypted: Buffer): Promise<{ result: string }> {
     const text = encrypted.toString('utf8');
-    return text.startsWith(PREFIX) ? text.slice(PREFIX.length) : text;
+    return { result: text.startsWith(PREFIX) ? text.slice(PREFIX.length) : text };
   }
 }
 
@@ -90,7 +90,7 @@ describe('Password vault IPC security', () => {
       assert.strictEqual(entries.length, 1);
       assert.strictEqual(entries[0]!.origin, 'https://accounts.example.com');
       assert.strictEqual(entries[0]!.username, 'admin');
-      const creds = vault.getForOrigin('https://accounts.example.com');
+      const creds = await vault.getForOrigin('https://accounts.example.com');
       assert.strictEqual(creds.length, 1);
       assert.strictEqual(creds[0]!.password, 's3cret!');
     } finally {
