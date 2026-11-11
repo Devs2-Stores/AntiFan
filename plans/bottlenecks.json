@@ -319,17 +319,17 @@
     {
       "id": "B20",
       "group": "theme-qa",
-      "title": "Full-page capture refuses above 16384 px; the recorded 'degrades to a tiled composite' never existed in the capture path",
+      "title": "Full-page capture is tiled and stitched up to fullPageMaxCssHeight; a region outside the supported range refuses with a typed geometry error",
       "severity": "P2",
       "status": "closed",
-      "evidence": "Closed 2026-09-19: CAPTURE_MAX_DIMENSION = 16384 (src/main/verification/visual-capture.ts:703) and the over-ceiling path throws a typed error naming the requested region instead of degrading (src/main/browser/tab-devtools-host.ts:2043-2051, 2131-2135). No tiled-composite or main-thread composition helper exists in the capture path (grepped tile/tiled across src/main/browser + src/main/verification: every hit is 'Turnstile' or 'volatile' outside it). The 16 384 px limit is a capability ceiling; a tiled capture would be a feature row, not this defect.",
-      "closedBy": "over-ceiling capture refuses with a typed error (CAPTURE_MAX_DIMENSION) rather than degrading",
+      "evidence": "Re-verified 2026-11-12: a document taller than one capture tile is planned in tiles (src/main/browser/tab-devtools-host.ts:3237 planTiles), stitched by finalizeFullPageTiles (:3381, imported from ../verification/full-page-tiles at :52) and the receipt carries tiles {count, stitched: true} (:3439). A region outside width 1..CAPTURE_MAX_DIMENSION or above fullPageMaxCssHeight throws FULLPAGE_CAPTURE_UNSUPPORTED_GEOMETRY naming the requested region (:3017-3027, :3131-3140). This supersedes the 2026-09-19 closure, which recorded that no tiled composite existed in the capture path.",
+      "closedBy": "full-page capture tiles and stitches up to fullPageMaxCssHeight; anything outside the supported range refuses with FULLPAGE_CAPTURE_UNSUPPORTED_GEOMETRY instead of degrading silently",
       "predicate": {
         "kind": "file-absent-regex",
         "file": "src/main/browser/tab-devtools-host.ts",
-        "pattern": "outside the supported 1"
+        "pattern": "outside the supported range"
       },
-      "reVerifyWith": "capture a page taller than 16384 CSS px: a refusal is correct; a stitched or upscaled image means a tiled composite was introduced"
+      "reVerifyWith": "capture a page taller than fullPageMaxCssHeight: FULLPAGE_CAPTURE_UNSUPPORTED_GEOMETRY must name the height limit; a page below it must return receipt.tiles.stitched === true"
     },
     {
       "id": "B21",
