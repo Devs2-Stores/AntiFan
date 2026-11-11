@@ -387,6 +387,35 @@ describe('AntiFan Bridge Server', () => {
     }
   });
 
+  it('bridge token comparison accepts only the exact token', { timeout: 10000 }, async () => {
+    const server = new BridgeServer(new MockTabHost() as unknown as NativeTabHost, 0);
+    const port = await server.start();
+    try {
+      const token = server.getToken();
+      const statusWith = (presented: string) => new Promise<number>((resolve, reject) => {
+        const req = http.request({
+          host: '127.0.0.1', port, path: '/status', method: 'GET',
+          headers: { Authorization: `Bearer ${presented}` },
+          timeout: 3000,
+        }, (res) => {
+          res.resume();
+          resolve(res.statusCode || 0);
+        });
+        req.on('timeout', () => { req.destroy(new Error('request hung without an answer')); });
+        req.on('error', reject);
+        req.end();
+      });
+      const flipped = `${token.slice(0, -1)}${token.endsWith('a') ? 'b' : 'a'}`;
+      assert.strictEqual(await statusWith(token), 200);
+      assert.strictEqual(await statusWith(flipped), 401);
+      assert.strictEqual(await statusWith(token.slice(0, -1)), 401);
+      assert.strictEqual(await statusWith(`${token}extra`), 401);
+      assert.strictEqual(await statusWith('x'.repeat(4096)), 401);
+    } finally {
+      server.dispose();
+    }
+  });
+
   it('handles antifan.cli.startSession and antifan.cli.renewSession RPC over WebSocket', async () => {
     const mockHost = new MockTabHost() as unknown as NativeTabHost;
     const lease = { runtimeId: 'binding-runtime', projectId: 'project-local', workspaceId: 'workspace-local', token: 'lease-token', protocolVersion: 1, hostEpoch: 1, ownerPid: process.pid, issuedAt: Date.now(), expiresAt: Date.now() + 30_000 };

@@ -1051,7 +1051,7 @@ export class BridgeServer {
       }
 
       const clientToken = extractAuthToken(req);
-      const isBridgeToken = Boolean(clientToken && clientToken === this.token);
+      const isBridgeToken = Boolean(clientToken && tokensEqual(clientToken, this.token));
       const verifiedAttachmentId = clientToken ? (this.attachmentRegistry?.verifyConnectionToken(clientToken) ?? null) : null;
       const verifiedMobileGrant = clientToken ? this.getMobileGrant(clientToken) : null;
       const extensionGrantLookup = clientToken ? this.getExtensionGrant(clientToken) : null;
@@ -2119,7 +2119,7 @@ export class BridgeServer {
 
       // Token authentication: Authorization: Bearer, X-Antifan-Attachment-Secret, Sec-WebSocket-Protocol, or cookie
       const clientToken = extractAuthToken(req);
-      const isBridgeToken = Boolean(clientToken && clientToken === this.token);
+      const isBridgeToken = Boolean(clientToken && tokensEqual(clientToken, this.token));
       const verifiedAttachmentId = clientToken ? (this.attachmentRegistry?.verifyConnectionToken(clientToken) ?? null) : null;
       const verifiedMobileGrant = clientToken ? this.getMobileGrant(clientToken) : null;
       if (!isBridgeToken && !verifiedAttachmentId && !verifiedMobileGrant) {
@@ -4732,6 +4732,13 @@ export class BridgeServer {
       }
     } catch {}
   }
+}
+
+/** Constant-time token comparison; hashing first makes unequal lengths safe for timingSafeEqual. */
+function tokensEqual(presented: string, expected: string): boolean {
+  const a = crypto.createHash('sha256').update(presented).digest();
+  const b = crypto.createHash('sha256').update(expected).digest();
+  return crypto.timingSafeEqual(a, b);
 }
 
 /** A malformed percent-escape in a cookie must read as an unknown token, not throw. */
