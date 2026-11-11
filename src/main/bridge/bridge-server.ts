@@ -224,6 +224,25 @@ export interface BridgeCongestionState {
 
 type HeartbeatWebSocket = WebSocket & { isAlive?: boolean };
 
+/**
+ * Largest inbound WebSocket frame the bridge accepts. The `ws` default is 100 MiB, which lets any
+ * authenticated peer make the main process buffer that much per frame; a larger frame closes the
+ * socket with 1009.
+ */
+export const WS_MAX_PAYLOAD_BYTES = 64 * 1024 * 1024;
+
+function createBridgeWebSocketServer(server: http.Server): WebSocketServer {
+  return new WebSocketServer({
+    server,
+    maxPayload: WS_MAX_PAYLOAD_BYTES,
+    handleProtocols: (protocols: Set<string>) => {
+      if (protocols.has('antifan-auth')) return 'antifan-auth';
+      if (protocols.has('antifan')) return 'antifan';
+      return false;
+    },
+  });
+}
+
 export function getLocalLanIps(): string[] {
   const ips: string[] = [];
   const interfaces = os.networkInterfaces();
@@ -612,14 +631,7 @@ export class BridgeServer {
 
     const handler = this.createHttpHandler();
     const newServer = http.createServer(handler);
-    const newWss = new WebSocketServer({
-      server: newServer,
-      handleProtocols: (protocols: Set<string>) => {
-        if (protocols.has('antifan-auth')) return 'antifan-auth';
-        if (protocols.has('antifan')) return 'antifan';
-        return false;
-      },
-    });
+    const newWss = createBridgeWebSocketServer(newServer);
     this.httpServer = newServer;
     this.wss = newWss;
     this.setupWssEvents();
@@ -1994,14 +2006,7 @@ export class BridgeServer {
       const handler = this.createHttpHandler();
       this.httpServer = http.createServer(handler);
 
-      this.wss = new WebSocketServer({
-        server: this.httpServer,
-        handleProtocols: (protocols: Set<string>) => {
-          if (protocols.has('antifan-auth')) return 'antifan-auth';
-          if (protocols.has('antifan')) return 'antifan';
-          return false;
-        },
-      });
+      this.wss = createBridgeWebSocketServer(this.httpServer);
       this.setupWssEvents();
 
       this.httpServer.on('error', (err: NodeJS.ErrnoException) => {
@@ -2025,14 +2030,7 @@ export class BridgeServer {
             reject(altErr);
           });
           this.httpServer = altServer;
-          this.wss = new WebSocketServer({
-            server: altServer,
-            handleProtocols: (protocols: Set<string>) => {
-              if (protocols.has('antifan-auth')) return 'antifan-auth';
-              if (protocols.has('antifan')) return 'antifan';
-              return false;
-            },
-          });
+          this.wss = createBridgeWebSocketServer(altServer);
           this.setupWssEvents();
 
           altServer.listen(0, this.effectiveBindHost(), () => {

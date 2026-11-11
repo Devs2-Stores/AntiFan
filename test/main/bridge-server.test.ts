@@ -10,7 +10,7 @@ import * as crypto from 'node:crypto';
 import * as http from 'node:http';
 import { spawn } from 'node:child_process';
 import { setImmediate as yieldToLoop } from 'node:timers/promises';
-import { BridgeServer, getLocalLanIps, type MobileSessionGrant } from '../../src/main/bridge/bridge-server';
+import { BridgeServer, getLocalLanIps, WS_MAX_PAYLOAD_BYTES, type MobileSessionGrant } from '../../src/main/bridge/bridge-server';
 import { TerminalManager } from '../../src/main/browser/terminal-manager';
 import { StorageLocations } from '../../src/main/config/storage-locations';
 import { NativeTabHost } from '../../src/main/browser/native-tab-host';
@@ -411,6 +411,28 @@ describe('AntiFan Bridge Server', () => {
       assert.strictEqual(await statusWith(token.slice(0, -1)), 401);
       assert.strictEqual(await statusWith(`${token}extra`), 401);
       assert.strictEqual(await statusWith('x'.repeat(4096)), 401);
+    } finally {
+      server.dispose();
+    }
+  });
+
+  it('a websocket frame above the payload ceiling closes the socket with 1009', { timeout: 20000 }, async () => {
+    const server = new BridgeServer(new MockTabHost() as unknown as NativeTabHost, 0);
+    const port = await server.start();
+    try {
+      const ws = new WebSocket(`ws://127.0.0.1:${port}`, { headers: { Authorization: `Bearer ${server.getToken()}` } });
+      await new Promise<void>((resolve, reject) => {
+        ws.once('open', () => resolve());
+        ws.once('error', reject);
+      });
+      const closed = new Promise<number>((resolve) => {
+        ws.on('close', (code) => resolve(code));
+        setTimeout(() => resolve(-1), 8000).unref();
+      });
+      ws.send(Buffer.alloc(WS_MAX_PAYLOAD_BYTES + 1), { binary: true });
+      const code = await closed;
+      ws.terminate();
+      assert.strictEqual(code, 1009);
     } finally {
       server.dispose();
     }
