@@ -39,7 +39,7 @@ import { resolveHomeBaseTerminal, isLiveSplitOf, liveSplitParentOf } from '../to
 import { CapabilityRequestContext, CapabilityError, BrowserTarget, RuntimeLease, ArtifactRef, ClientInvocationIntent, makeControlPlaneId, hashSecret, verifySecret } from '../../shared/control-plane-contracts';
 import { AttachmentRegistry, type PageCloseAdmission } from '../run/attachment-registry';
 import { SessionCapabilityFilter, isCapabilityNamePermitted } from '../tools/capability-catalogue';
-import { enforceProtectedDirectoryDacl, enforceProtectedFileDacl, resolveCurrentUserSid, applyProtectedPathsDacl } from '../security/windows-acl';
+import { enforceProtectedDirectoryDacl, resolveCurrentUserSid, applyProtectedPathsDacl } from '../security/windows-acl';
 import { ControlPlaneRuntime } from '../control-plane/control-plane-runtime';
 import { deriveCapsulePartition, isCookieJarSession } from '../browser/browser-session-partition';
 import { extensionCookieImportSetDetails, type ExtensionCookieInput } from '../browser/chrome-profile-sync';
@@ -123,18 +123,7 @@ export interface MobileSessionGrant {
 
 export async function applyProtectedPathsDaclBridge(paths: string[]): Promise<void> {
   if (process.platform !== 'win32') return;
-  if (typeof applyProtectedPathsDacl === 'function') {
-    await applyProtectedPathsDacl(paths);
-  } else if (typeof enforceProtectedFileDacl === 'function') {
-    const sid = typeof resolveCurrentUserSid === 'function' ? await resolveCurrentUserSid() : undefined;
-    for (const p of paths) {
-      await enforceProtectedFileDacl(p, sid);
-    }
-  }
-}
-
-export async function applyProtectedFileDacl(filePath: string): Promise<void> {
-  await applyProtectedPathsDaclBridge([filePath]);
+  await applyProtectedPathsDacl(paths);
 }
 
 /**
