@@ -933,20 +933,34 @@ async function cmdWait(flags) {
 async function cmdWaitAny(flags) {
   const leader = one(flags, "leader") || process.env.ANTIFAN_TERMINAL_SESSION_ID;
   if (!leader) throw new CliError(EXIT.USAGE, "pass --leader TERMINAL or set ANTIFAN_TERMINAL_SESSION_ID");
-  const dirs = readLeaderJobs(leader)
-    .filter(({ job }) => job.state === "dispatched")
-    .map(({ dir }) => dir);
-  if (!dirs.length) {
+  const dispatchedDirs = () =>
+    readLeaderJobs(leader)
+      .filter(({ job }) => job.state === "dispatched")
+      .map(({ dir }) => dir);
+  if (!dispatchedDirs().length) {
     emit({ cmd: "wait-any", event: "nothing-to-wait", leader });
     return EXIT.OK;
   }
   const passthrough = ["timeout-min", "poll-ms", "stale-min", "undelivered-sec", "sessions-dir", "runs-dir"];
-  const runs = dirs.map(async (dir) => {
-    const sub = new Map([["job", [dir]]]);
-    for (const name of passthrough) if (flags.has(name)) sub.set(name, flags.get(name));
-    return { dir, code: await cmdWait(sub) };
-  });
-  const first = await Promise.race(runs);
+  const watched = new Map();
+  const watchNew = () => {
+    for (const dir of dispatchedDirs()) {
+      if (watched.has(dir)) continue;
+      const sub = new Map([["job", [dir]]]);
+      for (const name of passthrough) if (flags.has(name)) sub.set(name, flags.get(name));
+      watched.set(dir, cmdWait(sub).then((code) => ({ dir, code })));
+    }
+  };
+  const rescanMs = Math.max(200, Math.min(5000, Number(one(flags, "poll-ms")) || 5000));
+  let first = null;
+  while (!first) {
+    watchNew();
+    first = await Promise.race([
+      ...watched.values(),
+      new Promise((resolve) => setTimeout(() => resolve(null), rescanMs)),
+    ]);
+  }
+  const dirs = [...watched.keys()];
   const runsDir = runsDirOf(flags);
   const alsoReady = readLeaderJobs(leader)
     .filter(({ dir }) => dir !== first.dir && path.resolve(dir) !== path.resolve(first.dir))

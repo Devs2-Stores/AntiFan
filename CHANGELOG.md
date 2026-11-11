@@ -6,6 +6,8 @@ Tất cả các thay đổi, tính năng mới và bản vá lỗi quan trọng 
 
 ## [v1.3.6] - Unreleased
 
+- **`leader-job.mjs wait-any` theo dõi cả job được dispatch sau khi nó đã chạy:** trước đây nó chốt danh sách job `dispatched` lúc khởi động, nên vòng đóng của #313 (dispatch lúc `wait-any` đang chạy) xong rồi mà không ai báo, Leader chỉ biết khi user hỏi. Nay mỗi 5 giây (hoặc `--poll-ms` nếu nhỏ hơn) nó quét lại và thêm job mới vào danh sách chờ; test `leader-job-wait-any-late.test.mjs`.
+
 ### Sửa/Thêm — Theo audit chat OMP 04-10/11/2026 (`plans/reports/261110-omp-chat-audit-04-10-11.md`)
 
 - **Proxy MCP công bố schema dung nạp tên/giá trị agent hay đoán (`scripts/antifan-omp-mcp.cjs`):** 34 lần trong tuần host của agent từ chối lời gọi bằng "Invalid args for …" trước khi proxy kịp đổi tên (`terminal.write {terminalId|id|terminal}`, `set_control {checked|desired|expected}`, `file_upload {selector, files|paths}`, `navigate {waitUntil:"networkidle"}`, `browser.wait {condition:"page_loaded"}`, `responsive_matrix {customBreakpoints:[375,768]}`, `key:"ctrl+c"`, `console {level:"error"}`, `locator {selector}`), và lỗi đó in lại toàn bộ mô tả tool. Nay `listTools()` công bố schema suy ra từ dòng định nghĩa + bảng alias + bảng nới lỏng (`publishedTool`), còn dòng định nghĩa giữ hợp đồng chặt; alias không bao giờ ghi đè giá trị đúng đã có, `submit` không được alias, không tên nào map vào `message`/`force`/`shell`, và lời gọi thiếu hẳn trường vẫn bị cổng của proxy từ chối bằng `INVALID_ARGUMENT` ngắn. Mọi thay đổi trả về trong `aliasApplied`. Mô tả `terminal.wait` không còn ghi cứng `28000`; `check-mcp-budget-dominance.mjs` kiểm điều này. Hiệu lực ở phiên OMP mới.
