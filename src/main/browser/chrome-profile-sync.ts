@@ -8,7 +8,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import * as http from 'http';
-import { spawn, execSync, execFile, type ChildProcess } from 'child_process';
+import { spawn, execFile, type ChildProcess } from 'child_process';
 import { promisify } from 'util';
 const execFileAsync = promisify(execFile);
 import { LocalSessionVault } from './local-session-vault';
@@ -454,12 +454,13 @@ export class ChromeProfileSyncManager {
    * Terminates the owned Chrome process tree. Only ever called on processes
    * this class spawned — never on the user's running Chrome.
    */
-  private killOwnedChrome(child: ChildProcess | null): void {
+  private async killOwnedChrome(child: ChildProcess | null): Promise<void> {
     if (!child || child.pid === undefined || child.pid <= 0) return;
     if (process.platform === 'win32') {
-      try {
-        execSync(`taskkill /PID ${child.pid} /T /F`, { stdio: 'ignore' });
-      } catch {}
+      await execFileAsync('taskkill', ['/PID', String(child.pid), '/T', '/F'], {
+        windowsHide: true,
+        timeout: 5000,
+      }).catch(() => {});
     } else {
       try {
         child.kill('SIGTERM');
@@ -545,7 +546,7 @@ export class ChromeProfileSyncManager {
     } finally {
       // Deterministic teardown — no untracked timers: kill the process tree,
       // wait for the child to actually exit, then retry-remove the temp dir.
-      this.killOwnedChrome(child);
+      await this.killOwnedChrome(child);
       if (child && child.exitCode === null) {
         try {
           await new Promise<void>((resolve) => {

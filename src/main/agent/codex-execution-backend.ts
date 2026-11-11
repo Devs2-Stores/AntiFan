@@ -140,7 +140,9 @@ export class CodexExecutionBackend implements ExecutionBackend {
   private killOwned(child: childProcess.ChildProcess): void {
     if (!child.pid || child.killed) return;
     if (process.platform === 'win32') {
-      try { childProcess.execFileSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' }); } catch { child.kill(); }
+      childProcess.execFile('taskkill', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, timeout: 5000 }, (err) => {
+        if (err) child.kill();
+      });
     } else child.kill('SIGTERM');
   }
 }
