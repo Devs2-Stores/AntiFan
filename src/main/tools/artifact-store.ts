@@ -95,7 +95,7 @@ export class ArtifactStore {
       const runArtifacts = this.getRunArtifacts(runId);
       const indexFile = this.getIndexFilePath(runId);
       const tempPath = `${indexFile}.tmp-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
-      const payload = JSON.stringify(runArtifacts, null, 2);
+      const payload = JSON.stringify(runArtifacts);
       fs.writeFileSync(tempPath, payload, 'utf8');
       try {
         fs.renameSync(tempPath, indexFile);
@@ -113,7 +113,7 @@ export class ArtifactStore {
       const runArtifacts = this.getRunArtifacts(runId);
       const indexFile = this.getIndexFilePath(runId);
       const tempPath = `${indexFile}.tmp-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
-      const payload = JSON.stringify(runArtifacts, null, 2);
+      const payload = JSON.stringify(runArtifacts);
       await fs.promises.writeFile(tempPath, payload, 'utf8');
       try {
         await fs.promises.rename(tempPath, indexFile);
