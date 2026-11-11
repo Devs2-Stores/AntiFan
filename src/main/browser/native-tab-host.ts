@@ -5215,15 +5215,24 @@ export class NativeTabHost extends EventEmitter {
         const pollIntervalMs = 100;
         const deadline = Date.now() + RUN_CONTROL_ACK_TIMEOUT_MS;
         let ackContent: string | null = null;
+        let ackFailureJournaled = false;
 
         while (Date.now() < deadline) {
           try {
-            if (fs.existsSync(ackPath)) {
-              ackContent = fs.readFileSync(ackPath, 'utf8');
-              try { fs.unlinkSync(ackPath); } catch {}
-              break;
+            ackContent = await fs.promises.readFile(ackPath, 'utf8');
+            await fs.promises.unlink(ackPath).catch(() => {});
+            break;
+          } catch (err) {
+            const code = (err as NodeJS.ErrnoException | undefined)?.code;
+            if (code !== 'ENOENT' && !ackFailureJournaled) {
+              ackFailureJournaled = true;
+              recordLifecycleEvent('runControl.ackReadFailed', {
+                ackPath,
+                code: typeof code === 'string' ? code : undefined,
+                message: err instanceof Error ? err.message : String(err),
+              });
             }
-          } catch {}
+          }
           const { promise, resolve } = Promise.withResolvers<void>();
           setTimeout(resolve, pollIntervalMs);
           await promise;
@@ -15385,10 +15394,9 @@ export class NativeTabHost extends EventEmitter {
         }
         this.notePersistedProjection(filePath, serialized);
         this.noteSharedDocumentPrefsWritten(data);
-        console.log('[native-tab-host] Persisted tabs async to:', filePath);
       } while (this.hasPendingPersist && !this.isDisposed);
     } catch (err) {
-      console.warn('[native-tab-host] Failed to persist tabs async:', err);
+      this.reportPersistFailure('async', err);
     } finally {
       this.isPersistingTabs = false;
     }
@@ -15433,11 +15441,25 @@ export class NativeTabHost extends EventEmitter {
         this.writeSavedTabsDocumentSync(filePath, document);
         this.notePersistedProjection(filePath, serialized);
         this.noteSharedDocumentPrefsWritten(data);
-        console.log('[native-tab-host] Persisted tabs sync to:', filePath);
       }
     } catch (err) {
-      console.warn('[native-tab-host] Failed to persist tabs sync:', err);
+      this.reportPersistFailure('sync', err);
     }
+  }
+
+  private reportPersistFailure(mode: 'async' | 'sync', err: unknown): void {
+    const error = err as { name?: unknown; message?: unknown; code?: unknown } | null | undefined;
+    let filePath = '';
+    try { filePath = this.getTabsStoragePath(); } catch {}
+    recordLifecycleEvent('tabhost.persistFailed', {
+      mode,
+      filePath,
+      error: {
+        name: typeof error?.name === 'string' ? error.name : undefined,
+        message: typeof error?.message === 'string' ? error.message : String(err),
+        code: typeof error?.code === 'string' ? error.code : undefined,
+      },
+    });
   }
 
 

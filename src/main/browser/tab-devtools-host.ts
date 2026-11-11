@@ -3947,7 +3947,7 @@ export class TabDevToolsHost {
 
       // Out-of-Band 2-Tier Watchdog Timers (Node.js level)
       const softTimer = setTimeout(() => {
-        console.warn(`[evalJs:SoftWarning] Script evaluation on tab ${targetId} reached soft budget ${softBudgetMs}ms (running on laptop CPU). Awaiting hard ceiling ${hardBudgetMs}ms...`);
+        recordLifecycleEvent('evalJs.softBudget', { tabId: targetId, softBudgetMs, hardBudgetMs });
       }, softBudgetMs);
 
       const { promise: hardWatchdogPromise, reject: hardReject } = Promise.withResolvers<never>();
