@@ -61,6 +61,7 @@ describe('extra file roots for expressionFile, saveTo and dump_dom outputPath', 
   });
 
   let workspaceOverride: string | undefined;
+  let registryThrows = false;
 
   function surface(): CapabilityCatalogue {
     const port = {
@@ -68,7 +69,12 @@ describe('extra file roots for expressionFile, saveTo and dump_dom outputPath', 
       dumpDom: async (_target: unknown, outputPath: string) => ({ written: outputPath }),
       screenshot: async () => ({ artifactRef: { path: staged }, tabId: 'tab-1' }),
     } as unknown as BrowserControlPort;
-    const workspaceRegistry = { get: () => ({ id: workspaceId, projectId, rootPath: workspaceOverride ?? workspace, state: 'attached', createdAt: 0, updatedAt: 0 }) };
+    const workspaceRegistry = {
+      get: () => {
+        if (registryThrows) throw new Error('registry offline');
+        return { id: workspaceId, projectId, rootPath: workspaceOverride ?? workspace, state: 'attached', createdAt: 0, updatedAt: 0 };
+      },
+    };
     const catalogue = new CapabilityCatalogue({
       runtime: { mode: 'standalone', lifecycle: 'active' },
       projectId,
@@ -137,6 +143,29 @@ describe('extra file roots for expressionFile, saveTo and dump_dom outputPath', 
     it('keeps reading a workspace-relative file exactly as before', async () => {
       fs.writeFileSync(path.join(workspace, 'probe.js'), '2 + 2');
       assert.equal(await read('probe.js'), '2 + 2');
+    });
+
+    it('a named workspace the registry cannot resolve is refused, never read from the app cwd', async () => {
+      const probe = path.join(process.cwd(), `.k04-probe-${process.pid}.js`);
+      fs.writeFileSync(probe, '3 + 3');
+      registryThrows = true;
+      try {
+        await assert.rejects(
+          async () => read(path.basename(probe)),
+          (err: unknown) => err instanceof CapabilityError && err.code === 'WORKSPACE_MISMATCH',
+        );
+        await assert.rejects(
+          async () => save('shot.png'),
+          (err: unknown) => err instanceof CapabilityError && err.code === 'WORKSPACE_MISMATCH',
+        );
+        await assert.rejects(
+          async () => surface().get('anti.agent.file_upload')!.execute({ selector: 'input', filePaths: [probe] }, context),
+          (err: unknown) => err instanceof CapabilityError && err.code === 'WORKSPACE_MISMATCH',
+        );
+      } finally {
+        registryThrows = false;
+        fs.rmSync(probe, { force: true });
+      }
     });
   });
 

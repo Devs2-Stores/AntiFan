@@ -1437,6 +1437,18 @@ function confineToExtraRoots(target: string, mode: 'read' | 'write'): { path?: s
 export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, browser: BrowserControlPort, themeQaWorkflow?: ThemeQaWorkflow, getWorkspaceRoot?: () => string, receipts?: ReceiptStore, getStylesheetUrlMap?: () => Record<string, string>, cockpit?: CockpitPort): void {
   const coordinator = themeQaWorkflow ? new ThemeQaRepairCoordinator(themeQaWorkflow) : undefined;
   /**
+   * The bound workspace root for a request, or undefined when the request names no
+   * project/workspace or the registry holds no root for it. A named workspace the
+   * registry cannot resolve is refused (WORKSPACE_MISMATCH / PROJECT_MISMATCH)
+   * instead of silently standing in the app's cwd.
+   */
+  const authoritativeRootOf = (context: CapabilityRequestContext): string | undefined => {
+    if (!context?.projectId || !context?.workspaceId) return undefined;
+    const ws = catalogue.resolveAuthoritativeWorkspace(context.projectId, context.workspaceId);
+    return typeof ws?.rootPath === 'string' && ws.rootPath ? ws.rootPath : undefined;
+  };
+
+  /**
    * `expression` and `expressionFile` are mutually exclusive forms of the same
    * argument: the file form exists because a workspace-relative path survives
    * transports that mangle a large escaped expression. The file is read through
@@ -1466,13 +1478,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     if (typeof params.expressionFile !== 'string') {
       throw new CapabilityError('INVALID_ARGUMENT', `${capabilityName} expressionFile must be a workspace-relative path string`);
     }
-    let rootPath = process.cwd();
-    if (context?.projectId && context?.workspaceId) {
-      try {
-        const ws = catalogue.resolveAuthoritativeWorkspace(context.projectId, context.workspaceId);
-        if (ws?.rootPath) rootPath = ws.rootPath;
-      } catch {}
-    }
+    const rootPath = authoritativeRootOf(context) ?? process.cwd();
     const resolvedTarget = path.isAbsolute(params.expressionFile)
       ? params.expressionFile
       : path.resolve(rootPath, params.expressionFile);
@@ -1568,13 +1574,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     if (typeof requested !== 'string' || !requested.trim()) {
       throw new CapabilityError('INVALID_ARGUMENT', `${field} must be a non-empty file path relative to the workspace root`);
     }
-    let rootPath = process.cwd();
-    if (context?.projectId && context?.workspaceId) {
-      try {
-        const ws = catalogue.resolveAuthoritativeWorkspace(context.projectId, context.workspaceId);
-        if (ws?.rootPath) rootPath = ws.rootPath;
-      } catch {}
-    }
+    const rootPath = authoritativeRootOf(context) ?? process.cwd();
     const resolvedTarget = path.isAbsolute(requested)
       ? requested
       : path.resolve(rootPath, requested);
@@ -2130,13 +2130,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
     inputSchema: fileUploadInputSchema(),
     execute: (params: FileUploadParams, context) => {
-      let wsRoot = params.workspaceRoot;
-      if (!wsRoot && context?.projectId && context?.workspaceId) {
-        try {
-          const ws = catalogue.resolveAuthoritativeWorkspace(context.projectId, context.workspaceId);
-          if (ws?.rootPath) wsRoot = ws.rootPath;
-        } catch {}
-      }
+      const wsRoot = params.workspaceRoot || authoritativeRootOf(context);
       return browser.uploadFileInput({ ...params, workspaceRoot: wsRoot }, context.browserTarget, context.signal);
     },
   });
@@ -2367,13 +2361,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
     inputSchema: fileUploadInputSchema(),
     execute: (params: FileUploadParams, context) => {
-      let wsRoot = params.workspaceRoot;
-      if (!wsRoot && context?.projectId && context?.workspaceId) {
-        try {
-          const ws = catalogue.resolveAuthoritativeWorkspace(context.projectId, context.workspaceId);
-          if (ws?.rootPath) wsRoot = ws.rootPath;
-        } catch {}
-      }
+      const wsRoot = params.workspaceRoot || authoritativeRootOf(context);
       return browser.uploadFileInput({ ...params, workspaceRoot: wsRoot }, context.browserTarget, context.signal);
     },
   });
@@ -2396,13 +2384,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     policy: makeBrowserPolicy({ effect: 'interactive-effect', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
     inputSchema: fileUploadInputSchema(),
     execute: (params: FileUploadParams, context) => {
-      let wsRoot = params.workspaceRoot;
-      if (!wsRoot && context?.projectId && context?.workspaceId) {
-        try {
-          const ws = catalogue.resolveAuthoritativeWorkspace(context.projectId, context.workspaceId);
-          if (ws?.rootPath) wsRoot = ws.rootPath;
-        } catch {}
-      }
+      const wsRoot = params.workspaceRoot || authoritativeRootOf(context);
       return browser.uploadFileInput({ ...params, workspaceRoot: wsRoot }, context.browserTarget, context.signal);
     },
   });
