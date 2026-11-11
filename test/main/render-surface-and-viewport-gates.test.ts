@@ -589,3 +589,28 @@ describe('Eval execution guard ceiling', () => {
     assert.match(script, /execBudgetMs = 15000;/, 'an unbounded caller still gets the requestAnimationFrame-freeze guard');
   });
 });
+
+describe('Large captures stage through the sink async path', () => {
+  it('stages a full-page capture with stageAsync and never calls the synchronous stage', async () => {
+    const staged: unknown[] = [];
+    const sink = {
+      stage: () => {
+        throw new Error('synchronous stage would block the main thread on a multi-megabyte buffer');
+      },
+      stageAsync: async (input: { runId: string; mime: string }) => {
+        staged.push(input);
+        return { id: 'artifact-1', runId: input.runId, mime: input.mime } as never;
+      },
+    };
+    const { host } = buildHost({
+      capture: async () => envelope(Buffer.from('png-bytes').toString('base64'), 'full-page', {
+        viewportTransaction: { before: { width: 1440, height: 900, scrollX: 0, scrollY: 0 }, after: { width: 1440, height: 900, scrollX: 0, scrollY: 0 }, restored: true, attempts: 1 },
+      }),
+    });
+    const port = new BrowserControlPort(host, sink);
+    const res = await port.screenshotFullPage(TARGET, 'run-1', 'attempt-1', 'tab-b', 'desktop');
+    assert.strictEqual(res.ok, true);
+    assert.strictEqual(staged.length, 1);
+    assert.deepStrictEqual(res.artifactRef, { id: 'artifact-1', runId: 'run-1', mime: 'image/png' });
+  });
+});

@@ -4422,8 +4422,8 @@ export class BrowserControlPort {
     const artifactRef = this.artifacts
       ? await budget.run(
           'stage full-page',
-          async () =>
-            this.artifacts!.stage({
+          () =>
+            this.stageArtifact({
               kind: 'screenshot',
               mime,
               data: bytes,
@@ -8543,8 +8543,8 @@ export class BrowserControlPort {
     if (this.artifacts) {
       artifact = await budget.run(
         `stage ${side}`,
-        async () =>
-          this.artifacts!.stage({
+        () =>
+          this.stageArtifact({
             kind: 'screenshot',
             mime: 'image/png',
             data: buffer,
