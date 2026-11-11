@@ -1340,6 +1340,29 @@ test('a merge flattens list-shaped provenance and leaves nothing for the next op
   }
 });
 
+test('principles.jsonl import skips lines without provenance and still imports the rest', () => {
+  const dir = fixtureReports();
+  fs.writeFileSync(path.join(dir, 'principles.jsonl'), [
+    JSON.stringify({ statement: 'Anchored by source', source: 'skills/a/SKILL.md' }),
+    JSON.stringify({ statement: 'Anchored by list', derivedFrom: ['skills/b.md'] }),
+    JSON.stringify({ statement: 'No provenance at all' }),
+    JSON.stringify({ statement: 'Empty provenance', source: '  ', derivedFrom: '[]' }),
+  ].join('\n') + '\n');
+  const dbPath = path.join(dir, 'core.db');
+  const core = openCore(dbPath);
+  const raw = new DatabaseSync(dbPath);
+  try {
+    const res = core.importScout(dir);
+    assert.equal(res.unanchoredPrinciples, 2, 'the two unanchored lines are counted, not stored');
+    const statements = raw.prepare('SELECT statement FROM principles ORDER BY statement').all().map((r) => String(r.statement));
+    assert.deepEqual(statements, ['Anchored by list', 'Anchored by source']);
+    assert.equal(core.checkPhaseGate('v4', 'principles').passed, true, 'the import leaves the principles gate green');
+  } finally {
+    raw.close();
+    core.close();
+  }
+});
+
 test('a principle with no provenance is refused and a later sourced repeat anchors an orphan row', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'core-principle-provenance-'));
   const dbPath = path.join(dir, 'core.db');

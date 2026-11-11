@@ -358,6 +358,7 @@ export class Core {
       dependency: this.db.prepare('INSERT OR REPLACE INTO dependencies(id,fromUnitId,toUnitId,kind,evidenceJson) VALUES (?,?,?,?,?)'),
     };
     let skippedLines = 0;
+    let unanchoredPrinciples = 0;
     const jsonl = (f: string) => fs.existsSync(f)
       ? fs.readFileSync(f, 'utf8').split(/\r?\n/).filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { skippedLines++; return null; } }).filter(Boolean)
       : [];
@@ -422,8 +423,11 @@ export class Core {
         // Content-addressed insert: a repeat of the same normalized sentence
         // merges its provenance into the existing row instead of stacking a
         // duplicate. `changes > 0` means a new hash was written.
-        const src = l.source ?? null;
-        const df = l.derivedFrom ?? null;
+        const src = typeof l.source === 'string' && l.source.trim() !== '' ? l.source.trim() : null;
+        const df = typeof l.derivedFrom === 'string' ? l.derivedFrom : Array.isArray(l.derivedFrom) ? JSON.stringify(l.derivedFrom) : null;
+        // A line with no provenance would fail the `principles` gate; skip and
+        // count it instead of aborting the whole import (same rule as recordPrinciple).
+        if (principleAnchors(src, df).length === 0) { unanchoredPrinciples++; continue; }
         const res = this.db.prepare('INSERT OR IGNORE INTO principles(principleId,statement,source,derivedFrom,status,createdAt,statementHash) VALUES (?,?,?,?,?,?,?)')
           .run(l.principleId ?? `prin-${uuid()}`, l.statement, src, canonicalDerivedFrom(principleAnchors(src, df)), l.status ?? 'OBSERVED', l.createdAt ?? now(), principleHash(l.statement));
         if (res.changes === 0) {
@@ -505,7 +509,7 @@ export class Core {
       this.db.exec('ROLLBACK');
       throw e;
     }
-    return { ...this.stats(), skippedLines };
+    return { ...this.stats(), skippedLines, unanchoredPrinciples };
   }
 
   // ---- platform policy (R1) ---------------------------------------------------
