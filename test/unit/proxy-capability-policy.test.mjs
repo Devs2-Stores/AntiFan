@@ -18,8 +18,11 @@ process.env.SUPER_CORE_DB = ':memory:';
 const require = createRequire(import.meta.url);
 const proxy = require(path.resolve('scripts', 'antifan-omp-mcp.cjs'));
 
+const ORIGINAL_ARGV = [...process.argv];
+
 afterEach(() => {
   for (const key of POLICY_KEYS) delete process.env[key];
+  process.argv.splice(0, process.argv.length, ...ORIGINAL_ARGV);
 });
 
 const advertised = async () => (await proxy.listTools()).tools.map((tool) => tool.name);
@@ -58,4 +61,27 @@ test('readable JSON and comma lists keep their meaning', async () => {
   const allowed = await advertised();
   assert.ok(allowed.length > 0);
   assert.ok(allowed.every((name) => name.startsWith('anti.inspect.')), allowed.join(','));
+});
+
+test('a JSON forbid-list passed on the command line is parsed, and fails closed when unreadable', async () => {
+  process.argv.push('--forbidden-capabilities=["anti.browser.evaluate"]');
+  const readable = await advertised();
+  assert.ok(readable.length > 50, 'a readable JSON flag forbids only what it names');
+  assert.ok(!readable.includes('anti.browser.evaluate'));
+
+  process.argv.splice(0, process.argv.length, ...ORIGINAL_ARGV, '--forbidden-capabilities=["anti.browser.evaluate", ');
+  assert.deepEqual(await advertised(), []);
+});
+
+test('an unreadable JSON allow-list flag allows nothing', async () => {
+  process.argv.push('--allowed-capabilities=["anti.inspect.*"');
+  assert.deepEqual(await advertised(), []);
+});
+
+test('an allow-list that is set but names nothing allows nothing', async () => {
+  process.env.ANTIFAN_ALLOWED_CAPABILITIES = '[]';
+  assert.deepEqual(await advertised(), []);
+  delete process.env.ANTIFAN_ALLOWED_CAPABILITIES;
+  process.env.ANTIFAN_ALLOWED_CAPABILITY_NAMES = ' , ';
+  assert.deepEqual(await advertised(), []);
 });

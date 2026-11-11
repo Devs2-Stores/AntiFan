@@ -1500,18 +1500,25 @@ function parseCapabilityList(raw, label) {
   return null;
 }
 
+// An allow-list that was set but names nothing (`[]`, `,`) allows nothing; an
+// empty array would otherwise read as "no allow-list" and permit every tool.
+function asAllowList(list) {
+  if (list === null) return ['!*'];
+  return list.length === 0 ? ['!*'] : list;
+}
+
 function resolveAllowedCapabilities() {
   if (isFixerSession) {
     return [...fixerToolSurface];
   }
   if (process.env.ANTIFAN_ALLOWED_CAPABILITIES || process.env.ANTIFAN_ALLOWED_CAPABILITY_NAMES) {
     const label = process.env.ANTIFAN_ALLOWED_CAPABILITIES ? 'ANTIFAN_ALLOWED_CAPABILITIES' : 'ANTIFAN_ALLOWED_CAPABILITY_NAMES';
-    return parseCapabilityList(process.env[label], label) ?? ['!*'];
+    return asAllowList(parseCapabilityList(process.env[label], label));
   }
   const allowArg = process.argv.find((a) => typeof a === 'string' && (a.startsWith('--allowed-capabilities=') || a.startsWith('--allow-capabilities=')));
   if (allowArg) {
-    const val = allowArg.split('=')[1];
-    return val.split(',').map((s) => s.trim()).filter(Boolean);
+    const label = allowArg.slice(0, allowArg.indexOf('='));
+    return asAllowList(parseCapabilityList(allowArg.slice(allowArg.indexOf('=') + 1), label));
   }
   return undefined;
 }
@@ -1523,8 +1530,7 @@ function resolveForbiddenCapabilities() {
   }
   const forbidArg = process.argv.find((a) => typeof a === 'string' && a.startsWith('--forbidden-capabilities='));
   if (forbidArg) {
-    const val = forbidArg.split('=')[1];
-    return val.split(',').map((s) => s.trim()).filter(Boolean);
+    return parseCapabilityList(forbidArg.slice(forbidArg.indexOf('=') + 1), '--forbidden-capabilities') ?? ['*'];
   }
   return undefined;
 }
