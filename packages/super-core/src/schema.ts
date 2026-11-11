@@ -205,6 +205,7 @@ CREATE TABLE IF NOT EXISTS evidence (
 );
 CREATE INDEX IF NOT EXISTS idx_evidence_claim ON evidence(claimId);
 CREATE INDEX IF NOT EXISTS idx_evidence_entry ON evidence(entryId);
+CREATE INDEX IF NOT EXISTS idx_evidence_path ON evidence(path);
 
 CREATE TABLE IF NOT EXISTS skills (
   skillId TEXT PRIMARY KEY,
@@ -560,6 +561,8 @@ CREATE INDEX IF NOT EXISTS idx_packs_taskhash ON packs(taskHash);
 CREATE INDEX IF NOT EXISTS idx_claims_namespace ON claims(namespace);
 CREATE INDEX IF NOT EXISTS idx_cases_namespace ON cases(namespace);
 CREATE INDEX IF NOT EXISTS idx_decisions_namespace ON decisions(namespace);
+CREATE INDEX IF NOT EXISTS idx_packs_task ON packs(task);
+CREATE INDEX IF NOT EXISTS idx_conflicts_state_platform ON conflicts(state, platform);
 `;
 
 export const MIGRATIONS: Array<{ from: number; to: number; sql: string }> = [

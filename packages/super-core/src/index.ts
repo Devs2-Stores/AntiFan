@@ -1108,16 +1108,7 @@ export class Core {
   // ---- invalidation ----------------------------------------------------------
   invalidate(opts: { entryId?: string; path?: string }) {
     if (!opts.entryId && !opts.path) throw new Error('invalidate requires entryId or path');
-    // LEFT JOIN: evidence with entryId NULL (git-derived claims, files that never
-    // reached the content ledger) must still match on e.path.
-    const claims = this.db.prepare(
-      `SELECT DISTINCT c.claimId FROM claims c JOIN evidence e ON e.claimId = c.claimId
-       LEFT JOIN artifacts a ON a.entryId = e.entryId
-       WHERE (e.entryId = ? OR a.absPath = ? OR e.path = ?)`,
-    ).all(opts.entryId ?? '', opts.path ?? '', opts.path ?? '') as Array<{ claimId: string }>;
-    const stmt = this.db.prepare("UPDATE claims SET status = 'STALE_SOURCE_CHANGED' WHERE claimId = ?");
-    for (const c of claims) stmt.run(c.claimId);
-    return { invalidated: claims.length };
+    return { invalidated: this.markClaimsFromSource('STALE_SOURCE_CHANGED', opts) };
   }
 
   supersede(opts: { claimId: string; byClaimId: string; at?: string }) {
@@ -1174,15 +1165,23 @@ export class Core {
   revoke(opts: { entryId?: string; path?: string }) {
     if (!opts.entryId && !opts.path) throw new Error('revoke requires entryId or path');
     // permission revocation: claims from a restricted source become invisible.
-    // LEFT JOIN so path-only evidence (entryId NULL) is still matched.
-    const claims = this.db.prepare(
-      `SELECT DISTINCT c.claimId FROM claims c JOIN evidence e ON e.claimId = c.claimId
-       LEFT JOIN artifacts a ON a.entryId = e.entryId
-       WHERE (e.entryId = ? OR a.absPath = ? OR e.path = ?)`,
-    ).all(opts.entryId ?? '', opts.path ?? '', opts.path ?? '') as Array<{ claimId: string }>;
-    const stmt = this.db.prepare("UPDATE claims SET status = 'REVOKED' WHERE claimId = ?");
-    for (const c of claims) stmt.run(c.claimId);
-    return { revoked: claims.length };
+    return { revoked: this.markClaimsFromSource('REVOKED', opts) };
+  }
+
+  // One statement for every claim whose evidence matches the entry, the artifact
+  // path or the evidence path. Evidence with entryId NULL (git-derived claims,
+  // files that never reached the content ledger) still matches on e.path. An
+  // absent selector binds NULL, which matches nothing, so an entryId-only call
+  // cannot match evidence whose path is empty.
+  private markClaimsFromSource(status: string, opts: { entryId?: string; path?: string }): number {
+    const res = this.db.prepare(
+      `UPDATE claims SET status = ? WHERE claimId IN (
+         SELECT claimId FROM evidence WHERE entryId = ?
+         UNION SELECT claimId FROM evidence WHERE path = ?
+         UNION SELECT e.claimId FROM evidence e JOIN artifacts a ON a.entryId = e.entryId WHERE a.absPath = ?
+       )`,
+    ).run(status, opts.entryId ?? null, opts.path ?? null, opts.path ?? null);
+    return Number(res.changes);
   }
 
   // ---- v4: Experience Graph (§14) ------------------------------------------

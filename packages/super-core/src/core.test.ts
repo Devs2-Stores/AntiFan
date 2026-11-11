@@ -1649,3 +1649,95 @@ test('a store carrying a stale stamp is prepared again on open', () => {
   check.close();
   assert.equal(restored.length, 1, 'a stale stamp must not hide a missing schema object');
 });
+
+function countUpdateRuns(core: Core, fn: () => void): number {
+  const handle = (core as unknown as { db: DatabaseSync }).db;
+  const original = handle.prepare.bind(handle);
+  let n = 0;
+  handle.prepare = ((sql: string) => {
+    const stmt = original(sql);
+    if (!/^\s*UPDATE/i.test(sql)) return stmt;
+    const run = stmt.run.bind(stmt);
+    stmt.run = ((...args: never[]) => { n++; return run(...args); }) as typeof stmt.run;
+    return stmt;
+  }) as typeof handle.prepare;
+  try { fn(); } finally { handle.prepare = original; }
+  return n;
+}
+
+test('revoke by path matches evidence that has no ledger entry, and marks every matching claim in one statement', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'core-revoke-path-'));
+  const dbPath = path.join(dir, 'core.db');
+  const core = openCore(dbPath);
+  const raw = new DatabaseSync(dbPath);
+  try {
+    const nowStr = new Date().toISOString();
+    const statusOf = (claimId: string) => (raw.prepare('SELECT status FROM claims WHERE claimId = ?').get(claimId) as { status: string }).status;
+    const seed = (claimId: string, evidencePath: string | null, entryId: string | null) => {
+      raw.prepare(`INSERT INTO claims(claimId, unitId, statement, kind, status, extractorVersion, createdAt)
+        VALUES (?, 'u-src', ?, 'RULE', 'OBSERVED', 'v1', ?)`).run(claimId, `statement of ${claimId}`, nowStr);
+      raw.prepare('INSERT INTO evidence(id, claimId, entryId, revision, path) VALUES (?, ?, ?, ?, ?)').run(`ev-${claimId}`, claimId, entryId, 'r1', evidencePath);
+    };
+    for (let i = 0; i < 25; i++) seed(`c-path-${i}`, 'E:\\x\\shared.md', null);
+    seed('c-other', 'E:\\x\\other.md', null);
+    // Reaches its claim only through the artifact ledger: the evidence path differs from the artifact path.
+    raw.prepare('INSERT INTO units(unitId,rootId,relPath,kind,disposition,parentId,markers,dossierPath) VALUES (?,?,?,?,?,?,?,?)')
+      .run('u-src', 'work-root', 'src', 'package', 'ELIGIBLE', null, '[]', 'reports/units/u-src/dossier.md');
+    raw.prepare('INSERT INTO artifacts(entryId,unitId,rootId,relPath,absPath,type,size,mtime,sha256,contentPolicy,disposition,reason,coverage,observedAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+      .run('e-ledger', 'u-src', 'work-root', 'led.md', 'E:\\x\\ledger.md', 'file', 1, null, 'h', 'ALLOWED', 'ANALYZED_WITH_CLAIMS', null, null, nowStr);
+    seed('c-ledger', 'unrelated', 'e-ledger');
+
+    let result: { revoked: number } | undefined;
+    const updates = countUpdateRuns(core, () => { result = core.revoke({ path: 'E:\\x\\shared.md' }); });
+    assert.equal(result?.revoked, 25);
+    assert.equal(updates, 1, 'one UPDATE statement runs, not one per claim');
+    assert.equal(statusOf('c-path-0'), 'REVOKED');
+    assert.equal(statusOf('c-path-24'), 'REVOKED');
+    assert.equal(statusOf('c-other'), 'OBSERVED');
+
+    assert.deepEqual(core.revoke({ path: 'E:\\x\\ledger.md' }), { revoked: 1 });
+    assert.equal(statusOf('c-ledger'), 'REVOKED', 'the artifact absPath arm still matches');
+    assert.deepEqual(core.revoke({ path: 'E:\\x\\none.md' }), { revoked: 0 });
+    assert.throws(() => core.revoke({}), /revoke requires entryId or path/);
+    assert.deepEqual(core.invalidate({ entryId: 'e-ledger' }), { invalidated: 1 });
+    assert.equal(statusOf('c-ledger'), 'STALE_SOURCE_CHANGED');
+  } finally {
+    raw.close();
+    core.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('an entryId-only call does not match evidence with an empty path', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'core-empty-path-'));
+  const dbPath = path.join(dir, 'core.db');
+  const core = openCore(dbPath);
+  const raw = new DatabaseSync(dbPath);
+  try {
+    raw.prepare(`INSERT INTO claims(claimId, unitId, statement, kind, status, extractorVersion, createdAt)
+      VALUES ('c-empty', 'u-x', 'evidence with an empty path', 'RULE', 'OBSERVED', 'v1', ?)`).run(new Date().toISOString());
+    raw.prepare("INSERT INTO evidence(id, claimId, entryId, revision, path) VALUES ('ev-empty', 'c-empty', NULL, 'r1', '')").run();
+    assert.deepEqual(core.invalidate({ entryId: 'x' }), { invalidated: 0 });
+    assert.deepEqual(core.revoke({ entryId: 'x' }), { revoked: 0 });
+    assert.equal((raw.prepare("SELECT status FROM claims WHERE claimId = 'c-empty'").get() as { status: string }).status, 'OBSERVED');
+  } finally {
+    raw.close();
+    core.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('the packs, conflicts and evidence lookups are served by indexes', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'core-indexes-'));
+  const dbPath = path.join(dir, 'core.db');
+  openCore(dbPath).close();
+  const raw = new DatabaseSync(dbPath);
+  try {
+    const plan = (sql: string) => (raw.prepare(`EXPLAIN QUERY PLAN ${sql}`).all() as Array<{ detail: string }>).map((r) => r.detail).join(' | ');
+    assert.match(plan("SELECT packId, claimIdsJson FROM packs WHERE task = 't' ORDER BY COALESCE(lastIssuedAt, createdAt) DESC LIMIT 1"), /USING INDEX idx_packs_task/);
+    assert.match(plan("SELECT * FROM conflicts WHERE state = 'UNRESOLVED' AND platform = 'sapo' LIMIT 50"), /USING (COVERING )?INDEX idx_conflicts_state_platform/);
+    assert.match(plan("SELECT claimId FROM evidence WHERE path = 'p'"), /USING (COVERING )?INDEX idx_evidence_path/);
+  } finally {
+    raw.close();
+  }
+});
