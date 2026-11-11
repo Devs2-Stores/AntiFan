@@ -50,6 +50,10 @@ const PROXY_PATH = (() => {
 })();
 const SUPER_CORE_DIST = path.join(ROOT, 'packages', 'super-core', 'dist', 'index.js');
 const SUPER_CORE_SRC = path.join(ROOT, 'packages', 'super-core', 'src', 'index.ts');
+const TOOLS_BASELINE_PATH = path.join(ROOT, 'scripts', 'mcp-tools-list-baseline.json');
+/** The published tool list may grow this much over the baseline before the compile fails. */
+const TOOLS_BASELINE_GROWTH = 1.05;
+const usingFixtureProxy = process.argv.includes('--proxy');
 
 const problems = [];
 const notes = [];
@@ -96,6 +100,16 @@ function required(rel) {
 
 // ─── 1. The proxy side: one ceiling, no per-tool table, no no-op routing ─────
 const proxySource = fs.readFileSync(PROXY_PATH, 'utf8');
+// The proxy reads these at load (isFixerSession) and on every listTools: a restricted caller must not shrink the measured list.
+for (const name of [
+  'ANTIFAN_FIXER_SESSION',
+  'ANTIFAN_ALLOWED_CAPABILITIES',
+  'ANTIFAN_ALLOWED_CAPABILITY_NAMES',
+  'ANTIFAN_FORBIDDEN_CAPABILITIES',
+  'ANTIFAN_FORBIDDEN_CAPABILITY_NAMES',
+]) {
+  delete process.env[name];
+}
 const proxy = require(PROXY_PATH);
 const ceiling = proxy.DEFAULT_CLIENT_TIMEOUT_MS;
 if (typeof ceiling !== 'number' || !Number.isFinite(ceiling) || ceiling <= 0) {
@@ -420,6 +434,37 @@ if (CapabilityCatalogue && BrowserControlPort && makeControlPlaneId && problems.
     }
   }
   notes.push(`parity: ${(proxy.definitions || []).length} advertised tools checked against catalogue schemas; ${advertisedCore.size} core.* dispatched`);
+  // Size of what a client receives from tools/list. The proxy filters its list by these variables
+  // (isFixerSession at load, the capability lists per call), so a gate run from a restricted worker
+  // terminal would measure, or record, a truncated list; they are cleared before the proxy loads.
+  const published = await proxy.listTools();
+  const listBytes = Buffer.byteLength(JSON.stringify(published));
+  if (Buffer.byteLength(JSON.stringify(await proxy.listTools())) !== listBytes) {
+    problems.push('tools/list is not deterministic: two consecutive calls returned different bytes');
+  }
+  if (process.argv.includes('--update-tools-baseline')) {
+    fs.writeFileSync(TOOLS_BASELINE_PATH, `${JSON.stringify({ bytes: listBytes, tools: published.tools.length }, null, 2)}\n`);
+    notes.push(`tools/list baseline written: ${listBytes} bytes, ${published.tools.length} tools`);
+  } else if (!usingFixtureProxy) {
+    let baseline = null;
+    try {
+      baseline = JSON.parse(fs.readFileSync(TOOLS_BASELINE_PATH, 'utf8'));
+    } catch {
+      problems.push(`tools/list baseline unreadable: ${path.relative(ROOT, TOOLS_BASELINE_PATH)} (create it with --update-tools-baseline)`);
+    }
+    if (baseline && typeof baseline.bytes === 'number') {
+      notes.push(`tools/list: ${listBytes} bytes, ${published.tools.length} tools (baseline ${baseline.bytes})`);
+      if (listBytes > baseline.bytes * TOOLS_BASELINE_GROWTH) {
+        problems.push(
+          `tools/list grew to ${listBytes} bytes, over ${Math.round((TOOLS_BASELINE_GROWTH - 1) * 100)}% above the baseline ${baseline.bytes}; ` +
+            'every agent session pays this on each request. Shrink the descriptions, or if the growth is intended run: ' +
+            'node scripts/check-mcp-budget-dominance.mjs --update-tools-baseline'
+        );
+      }
+    } else if (baseline) {
+      problems.push(`tools/list baseline ${path.relative(ROOT, TOOLS_BASELINE_PATH)} has no numeric bytes`);
+    }
+  }
   // The proxy words the terminal.wait cap without a number of its own: a published description
   // (the row or an alias of it) that carries a millisecond literal different from the compiled
   // cap goes stale the moment the cap moves.
