@@ -34,7 +34,48 @@ export const REFUSAL_CODES = {
   SETTINGS_DATA_CHANGED_ON_SHOP: "REFUSED_SETTINGS_DATA_CHANGED_ON_SHOP",
   /** The wiring failed before the policy could classify the call. See `edit-guard.ts`. */
   GUARD_ERROR: "REFUSED_GUARD_ERROR",
+  /**
+   * An `eval` JS cell starts a process from `process.execPath` (or `argv0` / `argv[0]`). In the eval
+   * kernel that path is the `omp` binary, so the call opens a child agent session. See `planEvalSelfSpawn`.
+   */
+  EVAL_SELF_SPAWN: "REFUSED_EVAL_SELF_SPAWN",
 } as const;
+
+/** Calls that start a process: node's `child_process` family, `Bun.spawn*`, `Bun.$`, a tagged `$` or `sh` template. */
+const EVAL_SPAWN_API_RE =
+  /\b(?:execFile|execFileSync|exec|execSync|spawn|spawnSync|fork)\s*\(|\bBun\s*\.\s*(?:spawn(?:Sync)?\b|\$)|\$`|(?<![\w.$])sh\s*(?:\(|`)/;
+
+/** The running binary: in the eval kernel this is `omp`, not node. */
+const EVAL_SELF_PATH_RE = /\bexecPath\b|\bargv0\b|\b(?:process|Bun)\s*\.\s*argv\s*\[\s*0\s*\]/;
+
+export interface EvalSelfSpawnPlan {
+  decision: "allow" | "block";
+  code: string;
+  reason: string;
+}
+
+/**
+ * Refuses an eval JS cell that both starts a process and takes the program from `process.execPath`,
+ * `process.argv0` or `process.argv[0]`. Inside the eval kernel that program is the `omp` binary: the
+ * spawn opens a child agent session, each argument becomes a user message, and the child inherits the
+ * caller's terminal identity and acts on its own. Applies to every session, not only a Leader's worker.
+ *
+ * The cell is read as plain text: a comment or string that only names `process.execPath` next to a
+ * process-starting call is refused as well (the message names the fix). A cell that only prints the
+ * path, and any non-JS cell (Python's `sys.executable` is the real interpreter), is allowed.
+ */
+export function planEvalSelfSpawn(language: unknown, code: unknown): EvalSelfSpawnPlan {
+  const allow: EvalSelfSpawnPlan = { decision: "allow", code: "", reason: "" };
+  if (typeof code !== "string") return allow;
+  const lang = typeof language === "string" ? language.trim().toLowerCase() : "";
+  if (lang === "py" || lang === "python") return allow;
+  if (!EVAL_SELF_PATH_RE.test(code) || !EVAL_SPAWN_API_RE.test(code)) return allow;
+  return {
+    decision: "block",
+    code: REFUSAL_CODES.EVAL_SELF_SPAWN,
+    reason: `${REFUSAL_CODES.EVAL_SELF_SPAWN}: trong ô eval, process.execPath (và process.argv0, process.argv[0]) là binary của omp, không phải node; lệnh này sẽ mở một phiên agent con mang quyền terminal của bạn, mỗi argv thành một tin nhắn user, và ô eval treo tới khi bị kill. Hãy chạy chương trình node bằng tool bash ("node <file>"), hoặc spawn chuỗi "node" thay cho process.execPath.`,
+  };
+}
 
 export const PATH_INPUT_KEYS = ["path", "file", "filePath", "target", "filename"];
 

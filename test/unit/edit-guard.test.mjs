@@ -1483,6 +1483,57 @@ test("a worker's eval cell that runs the theme CLI is refused; other eval cells 
   }
 });
 
+// In an eval cell `process.execPath` is the `omp` binary, so spawning it starts a child agent
+// that inherits the caller's terminal identity. The refusal applies to every session.
+test("an eval cell that spawns process.execPath is refused for a worker and for any other session", async () => {
+  const root = makeThemeWorkspace();
+  try {
+    for (const worker of [true, false]) {
+      await asTerminal(worker, async () => {
+        for (const code of [
+          "const { execFileSync } = require('node:child_process');\nexecFileSync(process.execPath, ['scripts/antifan-core.cjs', 'adjudicate', payload]);",
+          "Bun.spawn([process.execPath, 'scripts/x.cjs'])",
+          "Bun.spawnSync({ cmd: [process.argv0, 'x.cjs'] })",
+          "require('child_process').spawnSync(process.argv[0], ['x.cjs'])",
+          "require('child_process').execSync(`\"${process.execPath}\" x.cjs`)",
+          "await Bun.$`${process.execPath} x.cjs`",
+          "const cp = require('child_process');\nconst bin = process.execPath;\ncp.fork('x.cjs', [], { execPath: bin })",
+          // a string that only mentions the word still counts: the message names the fix
+          "const note = 'never use process.execPath';\nrequire('child_process').execFileSync('node', ['x.cjs']);",
+        ]) {
+          const result = await runTool(root, `sess-self-spawn-${worker}-${code.length}`, "eval", { language: "js", code });
+          assert.equal(result?.block, true, `${code} must be refused (worker=${worker})`);
+          assert.ok(result.reason.startsWith("REFUSED_EVAL_SELF_SPAWN:"), result.reason);
+          assert.ok(result.reason.includes("omp") && result.reason.includes("bash") && result.reason.includes('"node"'), "the refusal names the cause and the fix");
+        }
+      });
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("an eval cell that spawns node by name, only prints process.execPath, or is Python is not refused as a self-spawn", async () => {
+  const root = makeThemeWorkspace();
+  try {
+    for (const worker of [true, false]) {
+      await asTerminal(worker, async () => {
+        for (const [language, code] of [
+          ["js", "require('child_process').execFileSync('node', ['scripts/antifan-core.cjs', 'stats'])"],
+          ["js", "Bun.spawn(['node', 'x.cjs'])"],
+          ["js", "console.log(process.execPath, process.argv0, process.argv[0])"],
+          ["py", "import subprocess\nsubprocess.run([sys.executable, 'x.py'])  # not process.execPath, process.argv[0]"],
+          ["py", "import subprocess\nsubprocess.run(['x'])\nnote = 'process.execPath'"],
+        ]) {
+          assert.equal(await runTool(root, `sess-self-spawn-ok-${worker}-${code.length}`, "eval", { language, code }), null, code);
+        }
+      });
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Leader worker: lines whose theme-CLI use cannot be read back
 // ---------------------------------------------------------------------------

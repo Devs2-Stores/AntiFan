@@ -48,6 +48,7 @@ import {
 import {
   DEVICE_PATH_RE,
   extractTargetPaths,
+  planEvalSelfSpawn,
   planToolCall,
   READ_TOOLS,
   REFUSAL_CODES,
@@ -607,12 +608,21 @@ export default function editGuardHook(pi: GuardPi): void {
           warnSafely(pi, refusal);
           return { block: true, reason: refusal };
         }
-      } else if (normalizedTool === "eval" && (await isLeaderWorker())) {
-        const evalPlan = planEvalThemeCode(typeof input.code === "string" ? input.code : "");
-        if (evalPlan.decision === "block") {
-          appendRows(session, [rowFor(session, "eval", "", "block", evalPlan.code)]);
-          warnSafely(pi, evalPlan.reason);
-          return { block: true, reason: evalPlan.reason };
+      } else if (normalizedTool === "eval") {
+        // Every session, not only a Leader's worker: a self-spawn opens a child agent with the caller's terminal identity.
+        const selfSpawn = planEvalSelfSpawn(input.language, input.code);
+        if (selfSpawn.decision === "block") {
+          appendRows(session, [rowFor(session, "eval", "", "block", selfSpawn.code)]);
+          warnSafely(pi, selfSpawn.reason);
+          return { block: true, reason: selfSpawn.reason };
+        }
+        if (await isLeaderWorker()) {
+          const evalPlan = planEvalThemeCode(typeof input.code === "string" ? input.code : "");
+          if (evalPlan.decision === "block") {
+            appendRows(session, [rowFor(session, "eval", "", "block", evalPlan.code)]);
+            warnSafely(pi, evalPlan.reason);
+            return { block: true, reason: evalPlan.reason };
+          }
         }
       }
 
