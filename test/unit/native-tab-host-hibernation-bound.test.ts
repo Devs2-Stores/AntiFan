@@ -118,4 +118,23 @@ describe('hibernation bound-tab lookup', () => {
     assert.equal(await host.beginTabHibernation('idle-tab'), false);
     assert.deepEqual(hibernateCalls, []);
   });
+
+  it('journals a lasting registry failure once, and again only after a successful read', async () => {
+    await lifecycleLogDrained();
+    const before = unreadableRows().length;
+    const { host } = createHost(true);
+    const attachments = host.controlPlane.runs.attachments;
+    const failing = attachments.getRecord;
+
+    for (let i = 0; i < 4; i += 1) host.hibernationBoundTabIds();
+    await lifecycleLogDrained();
+    assert.equal(unreadableRows().length, before + 1, 'repeated identical failures write one row');
+
+    attachments.getRecord = () => ({ tabId: 'fine' });
+    host.hibernationBoundTabIds();
+    attachments.getRecord = failing;
+    host.hibernationBoundTabIds();
+    await lifecycleLogDrained();
+    assert.equal(unreadableRows().length, before + 2, 'a failure after a good read is news again');
+  });
 });

@@ -10214,13 +10214,21 @@ export class NativeTabHost extends EventEmitter {
     } catch (err) {
       // Fail closed: an unreadable registry means no tab can be proven free of an agent binding,
       // so every tab counts as bound and nothing is hibernated or media-frozen on a guess.
-      recordLifecycleEvent('tabhost.hibernationBoundTabsUnreadable', {
-        error: err instanceof Error ? err.message : String(err),
-      });
+      // Journaled once per distinct error until a read succeeds: a sweep calls this several
+      // times, and a row per call would rotate the journal's history out.
+      const message = err instanceof Error ? err.message : String(err);
+      if (message !== this.lastBoundTabsUnreadable) {
+        this.lastBoundTabsUnreadable = message;
+        recordLifecycleEvent('tabhost.hibernationBoundTabsUnreadable', { error: message });
+      }
       return new Set(this.tabs.keys());
     }
+    this.lastBoundTabsUnreadable = null;
     return bound;
   }
+
+  /** Message of the last journaled registry read failure; null while reads succeed. */
+  private lastBoundTabsUnreadable: string | null = null;
 
   /**
    * Stamp agent activity on `tabId`. Called by the three target-resolution
@@ -15334,6 +15342,8 @@ export class NativeTabHost extends EventEmitter {
   /** Records the projection + file stamp of a confirmed write for the skip above. */
   private notePersistedProjection(filePath: string, serialized: string): void {
     this.lastPersistedProjection = serialized;
+    // A confirmed write re-arms the failure report: the next failure is news again.
+    this.lastPersistFailure = '';
     try {
       const stat = fs.statSync(filePath);
       this.lastPersistedFileMtimeMs = stat.mtimeMs;
@@ -15447,8 +15457,17 @@ export class NativeTabHost extends EventEmitter {
     }
   }
 
+  /** Key of the last journaled persist failure; empty while writes succeed. */
+  private lastPersistFailure = '';
+
+  /** Journals a failed tabs write once per distinct error until a write succeeds. */
   private reportPersistFailure(mode: 'async' | 'sync', err: unknown): void {
     const error = err as { name?: unknown; message?: unknown; code?: unknown } | null | undefined;
+    const message = typeof error?.message === 'string' ? error.message : String(err);
+    const code = typeof error?.code === 'string' ? error.code : undefined;
+    const key = `${mode}:${code ?? ''}:${message}`;
+    if (key === this.lastPersistFailure) return;
+    this.lastPersistFailure = key;
     let filePath = '';
     try { filePath = this.getTabsStoragePath(); } catch {}
     recordLifecycleEvent('tabhost.persistFailed', {
@@ -15456,8 +15475,8 @@ export class NativeTabHost extends EventEmitter {
       filePath,
       error: {
         name: typeof error?.name === 'string' ? error.name : undefined,
-        message: typeof error?.message === 'string' ? error.message : String(err),
-        code: typeof error?.code === 'string' ? error.code : undefined,
+        message,
+        code,
       },
     });
   }

@@ -54,4 +54,41 @@ describe('tabhost.persistFailed journal', () => {
     assert.equal(typeof error.code, 'string');
     assert.equal(typeof error.message, 'string');
   });
+
+  it('a lasting write failure is journaled once, and again only after a confirmed write', async () => {
+    await lifecycleLogDrained();
+    const before = persistFailedRows().length;
+
+    const blocker = path.join(RUNTIME_DIR, 'blocker-repeat');
+    fs.writeFileSync(blocker, 'x');
+    const badPath = path.join(blocker, 'sub', 'tabs.json');
+    const goodDir = fs.mkdtempSync(path.join(RUNTIME_DIR, 'good-'));
+    const goodPath = path.join(goodDir, 'tabs.json');
+    let target = badPath;
+
+    const host: any = Object.create(NativeTabHost.prototype);
+    host.isDisposed = false;
+    host.persistTimer = null;
+    host.getTabsStoragePath = () => target;
+    host.normalizeSavedTabsFileForMerge = () => null;
+    host.buildSavedTabsDocument = (_existing: unknown, data: unknown) => ({ version: 1, owners: {}, data });
+
+    for (let i = 0; i < 3; i += 1) {
+      host.parkedPersistData = { tabs: [{ id: `t${i}` }] };
+      host.persistSync();
+    }
+    await lifecycleLogDrained();
+    assert.equal(persistFailedRows().length, before + 1, 'identical failures write one row');
+
+    target = goodPath;
+    host.parkedPersistData = { tabs: [{ id: 'ok' }] };
+    host.persistSync();
+    assert.ok(fs.existsSync(goodPath), 'the write to a writable path lands');
+
+    target = badPath;
+    host.parkedPersistData = { tabs: [{ id: 'after' }] };
+    host.persistSync();
+    await lifecycleLogDrained();
+    assert.equal(persistFailedRows().length, before + 2, 'a failure after a confirmed write is news again');
+  });
 });
