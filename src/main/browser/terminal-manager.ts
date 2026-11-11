@@ -992,6 +992,8 @@ export class TerminalManager extends EventEmitter {
   // and reuse the cached JSON fragment for the rest; the set is cleared only
   // after the file write is confirmed so a crash mid-write loses nothing.
   private dirtySessionIds = new Set<string>();
+  // Key of the last reported state-write failure; empty while writes succeed.
+  private lastPersistFailure = '';
   private persistedFragments = new Map<string, {
     // Already UTF-8 encoded. The state file holds up to 1MB per session across
     // dozens of sessions; caching the JSON as a string still forced fs.writeFile
@@ -1408,6 +1410,23 @@ export class TerminalManager extends EventEmitter {
     for (const id of dirtySnapshot) {
       this.dirtySessionIds.delete(id);
     }
+    // A confirmed write re-arms the failure report: the next failure is news again.
+    this.lastPersistFailure = '';
+  }
+
+  /**
+   * Reports a failed state write on the console, once per distinct error until a write succeeds.
+   * Not the lifecycle journal: the terminal daemon process imports this class too, and must not
+   * write or rotate the Main process's log.
+   */
+  private reportPersistFailure(mode: 'async' | 'sync', err: unknown): void {
+    const error = err as { code?: unknown; message?: unknown } | null | undefined;
+    const code = typeof error?.code === 'string' ? error.code : '';
+    const message = typeof error?.message === 'string' ? error.message : String(err);
+    const key = `${mode}:${code}:${message}`;
+    if (key === this.lastPersistFailure) return;
+    this.lastPersistFailure = key;
+    console.warn(`[terminal-manager] state write failed (${mode}${code ? `, ${code}` : ''}): ${message}`);
   }
 
   private async persistAsync(): Promise<void> {
@@ -1450,6 +1469,7 @@ export class TerminalManager extends EventEmitter {
           await fs.promises.unlink(tempPath).catch(() => {});
         }
       } catch (err) {
+        this.reportPersistFailure('async', err);
         await fs.promises.unlink(tempPath).catch(() => {});
       } finally {
         this.isPersisting = false;
@@ -1506,6 +1526,7 @@ export class TerminalManager extends EventEmitter {
         } catch {}
       }
     } catch (err) {
+      this.reportPersistFailure('sync', err);
       try {
         if (fs.existsSync(tempPath)) {
           fs.unlinkSync(tempPath);
