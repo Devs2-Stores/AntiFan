@@ -1540,6 +1540,27 @@ test("a worker's eval cell that runs the theme CLI is refused; other eval cells 
   }
 });
 
+test("a benign eval cell by a worker is allowed without reading the Leader registry", async () => {
+  const root = makeThemeWorkspace();
+  try {
+    await asTerminal(true, async () => {
+      const counter = failRegistryReads(0, "EBUSY");
+      try {
+        const verdict = await runTool(root, "sess-eval-benign", "eval", { language: "py", code: "print(sum(range(10)))" });
+        assert.equal(verdict, null);
+        assert.equal(counter.state.attempts, 0, "a cell that starts no process needs no registry read");
+        const refused = await runTool(root, "sess-eval-refused", "eval", { language: "py", code: 'import os\nos.system("hrv theme push")' });
+        assert.equal(refused?.block, true, "a refusal still needs the registry, and still happens");
+        assert.equal(counter.state.attempts, 1);
+      } finally {
+        counter.restore();
+      }
+    });
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 // In an eval cell `process.execPath` is the `omp` binary, so spawning it starts a child agent
 // that inherits the caller's terminal identity. The refusal applies to every session.
 test("an eval cell that spawns process.execPath is refused for a worker and for any other session", async () => {

@@ -657,13 +657,12 @@ export default function editGuardHook(pi: GuardPi): void {
           warnSafely(pi, selfSpawn.reason);
           return { block: true, reason: selfSpawn.reason };
         }
-        if (await isLeaderWorker()) {
-          const evalPlan = planEvalThemeCode(typeof input.code === "string" ? input.code : "");
-          if (evalPlan.decision === "block") {
-            appendRows(session, [rowFor(session, "eval", "", "block", evalPlan.code)]);
-            warnSafely(pi, evalPlan.reason);
-            return { block: true, reason: evalPlan.reason };
-          }
+        // The plan is pure; the registry read behind isLeaderWorker is only worth paying for a cell it would refuse.
+        const evalPlan = planEvalThemeCode(typeof input.code === "string" ? input.code : "");
+        if (evalPlan.decision === "block" && (await isLeaderWorker())) {
+          appendRows(session, [rowFor(session, "eval", "", "block", evalPlan.code)]);
+          warnSafely(pi, evalPlan.reason);
+          return { block: true, reason: evalPlan.reason };
         }
       }
 
