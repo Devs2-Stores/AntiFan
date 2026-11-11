@@ -39,6 +39,7 @@
     "clone:site": "npm run build:site-clone && node scripts/clone-site.mjs",
     "serve:clone": "node scripts/serve-clone.mjs",
     "audit": "node scripts/check-bottlenecks.mjs",
+    "audit:deps": "npm audit --omit=dev --audit-level=high",
     "bench:smoothness": "node scripts/bench-smoothness.mjs",
     "plans:check": "node scripts/check-plans.mjs",
     "test:fast": "node --require ./scripts/test-file-roots.cjs --test --test-force-exit \".compiled/test/*.test.js\" \".compiled/test/unit/**/*.test.js\" \".compiled/test/benchmark/**/*.test.js\" \".compiled/test/renderer/**/*.test.js\" \".compiled/src/**/*.test.js\" \"test/unit/*.test.mjs\"",
@@ -101,26 +102,29 @@
     "smoke:boot-housekeeping": "npm run compile && node scripts/smoke-boot-housekeeping.cjs",
     "soak:omp": "node scripts/run-omp-soak.cjs"
   },
+  "engines": {
+    "node": ">=24"
+  },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-web-links": "^0.12.0",
     "@xterm/addon-webgl": "^0.19.0",
     "@xterm/xterm": "^6.0.0",
     "cross-spawn": "^7.0.6",
-    "koffi": "^3.3.3",
+    "koffi": "^3.3.7",
     "node-pty": "^1.1.0",
-    "tldts": "^7.4.11",
-    "ws": "^8.18.0",
-    "zod": "^3.23.8"
+    "tldts": "^7.4.22",
+    "ws": "^8.22.2",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@electron/packager": "^20.3.0",
-    "@types/node": "^22.0.0",
-    "@types/ws": "^8.5.10",
-    "electron": "^43.7.9",
+    "@types/node": "^24.0.0",
+    "@types/ws": "^8.18.2",
+    "electron": "^43.8.8",
     "esbuild": "^0.28.2",
     "jsdom": "^29.1.1",
-    "typescript": "^5.5.0"
+    "typescript": "~5.9.3"
   }
 }

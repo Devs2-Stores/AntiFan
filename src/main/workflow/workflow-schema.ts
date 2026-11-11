@@ -334,7 +334,7 @@ export const WorkflowDefinitionSchema = z.object({
 export type WorkflowDefinition = z.infer<typeof WorkflowDefinitionSchema>;
 
 /**
- * LegacyWorkflowStepSchema: separate schema with unvalidated params (z.record(z.unknown())),
+ * LegacyWorkflowStepSchema: separate schema with unvalidated params (z.record(z.string(), z.unknown())),
  * intentionally kept OUT of the discriminated union.
  * Used for backwards-compatible loading of existing workflows on disk with a warning.
  */
@@ -342,7 +342,7 @@ export const LegacyWorkflowStepSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   type: StepTypeSchema,
-  params: z.record(z.unknown()).default({}),
+  params: z.record(z.string(), z.unknown()).default({}),
   timeoutMs: z.number().int().min(100).max(60000).default(10000),
   retryCount: z.number().int().min(0).max(5).default(0),
   continueOnError: z.boolean().default(false),
