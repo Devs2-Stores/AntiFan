@@ -13,6 +13,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { after, beforeEach, test } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { createRequire, syncBuiltinESMExports } from "node:module";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const SRC = path.join(REPO, "src", "omp-hooks");
@@ -571,6 +572,54 @@ test("a worker terminal (registered under workers, not leaders) is not gated by 
   const hook = makeHook();
   assert.equal(await hook.call("write", { path: path.join(themeRoot, "sections", "hero.liquid"), content: "x" }), undefined);
   assert.equal(await hook.stop(), undefined);
+});
+
+/** Counts the reads of the registry file; `restore()` puts `fs.readFileSync` back. */
+function countRegistryReads() {
+  const nodeFs = createRequire(import.meta.url)("node:fs");
+  const original = nodeFs.readFileSync;
+  const state = { reads: 0 };
+  nodeFs.readFileSync = function patched(file, ...rest) {
+    if (typeof file === "string" && path.basename(file) === "leader-terminals.json") state.reads += 1;
+    return original.call(this, file, ...rest);
+  };
+  syncBuiltinESMExports();
+  return {
+    state,
+    restore() {
+      nodeFs.readFileSync = original;
+      syncBuiltinESMExports();
+    },
+  };
+}
+
+test("an old registry is parsed once, and a rewrite between two calls is seen at once", async () => {
+  const registry = path.join(configDir, "leader-terminals.json");
+  const setMtime = (seconds) => fs.utimesSync(registry, seconds, seconds);
+  const hourAgo = Date.now() / 1000 - 3600;
+  arm({ leaders: [LEADER] });
+  setMtime(hourAgo);
+  const counter = countRegistryReads();
+  try {
+    assert.equal(await guard.isLeaderTerminal(), true);
+    assert.equal(await guard.isLeaderTerminal(), true);
+    assert.equal(counter.state.reads, 1, "an unchanged old file is parsed once");
+
+    // Same size, different content, different (still old) mtime: seen on the next call.
+    fs.writeFileSync(registry, JSON.stringify({ schema: 1, leaders: [OTHER_LEADER], workers: {} }));
+    setMtime(hourAgo + 60);
+    assert.equal(await guard.isLeaderTerminal(), false, "the rewrite is visible at once");
+
+    // A file written just now is inside the racy window: every call reads it.
+    arm({ leaders: [LEADER] });
+    const before = counter.state.reads;
+    assert.equal(await guard.isLeaderTerminal(), true);
+    arm({ leaders: [OTHER_LEADER] });
+    assert.equal(await guard.isLeaderTerminal(), false, "a same-size rewrite within one timestamp tick is not hidden by the cache");
+    assert.ok(counter.state.reads - before >= 2, "a young registry is never served from the cache");
+  } finally {
+    counter.restore();
+  }
 });
 
 test("a malformed event or empty tool name never throws and never blocks", async () => {

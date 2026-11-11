@@ -100,9 +100,28 @@ export function leaderJobsRoot(env: Env = process.env): string {
   return path.resolve(override && override.length > 0 ? override : DEFAULT_JOBS_ROOT);
 }
 
+/** Younger than this, a registry file is always re-read: a rewrite inside one timestamp tick cannot be told apart by (mtime, size). */
+const REGISTRY_RACY_WINDOW_MS = 2000;
+let leadersCache: { path: string; mtimeMs: number; size: number; leaders: unknown } | null = null;
+
+/**
+ * The registry's `leaders` value. Parsed once per (path, mtime, size) while the file is older than the
+ * racy window; a younger file is read every call, so a rewrite is always seen. A stat or read error
+ * throws exactly as `readFileSync` did, so the retry loop below is unchanged.
+ */
+function readLeaders(registryPath: string): unknown {
+  const stat = fs.statSync(registryPath);
+  const cached = leadersCache;
+  if (cached && cached.path === registryPath && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) return cached.leaders;
+  const leaders = (JSON.parse(fs.readFileSync(registryPath, "utf8")) as { leaders?: unknown } | null)?.leaders;
+  leadersCache =
+    Date.now() - stat.mtimeMs > REGISTRY_RACY_WINDOW_MS ? { path: registryPath, mtimeMs: stat.mtimeMs, size: stat.size, leaders } : null;
+  return leaders;
+}
+
 /**
  * True when the terminal this OMP runs in is a Leader: its id is under `leaders` in the Manager's
- * registry. Read fresh per call (the user can mark or unmark a Leader at any time). The Manager
+ * registry. Checked against the file per call (the user can mark or unmark a Leader at any time; see `readLeaders`). The Manager
  * replaces the file atomically, and on Windows a reader can hit a lock error during that swap; those
  * are retried, and a registry still unreadable then counts as "not a Leader": wrongly treating the
  * user's own terminal as a Leader would refuse real work, while wrongly treating a Leader as ordinary
@@ -117,8 +136,8 @@ export async function isLeaderTerminal(env: Env = process.env): Promise<boolean>
   const registryPath = path.join(configDir, LEADER_REGISTRY_FILE);
   for (let attempt = 0; ; attempt += 1) {
     try {
-      const file = JSON.parse(fs.readFileSync(registryPath, "utf8")) as { leaders?: unknown };
-      return Array.isArray(file?.leaders) && file.leaders.includes(terminalId);
+      const leaders = readLeaders(registryPath);
+      return Array.isArray(leaders) && leaders.includes(terminalId);
     } catch (err) {
       const code = (err as NodeJS.ErrnoException | undefined)?.code;
       if (typeof code !== "string" || TRANSIENT_READ_CODES[code] !== true) return false;
