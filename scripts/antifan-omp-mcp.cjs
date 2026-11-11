@@ -1488,7 +1488,8 @@ function parseCapabilityList(raw, label) {
   let reason;
   try {
     const parsed = JSON.parse(text);
-    if (Array.isArray(parsed) && parsed.every((p) => typeof p === 'string')) return parsed;
+    // Blank entries match nothing, so `[""]` must count as an empty list, not as a list.
+    if (Array.isArray(parsed) && parsed.every((p) => typeof p === 'string')) return parsed.map((s) => s.trim()).filter(Boolean);
     reason = 'expected a JSON array of strings';
   } catch (err) {
     reason = err instanceof Error ? err.message : String(err);
@@ -1500,7 +1501,7 @@ function parseCapabilityList(raw, label) {
   return null;
 }
 
-// An allow-list that was set but names nothing (`[]`, `,`) allows nothing; an
+// An allow-list that was set but names nothing (`[]`, `[""]`, `,`) allows nothing; an
 // empty array would otherwise read as "no allow-list" and permit every tool.
 function asAllowList(list) {
   if (list === null) return ['!*'];

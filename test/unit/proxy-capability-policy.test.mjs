@@ -84,4 +84,7 @@ test('an allow-list that is set but names nothing allows nothing', async () => {
   delete process.env.ANTIFAN_ALLOWED_CAPABILITIES;
   process.env.ANTIFAN_ALLOWED_CAPABILITY_NAMES = ' , ';
   assert.deepEqual(await advertised(), []);
+  delete process.env.ANTIFAN_ALLOWED_CAPABILITY_NAMES;
+  process.env.ANTIFAN_ALLOWED_CAPABILITIES = '["", " "]';
+  assert.deepEqual(await advertised(), [], 'blank entries name nothing, so the list allows nothing');
 });
