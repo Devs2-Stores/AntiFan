@@ -123,6 +123,19 @@ describe('lifecycle journal writes', () => {
     assert.strictEqual(firstNewSeq, lastOldSeq + 1, 'post-rotation entries must immediately succeed pre-rotation entries');
   });
 
+  it('a credential in a journaled string field never reaches main.log', async () => {
+    recordLifecycleEvent('cred.probe', { detail: 'GET /x?token=abc123 Bearer zzz', n: 3 });
+    await lifecycleLogDrained();
+    const raw = fs.readFileSync(getLifecycleLogPath()!, 'utf8');
+    const row = raw.split('\n').filter(Boolean).map((l) => JSON.parse(l) as Record<string, unknown>)
+      .find((r) => r.event === 'cred.probe');
+    assert.ok(row, 'probe row must be journaled');
+    assert.ok(String(row.detail).includes('[REDACTED]'));
+    assert.ok(!raw.includes('abc123'), 'token value must not be written');
+    assert.ok(!raw.includes('zzz'), 'bearer value must not be written');
+    assert.equal(row.n, 3);
+  });
+
   after(async () => {
     await lifecycleLogDrained();
     try {

@@ -93,7 +93,8 @@ import {
   type IpcRoute,
   type RoutedSurface,
 } from './browser/ipc-router';
-import { BridgeServer, DEFAULT_EXTENSION_ALLOWED_DOMAINS, redactCredentials, type BridgeMintHostResolver } from './bridge/bridge-server';
+import { BridgeServer, DEFAULT_EXTENSION_ALLOWED_DOMAINS, type BridgeMintHostResolver } from './bridge/bridge-server';
+import { redactCredentials } from './diagnostics/redact-credentials';
 import { TerminalManager, DEFAULT_TERMINAL_CAPSULE_ID, type SessionSummary } from './browser/terminal-manager';
 import { ensureDaemon } from './terminal-daemon/daemon-spawner';
 import { DaemonTerminalProxy } from './terminal-daemon/daemon-client';

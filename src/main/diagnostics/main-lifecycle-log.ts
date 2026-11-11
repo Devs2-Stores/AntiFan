@@ -32,6 +32,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { StorageLocations } from '../config/storage-locations';
+import { redactFields } from './redact-credentials';
 
 export const MAX_LOG_BYTES = 2 * 1024 * 1024; // 2 MB, matching the native-host journal
 const LOG_FILENAME = 'main.log';
@@ -212,7 +213,7 @@ let drainChain: Promise<void> = Promise.resolve();
 function admitLine(event: string, fields: Record<string, unknown> | undefined): string | null {
   initLogFile();
   if (!logFile) return null;
-  const record = formatLifecycleRecord(event, fields, Date.now(), process.pid, Math.round(process.uptime() * 1000));
+  const record = formatLifecycleRecord(event, redactFields(fields), Date.now(), process.pid, Math.round(process.uptime() * 1000));
   return `${JSON.stringify(record)}\n`;
 }
 

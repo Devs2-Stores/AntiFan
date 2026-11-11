@@ -45,6 +45,7 @@ import { deriveCapsulePartition, isCookieJarSession } from '../browser/browser-s
 import { extensionCookieImportSetDetails, type ExtensionCookieInput } from '../browser/chrome-profile-sync';
 import { isIdentityCookie } from '../../shared/identity-cookie-patterns';
 import { injectedScriptStore } from '../browser/scripts/injected-script-store.js';
+import { redactCredentials } from '../diagnostics/redact-credentials';
 export const OFFICIAL_COMPANION_EXTENSION_ID = 'khjcaadjohoclofjkkfblkbfbpmjjedp';
 
 /**
@@ -117,21 +118,6 @@ export interface MobileSessionGrant {
   expiresAt: number;
   revoked: boolean;
   allowedScopes: string[];
-}
-
-export function redactCredentials(input: string): string {
-  if (!input || typeof input !== 'string') return input;
-  return input
-    .replace(/(Bearer\s+)[A-Za-z0-9._~+/-]+=*/gi, '$1[REDACTED]')
-    .replace(/(x-antifan-attachment-secret:\s*)[A-Za-z0-9._~+/-]+=*/gi, '$1[REDACTED]')
-    .replace(/(token=)[^& \t\r\n"']+/gi, '$1[REDACTED]')
-    .replace(/(secret=)[^& \t\r\n"']+/gi, '$1[REDACTED]')
-    .replace(/(pairingCode=)[^& \t\r\n"']+/gi, '$1[REDACTED]')
-    .replace(/(code=)[^& \t\r\n"']+/gi, '$1[REDACTED]')
-    .replace(/([?&](?:token|secret|code|key)=)[^& \t\r\n"']+/gi, '$1[REDACTED]')
-    .replace(/("token"\s*:\s*")[^"]+(")/gi, '$1[REDACTED]$2')
-    .replace(/("secret"\s*:\s*")[^"]+(")/gi, '$1[REDACTED]$2')
-    .replace(/("code"\s*:\s*")[^"]+(")/gi, '$1[REDACTED]$2');
 }
 
 export async function applyProtectedPathsDaclBridge(paths: string[]): Promise<void> {
