@@ -438,6 +438,41 @@ describe('AntiFan Bridge Server', () => {
     }
   });
 
+  it('a multibyte character split across two TCP chunks arrives intact', { timeout: 10000 }, async () => {
+    const server = new BridgeServer(new MockTabHost() as unknown as NativeTabHost, 0);
+    const port = await server.start();
+    try {
+      const clientId = 'device-\u20ac-1';
+      const { code } = server.issuePairingCode({ clientClass: 'mobile', clientId });
+      const payload = Buffer.from(JSON.stringify({ code, clientClass: 'mobile', clientId }), 'utf8');
+      const euro = payload.indexOf(Buffer.from('\u20ac', 'utf8'));
+      assert.ok(euro > 0, 'the payload carries the multibyte character');
+      const cut = euro + 1; // between the first and second byte of the character
+      const result = await new Promise<{ status: number; body: string }>((resolve, reject) => {
+        const req = http.request({
+          host: '127.0.0.1', port, path: '/api/pairing/exchange', method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        }, (res) => {
+          let raw = '';
+          res.setEncoding('utf8');
+          res.on('data', (c) => { raw += c; });
+          res.on('end', () => resolve({ status: res.statusCode || 0, body: raw }));
+        });
+        req.on('error', reject);
+        req.write(payload.subarray(0, cut));
+        // The two halves must reach the server as separate socket reads; that needs a real gap.
+        setTimeout(() => {
+          req.write(payload.subarray(cut));
+          req.end();
+        }, 40);
+      });
+      assert.ok(!result.body.includes('PAIRING_CLIENT_ID_MISMATCH'), `split character must not corrupt the client id: ${result.status} ${result.body}`);
+      assert.strictEqual(result.status, 200, result.body);
+    } finally {
+      server.dispose();
+    }
+  });
+
   it('handles antifan.cli.startSession and antifan.cli.renewSession RPC over WebSocket', async () => {
     const mockHost = new MockTabHost() as unknown as NativeTabHost;
     const lease = { runtimeId: 'binding-runtime', projectId: 'project-local', workspaceId: 'workspace-local', token: 'lease-token', protocolVersion: 1, hostEpoch: 1, ownerPid: process.pid, issuedAt: Date.now(), expiresAt: Date.now() + 30_000 };

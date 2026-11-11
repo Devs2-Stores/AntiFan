@@ -1102,7 +1102,7 @@ export class BridgeServer {
       }
 
       if (pathname === '/api/pairing/exchange' && req.method === 'POST') {
-        let body = '';
+        const chunks: Buffer[] = [];
         let size = 0;
         const MAX_BODY_SIZE = 64 * 1024;
         let isTooLarge = false;
@@ -1116,7 +1116,7 @@ export class BridgeServer {
             req.destroy();
             return;
           }
-          body += chunk;
+          chunks.push(chunk);
         });
 
         req.on('end', async () => {
@@ -1125,7 +1125,7 @@ export class BridgeServer {
           if (isAllowedOrigin) responseHeaders['Access-Control-Allow-Origin'] = rawOrigin;
 
           try {
-            const data = JSON.parse(body || '{}');
+            const data = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
             const { code, clientClass, clientId, requestedGrant } = data;
 
             if (!code || typeof code !== 'string' || !clientClass || typeof clientClass !== 'string') {
@@ -1727,7 +1727,7 @@ export class BridgeServer {
           res.end(JSON.stringify({ success: false, error: 'FORBIDDEN_ORIGIN', message: 'Cross-origin requests from non-loopback origins are forbidden.' }));
           return;
         }
-        let body = '';
+        const chunks: Buffer[] = [];
         let size = 0;
         const MAX_BODY_SIZE = 10 * 1024 * 1024; // 10MB
         let isTooLarge = false;
@@ -1741,7 +1741,7 @@ export class BridgeServer {
             req.destroy();
             return;
           }
-          body += chunk;
+          chunks.push(chunk);
         });
 
         req.on('end', async () => {
@@ -1750,7 +1750,7 @@ export class BridgeServer {
           if (isAllowedOrigin) responseHeaders['Access-Control-Allow-Origin'] = rawOrigin;
 
           try {
-            const data = JSON.parse(body || '{}');
+            const data = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
             const rawRemoved = Array.isArray(data.removed) ? data.removed : [];
             const rawCookies: ExtensionCookieInput[] = Array.isArray(data.cookies)
               ? data.cookies
