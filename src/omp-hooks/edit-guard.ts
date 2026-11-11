@@ -106,6 +106,12 @@ interface GuardSession {
   settingsDataRereadRequired: boolean;
   /** Latest backup path saved when a pre-write fetch overwrote local `config/settings_data.json`, if any. */
   settingsDataBackupPath: string | null;
+  /** The log directory exists and `logBytes` was seeded from the file's size; later writes skip both calls. */
+  logDirReady?: boolean;
+  /** Bytes appended to the audit log by this session, plus the size it had on the first write. */
+  logBytes?: number;
+  /** The one stderr line for an unwritable audit log has been written. */
+  logWriteFailureReported?: boolean;
 }
 
 const sessions = new Map<string, GuardSession>();
@@ -254,15 +260,50 @@ function ensureSession(ctx: unknown): GuardSession {
 
 function appendRows(session: GuardSession, rows: AuditRow[]): void {
   if (rows.length === 0) return;
+  const chunk = rows.map((row) => `${JSON.stringify(row)}\n`).join("");
   try {
-    const dir = path.dirname(session.logPath);
-    fs.mkdirSync(dir, { recursive: true });
-    if (fs.existsSync(session.logPath) && fs.statSync(session.logPath).size > LOG_ROTATE_BYTES) {
-      fs.renameSync(session.logPath, session.logPath.replace(/\.jsonl$/, ".1.jsonl"));
+    // A vanished log directory is recreated once; any other failure goes to the catch.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        if (session.logDirReady !== true) {
+          fs.mkdirSync(path.dirname(session.logPath), { recursive: true });
+          try {
+            session.logBytes = fs.statSync(session.logPath).size;
+          } catch {
+            session.logBytes = 0;
+          }
+          session.logDirReady = true;
+        }
+        if ((session.logBytes ?? 0) > LOG_ROTATE_BYTES) {
+          try {
+            fs.renameSync(session.logPath, session.logPath.replace(/\.jsonl$/, ".1.jsonl"));
+          } catch {
+            /* moved or locked elsewhere: keep appending rather than lose the row */
+          }
+          session.logBytes = 0;
+        }
+        fs.appendFileSync(session.logPath, chunk, "utf8");
+        session.logBytes = (session.logBytes ?? 0) + Buffer.byteLength(chunk);
+        return;
+      } catch (error) {
+        if (attempt === 0 && (error as NodeJS.ErrnoException).code === "ENOENT") {
+          session.logDirReady = false;
+          continue;
+        }
+        throw error;
+      }
     }
-    fs.appendFileSync(session.logPath, rows.map((row) => `${JSON.stringify(row)}\n`).join(""), "utf8");
-  } catch {
-    /* audit is best-effort: never break the session over a log write */
+  } catch (error) {
+    // Best-effort: the audit never breaks a session, but a log that cannot be written is said once per session.
+    if (session.logWriteFailureReported !== true) {
+      session.logWriteFailureReported = true;
+      const code = (error as NodeJS.ErrnoException)?.code ?? "UNKNOWN";
+      try {
+        process.stderr.write(`[edit-guard] audit log write failed (${code}): ${session.logPath}\n`);
+      } catch {
+        /* stderr itself is gone */
+      }
+    }
   }
 }
 

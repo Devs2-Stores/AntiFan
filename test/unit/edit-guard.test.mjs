@@ -480,6 +480,63 @@ test("refusals and audit rows in Fast: scope refusal, tool refusal, allow rows w
   assert.equal(rows[2].path, path.resolve(root, "sections/hero.liquid"));
 });
 
+/** Runs `fn` while `process.stderr.write` records what it is given instead of printing it. */
+async function captureStderr(fn) {
+  const lines = [];
+  const original = process.stderr.write;
+  process.stderr.write = (chunk) => {
+    lines.push(String(chunk));
+    return true;
+  };
+  try {
+    await fn();
+  } finally {
+    process.stderr.write = original;
+  }
+  return lines;
+}
+
+test("an unwritable audit log never blocks the call, and says so once", async () => {
+  const root = makeThemeWorkspace();
+  const logPath = path.join(root, ".antifan", "edit-guard", "sess-unwritable.jsonl");
+  fs.mkdirSync(logPath, { recursive: true }); // a directory where the log file belongs
+  const hook = makeHook();
+  editGuardHook(hook.pi);
+  const ctx = hook.context(root, "sess-unwritable");
+  await hook.emit("session_start", {}, ctx);
+  await hook.emit("before_agent_start", { prompt: "[🚀Super-Fast] fix hero" }, ctx);
+  const lines = await captureStderr(async () => {
+    for (const file of ["sections/hero.liquid", "sections/footer.liquid"]) {
+      const result = await hook.emit("tool_call", { toolName: "write", input: { path: file } }, ctx);
+      assert.deepEqual(result, [], `${file} is still allowed`);
+    }
+  });
+  const said = lines.filter((line) => line.includes("audit log write failed"));
+  assert.equal(said.length, 1, `one report per session, got: ${JSON.stringify(lines)}`);
+  assert.match(said[0], /^\[edit-guard\] audit log write failed \(\w+\): .*sess-unwritable\.jsonl\n$/);
+});
+
+test("the audit log rotates past the size limit and keeps every row after an external move", async () => {
+  const root = makeThemeWorkspace();
+  const logPath = path.join(root, ".antifan", "edit-guard", "sess-rotate.jsonl");
+  fs.mkdirSync(path.dirname(logPath), { recursive: true });
+  fs.writeFileSync(logPath, `${"x".repeat(2 * 1024 * 1024 + 16)}\n`);
+  const hook = makeHook();
+  editGuardHook(hook.pi);
+  const ctx = hook.context(root, "sess-rotate");
+  await hook.emit("session_start", {}, ctx);
+  await hook.emit("before_agent_start", { prompt: "[🚀Super-Fast] fix hero" }, ctx);
+  const write = (file) => hook.emit("tool_call", { toolName: "write", input: { path: file } }, ctx);
+  await write("sections/hero.liquid");
+  assert.ok(fs.existsSync(logPath.replace(/\.jsonl$/, ".1.jsonl")), "the oversized log was rotated");
+  const rows = () => fs.readFileSync(logPath, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line));
+  assert.equal(rows().length, 1, "a fresh log holds the new row only");
+  // Something else moves the live log away: the next row must still be written, not lost.
+  fs.renameSync(logPath, `${logPath}.moved`);
+  await write("sections/footer.liquid");
+  assert.equal(rows().length, 1, "the row after an external move lands in a new log");
+});
+
 test("a resumed session continues the run number its log already holds", async () => {
   const root = makeThemeWorkspace();
   const logPath = path.join(root, ".antifan", "edit-guard", "sess-continue.jsonl");
