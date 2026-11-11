@@ -17,6 +17,7 @@ import { pendingAskOf } from "./ask-dialog.mjs";
 import { buildBoard, jobProgress } from "./board.mjs";
 import { ingestOutcome, listPending } from "./learn.mjs";
 import { wrapUntrusted } from "./untrusted.mjs";
+import { readRegistry } from "./fleet-watch.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_JOBS_ROOT = "E:/Work/scratch/leader";
@@ -1450,19 +1451,10 @@ function normalizeFolder(folder) {
   return process.platform === "win32" ? resolved.toLowerCase() : resolved;
 }
 
-/** The Manager's Leader registry; null when it cannot be read (a lock error is retried twice). */
+/** The Manager's Leader registry (the reader is fleet-watch's); null when it cannot be read. */
 function readLeaderRegistry() {
   const configDir = process.env.ANTIFAN_CONFIG_DIR || path.join(process.env.ANTIFAN_DATA_ROOT || DEFAULT_DATA_ROOT, "config");
-  const file = path.join(configDir, "leader-terminals.json");
-  for (let attempt = 0; ; attempt++) {
-    try {
-      const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
-      return parsed && typeof parsed === "object" ? parsed : null;
-    } catch (e) {
-      if (attempt >= 2 || !["EBUSY", "EPERM", "EACCES"].includes(e.code)) return null;
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
-    }
-  }
+  return readRegistry(configDir);
 }
 
 /** The theme id a theme folder is bound to; the hook identifies a theme the same way. */
