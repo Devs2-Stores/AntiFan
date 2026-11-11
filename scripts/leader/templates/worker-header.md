@@ -55,6 +55,7 @@ Bạn là WORKER do Leader giao (job {{JOB}}, vòng {{ROUND}}), chạy không ng
        "cells": [ { "keyText": "<chữ cột {{COL_WORK}}>", "col": "{{COL_NOTE}}", "expect": "<nội dung ô>" } ],
        "skipped": [ { "keyText": "<chữ cột {{COL_WORK}}>", "reason": "..." } ]
      },
+     // cột không có chữ tiêu đề (vd cột Stage ở cột A): "col": "", "colLetter": "A" (hoặc "col": "colA")
 <!-- endif -->
      "dashboard": { "commentsAdded": 1, "stageBefore": "Feedback", "stageAfter": "Feedback" },
      "storefront": { "measurements": [ { "probe": "overflow", "url": "...", "viewport": "375x812", "selector": "...", "value": "..." } ] },

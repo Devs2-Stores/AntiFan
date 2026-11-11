@@ -138,7 +138,7 @@ export function validateReportObject(parsed, job, round, ctx = {}) {
             return;
           }
           if (!isNonEmptyStr(c.keyText)) errors.push(`${at}.keyText must be the task text of the row`);
-          if (!isNonEmptyStr(c.col)) errors.push(`${at}.col must be a header text`);
+          if (!isNonEmptyStr(c.col) && !(c.colLetter !== undefined && /^[A-Z]{1,3}$/.test(String(c.colLetter)))) errors.push(`${at}.col must be a header text (a column with no header: col "" plus colLetter "A", or col "colA")`);
           if (!isStr(c.expect)) errors.push(`${at}.expect must be the string expected in the cell`);
           if (c.occurrence !== undefined && !(Number.isInteger(c.occurrence) && c.occurrence >= 1)) errors.push(`${at}.occurrence must be an integer >= 1`);
           outside(at, c.keyText);
@@ -236,5 +236,5 @@ export const REVIEW_VERDICTS = ["PASS", "CONCERNS", "FAIL"];
 
 /** Sheet cells a valid report claims, in verify-sheet's shape. */
 export function claimedCells(json) {
-  return (json?.sheet?.cells ?? []).map((c) => ({ key: c.keyText, col: c.col, expect: c.expect, occurrence: c.occurrence }));
+  return (json?.sheet?.cells ?? []).map((c) => ({ key: c.keyText, col: isNonEmptyStr(c.col) ? c.col : `col${c.colLetter}`, expect: c.expect, occurrence: c.occurrence }));
 }
