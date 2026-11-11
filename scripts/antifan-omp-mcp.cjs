@@ -1475,16 +1475,38 @@ function resolveSessionGrant() {
   return 'eval';
 }
 
+// A capability policy that cannot be read must not widen the surface: an unreadable
+// JSON allow-list or forbid-list used to fall through to a comma split of the raw
+// text, which yields patterns like `["anti.*"` that match nothing, so every tool
+// stayed callable. Unreadable lists now resolve to "nothing allowed" / "everything
+// forbidden", reported once per variable on stderr.
+const reportedUnreadableCapabilityLists = new Set();
+
+function parseCapabilityList(raw, label) {
+  const text = raw.trim();
+  if (!text.startsWith('[')) return text.split(',').map((s) => s.trim()).filter(Boolean);
+  let reason;
+  try {
+    const parsed = JSON.parse(text);
+    if (Array.isArray(parsed) && parsed.every((p) => typeof p === 'string')) return parsed;
+    reason = 'expected a JSON array of strings';
+  } catch (err) {
+    reason = err instanceof Error ? err.message : String(err);
+  }
+  if (!reportedUnreadableCapabilityLists.has(label)) {
+    reportedUnreadableCapabilityLists.add(label);
+    console.error(`[antifan-mcp] ${label} is unreadable (${reason}); refusing every capability`);
+  }
+  return null;
+}
+
 function resolveAllowedCapabilities() {
   if (isFixerSession) {
     return [...fixerToolSurface];
   }
   if (process.env.ANTIFAN_ALLOWED_CAPABILITIES || process.env.ANTIFAN_ALLOWED_CAPABILITY_NAMES) {
-    const raw = process.env.ANTIFAN_ALLOWED_CAPABILITIES || process.env.ANTIFAN_ALLOWED_CAPABILITY_NAMES;
-    try {
-      if (raw.trim().startsWith('[')) return JSON.parse(raw);
-    } catch {}
-    return raw.split(',').map((s) => s.trim()).filter(Boolean);
+    const label = process.env.ANTIFAN_ALLOWED_CAPABILITIES ? 'ANTIFAN_ALLOWED_CAPABILITIES' : 'ANTIFAN_ALLOWED_CAPABILITY_NAMES';
+    return parseCapabilityList(process.env[label], label) ?? ['!*'];
   }
   const allowArg = process.argv.find((a) => typeof a === 'string' && (a.startsWith('--allowed-capabilities=') || a.startsWith('--allow-capabilities=')));
   if (allowArg) {
@@ -1496,11 +1518,8 @@ function resolveAllowedCapabilities() {
 
 function resolveForbiddenCapabilities() {
   if (process.env.ANTIFAN_FORBIDDEN_CAPABILITIES || process.env.ANTIFAN_FORBIDDEN_CAPABILITY_NAMES) {
-    const raw = process.env.ANTIFAN_FORBIDDEN_CAPABILITIES || process.env.ANTIFAN_FORBIDDEN_CAPABILITY_NAMES;
-    try {
-      if (raw.trim().startsWith('[')) return JSON.parse(raw);
-    } catch {}
-    return raw.split(',').map((s) => s.trim()).filter(Boolean);
+    const label = process.env.ANTIFAN_FORBIDDEN_CAPABILITIES ? 'ANTIFAN_FORBIDDEN_CAPABILITIES' : 'ANTIFAN_FORBIDDEN_CAPABILITY_NAMES';
+    return parseCapabilityList(process.env[label], label) ?? ['*'];
   }
   const forbidArg = process.argv.find((a) => typeof a === 'string' && a.startsWith('--forbidden-capabilities='));
   if (forbidArg) {
