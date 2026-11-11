@@ -4941,7 +4941,10 @@ app.whenReady().then(async () => {
     }
   });
 }).catch((error) => {
-  console.error('[antifan startup failed]', redactCredentials(error?.stack || String(error)));
+  const detail = error?.stack || String(error);
+  console.error('[antifan startup failed]', redactCredentials(detail));
+  // Synchronous: app.exit follows at once, and an Explorer launch has no console to read.
+  recordLifecycleEvent('startup.failed', { detail }, { sync: true });
   app.exit(1);
 });
 
