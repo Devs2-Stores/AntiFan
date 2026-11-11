@@ -306,20 +306,51 @@ describe('AntiFan Bridge Server', () => {
     }
   });
 
+  it('refuses a request with no Host header, and lets any Host through after LAN opt-in', async () => {
+    const server = new BridgeServer(new MockTabHost() as unknown as NativeTabHost, 0);
+    const port = await server.start();
+    // HTTP/1.0 is the only request form Node's parser accepts without a Host header.
+    const rawStatus = (target: number, request: string) => new Promise<number>((resolve, reject) => {
+      const socket = net.connect(target, '127.0.0.1', () => socket.end(request));
+      let head = '';
+      socket.on('data', (chunk) => { head += chunk.toString('latin1'); });
+      socket.on('end', () => resolve(Number(/^HTTP\/1\.[01] (\d{3})/.exec(head)?.[1] ?? 0)));
+      socket.on('error', reject);
+    });
+    try {
+      assert.strictEqual(await rawStatus(port, 'GET /status HTTP/1.0\r\n\r\n'), 421);
+
+      await server.setLanOptIn(true);
+      const lanPort = server.getPort();
+      assert.notStrictEqual(await rawStatus(lanPort, `GET /status HTTP/1.0\r\nHost: 192.168.1.5:${lanPort}\r\n\r\n`), 421);
+      assert.notStrictEqual(await rawStatus(lanPort, 'GET /status HTTP/1.0\r\n\r\n'), 421);
+    } finally {
+      server.dispose();
+    }
+  });
+
   it('pairing challenge is POST-only and refuses a browser origin', async () => {
     const server = new BridgeServer(new MockTabHost() as unknown as NativeTabHost, 0);
     const port = await server.start();
     try {
-      const call = (method: string, headers: Record<string, string>) => new Promise<number>((resolve, reject) => {
+      const call = (method: string, headers: Record<string, string>) => new Promise<{ status: number; body: string }>((resolve, reject) => {
         const req = http.request({ host: '127.0.0.1', port, path: '/api/pairing/challenge', method, headers }, (res) => {
-          res.resume();
-          resolve(res.statusCode || 0);
+          let body = '';
+          res.setEncoding('utf8');
+          res.on('data', (chunk) => { body += chunk; });
+          res.on('end', () => resolve({ status: res.statusCode || 0, body }));
         });
         req.on('error', reject);
         req.end();
       });
-      assert.strictEqual(await call('POST', { Origin: 'http://localhost:3000' }), 403);
-      assert.notStrictEqual(await call('GET', {}), 200);
+      assert.strictEqual((await call('POST', { Origin: 'http://localhost:3000' })).status, 403);
+      const viaGet = await call('GET', {});
+      assert.strictEqual(viaGet.status, 404, 'GET is not a route for the challenge');
+      assert.ok(!viaGet.body.includes('"code"'), 'a GET never hands out a challenge');
+      const viaPost = await call('POST', {});
+      assert.strictEqual(viaPost.status, 200, 'a loopback POST without an Origin still claims a challenge');
+      const claimed: unknown = JSON.parse(viaPost.body);
+      assert.ok(claimed && typeof claimed === 'object' && 'code' in claimed && typeof claimed.code === 'string', viaPost.body);
     } finally {
       server.dispose();
     }

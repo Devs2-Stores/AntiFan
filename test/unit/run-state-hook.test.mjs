@@ -756,6 +756,37 @@ test("a burst of tool results writes the run card once, and the next heartbeat c
   });
 });
 
+test("a tool result that answers an ask writes the run card at once instead of coalescing", async () => {
+  await withDataRoot(async (dataRoot) => {
+    const { default: hook } = await loadHook();
+    const { pi, emit } = makeHost();
+    hook(pi);
+    const ctx = makeContext();
+    await emit("session_start", {}, ctx);
+    await emit("before_agent_start", { prompt: "run task" }, ctx);
+    await emit("tool_call", { toolName: "ask" }, ctx);
+    assert.equal(readStateFile(dataRoot).state, "waiting_user");
+
+    const nodeFs = createRequire(import.meta.url)("node:fs");
+    const original = nodeFs.renameSync;
+    const cardRenames = { count: 0 };
+    nodeFs.renameSync = function patched(from, to, ...rest) {
+      if (typeof to === "string" && path.basename(to) === "term-1.json") cardRenames.count += 1;
+      return original.call(this, from, to, ...rest);
+    };
+    syncBuiltinESMExports();
+    try {
+      await emit("tool_result", { toolName: "ask" }, ctx);
+      // No wait: the Leader acts on waiting_user -> running, so this write must not be deferred.
+      assert.equal(cardRenames.count, 1, "the state change is written synchronously");
+      assert.equal(readStateFile(dataRoot).state, "running");
+    } finally {
+      nodeFs.renameSync = original;
+      syncBuiltinESMExports();
+    }
+  });
+});
+
 test("control watcher: honours valid cancel, acks atomically, deletes request", async () => {
   await withDataRoot(async (dataRoot) => {
     const { default: hook } = await loadHook();

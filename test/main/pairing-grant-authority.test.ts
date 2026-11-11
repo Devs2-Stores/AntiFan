@@ -1473,4 +1473,61 @@ describe('Stale-proxy build detection on the exchange', () => {
       try { stub.close(); } catch {}
     }
   });
+
+  it('re-hashes the shipped script after it changes, including a same-size rewrite inside one mtime tick', async () => {
+    // Outside Electron the bridge resolves the shipped script under process.cwd(), so a temp
+    // app root stands in for an upgrade that rewrites scripts/antifan-omp-mcp.cjs on disk.
+    const appRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-proxy-hash-'));
+    const script = path.join(appRoot, 'scripts', 'antifan-omp-mcp.cjs');
+    fs.mkdirSync(path.dirname(script), { recursive: true });
+    const digest = (bytes: string): string => crypto.createHash('sha256').update(bytes).digest('hex').slice(0, 16);
+    const write = (bytes: string, mtimeSecondsAgo?: number): void => {
+      fs.writeFileSync(script, bytes);
+      if (mtimeSecondsAgo !== undefined) {
+        const when = new Date(Date.now() - mtimeSecondsAgo * 1000);
+        fs.utimesSync(script, when, when);
+      }
+    };
+    const previousCwd = process.cwd();
+    await withIsolatedRoots(async () => {
+      const fixture = await startBridge();
+      const pair = async (proxyBuild: string) => {
+        const code = await claimChallengeCode(fixture.server);
+        return postExchange(fixture.port, { code, clientClass: 'mcp', proxyBuild });
+      };
+      try {
+        process.chdir(appRoot);
+        write('// build A\n', 60);
+        let res = await pair(digest('// build A\n'));
+        assert.strictEqual(res.body.proxyBuild, digest('// build A\n'));
+        assert.strictEqual(res.body.proxyStale, false);
+
+        // An upgrade: same length, different bytes, a different (old) mtime.
+        write('// build B\n', 30);
+        res = await pair(digest('// build A\n'));
+        assert.strictEqual(res.body.proxyBuild, digest('// build B\n'), 'a changed script is re-hashed');
+        assert.strictEqual(res.body.proxyStale, true, 'the old proxy is now stale');
+
+        // Two same-size writes that leave stat() identical: a freshly modified file is never cached.
+        // Both get the same whole-millisecond mtime half a second ago, inside the 2 s window.
+        const stamp = new Date(Math.floor(Date.now() / 1000) * 1000 - 500);
+        write('// build C\n');
+        fs.utimesSync(script, stamp, stamp);
+        res = await pair(digest('// build C\n'));
+        assert.strictEqual(res.body.proxyBuild, digest('// build C\n'));
+        write('// build D\n');
+        fs.utimesSync(script, stamp, stamp);
+        assert.strictEqual(fs.statSync(script).mtimeMs, stamp.getTime(), 'precondition: stat is identical to the cached one');
+        res = await pair(digest('// build C\n'));
+        assert.strictEqual(res.body.proxyBuild, digest('// build D\n'), 'equal stat inside the racy window is re-read');
+        assert.strictEqual(res.body.proxyStale, true);
+      } finally {
+        process.chdir(previousCwd);
+        fixture.dispose();
+      }
+    });
+    // Helpers the exchange spawns (Windows ACL tools) inherit the cwd and can hold the
+    // directory open for a moment after the response; give them time, then stop trying.
+    try { fs.rmSync(appRoot, { recursive: true, force: true, maxRetries: 40, retryDelay: 250 }); } catch {}
+  });
 });
