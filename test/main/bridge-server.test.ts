@@ -364,6 +364,29 @@ describe('AntiFan Bridge Server', () => {
     }
   });
 
+  it('a malformed percent-escape in the mobile token cookie is answered, not left hanging', { timeout: 10000 }, async () => {
+    const server = new BridgeServer(new MockTabHost() as unknown as NativeTabHost, 0);
+    const port = await server.start();
+    try {
+      const status = await new Promise<number>((resolve, reject) => {
+        const req = http.request({
+          host: '127.0.0.1', port, path: '/status', method: 'GET',
+          headers: { Cookie: 'antifan_mobile_token=%E0%A4%A' },
+          timeout: 3000,
+        }, (res) => {
+          res.resume();
+          resolve(res.statusCode || 0);
+        });
+        req.on('timeout', () => { req.destroy(new Error('request hung without an answer')); });
+        req.on('error', reject);
+        req.end();
+      });
+      assert.strictEqual(status, 401);
+    } finally {
+      server.dispose();
+    }
+  });
+
   it('handles antifan.cli.startSession and antifan.cli.renewSession RPC over WebSocket', async () => {
     const mockHost = new MockTabHost() as unknown as NativeTabHost;
     const lease = { runtimeId: 'binding-runtime', projectId: 'project-local', workspaceId: 'workspace-local', token: 'lease-token', protocolVersion: 1, hostEpoch: 1, ownerPid: process.pid, issuedAt: Date.now(), expiresAt: Date.now() + 30_000 };

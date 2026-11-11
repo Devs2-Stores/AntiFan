@@ -46,6 +46,7 @@ import { extensionCookieImportSetDetails, type ExtensionCookieInput } from '../b
 import { isIdentityCookie } from '../../shared/identity-cookie-patterns';
 import { injectedScriptStore } from '../browser/scripts/injected-script-store.js';
 import { redactCredentials } from '../diagnostics/redact-credentials';
+import { recordLifecycleEvent } from '../diagnostics/main-lifecycle-log';
 export const OFFICIAL_COMPANION_EXTENSION_ID = 'khjcaadjohoclofjkkfblkbfbpmjjedp';
 
 /**
@@ -1024,7 +1025,7 @@ export class BridgeServer {
   }
 
   private createHttpHandler(): (req: http.IncomingMessage, res: http.ServerResponse) => void {
-    return async (req, res) => {
+    const handle = async (req: http.IncomingMessage, res: http.ServerResponse): Promise<void> => {
       if (!this.isAllowedHostHeader(req.headers.host)) {
         res.writeHead(421, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'HOST_NOT_ALLOWED', message: 'The Host header must name the loopback listener.' }));
@@ -1974,6 +1975,13 @@ export class BridgeServer {
 
       res.writeHead(404);
       res.end('Not Found');
+    };
+    return (req, res) => {
+      void handle(req, res).catch((err) => {
+        recordLifecycleEvent('bridge.http.handler-failed', { method: req.method, detail: String(err) });
+        if (!res.headersSent) res.writeHead(500, { 'Content-Type': 'application/json' });
+        if (!res.writableEnded) res.end(JSON.stringify({ error: 'BRIDGE_INTERNAL_ERROR' }));
+      });
     };
   }
 
@@ -4726,6 +4734,15 @@ export class BridgeServer {
   }
 }
 
+/** A malformed percent-escape in a cookie must read as an unknown token, not throw. */
+function safeDecode(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
 function extractAuthToken(req: http.IncomingMessage): string | null {
   const authHeader = req.headers['authorization'];
   if (authHeader && typeof authHeader === 'string') {
@@ -4741,9 +4758,9 @@ function extractAuthToken(req: http.IncomingMessage): string | null {
   const cookieHeader = req.headers['cookie'];
   if (cookieHeader && typeof cookieHeader === 'string') {
     const match = cookieHeader.match(/(?:^|;\s*)antifan_mobile_token=([^;]+)/);
-    if (match && match[1]) return decodeURIComponent(match[1].trim());
+    if (match && match[1]) return safeDecode(match[1].trim());
     const matchSecret = cookieHeader.match(/(?:^|;\s*)antifan_attachment_secret=([^;]+)/);
-    if (matchSecret && matchSecret[1]) return decodeURIComponent(matchSecret[1].trim());
+    if (matchSecret && matchSecret[1]) return safeDecode(matchSecret[1].trim());
   }
 
   const secWsProtocol = req.headers['sec-websocket-protocol'];
