@@ -28,6 +28,8 @@ export const OMP_ASK_TOOLS: ReadonlySet<string> = new Set([
 ]);
 
 export const RUN_HEARTBEAT_MS = 15_000;
+/** How long a tool result's card refresh may wait so a burst of results costs one write. */
+export const RUN_COALESCE_MS = 500;
 export const CONTROL_POLL_INTERVAL_MS = 1_000;
 
 /**
@@ -374,7 +376,31 @@ export default function runStateHook(pi: HookPi): void {
   let draining = false;
   /** Set once this session left the terminal for good: `retire`, or a start in a process older than the live host. */
   let retired = false;
+  /** A coalesced write waiting to run (tool results); any immediate write supersedes it. */
+  let writeTimer: NodeJS.Timeout | null = null;
+
+  function cancelScheduledWrite(): void {
+    if (writeTimer) {
+      clearTimeout(writeTimer);
+      writeTimer = null;
+    }
+  }
+
+  function scheduleWrite(): void {
+    if (writeTimer || retired) return;
+    writeTimer = setTimeout(() => {
+      writeTimer = null;
+      try {
+        writeState();
+      } catch {
+        /* never throw */
+      }
+    }, RUN_COALESCE_MS);
+    writeTimer.unref?.();
+  }
+
   function writeState(): void {
+    cancelScheduledWrite();
     if (!runStateFilePath || !dataRoot || !terminalSessionId || retired) return;
     const now = Date.now();
     // A guest session keeps tracking in memory (and keeps its own control watcher) but
@@ -629,6 +655,7 @@ export default function runStateHook(pi: HookPi): void {
   }
 
   function dispose(): void {
+    cancelScheduledWrite();
     stopHeartbeat();
     stopControlWatcher();
   }
@@ -748,6 +775,7 @@ export default function runStateHook(pi: HookPi): void {
       if (!env) return;
       if (ctx && typeof ctx === "object") latestCtx = ctx as HookContext;
 
+      const stateBefore = state;
       const ev = (event && typeof event === "object" ? event : {}) as AgentEvent;
       const toolName = String(ev.toolName ?? ev.name ?? "");
       if (toolName.length > 0) lastTool = toolName;
@@ -762,7 +790,10 @@ export default function runStateHook(pi: HookPi): void {
         }
       }
 
-      writeState();
+      // A result that moved nothing the Leader acts on (no waiting_user -> running) only refreshes
+      // lastTool/lastEventAt: coalesce it. The next write of any kind carries the latest values.
+      if (state === stateBefore) scheduleWrite();
+      else writeState();
     } catch {
       /* never throw */
     }

@@ -718,6 +718,44 @@ test("turn_end and session_shutdown events", async () => {
   });
 });
 
+test("a burst of tool results writes the run card once, and the next heartbeat carries the latest tool", async () => {
+  await withDataRoot(async (dataRoot) => {
+    const { default: hook, RUN_COALESCE_MS } = await loadHook();
+    const { pi, emit } = makeHost();
+    hook(pi);
+    const ctx = makeContext();
+    await emit("session_start", {}, ctx);
+    await emit("before_agent_start", { prompt: "run task" }, ctx);
+
+    const nodeFs = createRequire(import.meta.url)("node:fs");
+    const original = nodeFs.renameSync;
+    const cardRenames = { count: 0 };
+    nodeFs.renameSync = function patched(from, to, ...rest) {
+      if (typeof to === "string" && path.basename(to) === "term-1.json") cardRenames.count += 1;
+      return original.call(this, from, to, ...rest);
+    };
+    syncBuiltinESMExports();
+    try {
+      for (let i = 0; i < 5; i += 1) await emit("tool_result", { toolName: `tool-${i}` }, ctx);
+      assert.equal(cardRenames.count, 0, "five results that change no state write nothing yet");
+      pi._heartbeat();
+      assert.equal(cardRenames.count, 1, "the heartbeat writes the card once");
+      assert.equal(readStateFile(dataRoot).lastTool, "tool-4", "and it carries the latest tool");
+      await new Promise((resolve) => setTimeout(resolve, RUN_COALESCE_MS + 150));
+      assert.equal(cardRenames.count, 1, "the heartbeat's write superseded the pending one");
+
+      // Left alone, a burst is written once by the coalescing timer.
+      for (let i = 0; i < 3; i += 1) await emit("tool_result", { toolName: `late-${i}` }, ctx);
+      await new Promise((resolve) => setTimeout(resolve, RUN_COALESCE_MS + 150));
+      assert.equal(cardRenames.count, 2, "one write for the whole burst");
+      assert.equal(readStateFile(dataRoot).lastTool, "late-2");
+    } finally {
+      nodeFs.renameSync = original;
+      syncBuiltinESMExports();
+    }
+  });
+});
+
 test("control watcher: honours valid cancel, acks atomically, deletes request", async () => {
   await withDataRoot(async (dataRoot) => {
     const { default: hook } = await loadHook();
