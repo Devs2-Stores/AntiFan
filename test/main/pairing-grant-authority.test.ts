@@ -1526,8 +1526,8 @@ describe('Stale-proxy build detection on the exchange', () => {
         fixture.dispose();
       }
     });
-    // Helpers the exchange spawns (Windows ACL tools) inherit the cwd and can hold the
-    // directory open for a moment after the response; give them time, then stop trying.
-    try { fs.rmSync(appRoot, { recursive: true, force: true, maxRetries: 40, retryDelay: 250 }); } catch {}
+    // Best effort: on Windows something in this process keeps the temp app root open after the
+    // exchanges (not identified), so the directory may be left for the OS temp sweep.
+    try { fs.rmSync(appRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); } catch {}
   });
 });
