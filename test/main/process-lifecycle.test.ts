@@ -225,6 +225,24 @@ describe('Process Lifecycle & Windows Orphan Sweep Proof', () => {
     assert.strictEqual(registry.list().length, 0);
   });
 
+  it('killProcessTreeSync still ends the root process when taskkill times out', { skip: process.platform !== 'win32' }, async () => {
+    // The module object itself (not the import wrapper), so the stub is what the registry calls.
+    const childProcessModule = require('node:child_process') as typeof cp;
+    const child = cp.spawn(process.execPath, ['-e', 'setInterval(() => {}, 5000)'], { windowsHide: true, stdio: 'ignore' });
+    const pid = child.pid!;
+    const realSpawnSync = childProcessModule.spawnSync;
+    // What spawnSync returns when its timeout fires: no exit status.
+    childProcessModule.spawnSync = (() => ({ pid: 0, output: [], stdout: null, stderr: null, status: null, signal: 'SIGTERM', error: new Error('spawnSync taskkill ETIMEDOUT') })) as unknown as typeof cp.spawnSync;
+    let result: boolean;
+    try {
+      result = killProcessTreeSync(pid);
+    } finally {
+      childProcessModule.spawnSync = realSpawnSync;
+    }
+    assert.strictEqual(await waitForProcessDead(pid), true, 'the root process is killed despite the taskkill timeout');
+    assert.strictEqual(result, true);
+  });
+
   it('proves startup orphan sweep finds and kills real orphaned processes from prior crash', async () => {
     // 1. Spawn a real background process that survives past simulated crash
     const orphan = cp.spawn(process.execPath, ['-e', 'setInterval(() => {}, 10000)'], {

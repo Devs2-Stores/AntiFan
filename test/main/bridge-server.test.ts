@@ -10,7 +10,7 @@ import * as crypto from 'node:crypto';
 import * as http from 'node:http';
 import { spawn } from 'node:child_process';
 import { setImmediate as yieldToLoop } from 'node:timers/promises';
-import { BridgeServer, getLocalLanIps, WS_MAX_PAYLOAD_BYTES, type MobileSessionGrant } from '../../src/main/bridge/bridge-server';
+import { BridgeServer, getLocalLanIps, WS_MAX_MESSAGE_BYTES, WS_MAX_PAYLOAD_BYTES, type MobileSessionGrant } from '../../src/main/bridge/bridge-server';
 import { TerminalManager } from '../../src/main/browser/terminal-manager';
 import { StorageLocations } from '../../src/main/config/storage-locations';
 import { NativeTabHost } from '../../src/main/browser/native-tab-host';
@@ -432,6 +432,46 @@ describe('AntiFan Bridge Server', () => {
       ws.send(Buffer.alloc(WS_MAX_PAYLOAD_BYTES + 1), { binary: true });
       const code = await closed;
       ws.terminate();
+      assert.strictEqual(code, 1009);
+    } finally {
+      server.dispose();
+    }
+  });
+
+  it('websocket frames: just above the message limit get an error reply, well above it close with 1009', { timeout: 20000 }, async () => {
+    const server = new BridgeServer(new MockTabHost() as unknown as NativeTabHost, 0);
+    const port = await server.start();
+    const open = async () => {
+      const ws = new WebSocket(`ws://127.0.0.1:${port}`, { headers: { Authorization: `Bearer ${server.getToken()}` } });
+      await new Promise<void>((resolve, reject) => {
+        ws.once('open', () => resolve());
+        ws.once('error', reject);
+      });
+      return ws;
+    };
+    try {
+      const near = await open();
+      const reply = new Promise<string>((resolve) => {
+        near.on('message', (data) => {
+          const text = data.toString();
+          if (text.includes('exceeds')) resolve(text);
+        });
+        near.on('close', () => resolve('closed'));
+        setTimeout(() => resolve('timeout'), 8000).unref();
+      });
+      near.send(Buffer.alloc(WS_MAX_MESSAGE_BYTES + 1024, 0x20));
+      assert.match(await reply, /exceeds 5MB limit/);
+      near.terminate();
+
+      // 16 MiB: far above any message the handler can process, so the frame is refused unread.
+      const far = await open();
+      const closed = new Promise<number>((resolve) => {
+        far.on('close', (code) => resolve(code));
+        setTimeout(() => resolve(-1), 8000).unref();
+      });
+      far.send(Buffer.alloc(16 * 1024 * 1024), { binary: true });
+      const code = await closed;
+      far.terminate();
       assert.strictEqual(code, 1009);
     } finally {
       server.dispose();

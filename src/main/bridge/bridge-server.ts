@@ -214,11 +214,17 @@ export interface BridgeCongestionState {
 type HeartbeatWebSocket = WebSocket & { isAlive?: boolean };
 
 /**
- * Largest inbound WebSocket frame the bridge accepts. The `ws` default is 100 MiB, which lets any
- * authenticated peer make the main process buffer that much per frame; a larger frame closes the
- * socket with 1009.
+ * Largest bridge message the handler processes; a larger one gets a JSON error reply.
+ * Measured in bytes before decoding so an oversized frame is never turned into a string.
  */
-export const WS_MAX_PAYLOAD_BYTES = 64 * 1024 * 1024;
+export const WS_MAX_MESSAGE_BYTES = 5 * 1024 * 1024;
+
+/**
+ * Largest inbound WebSocket frame the bridge accepts. The `ws` default is 100 MiB, and the cap
+ * applies before a frame is authenticated, so it stays just above the message limit: frames
+ * between the two get the handler's error reply, larger ones close the socket with 1009.
+ */
+export const WS_MAX_PAYLOAD_BYTES = WS_MAX_MESSAGE_BYTES + 1024 * 1024;
 
 function createBridgeWebSocketServer(server: http.Server): WebSocketServer {
   return new WebSocketServer({
@@ -977,10 +983,6 @@ export class BridgeServer {
         }
       }
     }
-  }
-
-  private async atomicWriteWithDacl(targetPath: string, content: string): Promise<void> {
-    await this.atomicWriteManyWithDacl([{ targetPath, content }]);
   }
 
   public getRemoteConnectionInfo(): {
@@ -2231,11 +2233,12 @@ export class BridgeServer {
 
       ws.on('message', async (data) => {
         try {
-          const str = data.toString();
-          if (str.length > 5 * 1024 * 1024) {
+          const size = Buffer.isBuffer(data) ? data.length : Array.isArray(data) ? data.reduce((n, b) => n + b.length, 0) : data.byteLength;
+          if (size > WS_MAX_MESSAGE_BYTES) {
             ws.send(JSON.stringify({ id: 'unknown', success: false, error: 'Payload exceeds 5MB limit' }));
             return;
           }
+          const str = data.toString();
           const raw = JSON.parse(str) as BridgeRequestPayload;
           await this.handleMessage(ws, raw);
         } catch (err: unknown) {

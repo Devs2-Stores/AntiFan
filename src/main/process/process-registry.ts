@@ -187,6 +187,7 @@ export function killProcessTree(pid: number): Promise<boolean> {
   }
   return new Promise<boolean>((resolve) => {
     let settled = false;
+    let taskkill: cp.ChildProcess | null = null;
     const settle = (success: boolean) => {
       if (!settled) {
         settled = true;
@@ -195,6 +196,8 @@ export function killProcessTree(pid: number): Promise<boolean> {
       }
     };
     const timer = setTimeout(() => {
+      // A taskkill that has not finished in time is abandoned, not left running.
+      try { taskkill?.kill(); } catch {}
       try {
         process.kill(pid, 'SIGKILL');
       } catch {}
@@ -209,6 +212,7 @@ export function killProcessTree(pid: number): Promise<boolean> {
           ['/pid', String(Math.floor(pid)), '/T', '/F'],
           { windowsHide: true, stdio: 'ignore' }
         );
+        taskkill = child;
         child.unref();
         child.on('error', () => {
           try {
@@ -260,7 +264,10 @@ export function killProcessTreeSync(pid: number): boolean {
         ['/pid', String(Math.floor(pid)), '/T', '/F'],
         { windowsHide: true, stdio: 'ignore', timeout: 2000 }
       );
-      return res.status === 0 || res.status === 128;
+      if (res.status === 0 || res.status === 128) return true;
+      // Timed out or failed: taskkill reported nothing, so at least end the root process.
+      try { process.kill(pid, 'SIGKILL'); } catch {}
+      return !isProcessAlive(pid);
     } catch {
       try {
         process.kill(pid, 'SIGKILL');
