@@ -70,4 +70,32 @@ describe('ArtifactStore.stageAsync under concurrency within one run', () => {
     await assert.rejects(refused, CapabilityError);
     assert.equal((await next).byteLength, PAYLOAD);
   });
+
+  it('keeps the bytes of a sync stage that commits while an async stage of the same run is writing', async () => {
+    const storeRoot = path.join(root, 'sync-interleave');
+    const store = new ArtifactStore({ root: storeRoot, maxArtifactBytes: PAYLOAD, maxRunBytes: PAYLOAD * 3 });
+    // The module object itself (not the import wrapper), so the stub is what the store awaits.
+    const fsPromises = (require('node:fs') as typeof fs).promises;
+    const realWriteFile = fsPromises.writeFile;
+    let interleaved = false;
+    fsPromises.writeFile = (async (...args: Parameters<typeof realWriteFile>) => {
+      if (!interleaved) {
+        interleaved = true;
+        store.stage(input('run-interleave', 2)); // commits while the async stage is between its budget read and its write
+      }
+      return realWriteFile(...args);
+    }) as typeof realWriteFile;
+    try {
+      await store.stageAsync(input('run-interleave', 1));
+    } finally {
+      fsPromises.writeFile = realWriteFile;
+    }
+    assert.ok(interleaved, 'precondition: the sync stage ran inside the async write');
+
+    await store.stageAsync(input('run-interleave', 3)); // the third payload fills the run exactly
+    await assert.rejects(
+      () => store.stageAsync(input('run-interleave', 4)),
+      (err: unknown) => err instanceof CapabilityError && err.code === 'ARTIFACT_TOO_LARGE',
+    );
+  });
 });

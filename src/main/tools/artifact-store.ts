@@ -577,7 +577,9 @@ export class ArtifactStore {
         throw err;
       }
       stored = (await fs.promises.stat(artifactPath)).size;
-      this.runBytes.set(runId, committedBytes + stored);
+      // A sync stage() of the same run can commit while this turn awaits; never write back a
+      // total read before the write, or that stage's bytes drop out of the run budget.
+      this.runBytes.set(runId, Math.max(this.runBytes.get(runId) ?? 0, committedBytes) + stored);
     }
     const ref = this.registerStagedRef(input, runId, artifactPath, stored, sha256, truncated, redacted);
     await this.persistRunIndexAsync(runId);
