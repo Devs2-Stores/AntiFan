@@ -8,7 +8,7 @@ import type { CapabilityTransportAdapter } from '../tools/capability-transport';
 
 export type McpAdvertisedTool = Tool & { risk?: string };
 
-export function buildMcpToolList(staticTools: Tool[], transport?: CapabilityTransportAdapter, isHighRiskAllowed = false): McpAdvertisedTool[] {
+export function buildMcpToolList(transport?: CapabilityTransportAdapter, isHighRiskAllowed = false): McpAdvertisedTool[] {
   if (!transport) {
     return [];
   }

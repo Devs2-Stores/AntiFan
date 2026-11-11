@@ -226,7 +226,7 @@ describe('cookieJar in the advertised schema', () => {
   it('the MCP tool list a client sees carries it on anti.browser.tabs.create', () => {
     const { catalogue } = scenario();
     const transport = { list: () => catalogue.listAll() } as unknown as CapabilityTransportAdapter;
-    const tools = buildMcpToolList([], transport);
+    const tools = buildMcpToolList(transport);
     for (const name of OPEN_TAB_NAMES) {
       const tool = tools.find((candidate) => candidate.name === name);
       assert.ok(tool, `${name} is not advertised`);
@@ -235,14 +235,12 @@ describe('cookieJar in the advertised schema', () => {
     }
   });
 
-  it('the stdio proxy and the in-process MCP server declare it on the tab-open tool', () => {
+  it('the stdio proxy declares it on the tab-open tool', () => {
     const repo = path.resolve(__dirname, '..', '..', '..');
     const proxy = fs.readFileSync(path.join(repo, 'scripts', 'antifan-omp-mcp.cjs'), 'utf8');
     const proxyRow = proxy.split('\n').find((line) => line.includes("['anti.browser.tabs.create'"));
     assert.ok(proxyRow, 'proxy has no anti.browser.tabs.create definition');
     assert.match(proxyRow, /cookieJar: \{ type: 'string', pattern: '\^\[a-z0-9\]\[a-z0-9-\]\{1,39\}\$'/);
-    const server = fs.readFileSync(path.join(repo, 'src', 'main', 'mcp', 'mcp-server.ts'), 'utf8');
-    assert.match(server, /name: 'antifan_open_tab'[\s\S]{0,2000}cookieJar: \{ type: 'string', pattern/);
   });
 });
 

@@ -2,8 +2,6 @@
  * AntiFan Browser Desktop — Model Context Protocol (MCP) In-Memory Server
  * Provides browser automation and inspection tool surface to AI Agents and in-memory tests.
  */
-import { ChromeProfileSyncManager } from '../browser/chrome-profile-sync';
-import { DEVICE_PRESETS } from '../browser/device-presets';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { NativeTabHost } from '../browser/native-tab-host';
 import { CapabilityTransportAdapter } from '../tools/capability-transport';
@@ -18,6 +16,119 @@ export interface BoundAttachmentSession {
   attachmentSecret: string;
   authorityRevision: string;
 }
+
+/**
+ * Legacy and alias tool names mapped to the catalogue name they dispatch as. A Map
+ * (not an object literal) so a name such as `constructor` is never resolved through
+ * Object.prototype, and the table is built once instead of per call.
+ */
+const TOOL_ALIASES: ReadonlyMap<string, string> = new Map(Object.entries({
+  'anti.browser.tabs.create': 'antifan_open_tab',
+  'anti.browser.open_tab': 'antifan_open_tab',
+  'anti.browser.tabs.list': 'antifan_list_tabs',
+  'anti.browser.list_tabs': 'antifan_list_tabs',
+  'anti.browser.tabs.activate': 'antifan_switch_tab',
+  'anti.browser.switch_tab': 'antifan_switch_tab',
+  'anti.browser.tabs.close': 'antifan_close_tab',
+  'anti.browser.close_tab': 'antifan_close_tab',
+  'anti.browser.navigate': 'antifan_navigate',
+  'anti.browser.reload': 'antifan_reload',
+  'anti.browser.dump_dom': 'browser.dump_dom',
+  'anti.browser.dump-dom': 'browser.dump_dom',
+  'anti.inspect.dump_dom': 'browser.dump_dom',
+  'antifan_dump_dom': 'browser.dump_dom',
+  'anti.browser.set_automation_target': 'antifan_set_automation_target',
+  'anti.browser.set-automation-target': 'antifan_set_automation_target',
+  'anti.browser.rebind_target': 'antifan_rebind_target',
+  'anti.browser.rebind-target': 'antifan_rebind_target',
+  'browser.rebind-target': 'antifan_rebind_target',
+  'anti.inspect.dom': 'antifan_get_dom',
+  'anti.screenshot.viewport': 'antifan_screenshot',
+  'anti.screenshot.full_page': 'anti.screenshot.full_page',
+  'anti.screenshot.fullpage': 'anti.screenshot.full_page',
+  'antifan_screenshot_full_page': 'anti.screenshot.full_page',
+  'anti.browser.type': 'antifan_agent_type',
+  'anti.browser.scroll': 'antifan_agent_scroll',
+  'anti.browser.hover': 'antifan_agent_hover',
+  'anti.browser.highlight': 'antifan_agent_highlight',
+  'anti.browser.clear': 'antifan_agent_clear',
+  'anti.agent.cursor.click': 'antifan_agent_click',
+  'anti.agent.cursor.type': 'antifan_agent_type',
+  'anti.agent.cursor.scroll': 'antifan_agent_scroll',
+  'anti.agent.cursor.hover': 'antifan_agent_hover',
+  'anti.agent.cursor.highlight': 'antifan_agent_highlight',
+  'anti.agent.cursor.clear': 'antifan_agent_clear',
+  'anti.agent.cursor.move': 'antifan_agent_hover',
+  'anti.agent.cursor.trajectory': 'antifan_agent_trajectory',
+  'anti.browser.trajectory': 'antifan_agent_trajectory',
+  'anti.browser.viewport.get': 'antifan_get_viewport',
+  'anti.browser.get_viewport': 'antifan_get_viewport',
+  'anti.browser.viewport.set': 'antifan_set_viewport',
+  'anti.browser.set_device': 'antifan_set_device_preset',
+  'anti.browser.set_device_preset': 'antifan_set_device_preset',
+  'anti.browser.viewport.set_preset': 'antifan_set_device_preset',
+  'anti.browser.viewport.list_presets': 'antifan_list_device_presets',
+  'antifan_set_device_preset': 'antifan_set_device_preset',
+  'antifan_list_device_presets': 'antifan_list_device_presets',
+  'anti.browser.split_review': 'antifan_toggle_split_review',
+  'anti.browser.split-review': 'antifan_toggle_split_review',
+  'browser.split_review': 'antifan_toggle_split_review',
+  'browser.split-review': 'antifan_toggle_split_review',
+  'anti.devtools.console.list': 'antifan_console_messages',
+  'anti.devtools.console.errors': 'antifan_console_messages',
+  'anti.devtools.console.warnings': 'antifan_console_messages',
+  'anti.browser.eval': 'antifan_eval_js',
+  'anti.agent.eval': 'antifan_eval_js',
+  'anti.browser.evaluate': 'antifan_eval_js',
+  'anti.inspect.eval': 'antifan_eval_js',
+  'anti.inspect.snapshot': 'antifan_agent_snapshot',
+  'anti.inspect.layout': 'anti.inspect.layout',
+  'anti.inspect_layout': 'anti.inspect.layout',
+  'anti.inspect.font': 'anti.inspect.font',
+  'anti.inspect_font': 'anti.inspect.font',
+  'browser.inspect_font': 'anti.inspect.font',
+  'antifan_inspect_font': 'anti.inspect.font',
+  'anti.browser.style_override': 'anti.browser.style_override',
+  'anti.style_override': 'anti.browser.style_override',
+  'anti.theme.preview_css': 'anti.browser.style_override',
+  'anti.inspect.find': 'antifan_find',
+  'anti.browser.find': 'antifan_find',
+  'anti.agent.press_key': 'antifan_keyboard_press',
+  'anti.browser.press_key': 'antifan_keyboard_press',
+  'anti.browser.set_zoom': 'antifan_set_zoom',
+  'anti.browser.zoom.set': 'antifan_set_zoom',
+  'anti.theme.qa.validate': 'antifan_theme_qa_validate',
+  'anti.theme.qa_validate': 'antifan_theme_qa_validate',
+  'anti.theme.debug.bundle': 'antifan_theme_debug_bundle',
+  'anti.theme.debug_bundle': 'antifan_theme_debug_bundle',
+  'theme.qa_validate': 'antifan_theme_qa_validate',
+  'theme.debug_bundle': 'antifan_theme_debug_bundle',
+  'anti.theme.assert_cart': 'theme.assert_cart',
+  'anti.theme.resolve_product': 'theme.resolve_product',
+  'storefront.resolve_product': 'theme.resolve_product',
+  'theme.resolve_product': 'theme.resolve_product',
+  'anti.theme.style_override': 'theme.style_override',
+  'theme.style_override': 'theme.style_override',
+  'anti.theme.qa_repair.begin': 'antifan_theme_qa_repair_begin',
+  'theme.qa_repair.begin': 'antifan_theme_qa_repair_begin',
+  'anti.theme.qa_repair.verify': 'antifan_theme_qa_repair_verify',
+  'theme.qa_repair.verify': 'antifan_theme_qa_repair_verify',
+  'anti.theme.qa_rollback': 'antifan_theme_qa_rollback',
+  'theme.qa_rollback': 'antifan_theme_qa_rollback',
+  'anti.agent.file_upload': 'antifan_upload_file',
+  'anti.agent.upload_file': 'antifan_upload_file',
+  'anti.browser.upload_file': 'antifan_upload_file',
+  'anti.agent.drop': 'antifan_drop_files',
+  'anti.agent.file_drop': 'antifan_drop_files',
+  'anti.browser.drop_files': 'antifan_drop_files',
+  'anti.diagnostics.list_issues': 'antifan_list_issues',
+  'anti.diagnostics.list': 'antifan_list_issues',
+  'anti.diagnostics.record_issue': 'antifan_record_issue',
+  'anti.diagnostics.record': 'antifan_record_issue',
+  'anti.diagnostics.resolve_issue': 'antifan_resolve_issue',
+  'anti.sheet.extract': 'antifan_sheet_extract',
+  'sheet.extract': 'antifan_sheet_extract',
+}));
 
 export class AntiFanMcpServer {
   private tabHost: NativeTabHost;
@@ -54,442 +165,6 @@ export class AntiFanMcpServer {
   public getBoundSession(): BoundAttachmentSession | undefined {
     return this.boundSession ? { ...this.boundSession } : undefined;
   }
-  public getStaticTools(): Tool[] {
-    const tools: Tool[] = [
-      {
-        name: 'antifan_open_tab',
-        description: 'Open a new Chromium browser tab in AntiFan Desktop',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            url: { type: 'string', description: 'URL to navigate to' },
-            activate: { type: 'boolean', description: 'Activate the new tab visibly instead of opening it in the background' },
-            anchorTabId: { type: 'string', description: 'Live same-project tab selecting the window for creation' },
-            ephemeral: { type: 'boolean', description: 'Agent-plane tab excluded from the user tab strip' },
-            userFacing: { type: 'boolean', description: 'Open tab directly on the visible user plane (non-ephemeral) for interactive inspection/debugging' },
-            cookieJar: { type: 'string', pattern: '^[a-z0-9][a-z0-9-]{1,39}$', description: 'Name of a persistent, isolated cookie jar (partition persist:jar-<name>). Tabs opened with the same name share its cookies and stay signed in across restarts; tabs without it use the shared profile jar. Not combinable with ephemeral.' },
-            projectId: { type: 'string', description: 'Scope selector: must equal this session\'s authenticated projectId. A foreign or unbound selector is refused before allocation; it never widens authority.' },
-          },
-        },
-      },
-      {
-        name: 'antifan_list_tabs',
-        description: 'List Chromium tabs in this session\'s project scope; pass all: true for global GUI discovery with per-row affiliated flags',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            all: { type: 'boolean', default: false, description: 'Pass true for global GUI discovery: every tab in the window is listed and each row carries affiliated. Default lists only this session\'s project scope.' },
-            affiliatedOnly: { type: 'boolean', default: false, description: 'Restrict the returned rows to tabs measuring into this session\'s project/workspace.' },
-            projectId: { type: 'string', description: 'Scope selector: must equal this session\'s authenticated projectId. A foreign or unbound selector is refused; it can never widen authority.' },
-          },
-        },
-      },
-      {
-        name: 'antifan_switch_tab',
-        description: 'Switch the active tab visible to the user and rebind agent automation focus by tab ID.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            tabId: { type: 'string', description: 'Tab ID' },
-          },
-          required: ['tabId'],
-        },
-      },
-      {
-        name: 'antifan_close_tab',
-        description: 'Close an open tab by its ID',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            tabId: { type: 'string', description: 'Tab ID' },
-          },
-          required: ['tabId'],
-        },
-      },
-      {
-        name: 'antifan_navigate',
-        description: 'Navigate the current or specified tab to a URL',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            url: { type: 'string', description: 'Target URL' },
-            tabId: { type: 'string', description: 'Optional Tab ID' },
-          },
-          required: ['url'],
-        },
-      },
-      {
-        name: 'antifan_reload',
-        description: 'Reload the current or specified tab',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            tabId: { type: 'string', description: 'Optional Tab ID' },
-          },
-        },
-      },
-      {
-        name: 'antifan_get_dom',
-        description: 'Extract the full HTML or a specific selector subtree from the active tab (or specified tabId)',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            selector: { type: 'string', description: 'CSS selector (optional)' },
-            tabId: { type: 'string', description: 'Optional target tab ID. Executes directly against the specified tab in the background without changing active tab.' },
-            paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional pane target in split review mode' },
-          },
-        },
-      },
-      {
-        name: 'antifan_screenshot',
-        description: 'Capture a native GPU pixel-perfect screenshot of the active tab (or specified tabId, returns base64 PNG)',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            tabId: { type: 'string', description: 'Optional target tab ID. Executes directly against the specified tab in the background without changing active tab.' },
-            paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional pane target in split review mode' },
-          },
-        },
-      },
-      {
-        name: 'antifan_toggle_inspect',
-        description: 'Toggle interactive element inspection mode in the active tab (or specified tabId)',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            tabId: { type: 'string', description: 'Optional tab ID' },
-          },
-        },
-      },
-      {
-        name: 'antifan_toggle_split_review',
-        description: 'Toggle or explicitly set Split Review dual-pane mode on the active tab (or specified tabId) for simultaneous desktop and mobile QA',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            enabled: { type: 'boolean', description: 'Explicitly enable (true) or disable (false) split review. Omit to toggle.' },
-            tabId: { type: 'string', description: 'Optional tab ID' },
-          },
-        },
-      },
-      {
-        name: 'antifan_agent_snapshot',
-        description: 'Agent Browser: Capture interactive ARIA semantic snapshot with compact @e1, @e2 element references',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            tabId: { type: 'string', description: 'Optional tab ID' },
-            paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional pane target in split review mode' },
-          },
-        },
-      },
-      {
-        name: 'anti.inspect.find',
-        description: 'Search accessibility snapshot descriptors for text or regex pattern and return matching @eN element references with metadata',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            text: { type: 'string', description: 'Plain text query' },
-            regex: { type: 'string', description: 'Regex query' },
-            tabId: { type: 'string', description: 'Optional target tab ID' },
-            paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional pane target in split review mode' },
-            maxMatches: { type: 'number', description: 'Maximum number of matches to return' },
-          },
-        },
-      },
-      {
-        name: 'antifan_agent_click',
-        description: 'Agent Browser: Animate AI cursor, ripple pulse, and click element, ref (@e1), or (x, y) coordinates',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            selector: { type: 'string', description: 'CSS selector of element to click' },
-            ref: { type: 'string', description: 'Interactive ARIA snapshot ref (e.g. @e1)' },
-            x: { type: 'number', description: 'Optional viewport X coordinate' },
-            y: { type: 'number', description: 'Optional viewport Y coordinate' },
-            label: { type: 'string', description: 'Human-readable action description banner' },
-            tabId: { type: 'string', description: 'Optional target tab ID. Executes directly against the specified tab in the background without stealing visual focus.' },
-            paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional pane target in split review mode' },
-          },
-        },
-      },
-      {
-        name: 'antifan_agent_type',
-        description: 'Agent Browser: Animate AI cursor, focus input, and type text with typing indicator',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            selector: { type: 'string', description: 'CSS selector of input/textarea to type into' },
-            ref: { type: 'string', description: 'Interactive ARIA snapshot ref (e.g. @e1)' },
-            text: { type: 'string', description: 'Text string to type' },
-            clear: { type: 'boolean', description: 'Whether to clear existing text before typing' },
-            tabId: { type: 'string', description: 'Optional target tab ID. Executes directly against the specified tab in the background without stealing visual focus.' },
-            paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional pane target in split review mode' },
-          },
-          required: ['text'],
-        },
-      },
-      {
-        name: 'antifan_agent_scroll',
-        description: 'Agent Browser: Scroll the page smoothly by deltaY pixels or to a specific element',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            deltaY: { type: 'number', description: 'Pixels to scroll (positive = down, negative = up)' },
-            selector: { type: 'string', description: 'Optional element selector to scroll into view' },
-            ref: { type: 'string', description: 'Optional interactive ARIA snapshot ref (e.g. @e1)' },
-            tabId: { type: 'string', description: 'Optional target tab ID. Executes directly against the specified tab in the background without stealing visual focus.' },
-            paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional pane target in split review mode' },
-          },
-        },
-      },
-      {
-        name: 'antifan_agent_hover',
-        description: 'Agent Browser: Animate AI cursor to hover over an element, ref (@e1), or coordinate',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            selector: { type: 'string', description: 'CSS selector of element to hover' },
-            ref: { type: 'string', description: 'Interactive ARIA snapshot ref (e.g. @e1)' },
-            x: { type: 'number', description: 'Viewport X' },
-            y: { type: 'number', description: 'Viewport Y' },
-            label: { type: 'string', description: 'Hover badge label' },
-            tabId: { type: 'string', description: 'Optional target tab ID. Executes directly against the specified tab in the background without stealing visual focus.' },
-            paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional pane target in split review mode' },
-          },
-        },
-      },
-      {
-        name: 'antifan_agent_highlight',
-        description: 'Agent Browser: Visually highlight an element with a glowing neon border and title badge',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            selector: { type: 'string', description: 'CSS selector of element to highlight' },
-            ref: { type: 'string', description: 'Interactive ARIA snapshot ref (e.g. @e1)' },
-            label: { type: 'string', description: 'Badge label text' },
-            tabId: { type: 'string', description: 'Optional target tab ID. Executes directly against the specified tab in the background without stealing visual focus.' },
-            paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional pane target in split review mode' },
-          },
-        },
-      },
-      {
-        name: 'antifan_agent_clear',
-        description: 'Agent Browser: Clear AI cursor, banners, and visual highlights from the webpage',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            tabId: { type: 'string', description: 'Optional target tab ID' },
-            paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional pane target in split review mode' },
-          },
-        },
-      },
-      {
-        name: 'antifan_keyboard_press',
-        description: 'Agent Browser: Send native keyboard key press (Enter, Escape, Tab, Backspace, Arrow keys, etc.) or combination (Ctrl+A) to the active tab',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            key: { type: 'string', description: 'Key name (e.g. "Enter", "Escape", "Tab", "Backspace", "ArrowDown", "a", "1")' },
-            modifiers: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Optional modifier keys: ["control", "shift", "alt", "meta"] (or shorthand: ["ctrl", "cmd"])',
-            },
-            tabId: { type: 'string', description: 'Optional target tab ID' },
-          },
-          required: ['key'],
-        },
-      },
-      {
-        name: 'antifan_agent_trajectory',
-        description: 'Agent Browser: Execute continuous multi-step cubic Bézier cursor trajectory & actions with in-page micro-jitter',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            steps: {
-              type: 'array',
-              description: 'Sequential steps for cursor movement, clicks, typing, scrolling, or hovering',
-              items: {
-                type: 'object',
-                properties: {
-                  target: { type: 'string', description: 'CSS selector target' },
-                  selector: { type: 'string', description: 'Alternative selector field' },
-                  x: { type: 'number', description: 'Viewport X' },
-                  y: { type: 'number', description: 'Viewport Y' },
-                  action: { type: 'string', enum: ['move', 'hover', 'click', 'type', 'scroll', 'wait'], description: 'Action type' },
-                  text: { type: 'string', description: 'Text to type for action=type' },
-                  deltaY: { type: 'number', description: 'Scroll delta for action=scroll' },
-                  dwellMs: { type: 'number', description: 'Dwell time in milliseconds' },
-                  label: { type: 'string', description: 'Action badge label' },
-                  isCritical: { type: 'boolean', description: 'Whether failure halts trajectory' },
-                },
-              },
-            },
-            speed: { type: 'string', enum: ['fast', 'natural', 'slow'], description: 'Movement speed profile' },
-            smoothScroll: { type: 'boolean', description: 'Whether to use smooth scrolling' },
-            tabId: { type: 'string', description: 'Optional target tab ID. Executes directly against the specified tab in the background without stealing visual focus.' },
-            paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional target pane in split review mode' },
-          },
-          required: ['steps'],
-        },
-      },
-      {
-        name: 'antifan_console_messages',
-        description: 'List captured Chromium console messages for a tab',
-        inputSchema: { type: 'object', properties: { tabId: { type: 'string' }, level: { type: 'number' } } },
-      },
-      {
-        name: 'antifan_network_failures',
-        description: 'List captured main-frame load failures for a tab',
-        inputSchema: { type: 'object', properties: { tabId: { type: 'string' } } },
-      },
-      {
-        name: 'antifan_responsive_check',
-        description: 'Scan the current tab for horizontal overflow and offending elements',
-        inputSchema: { type: 'object', properties: { tabId: { type: 'string' } } },
-      },
-      {
-        name: 'antifan_get_viewport',
-        description: 'Get browser viewport dimensions, DPR, device preset, and layout surface state without applying overrides',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            tabId: { type: 'string', description: 'Optional target tab ID (defaults to active tab)' },
-          },
-        },
-      },
-      {
-        name: 'antifan_set_viewport',
-        description: 'Set browser responsive viewport dimensions (Playwright setViewportSize parity) with width, height, and mobile emulation',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            width: { type: 'number', description: 'Viewport width in pixels (e.g. 375, 412, 768, 1440, 1920)' },
-            height: { type: 'number', description: 'Viewport height in pixels (e.g. 667, 844, 915, 1024, 1080)' },
-            mobile: { type: 'boolean', description: 'Enable mobile touch emulation and viewport meta tags' },
-            deviceScaleFactor: { type: 'number', description: 'Device pixel ratio (e.g. 2 for Retina/OLED, 1 for Standard)' },
-            tabId: { type: 'string', description: 'Optional target tab ID (defaults to active tab)' },
-            reload: { type: 'boolean', description: 'Reload the tab after changing viewport to cleanly trigger responsive hydration' },
-          },
-          required: ['width', 'height'],
-        },
-      },
-      {
-        name: 'antifan_set_device_preset',
-        description: 'Emulate a real device preset (iPhone, iPad, Galaxy, Pixel, MacBook, 4K, Desktop) on the active tab',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            presetId: {
-              type: 'string',
-              description: 'Preset ID: e.g. "iphone-16-pro", "iphone-16-promax", "iphone-se", "galaxy-s24-ultra", "pixel-9-pro", "ipad-pro-12", "ipad-air-11", "desktop-fhd", "laptop-mac", "responsive"',
-            },
-            tabId: { type: 'string', description: 'Optional target tab ID' },
-          },
-          required: ['presetId'],
-        },
-      },
-      {
-        name: 'antifan_list_device_presets',
-        description: 'List all available responsive device presets with their resolutions and categories',
-        inputSchema: {
-          type: 'object',
-          properties: {},
-        },
-      },
-      {
-        name: 'antifan_set_zoom',
-        description: 'Set zoom factor for a Chromium tab (between 0.25 and 5.0)',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            zoomFactor: { type: 'number', minimum: 0.25, maximum: 5.0, description: 'Zoom factor between 0.25 (25%) and 5.0 (500%)' },
-            tabId: { type: 'string', description: 'Optional target tab ID' },
-          },
-          required: ['zoomFactor'],
-        },
-      },
-      {
-        name: 'anti.telemetry.record_fallback',
-        description: 'Record sanitized structured fallback telemetry when falling back to Playwright after an AntiFan capability failure',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            sessionId: { type: 'string', description: 'Terminal or agent session identifier' },
-            targetUrl: { type: 'string', description: 'Storefront or page URL where failure occurred' },
-            primaryTool: { type: 'string', description: 'The primary anti.* capability that failed' },
-            errorCode: { type: 'string', description: 'The error code returned by AntiFan' },
-            errorMessage: { type: 'string', description: 'The error message or failure reason' },
-            fallbackTool: { type: 'string', description: 'The fallback Playwright browser_* tool invoked' },
-            fallbackResult: { type: 'string', enum: ['SUCCESS', 'FAILED', 'SKIPPED'], description: 'Outcome of the fallback tool invocation' },
-            durationMs: { type: 'number', description: 'Execution duration in milliseconds' },
-            notes: { type: 'string', description: 'Optional comparative diagnostic notes' },
-          },
-          required: ['primaryTool', 'fallbackTool', 'fallbackResult'],
-        },
-      },
-      {
-        name: 'anti.diagnostics.list_issues',
-        description: 'List recorded issues, tool failures, and bypassed bugs from the durable issue register',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            status: { type: 'string', enum: ['OPEN', 'RESOLVED', 'BYPASSED'], description: 'Filter by issue status' },
-            severity: { type: 'string', enum: ['P0', 'P1', 'P2', 'P3'], description: 'Filter by severity' },
-            limit: { type: 'number', description: 'Max number of issues to return' },
-          },
-        },
-      },
-      {
-        name: 'anti.diagnostics.record_issue',
-        description: 'Record an observed issue, error, or tool failure into the durable issue register',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            toolName: { type: 'string', description: 'Tool or capability that encountered the error' },
-            errorMessage: { type: 'string', description: 'Error message or exception details' },
-            severity: { type: 'string', enum: ['P0', 'P1', 'P2', 'P3'], description: 'Issue severity' },
-            errorCode: { type: 'string', description: 'Error code if available' },
-            targetUrl: { type: 'string', description: 'URL where issue occurred' },
-            tabId: { type: 'string', description: 'Actual browser tab ID' },
-            workaroundApplied: { type: 'string', description: 'Description of workaround applied to continue work' },
-            notes: { type: 'string', description: 'Optional extra context' },
-          },
-          required: ['toolName', 'errorMessage'],
-        },
-      },
-      {
-        name: 'anti.sheet.extract',
-        description: 'Directly extract row or structured data from Google Sheets in <100ms via authenticated in-tab GViz protocol',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            tabId: { type: 'string', description: 'Actual Google Sheets tab ID (defaults to the bound tab)' },
-            row: { type: 'number', description: '1-indexed target row number (e.g. 34)' },
-            gid: { type: 'string', description: 'Optional sheet GID override' },
-          },
-        },
-      },
-    ];
-
-    if (this.isHighRiskAllowed) {
-      tools.push({
-        name: 'antifan_eval_js',
-        description: 'Execute JavaScript expression in the active or target tab context. Requires explicit high-risk privilege.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            expression: { type: 'string', description: 'JavaScript code to execute' },
-            tabId: { type: 'string', description: 'Optional tab ID to execute within' },
-            paneId: { type: 'string', enum: ['desktop', 'mobile'], description: 'Optional pane target in split review mode' },
-          },
-          required: ['expression'],
-        },
-      });
-    }
-    return tools;
-  }
 
   private advertisedSchemaCache?: Map<string, Record<string, unknown>>;
 
@@ -515,7 +190,7 @@ export class AntiFanMcpServer {
 
   public async listTools(): Promise<{ tools: Tool[] }> {
     return {
-      tools: buildMcpToolList(this.getStaticTools(), this.transport, this.isHighRiskAllowed).map(({ name, description, inputSchema }) => ({
+      tools: buildMcpToolList(this.transport, this.isHighRiskAllowed).map(({ name, description, inputSchema }) => ({
         name,
         description,
         inputSchema,
@@ -524,114 +199,7 @@ export class AntiFanMcpServer {
   }
 
   public async callTool(toolName: string, args: Record<string, unknown> = {}, callerRequestId?: string): Promise<{ content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>; isError?: boolean }> {
-    const aliasMap: Record<string, string> = {
-      'anti.browser.tabs.create': 'antifan_open_tab',
-      'anti.browser.open_tab': 'antifan_open_tab',
-      'anti.browser.tabs.list': 'antifan_list_tabs',
-      'anti.browser.list_tabs': 'antifan_list_tabs',
-      'anti.browser.tabs.activate': 'antifan_switch_tab',
-      'anti.browser.switch_tab': 'antifan_switch_tab',
-      'anti.browser.tabs.close': 'antifan_close_tab',
-      'anti.browser.close_tab': 'antifan_close_tab',
-      'anti.browser.navigate': 'antifan_navigate',
-      'anti.browser.reload': 'antifan_reload',
-      'anti.browser.dump_dom': 'browser.dump_dom',
-      'anti.browser.dump-dom': 'browser.dump_dom',
-      'anti.inspect.dump_dom': 'browser.dump_dom',
-      'antifan_dump_dom': 'browser.dump_dom',
-      'anti.browser.set_automation_target': 'antifan_set_automation_target',
-      'anti.browser.set-automation-target': 'antifan_set_automation_target',
-      'anti.browser.rebind_target': 'antifan_rebind_target',
-      'anti.browser.rebind-target': 'antifan_rebind_target',
-      'browser.rebind-target': 'antifan_rebind_target',
-      'anti.inspect.dom': 'antifan_get_dom',
-      'anti.screenshot.viewport': 'antifan_screenshot',
-      'anti.screenshot.full_page': 'anti.screenshot.full_page',
-      'anti.screenshot.fullpage': 'anti.screenshot.full_page',
-      'antifan_screenshot_full_page': 'anti.screenshot.full_page',
-      'anti.browser.type': 'antifan_agent_type',
-      'anti.browser.scroll': 'antifan_agent_scroll',
-      'anti.browser.hover': 'antifan_agent_hover',
-      'anti.browser.highlight': 'antifan_agent_highlight',
-      'anti.browser.clear': 'antifan_agent_clear',
-      'anti.agent.cursor.click': 'antifan_agent_click',
-      'anti.agent.cursor.type': 'antifan_agent_type',
-      'anti.agent.cursor.scroll': 'antifan_agent_scroll',
-      'anti.agent.cursor.hover': 'antifan_agent_hover',
-      'anti.agent.cursor.highlight': 'antifan_agent_highlight',
-      'anti.agent.cursor.clear': 'antifan_agent_clear',
-      'anti.agent.cursor.move': 'antifan_agent_hover',
-      'anti.agent.cursor.trajectory': 'antifan_agent_trajectory',
-      'anti.browser.trajectory': 'antifan_agent_trajectory',
-      'anti.browser.viewport.get': 'antifan_get_viewport',
-      'anti.browser.get_viewport': 'antifan_get_viewport',
-      'anti.browser.viewport.set': 'antifan_set_viewport',
-      'anti.browser.set_device': 'antifan_set_device_preset',
-      'anti.browser.set_device_preset': 'antifan_set_device_preset',
-      'anti.browser.viewport.set_preset': 'antifan_set_device_preset',
-      'anti.browser.viewport.list_presets': 'antifan_list_device_presets',
-      'antifan_set_device_preset': 'antifan_set_device_preset',
-      'antifan_list_device_presets': 'antifan_list_device_presets',
-      'anti.browser.split_review': 'antifan_toggle_split_review',
-      'anti.browser.split-review': 'antifan_toggle_split_review',
-      'browser.split_review': 'antifan_toggle_split_review',
-      'browser.split-review': 'antifan_toggle_split_review',
-      'anti.devtools.console.list': 'antifan_console_messages',
-      'anti.devtools.console.errors': 'antifan_console_messages',
-      'anti.devtools.console.warnings': 'antifan_console_messages',
-      'anti.browser.eval': 'antifan_eval_js',
-      'anti.agent.eval': 'antifan_eval_js',
-      'anti.browser.evaluate': 'antifan_eval_js',
-      'anti.inspect.eval': 'antifan_eval_js',
-      'anti.inspect.snapshot': 'antifan_agent_snapshot',
-      'anti.inspect.layout': 'anti.inspect.layout',
-      'anti.inspect_layout': 'anti.inspect.layout',
-      'anti.inspect.font': 'anti.inspect.font',
-      'anti.inspect_font': 'anti.inspect.font',
-      'browser.inspect_font': 'anti.inspect.font',
-      'antifan_inspect_font': 'anti.inspect.font',
-      'anti.browser.style_override': 'anti.browser.style_override',
-      'anti.style_override': 'anti.browser.style_override',
-      'anti.theme.preview_css': 'anti.browser.style_override',
-      'anti.inspect.find': 'antifan_find',
-      'anti.browser.find': 'antifan_find',
-      'anti.agent.press_key': 'antifan_keyboard_press',
-      'anti.browser.press_key': 'antifan_keyboard_press',
-      'anti.browser.set_zoom': 'antifan_set_zoom',
-      'anti.browser.zoom.set': 'antifan_set_zoom',
-      'anti.theme.qa.validate': 'antifan_theme_qa_validate',
-      'anti.theme.qa_validate': 'antifan_theme_qa_validate',
-      'anti.theme.debug.bundle': 'antifan_theme_debug_bundle',
-      'anti.theme.debug_bundle': 'antifan_theme_debug_bundle',
-      'theme.qa_validate': 'antifan_theme_qa_validate',
-      'theme.debug_bundle': 'antifan_theme_debug_bundle',
-      'anti.theme.assert_cart': 'theme.assert_cart',
-      'anti.theme.resolve_product': 'theme.resolve_product',
-      'storefront.resolve_product': 'theme.resolve_product',
-      'theme.resolve_product': 'theme.resolve_product',
-      'anti.theme.style_override': 'theme.style_override',
-      'theme.style_override': 'theme.style_override',
-      'anti.theme.qa_repair.begin': 'antifan_theme_qa_repair_begin',
-      'theme.qa_repair.begin': 'antifan_theme_qa_repair_begin',
-      'anti.theme.qa_repair.verify': 'antifan_theme_qa_repair_verify',
-      'theme.qa_repair.verify': 'antifan_theme_qa_repair_verify',
-      'anti.theme.qa_rollback': 'antifan_theme_qa_rollback',
-      'theme.qa_rollback': 'antifan_theme_qa_rollback',
-      'anti.agent.file_upload': 'antifan_upload_file',
-      'anti.agent.upload_file': 'antifan_upload_file',
-      'anti.browser.upload_file': 'antifan_upload_file',
-      'anti.agent.drop': 'antifan_drop_files',
-      'anti.agent.file_drop': 'antifan_drop_files',
-      'anti.browser.drop_files': 'antifan_drop_files',
-      'anti.diagnostics.list_issues': 'antifan_list_issues',
-      'anti.diagnostics.list': 'antifan_list_issues',
-      'anti.diagnostics.record_issue': 'antifan_record_issue',
-      'anti.diagnostics.record': 'antifan_record_issue',
-      'anti.diagnostics.resolve_issue': 'antifan_resolve_issue',
-      'anti.sheet.extract': 'antifan_sheet_extract',
-      'sheet.extract': 'antifan_sheet_extract',
-    };
-    const name = aliasMap[toolName] || toolName;
+    const name = TOOL_ALIASES.get(toolName) ?? toolName;
     const a = (args || {}) as Record<string, unknown>;
     if (!a.tabId && a.id) a.tabId = a.id;
     if (toolName === 'anti.devtools.console.errors') a.level = 3;

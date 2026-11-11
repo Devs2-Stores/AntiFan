@@ -161,7 +161,7 @@ describe('Runtime Full-Page Evidence & 5D Parity Tests', () => {
       },
     };
 
-    const tools = buildMcpToolList([], mockTransport as any);
+    const tools = buildMcpToolList(mockTransport as any);
     const toolNames = tools.map((t) => t.name);
 
     assert.ok(toolNames.includes('anti.screenshot.full_page'), 'Must include anti.screenshot.full_page alias');

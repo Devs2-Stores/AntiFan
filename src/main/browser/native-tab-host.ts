@@ -4165,7 +4165,7 @@ export class NativeTabHost extends EventEmitter {
     run: ({ host }) => {
       const workflows = host.controlPlane ? host.controlPlane.workflowRegistry.getAll() : [];
       const tools = host.controlPlane?.transport
-        ? buildMcpToolList([], host.controlPlane.transport, true).map((tool) => {
+        ? buildMcpToolList(host.controlPlane.transport, true).map((tool) => {
           const name = tool.name;
           const category = name.startsWith('anti.')
             ? 'mcp'

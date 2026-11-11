@@ -393,7 +393,7 @@ describe('Capability catalogue', () => {
     assert.ok(serverToolNames.includes('anti.browser.zoom.set'));
     assert.ok(serverToolNames.includes('anti.theme.assert_cart'), 'anti.theme.assert_cart must be included in listTools');
 
-    const advertised = buildMcpToolList([], transport);
+    const advertised = buildMcpToolList(transport);
     const openTab = advertised.find((tool) => tool.name === 'antifan_open_tab');
     const createAlias = advertised.find((tool) => tool.name === 'anti.browser.tabs.create');
     assert.ok(openTab?.risk, 'canonical open_tab must carry catalogue risk');
@@ -1920,5 +1920,24 @@ describe('Capability catalogue', () => {
       () => catalogue.dispatch('probe.eval', { tabId: 'tab-sibling' }, context('eval')),
       (error: unknown) => error instanceof CapabilityError && error.code === 'TARGET_MISMATCH'
     );
+  });
+
+  it('a tool name that collides with an Object.prototype key is dispatched as that string', async () => {
+    const dispatched: unknown[] = [];
+    const transport = {
+      list: () => [],
+      dispatchIntent: async (intent: { name: unknown }) => {
+        dispatched.push(intent.name);
+        return { ok: true, data: {}, requestId: 'req-proto', invocationId: 'inv-proto' };
+      },
+    } as unknown as CapabilityTransportAdapter;
+    const server = new AntiFanMcpServer({} as unknown as NativeTabHost, false, transport);
+    server.setBoundSession({ attachmentId: 'att-proto', attachmentSecret: 'secret-proto', authorityRevision: 'rev-proto' });
+    for (const name of ['constructor', 'toString', 'hasOwnProperty']) {
+      await server.callTool(name, {});
+    }
+    assert.deepStrictEqual(dispatched, ['constructor', 'toString', 'hasOwnProperty']);
+    await server.callTool('anti.browser.tabs.create', {});
+    assert.strictEqual(dispatched[3], 'antifan_open_tab', 'a real alias still resolves');
   });
 });
