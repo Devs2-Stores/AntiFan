@@ -1844,6 +1844,15 @@ export function isStrictActionSuccess(rawRes: unknown, actionKey: string): boole
   return false;
 }
 
+/** Failure text a host reports for an action that did not execute: `error` first, then `reason`, strings only. */
+function actionFailureText(res: unknown): string | undefined {
+  if (!res || typeof res !== 'object' || Array.isArray(res)) return undefined;
+  const { error, reason } = res as { error?: unknown; reason?: unknown };
+  if (typeof error === 'string') return error;
+  if (typeof reason === 'string') return reason;
+  return undefined;
+}
+
 interface VisualCompareParams {
   baselineScreenshotRef?: string;
   baselineRef?: string;
@@ -7082,9 +7091,7 @@ export class BrowserControlPort {
             const rawRes = await this.host.dispatchAgentAction('click', { selector: params.selector, ref: params.ref, trusted: true, tabId, paneId: effectivePane });
             actionExecuted = rawRes?.success === true;
             interactionMode = resolveInteractionMode(rawRes, 'unknown');
-            if (!actionExecuted && rawRes && typeof rawRes === 'object' && typeof (rawRes as any).reason === 'string') {
-              actionError = (rawRes as any).reason;
-            }
+            if (!actionExecuted) actionError = actionFailureText(rawRes) ?? actionError;
           } catch (err: unknown) {
             actionExecuted = false;
             actionError = String(err);
@@ -7095,9 +7102,7 @@ export class BrowserControlPort {
             const rawRes = (await this.host.agentClick({ selector: params.selector, ref: params.ref, trusted: true, tabId, paneId: effectivePane })) as any;
             actionExecuted = isStrictActionSuccess(rawRes, 'clicked');
             interactionMode = resolveInteractionMode(rawRes, 'unknown');
-            if (!actionExecuted && rawRes && typeof rawRes === 'object' && typeof (rawRes as any).error === 'string') {
-              actionError = (rawRes as any).error;
-            }
+            if (!actionExecuted) actionError = actionFailureText(rawRes) ?? actionError;
           } catch (err: unknown) {
             actionExecuted = false;
             actionError = String(err);
@@ -7113,9 +7118,7 @@ export class BrowserControlPort {
               return { clicked: true };
             })()`, tabId, effectivePane)) as any;
             actionExecuted = isStrictActionSuccess(evalRes, 'clicked');
-            if (!actionExecuted && evalRes && typeof evalRes === 'object' && typeof (evalRes as any).error === 'string') {
-              actionError = (evalRes as any).error;
-            }
+            if (!actionExecuted) actionError = actionFailureText(evalRes) ?? actionError;
           } catch (err: unknown) {
             actionExecuted = false;
             actionError = String(err);
@@ -7127,9 +7130,7 @@ export class BrowserControlPort {
             const rawRes = await this.host.dispatchAgentAction('hover', { selector: params.selector, ref: params.ref, tabId, paneId: effectivePane });
             actionExecuted = rawRes?.success === true;
             interactionMode = resolveInteractionMode(rawRes, 'unknown');
-            if (!actionExecuted && rawRes && typeof rawRes === 'object' && typeof (rawRes as any).reason === 'string') {
-              actionError = (rawRes as any).reason;
-            }
+            if (!actionExecuted) actionError = actionFailureText(rawRes) ?? actionError;
           } catch (err: unknown) {
             actionExecuted = false;
             actionError = String(err);
@@ -7140,9 +7141,7 @@ export class BrowserControlPort {
             const rawRes = (await this.host.agentHover({ selector: params.selector, ref: params.ref, tabId, paneId: effectivePane })) as any;
             actionExecuted = isStrictActionSuccess(rawRes, 'hovered');
             interactionMode = resolveInteractionMode(rawRes, 'unknown');
-            if (!actionExecuted && rawRes && typeof rawRes === 'object' && typeof (rawRes as any).error === 'string') {
-              actionError = (rawRes as any).error;
-            }
+            if (!actionExecuted) actionError = actionFailureText(rawRes) ?? actionError;
           } catch (err: unknown) {
             actionExecuted = false;
             actionError = String(err);
@@ -7163,9 +7162,7 @@ export class BrowserControlPort {
             return { focused: true };
           })()`, tabId, effectivePane)) as any;
           actionExecuted = isStrictActionSuccess(evalRes, 'focused');
-          if (!actionExecuted && evalRes && typeof evalRes === 'object' && typeof (evalRes as any).error === 'string') {
-            actionError = (evalRes as any).error;
-          }
+          if (!actionExecuted) actionError = actionFailureText(evalRes) ?? actionError;
         } catch (err: unknown) {
           actionExecuted = false;
           actionError = String(err);
@@ -7176,9 +7173,7 @@ export class BrowserControlPort {
             const rawRes = await this.host.dispatchAgentAction('type', { selector: params.selector, ref: params.ref, text: params.text || '', clear: params.clear, trusted: true, tabId, paneId: effectivePane });
             actionExecuted = rawRes?.success === true;
             interactionMode = resolveInteractionMode(rawRes, 'unknown');
-            if (!actionExecuted && rawRes && typeof rawRes === 'object' && typeof (rawRes as any).reason === 'string') {
-              actionError = (rawRes as any).reason;
-            }
+            if (!actionExecuted) actionError = actionFailureText(rawRes) ?? actionError;
           } catch (err: unknown) {
             actionExecuted = false;
             actionError = String(err);
@@ -7189,9 +7184,7 @@ export class BrowserControlPort {
             const rawRes = (await this.host.agentType({ selector: params.selector, ref: params.ref, text: params.text || '', trusted: true, tabId, paneId: effectivePane })) as any;
             actionExecuted = isStrictActionSuccess(rawRes, 'typed');
             interactionMode = resolveInteractionMode(rawRes, 'unknown');
-            if (!actionExecuted && rawRes && typeof rawRes === 'object' && typeof (rawRes as any).error === 'string') {
-              actionError = (rawRes as any).error;
-            }
+            if (!actionExecuted) actionError = actionFailureText(rawRes) ?? actionError;
           } catch (err: unknown) {
             actionExecuted = false;
             actionError = String(err);
@@ -7208,9 +7201,7 @@ export class BrowserControlPort {
             const rawRes = await this.host.dispatchAgentAction('scroll', { selector: params.selector, ref: params.ref, deltaY: params.deltaY || 300, tabId, paneId: effectivePane });
             actionExecuted = rawRes?.success === true;
             interactionMode = resolveInteractionMode(rawRes, 'unknown');
-            if (!actionExecuted && rawRes && typeof rawRes === 'object' && typeof (rawRes as any).reason === 'string') {
-              actionError = (rawRes as any).reason;
-            }
+            if (!actionExecuted) actionError = actionFailureText(rawRes) ?? actionError;
           } catch (err: unknown) {
             actionExecuted = false;
             actionError = String(err);
@@ -7221,9 +7212,7 @@ export class BrowserControlPort {
             const rawRes = (await this.host.agentScroll({ selector: params.selector, ref: params.ref, deltaY: params.deltaY || 300, tabId, paneId: effectivePane })) as any;
             actionExecuted = isStrictActionSuccess(rawRes, 'scrolled');
             interactionMode = resolveInteractionMode(rawRes, 'unknown');
-            if (!actionExecuted && rawRes && typeof rawRes === 'object' && typeof (rawRes as any).error === 'string') {
-              actionError = (rawRes as any).error;
-            }
+            if (!actionExecuted) actionError = actionFailureText(rawRes) ?? actionError;
           } catch (err: unknown) {
             actionExecuted = false;
             actionError = String(err);

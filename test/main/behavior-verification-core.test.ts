@@ -633,4 +633,27 @@ describe('Priority 2: Behavior Verification Core & Dual-Scope Semantic Inference
     assert.strictEqual(res.actionSuccess, true);
     assert.strictEqual(res.interactionMode, 'trusted_cdp');
   });
+
+  it('19. A failed click surfaces the host reason (dispatchAgentAction) and error (agentClick, evalJs) as the action error', async () => {
+    const pageState = { url: 'https://storefront.dev/', bodyClasses: [], bodyOverflowLocked: false, activeOverlays: [], hasHorizontalOverflow: false };
+    const hostBase: Partial<BrowserHostPort> = {
+      getTabList: () => [{ id: 'tab-1' }],
+      getActiveTabId: () => 'tab-1',
+      getAutomationTabId: () => 'tab-1',
+      inspectStyles: async () => ({}),
+      evalJs: async (code: string) => (code.includes('el.click()') ? { clicked: false, error: 'Z: element not found' } : pageState),
+    };
+    const hosts: Array<[string, Partial<BrowserHostPort>, string]> = [
+      ['dispatchAgentAction reason', { ...hostBase, dispatchAgentAction: async () => ({ success: false, reason: 'X: blocked by overlay' }) }, 'X: blocked by overlay'],
+      // The host port types agentClick's answer narrower than the object payloads real hosts return.
+      ['agentClick error', { ...hostBase, agentClick: (async () => ({ clicked: false, error: 'Y: not interactable' })) as unknown as BrowserHostPort['agentClick'] }, 'Y: not interactable'],
+      ['evalJs error', hostBase, 'Z: element not found'],
+    ];
+    for (const [label, host, expected] of hosts) {
+      const port = new BrowserControlPort(host as BrowserHostPort);
+      const res = await port.traceInteraction(baseTarget, 'run-1', 'att-1', { action: 'click', selector: '.btn', settleMs: 10 });
+      assert.strictEqual(res.verdict, 'ACTION_FAILED', label);
+      assert.strictEqual((res.evidence as Record<string, any>).error, expected, label);
+    }
+  });
 });
