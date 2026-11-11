@@ -5541,7 +5541,9 @@ async function initToolbar() {
     }
   }
   void pollPhoneStatus();
-  setInterval(pollPhoneStatus, 10000);
+  // A hidden window has nobody to show the badge to, and every poll enumerates the USB bus; the
+  // focus listener below refreshes the moment the window comes back.
+  setInterval(() => { if (!document.hidden) void pollPhoneStatus(); }, 10000);
   window.addEventListener('focus', () => void pollPhoneStatus());
 }
 

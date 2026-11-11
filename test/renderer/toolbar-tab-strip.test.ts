@@ -102,7 +102,11 @@ async function flush(rounds = 12) {
   }
 }
 
-async function loadToolbarWithTabs(tabs: unknown[], activeTabId: string) {
+async function loadToolbarWithTabs(
+  tabs: unknown[],
+  activeTabId: string,
+  setup?: (win: ToolbarWindow, api: Record<string, unknown>) => void,
+) {
   const { JSDOM } = loadJsdom();
   const html = fs.readFileSync(path.join(RENDERER_DIR, 'toolbar.html'), 'utf8');
   const dom = new JSDOM(html, { runScripts: 'outside-only', url: 'http://localhost/' });
@@ -125,7 +129,9 @@ async function loadToolbarWithTabs(tabs: unknown[], activeTabId: string) {
       pathLabel: 'E:\\Work\\projects\\tong-hop',
     },
   };
-  win.antifanToolbar = makeApi(state, stub);
+  const api = makeApi(state, stub);
+  win.antifanToolbar = api;
+  setup?.(win, api as unknown as Record<string, unknown>);
   win.eval(fs.readFileSync(path.join(RENDERER_DIR, 'exports-shim.js'), 'utf8'));
   win.eval(fs.readFileSync(path.join(RENDERER_DIR, 'toolbar.js'), 'utf8'));
   await flush();
@@ -302,5 +308,38 @@ describe('Theme QA badge and state frame ordering', () => {
     stub.pushState({ tabs, activeTabId: 'tab-1', stateSeq: 6, themeQa: { status: 'fail', issueCount: 2, updatedAt: 3 } });
     await flush();
     assert.strictEqual(badgeText(doc), '2 Issues');
+  });
+});
+
+describe('Phone status polling', () => {
+  test('the phone-status poll does not fire while the window is hidden', async () => {
+    let pollTick: (() => void) | undefined;
+    let phoneQueries = 0;
+    let hidden = true;
+    const tabs = [{ id: 'tab-1', title: 'Google', url: 'https://www.google.com/' }];
+    const { win } = await loadToolbarWithTabs(tabs, 'tab-1', (w, api) => {
+      const realSetInterval = w.setInterval.bind(w) as (handler: () => void, ms: number) => number;
+      (w as unknown as { setInterval: unknown }).setInterval = (handler: () => void, ms: number) => {
+        if (ms === 10000) pollTick = handler;
+        return realSetInterval(handler, 2_000_000);
+      };
+      api.getPhoneStatus = () => {
+        phoneQueries += 1;
+        return Promise.resolve({ state: 'unknown' });
+      };
+    });
+    Object.defineProperty(win.document, 'hidden', { configurable: true, get: () => hidden });
+    assert.ok(pollTick, 'the 10 s phone-status interval was registered');
+    await flush();
+
+    phoneQueries = 0;
+    pollTick();
+    await flush();
+    assert.strictEqual(phoneQueries, 0, 'a hidden window must not enumerate the phone');
+
+    hidden = false;
+    pollTick();
+    await flush();
+    assert.strictEqual(phoneQueries, 1, 'a visible window polls once per tick');
   });
 });
