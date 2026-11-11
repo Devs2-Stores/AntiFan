@@ -6,12 +6,14 @@ import { armCookieEvictionLog } from './cookie-eviction-log';
 import { armGoogleAuthCookieLog } from './google-auth-cookie-log';
 import { armStorefrontPasswordCookieGuard } from './storefront-password-cookie-guard';
 import { recordLifecycleEvent } from '../diagnostics/main-lifecycle-log';
+import { installWebPermissionPolicy } from './web-permission-policy';
 export type BrowserSessionUserAgentMode = 'clean' | 'native';
 
 const configuredPartitions = new Set<string>();
 const userAgentModeBySession = new WeakMap<Session, BrowserSessionUserAgentMode>();
 /** Partition name each configured session was created from — Electron exposes no reverse lookup. */
 const partitionBySession = new WeakMap<Session, string>();
+const permissionPolicyArmed = new WeakSet<Session>();
 
 /**
  * Partition name a configured session belongs to. Returns '' for sessions this
@@ -132,12 +134,20 @@ export function unconfigureBrowserSessionPartition(partition?: string): void {
   }
 }
 
+function armWebPermissionPolicy(sess: Session, partition: string): void {
+  if (permissionPolicyArmed.has(sess)) return;
+  if (typeof sess.setPermissionRequestHandler !== 'function' || typeof sess.setPermissionCheckHandler !== 'function') return;
+  permissionPolicyArmed.add(sess);
+  installWebPermissionPolicy(sess, partition, (record) => recordLifecycleEvent('permission.denied', { ...record }));
+}
+
 export function configureBrowserSessionPartition(
   partition: string,
   mode: BrowserSessionUserAgentMode = 'clean'
 ): Session {
   const sess = partition ? session.fromPartition(partition) : session.defaultSession;
   setBrowserSessionUserAgentMode(sess, mode);
+  armWebPermissionPolicy(sess, partition);
   if (partition) {
     partitionBySession.set(sess, partition);
     // Durable profile jars get durable cookie commits; in-memory jars are

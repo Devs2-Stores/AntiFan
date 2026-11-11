@@ -27,6 +27,8 @@ interface FakeSessionRecord {
   userAgent: string;
   setUserAgentCalls: string[];
   hintInterceptorInstalls: number;
+  permissionRequestHandlers: unknown[];
+  permissionCheckHandlers: unknown[];
 }
 
 interface FakeSession {
@@ -35,6 +37,8 @@ interface FakeSession {
   getUserAgent(): string;
   setUserAgent(ua: string): void;
   webRequest: { onBeforeSendHeaders(filter: unknown, handler: unknown): void };
+  setPermissionRequestHandler(handler: unknown): void;
+  setPermissionCheckHandler(handler: unknown): void;
 }
 
 function makeFakeSession(partition: string): FakeSession {
@@ -43,6 +47,8 @@ function makeFakeSession(partition: string): FakeSession {
     userAgent: ELECTRON_UA,
     setUserAgentCalls: [],
     hintInterceptorInstalls: 0,
+    permissionRequestHandlers: [],
+    permissionCheckHandlers: [],
   };
   return {
     partition,
@@ -56,6 +62,12 @@ function makeFakeSession(partition: string): FakeSession {
       onBeforeSendHeaders: () => {
         record.hintInterceptorInstalls += 1;
       },
+    },
+    setPermissionRequestHandler: (handler: unknown) => {
+      record.permissionRequestHandlers.push(handler);
+    },
+    setPermissionCheckHandler: (handler: unknown) => {
+      record.permissionCheckHandlers.push(handler);
     },
   };
 }
@@ -213,6 +225,29 @@ describe('Capsule partition isolation & RFC 6265bis ingestion suite (unit)', () 
     const sess = partitions.configureBrowserSessionPartition('', 'clean');
     assert.strictEqual(sess, defaultSession, 'an empty partition configures the default session');
     assert.strictEqual(defaultSession.record.setUserAgentCalls.length, 1);
+  });
+
+  it('installs the permission policy once per session, in clean and native mode, and on the default session', () => {
+    const clean = partitions.deriveCapsulePartition('perm-clean', 'clean');
+    const native = partitions.deriveCapsulePartition('perm-native', 'native');
+    partitions.configureBrowserSessionPartition(clean, 'clean');
+    partitions.configureBrowserSessionPartition(clean, 'clean');
+    partitions.configureBrowserSessionPartition(native, 'native');
+    partitions.configureBrowserSessionPartition('', 'clean');
+    partitions.configureBrowserSessionPartition('', 'clean');
+
+    for (const record of [partitionRecord(clean), partitionRecord(native), defaultSession.record]) {
+      assert.strictEqual(record.permissionRequestHandlers.length, 1, `${record.partition}: one request handler`);
+      assert.strictEqual(record.permissionCheckHandlers.length, 1, `${record.partition}: one check handler`);
+    }
+
+    const request = partitionRecord(native).permissionRequestHandlers[0] as (
+      wc: unknown, permission: string, cb: (ok: boolean) => void, details: unknown,
+    ) => void;
+    const answers: boolean[] = [];
+    request(null, 'midi', (ok) => answers.push(ok), { requestingUrl: 'https://a.example/x' });
+    request(null, 'media', (ok) => answers.push(ok), { requestingUrl: 'https://a.example/x' });
+    assert.deepStrictEqual(answers, [false, true], 'a session wired by production denies hardware and allows media');
   });
 });
 
