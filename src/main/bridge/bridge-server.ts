@@ -512,17 +512,26 @@ export class BridgeServer {
   /**
    * Hash of the on-disk MCP proxy script this build ships. The proxy sends the
    * digest of the bytes it loaded at spawn; a mismatch flags a proxy that
-   * predates the running build. Recomputed per exchange (one ~150KB read per
-   * pairing — rare) so a mid-process upgrade or a transient read failure can
-   * never freeze a wrong answer: read failure degrades silently to undefined,
-   * and the next exchange measures the file as it is then.
+   * predates the running build. The digest is cached against the file's mtime
+   * and size, and a file modified within the last two seconds is always
+   * re-read, because two edits inside one filesystem tick with equal length
+   * are indistinguishable by stat alone. A transient read failure degrades
+   * silently to undefined and is never cached, so the next exchange measures
+   * the file as it is then.
    */
+  private proxyHashCache: { mtimeMs: number; size: number; hash: string } | undefined;
+
   private expectedProxyBuildHash(): string | undefined {
     try {
       const appRoot = app && typeof app.getAppPath === 'function' ? app.getAppPath() : process.cwd();
       const scriptPath = path.join(appRoot, 'scripts', 'antifan-omp-mcp.cjs');
+      const stat = fs.statSync(scriptPath);
+      const cached = this.proxyHashCache;
+      if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) return cached.hash;
       const content = fs.readFileSync(scriptPath);
-      return crypto.createHash('sha256').update(content).digest('hex').slice(0, 16);
+      const hash = crypto.createHash('sha256').update(content).digest('hex').slice(0, 16);
+      this.proxyHashCache = Date.now() - stat.mtimeMs < 2000 ? undefined : { mtimeMs: stat.mtimeMs, size: stat.size, hash };
+      return hash;
     } catch {
       return undefined;
     }
@@ -4547,9 +4556,14 @@ export class BridgeServer {
     // in the list, the active id, and the transcript snapshot that travels with it.
     let mobileSessionFrame: { data: unknown; raw: string; rawBytes: number } | undefined;
     if (isTerminalSession) {
-      const hasCompanion = [...this.clients].some(client =>
-        client.readyState === WebSocket.OPEN
-        && this.socketMobileGrants.get(client)?.allowedScopes.includes('terminal.sync'));
+      let hasCompanion = false;
+      for (const client of this.clients) {
+        if (client.readyState === WebSocket.OPEN
+          && this.socketMobileGrants.get(client)?.allowedScopes.includes('terminal.sync')) {
+          hasCompanion = true;
+          break;
+        }
+      }
       if (hasCompanion && data && typeof data === 'object') {
         const state = data as {
           sessions?: SessionSummary[];
