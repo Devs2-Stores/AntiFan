@@ -83,6 +83,8 @@ export class ArtifactStore {
   private readonly leases = new Map<string, EvidenceRunLease>();
   private readonly hotDataCache = new Map<string, Buffer>();
   private readonly runArtifactsCache = new Map<string, ArtifactRef[]>();
+  /** Tail of each run's queue of async stages: one stage per run at a time. */
+  private readonly stageQueues = new Map<string, Promise<void>>();
   private readonly MAX_HOT_CACHE_ITEMS = 32;
   constructor(private readonly options: ArtifactStoreOptions) {
     this.maxArtifactBytes = options.maxArtifactBytes ?? DEFAULT_MAX_ARTIFACT_BYTES;
@@ -499,7 +501,26 @@ export class ArtifactStore {
     return ref;
   }
 
-  async stageAsync(input: ArtifactStageInput): Promise<ArtifactRef> {
+  /**
+   * Async stages of one run take turns. Each stage reads the run's committed bytes,
+   * awaits its write, then stores committed + written, and snapshots the run index
+   * after more awaits; two interleaved stages would lose one byte count, and an older
+   * index snapshot could land after a newer one and drop an artifact on restart.
+   * Different runs still stage in parallel.
+   */
+  stageAsync(input: ArtifactStageInput): Promise<ArtifactRef> {
+    const key = typeof input.runId === 'string' ? input.runId : '';
+    const previous = this.stageQueues.get(key) ?? Promise.resolve();
+    const turn = previous.then(() => this.stageAsyncTurn(input));
+    const tail = turn.then(() => undefined, () => undefined);
+    this.stageQueues.set(key, tail);
+    void tail.then(() => {
+      if (this.stageQueues.get(key) === tail) this.stageQueues.delete(key);
+    });
+    return turn;
+  }
+
+  private async stageAsyncTurn(input: ArtifactStageInput): Promise<ArtifactRef> {
     const { runId, overflowMode, lease } = this.validateStageInput(input);
     const stageStartMs = performance.now();
     const raw = Buffer.isBuffer(input.data) ? input.data : Buffer.from(input.data, 'utf8');
