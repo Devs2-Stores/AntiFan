@@ -43,6 +43,23 @@ export interface ArtifactPreflightInput {
 /** `truncate` preserves the historical ceiling behavior; `reject` fails closed before any bytes are written. */
 export type ArtifactOverflowMode = 'truncate' | 'reject';
 
+export interface ArtifactStageInput {
+  kind: ArtifactRef['kind'];
+  mime: string;
+  data: string | Buffer;
+  runId: string;
+  attemptId: string;
+  projectId: string;
+  workspaceId: string;
+  maxBytes?: number;
+  /** Required when the run currently holds an exclusive evidence lease. */
+  leaseToken?: string;
+  /** Defaults to 'truncate' (historical behavior); 'reject' fails closed before any bytes are written. */
+  overflowMode?: ArtifactOverflowMode;
+  /** Declared by the caller; `permanent` exempts the artifact from the retention sweep. */
+  retentionPolicy?: ArtifactRef['retentionPolicy'];
+}
+
 export interface ArtifactStoreOptions {
   root: string;
   maxArtifactBytes?: number;
@@ -343,22 +360,8 @@ export class ArtifactStore {
     return this.activeLease(runId);
   }
 
-  stage(input: {
-    kind: ArtifactRef['kind'];
-    mime: string;
-    data: string | Buffer;
-    runId: string;
-    attemptId: string;
-    projectId: string;
-    workspaceId: string;
-    maxBytes?: number;
-    /** Required when the run currently holds an exclusive evidence lease. */
-    leaseToken?: string;
-    /** Defaults to 'truncate' (historical behavior); 'reject' fails closed before any bytes are written. */
-    overflowMode?: ArtifactOverflowMode;
-    /** Declared by the caller; `permanent` exempts the artifact from the retention sweep. */
-    retentionPolicy?: ArtifactRef['retentionPolicy'];
-  }): ArtifactRef {
+  /** Argument checks shared by `stage` and `stageAsync`; the order of the checks is part of the contract. */
+  private validateStageInput(input: ArtifactStageInput): { runId: string; overflowMode: ArtifactOverflowMode; lease: EvidenceRunLease | undefined } {
     const runId = this.assertValidRunId(input.runId);
     const overflowMode: ArtifactOverflowMode = input.overflowMode ?? 'truncate';
     if (overflowMode !== 'truncate' && overflowMode !== 'reject') {
@@ -374,6 +377,56 @@ export class ArtifactStore {
     if (!input.workspaceId || typeof input.workspaceId !== 'string' || input.workspaceId.trim().length === 0) {
       throw new CapabilityError('INVALID_ARGUMENT', 'Valid workspaceId is required for artifact staging');
     }
+    return { runId, overflowMode, lease };
+  }
+
+  /** Builds the ref for staged bytes and records it in the in-memory index (no disk write). */
+  private registerStagedRef(
+    input: ArtifactStageInput,
+    runId: string,
+    artifactPath: string,
+    stored: number,
+    sha256: string,
+    truncated: boolean,
+    redacted: boolean
+  ): ArtifactRef {
+    const ref: ArtifactRef = {
+      id: `artifact-${crypto.randomUUID()}`,
+      runId,
+      attemptId: input.attemptId,
+      projectId: input.projectId,
+      workspaceId: input.workspaceId,
+      kind: input.kind,
+      path: artifactPath,
+      byteLength: stored,
+      sha256,
+      mime: input.mime,
+      truncated,
+      redacted,
+      createdAt: Date.now(),
+      retentionPolicy: input.retentionPolicy,
+    };
+    this.artifacts.set(ref.id, ref);
+    const cachedRunList = this.runArtifactsCache.get(runId);
+    if (cachedRunList) {
+      cachedRunList.push(ref);
+    } else {
+      this.runArtifactsCache.set(runId, [ref]);
+    }
+    return ref;
+  }
+
+  private cacheHot(ref: ArtifactRef, storedData: Buffer): void {
+    if (storedData.byteLength > 512 * 1024) return;
+    if (this.hotDataCache.size >= this.MAX_HOT_CACHE_ITEMS) {
+      const firstKey = this.hotDataCache.keys().next().value;
+      if (firstKey) this.hotDataCache.delete(firstKey);
+    }
+    this.hotDataCache.set(ref.id, storedData);
+  }
+
+  stage(input: ArtifactStageInput): ArtifactRef {
+    const { runId, overflowMode, lease } = this.validateStageInput(input);
     const stageStartMs = performance.now();
     const raw = Buffer.isBuffer(input.data) ? input.data : Buffer.from(input.data, 'utf8');
     const max = this.resolveArtifactMax(lease, input.maxBytes);
@@ -439,72 +492,15 @@ export class ArtifactStore {
       stored = fs.statSync(artifactPath).size;
       this.runBytes.set(runId, committedBytes + stored);
     }
-    const ref: ArtifactRef = {
-      id: `artifact-${crypto.randomUUID()}`,
-      runId,
-      attemptId: input.attemptId,
-      projectId: input.projectId,
-      workspaceId: input.workspaceId,
-      kind: input.kind,
-      path: artifactPath,
-      byteLength: stored,
-      sha256,
-      mime: input.mime,
-      truncated,
-      redacted,
-      createdAt: Date.now(),
-      retentionPolicy: input.retentionPolicy,
-    };
-    this.artifacts.set(ref.id, ref);
-    const cachedRunList = this.runArtifactsCache.get(runId);
-    if (cachedRunList) {
-      cachedRunList.push(ref);
-    } else {
-      this.runArtifactsCache.set(runId, [ref]);
-    }
+    const ref = this.registerStagedRef(input, runId, artifactPath, stored, sha256, truncated, redacted);
     this.persistRunIndex(runId);
-    if (storedData.byteLength <= 512 * 1024) {
-      if (this.hotDataCache.size >= this.MAX_HOT_CACHE_ITEMS) {
-        const firstKey = this.hotDataCache.keys().next().value;
-        if (firstKey) this.hotDataCache.delete(firstKey);
-      }
-      this.hotDataCache.set(ref.id, storedData);
-    }
+    this.cacheHot(ref, storedData);
     recordBenchmark({ surface: 'artifact', name: 'stage', value: performance.now() - stageStartMs, extra: { kind: input.kind, mime: input.mime, inputBytes: raw.byteLength, storedBytes: stored, truncated, redacted: ref.redacted } });
     return ref;
   }
 
-  async stageAsync(input: {
-    kind: ArtifactRef['kind'];
-    mime: string;
-    data: string | Buffer;
-    runId: string;
-    attemptId: string;
-    projectId: string;
-    workspaceId: string;
-    maxBytes?: number;
-    /** Required when the run currently holds an exclusive evidence lease. */
-    leaseToken?: string;
-    /** Defaults to 'truncate' (historical behavior); 'reject' fails closed before any bytes are written. */
-    overflowMode?: ArtifactOverflowMode;
-    /** Declared by the caller; `permanent` exempts the artifact from the retention sweep. */
-    retentionPolicy?: ArtifactRef['retentionPolicy'];
-  }): Promise<ArtifactRef> {
-    const runId = this.assertValidRunId(input.runId);
-    const overflowMode: ArtifactOverflowMode = input.overflowMode ?? 'truncate';
-    if (overflowMode !== 'truncate' && overflowMode !== 'reject') {
-      throw new CapabilityError('INVALID_ARGUMENT', `Invalid overflowMode '${String(input.overflowMode)}': expected 'truncate' or 'reject'`);
-    }
-    const lease = this.resolveLeaseForStage(runId, input.leaseToken);
-    if (input.attemptId && (typeof input.attemptId !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(input.attemptId))) {
-      throw new CapabilityError('INVALID_ARGUMENT', `Invalid attemptId '${input.attemptId}': must contain only alphanumeric characters, underscores, and dashes`);
-    }
-    if (!input.projectId || typeof input.projectId !== 'string' || input.projectId.trim().length === 0) {
-      throw new CapabilityError('INVALID_ARGUMENT', 'Valid projectId is required for artifact staging');
-    }
-    if (!input.workspaceId || typeof input.workspaceId !== 'string' || input.workspaceId.trim().length === 0) {
-      throw new CapabilityError('INVALID_ARGUMENT', 'Valid workspaceId is required for artifact staging');
-    }
+  async stageAsync(input: ArtifactStageInput): Promise<ArtifactRef> {
+    const { runId, overflowMode, lease } = this.validateStageInput(input);
     const stageStartMs = performance.now();
     const raw = Buffer.isBuffer(input.data) ? input.data : Buffer.from(input.data, 'utf8');
     const max = this.resolveArtifactMax(lease, input.maxBytes);
@@ -562,37 +558,9 @@ export class ArtifactStore {
       stored = (await fs.promises.stat(artifactPath)).size;
       this.runBytes.set(runId, committedBytes + stored);
     }
-    const ref: ArtifactRef = {
-      id: `artifact-${crypto.randomUUID()}`,
-      runId,
-      attemptId: input.attemptId,
-      projectId: input.projectId,
-      workspaceId: input.workspaceId,
-      kind: input.kind,
-      path: artifactPath,
-      byteLength: stored,
-      sha256,
-      mime: input.mime,
-      truncated,
-      redacted,
-      createdAt: Date.now(),
-      retentionPolicy: input.retentionPolicy,
-    };
-    this.artifacts.set(ref.id, ref);
-    const cachedRunList = this.runArtifactsCache.get(runId);
-    if (cachedRunList) {
-      cachedRunList.push(ref);
-    } else {
-      this.runArtifactsCache.set(runId, [ref]);
-    }
+    const ref = this.registerStagedRef(input, runId, artifactPath, stored, sha256, truncated, redacted);
     await this.persistRunIndexAsync(runId);
-    if (storedData.byteLength <= 512 * 1024) {
-      if (this.hotDataCache.size >= this.MAX_HOT_CACHE_ITEMS) {
-        const firstKey = this.hotDataCache.keys().next().value;
-        if (firstKey) this.hotDataCache.delete(firstKey);
-      }
-      this.hotDataCache.set(ref.id, storedData);
-    }
+    this.cacheHot(ref, storedData);
     recordBenchmark({ surface: 'artifact', name: 'stage', value: performance.now() - stageStartMs, extra: { kind: input.kind, mime: input.mime, inputBytes: raw.byteLength, storedBytes: stored, truncated, redacted: ref.redacted } });
     return ref;
   }
