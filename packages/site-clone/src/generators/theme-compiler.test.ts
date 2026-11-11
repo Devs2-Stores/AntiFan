@@ -4,7 +4,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import * as crypto from 'node:crypto';
-import { ThemeCompiler } from './theme-compiler.js';
+import { ThemeCompiler, resolveRealAsset } from './theme-compiler.js';
 import {
   type ComponentContractIR,
   createDefaultComponentContractIR,
@@ -1439,5 +1439,44 @@ describe('ThemeCompiler - Haravan Flat Architecture & Canonical Contract (Audit 
     assert.ok(res.liquidAssetTags.includes('.custom-brand-hero'));
     assert.ok(res.liquidAssetTags.includes('media="screen and (max-width: 991px)"'));
     assert.ok(res.liquidAssetTags.includes('.mobile-brand-hero'));
+  });
+});
+
+describe('resolveRealAsset irAssets lookup', () => {
+  it('skips an irAsset whose file is missing or a directory and returns a later matching file', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'resolve-ir-asset-'));
+    try {
+      const aDirectory = path.join(dir, 'a-directory');
+      fs.mkdirSync(aDirectory);
+      const realFile = path.join(dir, 'hero.png');
+      fs.writeFileSync(realFile, 'png');
+      const resolved = resolveRealAsset('hero.png', [], {}, [
+        { filename: 'hero.png', localPath: path.join(dir, 'missing.png') },
+        { originalFilename: 'hero.png', localPath: aDirectory },
+        { sourceUrl: 'https://cdn.example/x/hero.png?v=2', filename: 'hero-final.png', localPath: realFile },
+      ]);
+      assert.deepStrictEqual(resolved, { sourcePath: realFile, resolvedFilename: 'hero-final.png' });
+      assert.strictEqual(resolveRealAsset('hero.png', [], {}, [{ filename: 'hero.png', localPath: aDirectory }]), null);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('does not read the local path of an irAsset whose name does not match', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'resolve-ir-asset-'));
+    try {
+      const realFile = path.join(dir, 'hero.png');
+      fs.writeFileSync(realFile, 'png');
+      let reads = 0;
+      const unrelated = (name: string) => ({
+        filename: name,
+        get localPath() { reads++; return realFile; },
+      });
+      const resolved = resolveRealAsset('hero.png', [], {}, [unrelated('a.png'), unrelated('b.png'), { filename: 'hero.png', localPath: realFile }]);
+      assert.deepStrictEqual(resolved, { sourcePath: realFile, resolvedFilename: 'hero.png' });
+      assert.strictEqual(reads, 0, 'assets that cannot match are never checked on disk');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

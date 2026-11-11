@@ -212,16 +212,22 @@ export function resolveRealAsset(
     }
   }
 
-  // 2. Direct match in irAssets
+  // 2. Direct match in irAssets. Names are compared first; the disk is touched
+  // only for an asset whose name matches, and a missing path or a directory is
+  // skipped so a later matching asset can still win.
   for (const item of irAssets) {
-    if (item.localPath && fs.existsSync(item.localPath) && fs.statSync(item.localPath).isFile()) {
-      if (
-        item.filename === cleanRef ||
-        item.originalFilename === cleanRef ||
-        path.basename(item.sourceUrl?.split(/[?#]/)[0] || '') === cleanRef
-      ) {
-        return { sourcePath: item.localPath, resolvedFilename: item.filename || cleanRef };
-      }
+    if (
+      item.filename === cleanRef ||
+      item.originalFilename === cleanRef ||
+      path.basename(item.sourceUrl?.split(/[?#]/)[0] || '') === cleanRef
+    ) {
+      const localPath = item.localPath;
+      if (!localPath) continue;
+      try {
+        if (fs.statSync(localPath).isFile()) {
+          return { sourcePath: localPath, resolvedFilename: item.filename || cleanRef };
+        }
+      } catch {}
     }
   }
 
