@@ -10202,7 +10202,14 @@ export class NativeTabHost extends EventEmitter {
         const tabId = rec?.tabId || rec?.browserTarget?.tabId;
         if (typeof tabId === 'string' && tabId) bound.add(tabId);
       }
-    } catch {}
+    } catch (err) {
+      // Fail closed: an unreadable registry means no tab can be proven free of an agent binding,
+      // so every tab counts as bound and nothing is hibernated or media-frozen on a guess.
+      recordLifecycleEvent('tabhost.hibernationBoundTabsUnreadable', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return new Set(this.tabs.keys());
+    }
     return bound;
   }
 
@@ -10238,7 +10245,10 @@ export class NativeTabHost extends EventEmitter {
         if (typeof devToolsHost?.hasActiveCdpSession === 'function' && devToolsHost.hasActiveCdpSession(wc.id)) {
           bound.add(id);
         }
-      } catch {}
+      } catch {
+        // A probe that cannot answer is treated as bound: never sleep a tab on an unknown.
+        bound.add(id);
+      }
     }
     return bound;
   }
