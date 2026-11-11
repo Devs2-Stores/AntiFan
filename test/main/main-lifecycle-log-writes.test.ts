@@ -23,6 +23,7 @@ import {
   installExitInterceptor,
   lifecycleLogDrained,
   formatLifecycleRecord,
+  recordLifecycleFailure,
   recordLifecycleEvent,
 } from '../../src/main/diagnostics/main-lifecycle-log';
 
@@ -145,6 +146,26 @@ describe('lifecycle journal writes', () => {
     assert.equal(rec.field_ts, 2);
     assert.equal(rec.x, 3);
     assert.equal(rec.event, 'e');
+  });
+
+  it('recordLifecycleFailure journals the stack of an Error and redacts credentials in it', async () => {
+    const warn = console.warn;
+    const printed: string[] = [];
+    console.warn = (...args: unknown[]) => { printed.push(args.map(String).join(' ')); };
+    try {
+      recordLifecycleFailure('failure.probe', new Error('boom token=abc999'));
+    } finally {
+      console.warn = warn;
+    }
+    await lifecycleLogDrained();
+    const raw = fs.readFileSync(getLifecycleLogPath()!, 'utf8');
+    const row = raw.split('\n').filter(Boolean).map((l) => JSON.parse(l) as Record<string, unknown>)
+      .find((r) => r.event === 'failure.probe');
+    assert.ok(row, 'failure row must be journaled');
+    assert.ok(String(row.detail).includes('boom'));
+    assert.ok(String(row.detail).includes('at '), 'detail carries the stack');
+    assert.ok(!raw.includes('abc999'), 'credential must not reach the journal');
+    assert.ok(printed.length === 1 && printed[0]!.includes('failure.probe') && !printed[0]!.includes('abc999'));
   });
 
   after(async () => {

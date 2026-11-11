@@ -32,7 +32,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { StorageLocations } from '../config/storage-locations';
-import { redactFields } from './redact-credentials';
+import { redactCredentials, redactFields } from './redact-credentials';
 
 export const MAX_LOG_BYTES = 2 * 1024 * 1024; // 2 MB, matching the native-host journal
 const LOG_FILENAME = 'main.log';
@@ -287,6 +287,17 @@ export function recordLifecycleEvent(event: string, fields?: Record<string, unkn
   } catch {
     // A diagnostic write must never break the app.
   }
+}
+
+/**
+ * Journal a failure that would otherwise only reach the console (which is discarded when the
+ * app is launched from Explorer), keeping the stack, and mirror it to the console redacted.
+ * The sink scrubs credentials from the journaled detail.
+ */
+export function recordLifecycleFailure(event: string, err: unknown): void {
+  const detail = err instanceof Error ? err.stack || err.message : String(err);
+  recordLifecycleEvent(event, { detail });
+  console.warn('[antifan]', event, redactCredentials(detail));
 }
 
 /** Settles once every line admitted so far has been handed to the filesystem. */

@@ -148,6 +148,7 @@ import {
   installExitRecorder,
   getLifecycleLogPath,
   runBoundedShutdownStep,
+  recordLifecycleFailure,
 } from './diagnostics/main-lifecycle-log';
 import { pruneOldCrashDumps } from './diagnostics/crash-dump-retention';
 import { intakeCrashReports } from './diagnostics/crash-report-intake';
@@ -1793,7 +1794,7 @@ function scheduleProjectInactivityCheck(): void {
     try {
       projectInactivity.evaluate();
     } catch (err) {
-      console.warn('[antifan] Project inactivity check failed:', err);
+      recordLifecycleFailure('project-inactivity-check.failed', err);
     }
   }, 600);
   projectInactivityTimer.unref();
@@ -4066,6 +4067,7 @@ async function createWindow(): Promise<void> {
       if (spawnResult.failures?.length) {
         // A host that came up via `detached` on Windows is the GUI's descendant: a tree kill of the
         // GUI takes every live terminal with it. Say so, with the reason the escape failed.
+        recordLifecycleEvent('terminal-daemon.fallback', { mode: spawnResult.mode, failures: spawnResult.failures.join(' | ') });
         console.warn(`[index] Terminal Host Daemon spawn fell back (mode=${spawnResult.mode}): ${spawnResult.failures.join(' | ')}`);
       }
       if (spawnResult.handle) {
@@ -4081,10 +4083,11 @@ async function createWindow(): Promise<void> {
         TerminalManager.setInstance(proxy as unknown as TerminalManager);
         console.log(`[index] Terminal Host Daemon connected (mode=${spawnResult.mode}, pid=${spawnResult.handle.pid}, port=${spawnResult.handle.port})`);
       } else {
+        recordLifecycleEvent('terminal-daemon.fallback', { reason: spawnResult.reason || 'unknown' });
         console.warn(`[index] Terminal Host Daemon unavailable (${spawnResult.reason || 'unknown'}); falling back to in-process TerminalManager`);
       }
     } catch (err) {
-      console.warn('[index] Failed to initialize Terminal Host Daemon, falling back to in-process:', err);
+      recordLifecycleFailure('terminal-daemon.init-failed', err);
     } finally {
       terminalDaemonInitialized = true;
     }
@@ -4685,7 +4688,7 @@ async function createWindow(): Promise<void> {
         console.log(`[antifan] Migrated ${res.migrated} cookies from legacy capsule partitions to profile partitions`);
       }
     })
-    .catch((err) => console.warn('[antifan] Capsule->profile migration failed:', err));
+    .catch((err) => recordLifecycleFailure('capsule-profile-migration.failed', err));
 
   /** Reclaims Chromium state nothing can reach, once the migration has settled. */
   const reclaimDeadStores = () => {
@@ -4874,12 +4877,12 @@ async function createWindow(): Promise<void> {
           console.warn('[antifan] Native messaging manifest registration notice:', err?.message || err);
         });
       } catch (err) {
-        console.warn('[antifan] Failed to start Native Messaging Local IPC Server:', err);
+        recordLifecycleFailure('native-messaging.start-failed', err);
       }
     }
   };
   setTimeout(() => {
-    startBridgeAndIpc().catch((err) => console.warn('[antifan] Deferred bridge/IPC startup failed:', err));
+    startBridgeAndIpc().catch((err) => recordLifecycleFailure('bridge-startup.failed', err));
   }, 1500);
 }
 
