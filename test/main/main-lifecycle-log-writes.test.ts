@@ -22,6 +22,7 @@ import {
   getLifecycleLogPath,
   installExitInterceptor,
   lifecycleLogDrained,
+  formatLifecycleRecord,
   recordLifecycleEvent,
 } from '../../src/main/diagnostics/main-lifecycle-log';
 
@@ -134,6 +135,16 @@ describe('lifecycle journal writes', () => {
     assert.ok(!raw.includes('abc123'), 'token value must not be written');
     assert.ok(!raw.includes('zzz'), 'bearer value must not be written');
     assert.equal(row.n, 3);
+  });
+
+  it('a field named pid cannot overwrite the core pid', () => {
+    const rec = formatLifecycleRecord('e', { pid: 1, ts: 2, x: 3 }, 10, 99, 5);
+    assert.equal(rec.pid, 99);
+    assert.equal(rec.ts, 10);
+    assert.equal(rec.field_pid, 1);
+    assert.equal(rec.field_ts, 2);
+    assert.equal(rec.x, 3);
+    assert.equal(rec.event, 'e');
   });
 
   after(async () => {

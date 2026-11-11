@@ -179,6 +179,15 @@ async function writeLinesAsync(lines: string[]): Promise<void> {
   }
 }
 
+/** Keys the journal owns; a caller field with one of these names is stored as `field_<key>`. */
+const RESERVED_RECORD_KEYS: Record<string, true> = Object.assign(Object.create(null) as Record<string, true>, {
+  iso: true,
+  ts: true,
+  pid: true,
+  uptimeMs: true,
+  event: true,
+});
+
 /**
  * Pure formatter: one journal line per lifecycle event. Exported so the contract
  * (absolute epoch ms + pid + event) is unit-testable without Electron or disk.
@@ -190,13 +199,17 @@ export function formatLifecycleRecord(
   pid: number,
   uptimeMs: number
 ): LifecycleRecord {
+  const extra: Record<string, unknown> = {};
+  for (const key of Object.keys(fields || {})) {
+    extra[RESERVED_RECORD_KEYS[key] === true ? `field_${key}` : key] = (fields as Record<string, unknown>)[key];
+  }
   return {
     iso: new Date(now).toISOString(),
     ts: now,
     pid,
     uptimeMs,
     event,
-    ...(fields || {}),
+    ...extra,
   };
 }
 

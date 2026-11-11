@@ -1100,7 +1100,7 @@ function startHotProcessReporting(): void {
     const roles = describeLiveWebContentsRoles();
     for (const metric of hot) {
       recordLifecycleEvent('perf.hotProcess', {
-        pid: metric.pid,
+        targetPid: metric.pid,
         type: metric.type,
         cpuPct: Math.round(perCore(metric) * 10) / 10,
         privateMB: Math.round((metric.memory?.privateBytes ?? 0) / 1024),
