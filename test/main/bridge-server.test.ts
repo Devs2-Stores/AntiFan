@@ -10,7 +10,7 @@ import * as crypto from 'node:crypto';
 import * as http from 'node:http';
 import { spawn } from 'node:child_process';
 import { setImmediate as yieldToLoop } from 'node:timers/promises';
-import { BridgeServer, type MobileSessionGrant } from '../../src/main/bridge/bridge-server';
+import { BridgeServer, getLocalLanIps, type MobileSessionGrant } from '../../src/main/bridge/bridge-server';
 import { TerminalManager } from '../../src/main/browser/terminal-manager';
 import { StorageLocations } from '../../src/main/config/storage-locations';
 import { NativeTabHost } from '../../src/main/browser/native-tab-host';
@@ -282,6 +282,86 @@ describe('AntiFan Bridge Server', () => {
 
     assert.strictEqual(closeCode, 4003);
     server.dispose();
+  });
+
+  it('refuses a Host header that does not name the loopback listener', async () => {
+    const server = new BridgeServer(new MockTabHost() as unknown as NativeTabHost, 0);
+    const port = await server.start();
+    try {
+      const statusWithHost = (hostHeader: string) => new Promise<number>((resolve, reject) => {
+        const req = http.request({ host: '127.0.0.1', port, path: '/status', method: 'GET', headers: { Host: hostHeader } }, (res) => {
+          res.resume();
+          resolve(res.statusCode || 0);
+        });
+        req.on('error', reject);
+        req.end();
+      });
+      assert.strictEqual(await statusWithHost('evil.example'), 421);
+      assert.strictEqual(await statusWithHost(`evil.example:${port}`), 421);
+      assert.notStrictEqual(await statusWithHost(`localhost:${port}`), 421);
+      assert.notStrictEqual(await statusWithHost(`127.0.0.1:${port}`), 421);
+      assert.notStrictEqual(await statusWithHost(`[::1]:${port}`), 421);
+    } finally {
+      server.dispose();
+    }
+  });
+
+  it('pairing challenge is POST-only and refuses a browser origin', async () => {
+    const server = new BridgeServer(new MockTabHost() as unknown as NativeTabHost, 0);
+    const port = await server.start();
+    try {
+      const call = (method: string, headers: Record<string, string>) => new Promise<number>((resolve, reject) => {
+        const req = http.request({ host: '127.0.0.1', port, path: '/api/pairing/challenge', method, headers }, (res) => {
+          res.resume();
+          resolve(res.statusCode || 0);
+        });
+        req.on('error', reject);
+        req.end();
+      });
+      assert.strictEqual(await call('POST', { Origin: 'http://localhost:3000' }), 403);
+      assert.notStrictEqual(await call('GET', {}), 200);
+    } finally {
+      server.dispose();
+    }
+  });
+
+  it('websocket with a foreign Host is closed 4003', { timeout: 8000 }, async () => {
+    const server = new BridgeServer(new MockTabHost() as unknown as NativeTabHost, 0);
+    const port = await server.start();
+    try {
+      const ws = new WebSocket(`ws://127.0.0.1:${port}`, {
+        headers: { Host: 'evil.example', Authorization: `Bearer ${server.getToken()}` },
+      });
+      const closeCode = await new Promise<number>((resolve) => {
+        ws.on('close', (code) => resolve(code));
+        ws.on('error', () => {});
+      });
+      assert.strictEqual(closeCode, 4003);
+    } finally {
+      server.dispose();
+    }
+  });
+
+  it('websocket from a LAN-IP origin is refused while LAN opt-in is off', { timeout: 8000 }, async (t) => {
+    const lanIp = getLocalLanIps()[0];
+    if (!lanIp) {
+      t.skip('no LAN address on this host');
+      return;
+    }
+    const server = new BridgeServer(new MockTabHost() as unknown as NativeTabHost, 0);
+    const port = await server.start();
+    try {
+      const ws = new WebSocket(`ws://127.0.0.1:${port}`, {
+        headers: { Authorization: `Bearer ${server.getToken()}`, Origin: `http://${lanIp}:${port}` },
+      });
+      const closeCode = await new Promise<number>((resolve) => {
+        ws.on('close', (code) => resolve(code));
+        ws.on('error', () => {});
+      });
+      assert.strictEqual(closeCode, 4003);
+    } finally {
+      server.dispose();
+    }
   });
 
   it('handles antifan.cli.startSession and antifan.cli.renewSession RPC over WebSocket', async () => {

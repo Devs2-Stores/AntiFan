@@ -145,7 +145,7 @@ function requestJson(port: number, method: 'GET' | 'POST', path: string, body?: 
 }
 
 async function claimPairingCode(port: number): Promise<string> {
-  const answer = await requestJson(port, 'GET', '/api/pairing/challenge');
+  const answer = await requestJson(port, 'POST', '/api/pairing/challenge');
   assert.strictEqual(answer.status, 200, 'a loopback client must be able to claim a pairing challenge');
   const code = answer.body.code;
   assert.strictEqual(typeof code, 'string', 'the challenge response must carry a code');

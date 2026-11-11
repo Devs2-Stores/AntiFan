@@ -1011,8 +1011,25 @@ export class BridgeServer {
     };
   }
 
+  private isAllowedHostHeader(host: string | undefined): boolean {
+    if (this.lanOptIn) return true;
+    if (!host) return false;
+    let hostname: string;
+    try {
+      hostname = new URL(`http://${host}`).hostname;
+    } catch {
+      return false;
+    }
+    return hostname === '127.0.0.1' || hostname === 'localhost' || hostname === '[::1]';
+  }
+
   private createHttpHandler(): (req: http.IncomingMessage, res: http.ServerResponse) => void {
     return async (req, res) => {
+      if (!this.isAllowedHostHeader(req.headers.host)) {
+        res.writeHead(421, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'HOST_NOT_ALLOWED', message: 'The Host header must name the loopback listener.' }));
+        return;
+      }
       const host = req.headers.host || `127.0.0.1:${this.port}`;
       const reqUrl = new URL(req.url || '/', `http://${host}`);
       const pathname = reqUrl.pathname;
@@ -1421,10 +1438,10 @@ export class BridgeServer {
         return;
       }
 
-      if (pathname === '/api/pairing/challenge' && (req.method === 'POST' || req.method === 'GET')) {
-        if (!isLoopback) {
+      if (pathname === '/api/pairing/challenge' && req.method === 'POST') {
+        if (!isLoopback || rawOrigin) {
           res.writeHead(403, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'FORBIDDEN', message: 'Pairing challenge claims are restricted to loopback callers' }));
+          res.end(JSON.stringify({ error: 'FORBIDDEN', message: 'Pairing challenge claims are restricted to loopback callers without a browser origin' }));
           return;
         }
         // A depleted or fully expired queue is refilled before responding so the
@@ -1440,7 +1457,6 @@ export class BridgeServer {
           challenge = await this.claimPairingChallenge('mcp');
         }
         const responseHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
-        if (isAllowedOrigin) responseHeaders['Access-Control-Allow-Origin'] = rawOrigin;
 
         if (!challenge) {
           this.recordPairingRefusal('CHALLENGE_QUEUE_DEPLETED');
@@ -2086,6 +2102,13 @@ export class BridgeServer {
         return;
       }
 
+      // DNS-rebinding guard: the Host header must name the loopback listener unless LAN access is opted in.
+      if (!this.isAllowedHostHeader(req.headers.host)) {
+        ws.close(4003, 'Forbidden: host not allowed');
+        this.recordBridgeFailure('WS_AUTH_REFUSED', 'Forbidden: host not allowed');
+        return;
+      }
+
       // Token authentication: Authorization: Bearer, X-Antifan-Attachment-Secret, Sec-WebSocket-Protocol, or cookie
       const clientToken = extractAuthToken(req);
       const isBridgeToken = Boolean(clientToken && clientToken === this.token);
@@ -2117,8 +2140,8 @@ export class BridgeServer {
           const isAllowedOrigin =
             originUrl.hostname === 'localhost' ||
             originUrl.hostname === '127.0.0.1' ||
-            originUrl.hostname === hostName ||
-            getLocalLanIps().includes(originUrl.hostname);
+            originUrl.hostname === '[::1]' ||
+            (this.lanOptIn && (originUrl.hostname === hostName || getLocalLanIps().includes(originUrl.hostname)));
 
           if (!isAllowedOrigin) {
             ws.close(4003, 'Forbidden: untrusted origin');
