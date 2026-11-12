@@ -112,7 +112,6 @@ import { installNativeHost, COMPANION_EXTENSION_ID } from './native-messaging/ma
 import { chromeSessionUserAgent } from './browser/google-auth-identity';
 import { ControlPlaneRuntime, resolveArtifactStoreOptionsFromEnv } from './control-plane/control-plane-runtime';
 import { RunStateService } from './run/run-state-service';
-import { startIdleTerminalSleep } from './run/idle-terminal-sleep';
 import type { ExecutionBackend } from './agent/execution-backend';
 import { BrowserControlPort, assertApplicationAdmitsWork } from './tools/browser-control-port';
 import { CockpitPort } from './tools/cockpit-port';
@@ -840,7 +839,6 @@ let terminalDaemonInitialized = false;
 const hostsWithControlPlane = new WeakSet<NativeTabHost>();
 let profileLease: ProfileLease | null = null;
 let runStateService: RunStateService | null = null;
-let stopIdleTerminalSleep: (() => void) | null = null;
 const executionBackends = new Map<string, ExecutionBackend>();
 function resolveRunBackend(backendId: string): ExecutionBackend | undefined {
   return executionBackends.get(backendId);
@@ -4283,8 +4281,6 @@ async function createWindow(): Promise<void> {
     },
   });
   runStateService.start();
-  stopIdleTerminalSleep?.();
-  stopIdleTerminalSleep = startIdleTerminalSleep({ terminal: terminalManager, runs: () => runStateService?.getRunsSync() ?? [] });
   for (const host of tabAuthorities.hosts()) {
     host.setRunStateService(runStateService);
   }
@@ -5183,7 +5179,6 @@ function shutdown(): Promise<void> {
       for (const h of tabAuthorities.hosts()) h.dispose();
     });
     await step('runStateService.dispose', () => {
-      stopIdleTerminalSleep?.();
       runStateService?.dispose();
     });
     await step('bridgeServer.dispose', () => bridgeServer?.dispose());
