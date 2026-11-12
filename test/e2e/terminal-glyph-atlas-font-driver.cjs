@@ -45,7 +45,9 @@ const page = `<!doctype html><html><head><meta charset="utf-8">
 <script src="${asset('src/renderer/canvas-font-shim.js')}"></script>
 <script>
   // Record every font assignment made through whatever setter is installed now (the shim's
-  // when the runtime needs it), together with the value the canvas kept.
+  // when the runtime needs it), together with the value the canvas kept. The atlas reuses one
+  // context, and a rejected value leaves the previous font in place, so a sentinel is set
+  // first: a rejected value then reads back as the sentinel instead of an earlier valid font.
   globalThis.__fontWrites = [];
   const proto = CanvasRenderingContext2D.prototype;
   const desc = Object.getOwnPropertyDescriptor(proto, 'font');
@@ -54,6 +56,7 @@ const page = `<!doctype html><html><head><meta charset="utf-8">
     enumerable: desc.enumerable,
     get: desc.get,
     set(value) {
+      desc.set.call(this, '7px serif');
       desc.set.call(this, value);
       globalThis.__fontWrites.push({ requested: String(value), kept: desc.get.call(this) });
     },
