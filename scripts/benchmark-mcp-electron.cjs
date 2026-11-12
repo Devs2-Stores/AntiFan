@@ -43,6 +43,11 @@ process.env.ANTIFAN_VERIFICATION_REGISTER_DIR = path.join(tempUserData, 'verific
 // bridge-server.ts falls back to StorageLocations.getConfigDir() without this pin,
 // which would publish a bridge record next to the live app's discovery file.
 process.env.ANTIFAN_CONFIG_DIR = path.join(tempUserData, 'config');
+// The proxy opens Super Core at `<repo>/.super-core/core.db` unless SUPER_CORE_DB is set,
+// so without this pin a run from the main checkout measured (and wrote context packs into)
+// the live store while a run from a worktree measured an empty one. An explicit
+// SUPER_CORE_DB (e.g. a copy of a real store) is kept, for runs that want a realistic size.
+process.env.SUPER_CORE_DB = process.env.SUPER_CORE_DB || path.join(tempUserData, 'super-core', 'core.db');
 
 const { ProjectWindowShell } = require('../.compiled/src/main/browser/project-window-shell.js');
 const { NativeTabHost } = require('../.compiled/src/main/browser/native-tab-host.js');
