@@ -40,7 +40,7 @@ const rendererSrcDir = path.join(ROOT, 'src', 'renderer');
 const rendererOutDir = path.join(COMPILED_ROOT, 'src', 'renderer');
 
 const filesToCopy = [
-  'exports-shim.js',
+  'exports-shim.js', 'canvas-font-shim.js',
   'toolbar.html', 'toolbar.css',
   'standalone.html', 'standalone.css', 'standalone-overrides.css', 'standalone.js',
   'frame-backdrop.html', 'frame-backdrop.css',
