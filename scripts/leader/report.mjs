@@ -12,6 +12,7 @@
 //              "skipped":[{"keyText":"...","reason":"..."}]},
 //     "dashboard":{"commentsAdded":1,"commentsRemoved":0,"removedTexts":["..."],"commentText":"...","stageBefore":"Feedback","stageAfter":"Feedback"},
 //     "storefront":{"measurements":[{"probe","url","viewport","selector","value"}]},
+//     "verify":[{"cmd":"rg -n foo E:/Work/x.txt","expect":"foo"}],  // optional, ad-hoc only use: read-only commands for leader-job verify-adhoc
 //     "notChecked":["..."],                                  // REQUIRED when DONE
 //     "needsInput":{"question":"...","options":["a","b"]}    // REQUIRED when NEEDS_INPUT (2-3 options)
 //   }
@@ -117,6 +118,13 @@ export function validateReportObject(parsed, job, round, ctx = {}) {
     else if (j.storefront.measurements !== undefined && !(Array.isArray(j.storefront.measurements) && j.storefront.measurements.every(isObj))) {
       errors.push("storefront.measurements must be an array of objects");
     }
+  }
+  if (j.verify !== undefined) {
+    if (!Array.isArray(j.verify)) errors.push("verify must be an array of {cmd, expect}");
+    else
+      j.verify.forEach((v, i) => {
+        if (!isObj(v) || !isNonEmptyStr(v.cmd) || !isStr(v.expect)) errors.push(`verify[${i}] must be {cmd, expect} with a non-empty cmd string and an expect string`);
+      });
   }
 
   if (j.sheet !== undefined) {

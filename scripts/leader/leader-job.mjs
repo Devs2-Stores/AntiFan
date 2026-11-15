@@ -5,12 +5,13 @@
 // Plain Node ESM, no dependencies. Run with --help for commands and exit codes.
 
 import fs from "node:fs";
+import { spawnSync } from "node:child_process";
 import crypto from "node:crypto";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseCsv } from "./csv.mjs";
 import { normKey, outstandingDevRows, parseSheet, verifySheet } from "./sheet-diff.mjs";
-import { claimedCells, validateReportText } from "./report.mjs";
+import { claimedCells, parseReport, validateReportText } from "./report.mjs";
 import { defaultSessionsDir, judgeLiveness, pidAlive, sessionActivityAt, START_GRACE_MS, UNDELIVERED_AFTER_MS, undeliveredWhy } from "./worker-liveness.mjs";
 import { FALLBACK_TICK_MS, nextRunChange } from "./event-wait.mjs";
 import { pendingAskOf } from "./ask-dialog.mjs";
@@ -98,6 +99,11 @@ Commands
        Store the Leader's own measurement; state=verified once all required kinds pass.
   probe --name themeId|overflow|element-rect|dashboard-issue [--selector CSS] [--id ID] [--limit N]
        Print the read-only expression to pass to anti.browser.evaluate.
+  verify-adhoc --job DIR [--round N]
+       Run the read-only commands an ad-hoc report lists in its "verify" array ({cmd, expect}), one PASS/FAIL/REFUSED line per
+       command (exit code, first 200 chars of stdout). Only "rg [-n -i -F -c -l] [-e PAT] PAT PATH..." (paths under E:/Work/,
+       must exist) and "node --check <file .mjs|.cjs|.js under E:/Work/>" run (no shell, 60 s, 8 KB stdout); anything else,
+       or a ; & | > < backtick or $( , is REFUSED. Records nothing: you still run record.
   status [--leader TERMINAL] [--job DIR] [--all]    List open jobs and what blocks each. liveWorkers = worker terminals still
        open (run file present), leakedWorkers = those nobody needs (every one once the job is closed, else a replaced
        worker). A closed job that still has a live worker is listed too: close those terminals.
@@ -1221,6 +1227,111 @@ function cmdProbe(flags) {
   return EXIT.OK;
 }
 
+const VERIFY_ALLOWED_ROOT = "e:/work/";
+const VERIFY_FORBIDDEN = /[;&|><`]|\$\(/;
+const VERIFY_TIMEOUT_MS = 60_000;
+const VERIFY_STDOUT_MAX = 8 * 1024;
+const VERIFY_SNIPPET_MAX = 200;
+const VERIFY_RG_FLAGS = new Set(["-n", "-i", "-F", "-c", "-l"]);
+
+function verifyTokens(cmd) {
+  const out = [];
+  const re = /"([^"]*)"|'([^']*)'|(\S+)/g;
+  let m;
+  while ((m = re.exec(cmd))) out.push(m[1] ?? m[2] ?? m[3]);
+  return out;
+}
+
+const underWork = (p) => {
+  const abs = fwd(path.resolve(p)).toLowerCase();
+  return abs.startsWith(VERIFY_ALLOWED_ROOT) && abs.length > VERIFY_ALLOWED_ROOT.length;
+};
+
+/** Environment for a verify child: the parent's, without the variables that make rg or node run other code. */
+function verifyEnv() {
+  const env = { ...process.env };
+  for (const k of Object.keys(env)) if (/^(RIPGREP_CONFIG_PATH|NODE_OPTIONS)$/i.test(k)) delete env[k];
+  return env;
+}
+
+/** Decide whether a worker-declared verify command may run. @returns {{argv:string[]}|{refused:string}} */
+export function checkVerifyCommand(cmd) {
+  if (typeof cmd !== "string" || !cmd.trim()) return { refused: "empty command" };
+  if (VERIFY_FORBIDDEN.test(cmd)) return { refused: "contains a forbidden character (; & | > < backtick or $()" };
+  const t = verifyTokens(cmd);
+  if (t[0] === "rg") {
+    const flags = [];
+    const pats = [];
+    const rest = [];
+    for (let i = 1; i < t.length; i++) {
+      const a = t[i];
+      if (VERIFY_RG_FLAGS.has(a)) flags.push(a);
+      else if (a === "-e") {
+        if (i + 1 >= t.length) return { refused: "rg -e needs a pattern" };
+        pats.push(t[++i]);
+      } else if (a.startsWith("-")) return { refused: `rg flag ${a} is not allowed (only -n -i -F -c -l and -e PATTERN)` };
+      else rest.push(a);
+    }
+    if (!pats.length) {
+      if (!rest.length) return { refused: "rg needs a pattern" };
+      pats.push(rest.shift());
+    }
+    if (!rest.length) return { refused: "rg needs at least one path (without one it reads stdin)" };
+    for (const p of rest) {
+      if (!underWork(p)) return { refused: `rg path must be under E:/Work/: ${p}` };
+      if (!fs.existsSync(p)) return { refused: `rg path does not exist: ${p}` };
+    }
+    return { argv: ["rg", "--no-config", ...flags, ...pats.flatMap((p) => ["-e", p]), ...rest] };
+  }
+  if (t[0] === "node") {
+    if (t.length !== 3 || t[1] !== "--check") return { refused: "node is allowed only as: node --check <file>" };
+    if (!underWork(t[2])) return { refused: "node --check file must be under E:/Work/" };
+    if (!/\.(mjs|cjs|js)$/i.test(t[2])) return { refused: "node --check file must end in .mjs, .cjs or .js" };
+    return { argv: [process.execPath, "--check", t[2]] };
+  }
+  return { refused: "not on the allowlist (only rg ... and node --check <file>)" };
+}
+
+/** Run one verify entry. `spawn` is injectable for tests. @returns {{verdict:"PASS"|"FAIL"|"REFUSED", cmd:string, exit:number|null, stdout:string, why?:string}} */
+export function runVerifyEntry(entry, { timeoutMs = VERIFY_TIMEOUT_MS, spawn = spawnSync } = {}) {
+  const cmd = entry?.cmd;
+  const chk = checkVerifyCommand(cmd);
+  if (chk.refused) return { verdict: "REFUSED", cmd: String(cmd ?? ""), exit: null, stdout: "", why: chk.refused };
+  const r = spawn(chk.argv[0], chk.argv.slice(1), { shell: false, encoding: "utf8", timeout: timeoutMs, maxBuffer: 1024 * 1024, windowsHide: true, env: verifyEnv() });
+  const stdout = (r.stdout ?? "").slice(0, VERIFY_STDOUT_MAX);
+  if (r.error?.code === "ETIMEDOUT" || (r.error && r.signal)) return { verdict: "FAIL", cmd, exit: null, stdout, why: `timeout after ${timeoutMs} ms` };
+  if (r.error && r.error.code !== "ENOBUFS") return { verdict: "FAIL", cmd, exit: null, stdout, why: `cannot run: ${r.error.message}` };
+  const expect = String(entry.expect ?? "");
+  const ok = r.status === 0 && stdout.includes(expect);
+  return { verdict: ok ? "PASS" : "FAIL", cmd, exit: r.status, stdout, ...(ok ? {} : { why: r.status === 0 ? "expect not found in stdout" : `exit ${r.status}` }) };
+}
+
+function cmdVerifyAdhoc(flags) {
+  const { job } = loadJob(flags);
+  if (job.subject?.kind !== "adhoc") throw new CliError(EXIT.USAGE, "verify-adhoc is for ad-hoc jobs only");
+  const round = pickRound(job, flags);
+  let text;
+  try {
+    text = fs.readFileSync(round.reportPath, "utf8");
+  } catch (e) {
+    throw new CliError(EXIT.USAGE, `cannot read report ${round.reportPath}: ${e.code === "ENOENT" ? "missing" : e.message}`);
+  }
+  const parsed = parseReport(text);
+  if (!parsed.json) throw new CliError(EXIT.USAGE, `report has no readable json block: ${parsed.errors.join("; ")}`);
+  const list = parsed.json.verify;
+  if (!Array.isArray(list) || !list.length) throw new CliError(EXIT.USAGE, `report of round ${round.n} has no "verify" array`);
+  if (!list.every((v) => v && typeof v === "object" && typeof v.cmd === "string" && typeof v.expect === "string")) throw new CliError(EXIT.USAGE, 'every "verify" entry must be {cmd, expect} with strings');
+  const results = list.map((v) => runVerifyEntry(v));
+  for (const r of results) {
+    const snip = r.stdout.replace(/\s+/g, " ").trim().slice(0, VERIFY_SNIPPET_MAX);
+    process.stdout.write(`${r.verdict} exit=${r.exit ?? "-"} ${r.cmd}${r.why ? ` (${r.why})` : ""} :: ${snip}\n`);
+  }
+  const count = (v) => results.filter((r) => r.verdict === v).length;
+  const ok = count("PASS") === results.length;
+  emit({ cmd: "verify-adhoc", ok, job: job.job, round: round.n, total: results.length, pass: count("PASS"), fail: count("FAIL"), refused: count("REFUSED"), note: "nothing recorded; run record --kind adhoc yourself" });
+  return ok ? EXIT.OK : EXIT.CHECK_FAILED;
+}
+
 function blockingText(job) {
   const last = job.rounds.at(-1);
   switch (job.state) {
@@ -1621,6 +1732,7 @@ const COMMANDS = {
   "verify-sheet": cmdVerifySheet,
   record: cmdRecord,
   probe: cmdProbe,
+  "verify-adhoc": cmdVerifyAdhoc,
   status: cmdStatus,
   approve: cmdApprove,
   close: cmdClose,
