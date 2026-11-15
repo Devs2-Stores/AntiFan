@@ -737,6 +737,24 @@ describe("dispatch / wait / validate-report through the CLI", () => {
     assert.match(cli(w, ["validate-report", "--job", j.dir]).last.errors.join("|"), /keyText must be the task text/);
   });
 
+  test("the minimal NEEDS_INPUT example in the worker prompt is accepted, and an unsettled round names the wait command", () => {
+    const w = world();
+    const j = initJob(w, "whenever");
+    assert.equal(dispatch(w, j, "terminal-7").code, 0);
+    const job = j.job();
+    const unsettled = cli(w, ["validate-report", "--job", j.dir]);
+    assert.ok(unsettled.last.errors.join("|").includes(`leader-job.mjs wait --job ${j.dir}`), unsettled.last.errors.join("|"));
+    assert.equal(settle(w, j, "terminal-7").code, 0);
+    const rendered = fs.readFileSync(job.rounds[0].promptPath, "utf8");
+    const blocks = [...rendered.matchAll(/^[ \t]*```json[ \t]*\r?\n([\s\S]*?)\r?\n[ \t]*```[ \t]*$/gm)];
+    const example = JSON.parse(blocks[1][1]);
+    assert.equal(example.status, "NEEDS_INPUT");
+    example.needsInput = { question: "Cần quyết định?", options: ["a", "b"] };
+    fs.writeFileSync(job.rounds[0].reportPath, `STATUS: NEEDS_INPUT\n\nvướng\n\n\`\`\`json\n${JSON.stringify(example, null, 2)}\n\`\`\`\n`);
+    const r = cli(w, ["validate-report", "--job", j.dir]);
+    assert.equal(r.code, 0, `${r.stderr}\n${JSON.stringify(r.last?.errors)}`);
+  });
+
   test("validate-report accepts a json fence indented by up to 3 spaces (the template example is indented) and rejects 4", () => {
     const w = world();
     const j = initJob(w, "whenever");

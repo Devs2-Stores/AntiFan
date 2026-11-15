@@ -1037,7 +1037,7 @@ function cmdValidateReport(flags) {
     errors.push(
       round.deadAt
         ? `round ${round.n} has no usable report: its worker died (${round.deadWhy ?? "no reason recorded"}); inspect its repo and dispatch a new round to a fresh worker`
-        : `round ${round.n} is not settled yet (run wait first)`,
+        : `round ${round.n} is not settled yet: its worker has not finished. Run \`node ${path.join(HERE, "leader-job.mjs").replace(/\\/g, "/")} wait --job ${dir}\` first, then validate-report again`,
     );
   }
   let status = null;
