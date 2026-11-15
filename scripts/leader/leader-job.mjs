@@ -101,7 +101,7 @@ Commands
        Print the read-only expression to pass to anti.browser.evaluate.
   verify-adhoc --job DIR [--round N]
        Run the read-only commands an ad-hoc report lists in its "verify" array ({cmd, expect}), one PASS/FAIL/REFUSED line per
-       command (exit code, first 200 chars of stdout). Only "rg [-n -i -F -c -l] [-e PAT] PAT PATH..." (paths under E:/Work/,
+       command (exit code, first 200 chars of stdout). Only "rg [-n -i -F -c -l] -e PAT PATH..." (paths under E:/Work/,
        must exist) and "node --check <file .mjs|.cjs|.js under E:/Work/>" run (no shell, 60 s, 8 KB stdout); anything else,
        or a ; & | > < backtick or $( , is REFUSED. Records nothing: you still run record.
   status [--leader TERMINAL] [--job DIR] [--all]    List open jobs and what blocks each. liveWorkers = worker terminals still
@@ -1258,6 +1258,7 @@ function verifyEnv() {
 export function checkVerifyCommand(cmd) {
   if (typeof cmd !== "string" || !cmd.trim()) return { refused: "empty command" };
   if (VERIFY_FORBIDDEN.test(cmd)) return { refused: "contains a forbidden character (; & | > < backtick or $()" };
+  if (cmd.replace(/"[^"]*"|'[^']*'/g, "").match(/["']/)) return { refused: "unbalanced quote" };
   const t = verifyTokens(cmd);
   if (t[0] === "rg") {
     const flags = [];
@@ -1272,10 +1273,7 @@ export function checkVerifyCommand(cmd) {
       } else if (a.startsWith("-")) return { refused: `rg flag ${a} is not allowed (only -n -i -F -c -l and -e PATTERN)` };
       else rest.push(a);
     }
-    if (!pats.length) {
-      if (!rest.length) return { refused: "rg needs a pattern" };
-      pats.push(rest.shift());
-    }
+    if (!pats.length) return { refused: "rg needs a pattern given as -e PATTERN" };
     if (!rest.length) return { refused: "rg needs at least one path (without one it reads stdin)" };
     for (const p of rest) {
       if (!underWork(p)) return { refused: `rg path must be under E:/Work/: ${p}` };
@@ -1297,7 +1295,7 @@ export function runVerifyEntry(entry, { timeoutMs = VERIFY_TIMEOUT_MS, spawn = s
   const cmd = entry?.cmd;
   const chk = checkVerifyCommand(cmd);
   if (chk.refused) return { verdict: "REFUSED", cmd: String(cmd ?? ""), exit: null, stdout: "", why: chk.refused };
-  const r = spawn(chk.argv[0], chk.argv.slice(1), { shell: false, encoding: "utf8", timeout: timeoutMs, maxBuffer: 1024 * 1024, windowsHide: true, env: verifyEnv() });
+  const r = spawn(chk.argv[0], chk.argv.slice(1), { shell: false, stdio: ["ignore", "pipe", "pipe"], encoding: "utf8", timeout: timeoutMs, maxBuffer: 1024 * 1024, windowsHide: true, env: verifyEnv() });
   const stdout = (r.stdout ?? "").slice(0, VERIFY_STDOUT_MAX);
   if (r.error?.code === "ETIMEDOUT" || (r.error && r.signal)) return { verdict: "FAIL", cmd, exit: null, stdout, why: `timeout after ${timeoutMs} ms` };
   if (r.error && r.error.code !== "ENOBUFS") return { verdict: "FAIL", cmd, exit: null, stdout, why: `cannot run: ${r.error.message}` };

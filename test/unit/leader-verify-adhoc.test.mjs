@@ -2,8 +2,8 @@
 // and never starts a child for a refused command. The CLI path is driven through the real script.
 
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { after, describe, test } from "node:test";
 import { checkVerifyCommand, runVerifyEntry } from "../../scripts/leader/leader-job.mjs";
@@ -59,11 +59,18 @@ describe("allowlist", () => {
   test("a valid rg command is rewritten with --no-config first and runs without shell", () => {
     const c = checkVerifyCommand(`rg -n -i -e foo ${SELF}`);
     assert.deepEqual(c.argv, ["rg", "--no-config", "-n", "-i", "-e", "foo", SELF]);
-    assert.deepEqual(checkVerifyCommand(`rg -F foo ${SELF}`).argv, ["rg", "--no-config", "-F", "-e", "foo", SELF]);
+    assert.deepEqual(checkVerifyCommand(`rg -F -e foo ${SELF}`).argv, ["rg", "--no-config", "-F", "-e", "foo", SELF]);
+    assert.deepEqual(checkVerifyCommand(`rg -n -e "foo bar" ${SELF}`).argv.slice(-2), ["foo bar", SELF]);
     const s = stub({ status: 0, stdout: "x" });
-    runVerifyEntry({ cmd: `rg -n foo ${SELF}`, expect: "x" }, { spawn: s.spawn });
+    runVerifyEntry({ cmd: `rg -n -e foo ${SELF}`, expect: "x" }, { spawn: s.spawn });
     assert.equal(s.calls[0].opts.shell, false);
     assert.equal(s.calls[0].opts.timeout, 60_000);
+    assert.deepEqual(s.calls[0].opts.stdio, ["ignore", "pipe", "pipe"]);
+  });
+
+  test("a bare pattern (no -e) and an unbalanced quote are refused", () => {
+    refused(`rg -n foo ${SELF}`);
+    refused(`rg -n -e "foo ${SELF}`);
   });
 });
 
@@ -99,7 +106,7 @@ describe("running", () => {
 
   test("timeout is reported as FAIL", () => {
     const s = stub({ error: Object.assign(new Error("spawnSync rg ETIMEDOUT"), { code: "ETIMEDOUT" }), signal: "SIGTERM", stdout: "partial" });
-    const r = runVerifyEntry({ cmd: `rg -n foo ${SELF}`, expect: "" }, { spawn: s.spawn, timeoutMs: 5 });
+    const r = runVerifyEntry({ cmd: `rg -n -e foo ${SELF}`, expect: "" }, { spawn: s.spawn, timeoutMs: 5 });
     assert.equal(r.verdict, "FAIL");
     assert.match(r.why, /timeout after 5 ms/);
     assert.equal(s.calls[0].opts.timeout, 5);
@@ -107,31 +114,42 @@ describe("running", () => {
 
   test("stdout is cut to 8 KB", () => {
     const s = stub({ status: 0, stdout: "a".repeat(20_000) });
-    assert.equal(runVerifyEntry({ cmd: `rg -n foo ${SELF}`, expect: "" }, { spawn: s.spawn }).stdout.length, 8192);
+    assert.equal(runVerifyEntry({ cmd: `rg -n -e foo ${SELF}`, expect: "" }, { spawn: s.spawn }).stdout.length, 8192);
   });
 });
 
 describe("config and NODE_OPTIONS are neutralised", () => {
-  test("RIPGREP_CONFIG_PATH with pre = node is ignored: the command still PASSes", () => {
-    const cfg = path.join(os.tmpdir(), `verify-adhoc-rgrc-${process.pid}`);
+  test("rg is on PATH (the PASS cases must really run)", () => {
+    const r = spawnSync("rg", ["--version"], { encoding: "utf8" });
+    assert.equal(r.status, 0, "rg must be on PATH for this suite");
+  });
+
+  test("a RIPGREP_CONFIG_PATH holding --pre=node is ignored: the pre command never runs", () => {
+    const dir = fs.mkdtempSync(path.join(REPO, "verify-adhoc-pre-"));
+    const marker = path.join(dir, "marker.txt");
+    const target = path.join(dir, "target.js");
+    const cfg = path.join(dir, "rgrc");
+    fs.writeFileSync(target, `// ${MARK}\nrequire("node:fs").writeFileSync(${JSON.stringify(marker)}, "ran");\n`);
     fs.writeFileSync(cfg, "--pre=node\n");
     const saved = { rg: process.env.RIPGREP_CONFIG_PATH, node: process.env.NODE_OPTIONS };
     process.env.RIPGREP_CONFIG_PATH = cfg;
     process.env.NODE_OPTIONS = "--no-such-node-option-for-test";
     try {
       const s = stub();
-      runVerifyEntry({ cmd: `rg -n foo ${SELF}`, expect: "" }, { spawn: s.spawn });
+      runVerifyEntry({ cmd: `rg -n -e foo ${SELF}`, expect: "" }, { spawn: s.spawn });
       assert.equal("RIPGREP_CONFIG_PATH" in s.calls[0].opts.env, false);
       assert.equal("NODE_OPTIONS" in s.calls[0].opts.env, false);
-      const r = runVerifyEntry({ cmd: `rg -n -e ${MARK} ${SELF}`, expect: MARK });
+      assert.equal(s.calls[0].args[0], "--no-config");
+      const r = runVerifyEntry({ cmd: `rg -n -e ${MARK} ${fwd(target)}`, expect: MARK });
       assert.equal(r.verdict, "PASS", JSON.stringify(r));
+      assert.equal(fs.existsSync(marker), false, "the --pre from the config must not have run");
       assert.equal(runVerifyEntry({ cmd: `node --check ${SELF}`, expect: "" }).verdict, "PASS");
     } finally {
       if (saved.rg === undefined) delete process.env.RIPGREP_CONFIG_PATH;
       else process.env.RIPGREP_CONFIG_PATH = saved.rg;
       if (saved.node === undefined) delete process.env.NODE_OPTIONS;
       else process.env.NODE_OPTIONS = saved.node;
-      fs.rmSync(cfg, { force: true });
+      fs.rmSync(dir, { recursive: true, force: true });
     }
   });
 });
