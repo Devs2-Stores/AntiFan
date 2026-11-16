@@ -205,11 +205,15 @@ describe("junctions out of E:/Work", () => {
     try {
       fs.writeFileSync(path.join(outside, "x.txt"), "hello\n");
       fs.writeFileSync(path.join(dir, "plain.txt"), "hello\n");
+      fs.writeFileSync(path.join(outside, "x.js"), "1;\n");
+      assert.ok(!fw(fs.realpathSync.native(outside)).toLowerCase().startsWith("e:/work/"), "TEMP must be outside E:/Work");
       fs.symlinkSync(outside, link, "junction");
       const bad = checkVerifyCommand(`rg -n -e hello "${fw(link)}/x.txt"`);
       assert.match(bad.refused ?? "", /must be under E:\/Work/);
       const badDir = checkVerifyCommand(`rg -n -e hello "${fw(link)}"`);
       assert.match(badDir.refused ?? "", /must be under E:\/Work/);
+      const badNode = checkVerifyCommand(`node --check "${fw(link)}/x.js"`);
+      assert.match(badNode.refused ?? "", /must be under E:\/Work/);
       const ok = checkVerifyCommand(`rg -n -e hello "${fw(dir)}/plain.txt"`);
       assert.ok(ok.argv, JSON.stringify(ok));
     } finally {
