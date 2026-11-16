@@ -1247,6 +1247,26 @@ const underWork = (p) => {
   return abs.startsWith(VERIFY_ALLOWED_ROOT) && abs.length > VERIFY_ALLOWED_ROOT.length;
 };
 
+/** A path that exists must also resolve (symlinks and junctions followed) to a place under the real E:/Work. A missing path keeps the lexical verdict. */
+const realUnderWork = (p) => {
+  let real;
+  try {
+    real = fs.realpathSync.native(p);
+  } catch {
+    return true;
+  }
+  let root;
+  try {
+    root = fs.realpathSync.native("E:/Work");
+  } catch {
+    return false;
+  }
+  const norm = (s) => fwd(path.resolve(s)).toLowerCase().replace(/\/+$/, "");
+  const r = norm(real);
+  const base = norm(root);
+  return r.startsWith(`${base}/`);
+};
+
 /** Environment for a verify child: the parent's, without the variables that make rg or node run other code. */
 function verifyEnv() {
   const env = { ...process.env };
@@ -1276,14 +1296,14 @@ export function checkVerifyCommand(cmd) {
     if (!pats.length) return { refused: "rg needs a pattern given as -e PATTERN" };
     if (!rest.length) return { refused: "rg needs at least one path (without one it reads stdin)" };
     for (const p of rest) {
-      if (!underWork(p)) return { refused: `rg path must be under E:/Work/: ${p}` };
+      if (!underWork(p) || !realUnderWork(p)) return { refused: `rg path must be under E:/Work/: ${p}` };
       if (!fs.existsSync(p)) return { refused: `rg path does not exist: ${p}` };
     }
     return { argv: ["rg", "--no-config", ...flags, ...pats.flatMap((p) => ["-e", p]), ...rest] };
   }
   if (t[0] === "node") {
     if (t.length !== 3 || t[1] !== "--check") return { refused: "node is allowed only as: node --check <file>" };
-    if (!underWork(t[2])) return { refused: "node --check file must be under E:/Work/" };
+    if (!underWork(t[2]) || !realUnderWork(t[2])) return { refused: "node --check file must be under E:/Work/" };
     if (!/\.(mjs|cjs|js)$/i.test(t[2])) return { refused: "node --check file must end in .mjs, .cjs or .js" };
     return { argv: [process.execPath, "--check", t[2]] };
   }

@@ -4,6 +4,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { after, describe, test } from "node:test";
 import { checkVerifyCommand, runVerifyEntry } from "../../scripts/leader/leader-job.mjs";
@@ -191,5 +192,30 @@ describe("verify-adhoc command", () => {
     const w = world();
     const j = jobWithReport(w, [{ cmd: `node --check ${SELF}`, expect: "" }]);
     assert.equal(cli(w, ["verify-adhoc", "--job", j.dir]).code, 0);
+  });
+});
+
+describe("junctions out of E:/Work", () => {
+  test("a path through a junction that leaves E:/Work is refused, a plain one passes", () => {
+    fs.mkdirSync("E:/Work/scratch", { recursive: true });
+    const dir = fs.mkdtempSync("E:/Work/scratch/verify-junction-");
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "verify-outside-"));
+    const link = path.join(dir, "link");
+    const fw = (p) => p.replace(/\\/g, "/");
+    try {
+      fs.writeFileSync(path.join(outside, "x.txt"), "hello\n");
+      fs.writeFileSync(path.join(dir, "plain.txt"), "hello\n");
+      fs.symlinkSync(outside, link, "junction");
+      const bad = checkVerifyCommand(`rg -n -e hello "${fw(link)}/x.txt"`);
+      assert.match(bad.refused ?? "", /must be under E:\/Work/);
+      const badDir = checkVerifyCommand(`rg -n -e hello "${fw(link)}"`);
+      assert.match(badDir.refused ?? "", /must be under E:\/Work/);
+      const ok = checkVerifyCommand(`rg -n -e hello "${fw(dir)}/plain.txt"`);
+      assert.ok(ok.argv, JSON.stringify(ok));
+    } finally {
+      try { fs.rmSync(link, { force: true }); } catch {}
+      fs.rmSync(dir, { recursive: true, force: true });
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
   });
 });
