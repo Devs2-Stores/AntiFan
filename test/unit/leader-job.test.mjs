@@ -15,7 +15,7 @@ import { after, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { parseCsv, stringifyCsv } from "../../scripts/leader/csv.mjs";
-import { finishedUnsettled, judgeRound, parseArgv, sheetExportUrl } from "../../scripts/leader/leader-job.mjs";
+import { finishedUnsettled, judgeRound, parseArgv, sheetExportUrl, unsettledRoundError } from "../../scripts/leader/leader-job.mjs";
 import { parseReport, validateReportText } from "../../scripts/leader/report.mjs";
 import { analyzeSheet, diffSheets, outstandingDevRows, parseSheet, verifySheet } from "../../scripts/leader/sheet-diff.mjs";
 
@@ -684,7 +684,7 @@ describe("dispatch / wait / validate-report through the CLI", () => {
     const rp = job.rounds[0].reportPath;
     const unsettled = cli(w, ["validate-report", "--job", j.dir]);
     assert.match(unsettled.last.errors.join("|"), /report file missing/);
-    assert.match(unsettled.last.errors.join("|"), /not settled yet/);
+    assert.match(unsettled.last.errors.join("|"), /not settled yet \(.+\); run: node scripts\/leader\/leader-job\.mjs wait --job /);
 
     assert.equal(settle(w, j, "terminal-7").code, 0);
     fs.writeFileSync(rp, "STATUS: DONE\n\n```json\n{ nope }\n```\n");
@@ -699,6 +699,13 @@ describe("dispatch / wait / validate-report through the CLI", () => {
     fs.writeFileSync(rp, reportText(job, 1, { sheet: { cells: [{ keyText: "Việc ngoài phạm vi", col: "Ghi chú", expect: "x" }] } }));
     const scope = cli(w, ["validate-report", "--job", j.dir]);
     assert.match(scope.last.errors[0], /outside scope\.keys/);
+  });
+
+  test("unsettledRoundError tells a running worker from a finished one the ledger missed", () => {
+    const round = { n: 2 };
+    assert.match(unsettledRoundError(round, "D:/j", { state: "running" }), /^round 2 is not settled yet \(the worker is still running\); run: node scripts\/leader\/leader-job\.mjs wait --job D:\/j$/);
+    assert.match(unsettledRoundError(round, "D:/j", { state: "idle" }), /the worker is idle but the ledger has not seen it/);
+    assert.match(unsettledRoundError(round, "D:/j", null), /its run file is missing/);
   });
 
   test("the report example in the rendered worker prompt is accepted by validate-report (template cannot drift from the validator)", () => {
