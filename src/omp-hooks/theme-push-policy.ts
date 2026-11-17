@@ -930,6 +930,8 @@ const CLI_START = String.raw`(?:^|[^a-z0-9_.-])`;
 /** `theme` as a word of its own: not `theme.liquid`, `themes`, `layout/theme`, `--theme-x`. */
 const THEME_WORD_RE = /(?:^|[^a-z0-9_\\/.-])theme(?![a-z0-9_-]|\.[a-z0-9]|[\\/])/gi;
 const CLI_OCCURRENCE_RE = new RegExp(String.raw`${CLI_START}(${CLI_WORD})${CLI_END}`, "gi");
+/** A CLI name anywhere in a line: without one, an expansion in argument position cannot be the CLI's own name. */
+const CLI_NAME_HINT_RE = /(?:^|[^a-z0-9_])(?:hrv|haravan|shopify|sapo|bizweb)(?![a-z0-9_])/i;
 
 function snippetOf(text: string, from: number, to: number): string {
   return text.slice(from, to).replace(/\s+/g, " ").trim().slice(0, 120);
@@ -1407,9 +1409,19 @@ function foldedWord(token: string): string {
  * is the target of a pipe (`printf logout | hrv`).
  */
 function obscuredCliSnippet(text: string): string | null {
+  const cliHinted = [text, unquoted(text), foldAll(text)].some((view) => CLI_NAME_HINT_RE.test(view));
   for (const segment of shellSegments(text)) {
     const tokens = segment.text.trim().split(/\s+/).filter(Boolean);
-    while (tokens.length > 0 && /^[A-Za-z_]\w*=/.test(tokens[0] ?? "")) tokens.shift();
+    while (tokens.length > 0 && /^[A-Za-z_]\w*=/.test(tokens[0] ?? "")) {
+      // `N="a b c"` is one assignment whose quoted value holds blanks: skip the words up to the closing quote too.
+      let word = tokens.shift() ?? "";
+      const quote = /^[A-Za-z_]\w*=(["'])/.exec(word)?.[1];
+      let open = quote !== undefined && word.indexOf(quote, word.indexOf(quote) + 1) < 0;
+      while (quote !== undefined && open && tokens.length > 0) {
+        word = tokens.shift() ?? "";
+        open = !word.includes(quote);
+      }
+    }
     const cmd = tokens[0];
     if (cmd === undefined) continue;
     const rest = tokens.slice(1);
@@ -1441,7 +1453,8 @@ function obscuredCliSnippet(text: string): string | null {
     if (cmd !== "[" && cmd !== "[[" && /[$`*?[{]/.test(cmd)) {
       const words = rest.filter((word) => !(word.length > 1 && word.startsWith("-")));
       if (rest.some((word) => OBSCURED_ACTION_SET[foldedWord(word)] === true)) return hit();
-      if (words.length > 0 && /[$`]/.test(words[0] ?? "")) return hit();
+      // An expansion that is the first argument only matters when the line names a CLI at all: `$(...)` in a `curl` URL or a PowerShell `%{ }` block spells none.
+      if (words.length > 0 && /[$`]/.test(words[0] ?? "") && cliHinted) return hit();
       continue;
     }
     const base = path.win32.basename(path.posix.basename(foldedCmd)).toLowerCase().replace(/\.(?:cmd|exe|ps1|bat)$/, "");
@@ -1463,7 +1476,7 @@ function obscuredCliSnippet(text: string): string | null {
  */
 export function themeCliEvidence(source: string, opts: { auth?: boolean } = {}): string | null {
   if (typeof source !== "string" || source.length === 0) return null;
-  const text = maskDataOnlyArguments(source);
+  const text = maskDataOnlyArguments(maskInertText(source));
   const raw = rawThemeCliEvidence(text, opts);
   if (raw !== null) return raw;
   for (const view of foldViews(text)) {
@@ -1482,7 +1495,7 @@ export function mentionsThemeCli(text: string, opts: { auth?: boolean } = {}): b
  * Signs that an `eval` cell starts a process: `subprocess`, `os.system`, `child_process`, `Bun.$`,
  * `spawn(`, `exec(`, or an IPython `!cmd` / `%cmd` line.
  */
-export const SUBPROCESS_RE = /subprocess|os\.(?:system|popen|exec|spawn)|child_process|Bun\.(?:\$|spawn)|Deno\.(?:run|Command)|shelljs|\$`|\bspawn\w*\s*\(|\bexec\w*\s*\(|(?<![\w.$])sh\s*(?:\(|`)|\.bash\s*\(|\[\s*["']bash["']\s*\]\s*\(|(?:^|\n)\s*[!%]/;
+export const SUBPROCESS_RE = /subprocess|os\.(?:system|popen|exec|spawn)|child_process|Bun\.(?:\$|spawn)|Deno\.(?:run|Command)|shelljs|\$`|\bspawn\w*\s*\(|(?<![.\w$])exec\w*\s*\(|\.exec(?:Sync|File|FileSync|a)\s*\(|(?<![\w.$])sh\s*(?:\(|`)|\.bash\s*\(|\[\s*["']bash["']\s*\]\s*\(|(?:^|\n)\s*[!%]/;
 
 export type ThemeLinePlan =
   /** No theme-CLI mention: nothing to gate. */
@@ -1491,7 +1504,40 @@ export type ThemeLinePlan =
   | { decision: "block"; code: string; reason: string; command: string };
 
 /** Characters and shapes after which the line cannot be read back as plain `hrv theme ...` commands. */
-const COMPLEX_SHAPE_RE = /[({`]|\\[\r\n]|\.(?:haravan|sapo)-cli_local\.json/i;
+const COMPLEX_SHAPE_RE = /[({`]|\\[\r\n]/;
+/** The theme-binding file: reading it is how a session starts, writing it re-points the workspace at another theme. */
+const BINDING_FILE_RE = /\.(?:haravan|sapo)-cli_local\.json/i;
+/** Programs that only read the file operands they are given. */
+const READ_ONLY_HEADS: Record<string, true> = Object.fromEntries(
+  "cat type head tail rg grep jq wc ls dir stat file get-content gc sha1sum sha256sum md5sum diff cmp echo printf test".split(" ").map((name) => [name, true]),
+);
+
+/**
+ * Whether a top-level segment of `text` that names the binding file may change it: it redirects into
+ * it, or its command is not one that only reads its operands (`cp x .haravan-cli_local.json`,
+ * `sd a b .haravan-cli_local.json`, `node -e "...writeFileSync..."`).
+ */
+function writesBindingFile(text: string): boolean {
+  for (const span of topLevelSpans(text)) {
+    const segment = text.slice(span.start, span.end);
+    if (!BINDING_FILE_RE.test(segment)) continue;
+    const tokens = quotedTokens(segment);
+    if (tokens === null) return true;
+    let first = 0;
+    while (first < tokens.length && /^[A-Za-z_]\w*=/.test(tokens[first]?.text ?? "")) first += 1;
+    const head = path.win32.basename(path.posix.basename(tokens[first]?.text ?? "")).toLowerCase().replace(/\.(?:exe|cmd|bat|ps1)$/, "");
+    if (READ_ONLY_HEADS[head] !== true) return true;
+    const operands = tokens.slice(first + 1).filter((token) => DATA_REDIRECTS[token.text] !== true);
+    for (let i = 0; i < operands.length; i += 1) {
+      const word = operands[i]?.text ?? "";
+      if (!/^\d*(?:>>?|<\()/.test(word) && !/^&?>/.test(word)) continue;
+      // `> target` or `>target`: the target is this word's rest or the next word.
+      const target = word.replace(/^\d*(?:>>?|<\()&?/, "") || (operands[i + 1]?.text ?? "");
+      if (BINDING_FILE_RE.test(target)) return true;
+    }
+  }
+  return false;
+}
 
 /** Top-level shell segments: split on `&&`, `||`, `;`, `|`, line breaks and `&` outside quotes. */
 function topLevelSegments(text: string): string[] {
@@ -1734,21 +1780,342 @@ function maskDataOnlyArguments(text: string): string {
 }
 
 /**
+ * Programs that read a here-document as text to store, search or reshape. `python` is handled
+ * apart (its body must be provably inert); `awk`, `sed`, `node`, `bun`, `deno`, `bash` and the like
+ * run their input as a program and are never here.
+ */
+const HEREDOC_DATA_CONSUMERS: Record<string, true> = Object.fromEntries(
+  "cat tee sd jq wc sort uniq tr cut head tail base64 rg grep clip python python3 py".split(" ").map((name) => [name, true]),
+);
+const PYTHON_CONSUMERS: Record<string, true> = { python: true, python3: true, py: true };
+/** Modules whose import cannot start a process or load code by name. */
+const PYTHON_SAFE_MODULES = new Set("re json sys io pathlib collections datetime urllib.parse textwrap itertools csv hashlib base64 string math typing functools time".split(" "));
+const PYTHON_DANGER_RE = /__|\bgetattr\b|\bsetattr\b|\bglobals\b|\blocals\b|\bvars\b|\bcompile\b|\bbreakpoint\b|\bimportlib\b|\bexec\s*\(|\beval\s*\(|\bsystem\s*\(|\bpopen\s*\(|\bspawn\w*\s*\(/;
+const HEREDOC_STICKY_RE = /<<(-?)[ \t]*(?:(["'])([A-Za-z_][\w.-]*)\2|(\\?)([A-Za-z_][\w.-]*))/y;
+/** A construct that runs text outside the reading this module does: `|&`, process substitution `>( )` / `<( )`. */
+const OPAQUE_FLOW_RE = /\|&|[<>]\(/;
+const SHELLISH_HEADS: Record<string, true> = Object.fromEntries(
+  "bash sh zsh dash ksh source . eval exec cmd powershell pwsh start-process saps call xargs".split(" ").map((name) => [name, true]),
+);
+const SCRIPT_OPERAND_RE = /\.(?:mjs|cjs|js|py|ts)$/i;
+const SCRIPT_RUNNERS: Record<string, true> = { node: true, python: true, python3: true, py: true, bun: true, deno: true };
+const CODE_FLAG_RE = /^-(?:c|e|p|-eval|-print)$/;
+/** The Leader's own scripts: a file of this repo that takes the quoted text as an argument, never as a command. */
+const LEADER_SCRIPT_RE = /(?:^|[\\/])scripts[\\/]leader[\\/][\w.-]+\.mjs$/i;
+
+function blankOut(text: string, from: number, to: number): string {
+  return text.slice(0, from) + text.slice(from, to).replace(/[^\r\n]/g, " ") + text.slice(to);
+}
+
+function codeCanRun(source: string): boolean {
+  return SUBPROCESS_RE.test(source) || PYTHON_DANGER_RE.test(source);
+}
+
+/** Python source that imports only the modules above, names no process starter and no dynamic lookup: it can only compute and touch files. */
+function pythonSourceIsInert(source: string): boolean {
+  if (codeCanRun(source)) return false;
+  for (const match of source.matchAll(/\bimport\s+([\w.]+(?:\s+as\s+\w+)?(?:\s*,\s*[\w.]+(?:\s+as\s+\w+)?)*)/g)) {
+    for (const part of (match[1] ?? "").split(",")) if (!PYTHON_SAFE_MODULES.has((part.trim().split(/\s+/)[0] ?? ""))) return false;
+  }
+  for (const match of source.matchAll(/\bfrom\s+([\w.]+)\s+import\b/g)) if (!PYTHON_SAFE_MODULES.has(match[1] ?? "")) return false;
+  return true;
+}
+
+/** The bare command word that a `<<TAG` feeds (no path, no extension), or "" when it is not one. */
+function heredocConsumer(beforeOperator: string): string {
+  const last = beforeOperator.split(/&&|\|\||[;|&]/).pop() ?? "";
+  const tokens = last.trim().split(/\s+/).filter(Boolean);
+  while (tokens.length > 0 && /^[A-Za-z_]\w*=/.test(tokens[0] ?? "")) tokens.shift();
+  const head = tokens[0] ?? "";
+  return /^[A-Za-z][\w-]*$/.test(head) ? head.toLowerCase() : "";
+}
+
+/** Whether the line redefines `name` (a function, an alias, a variable): then `name` need not be the program of that name. */
+function redefinesCommand(text: string, name: string): boolean {
+  return new RegExp(String.raw`(?:^|[\s;&|(])(?:function\s+)?${name}\s*\(\s*\)|\b(?:alias|function|set-alias|new-alias)\s+${name}\b|(?:^|[\s;&|(])${name}=`, "i").test(text);
+}
+
+/** Whether a segment's command runs a shell, a script file or a file just written (`bash f.sh`, `./a.sh`, `node probe.mjs`): masking is off for the line then. */
+function runsShellOrFile(text: string): boolean {
+  for (const span of topLevelSpans(text)) {
+    const tokens = quotedTokens(text.slice(span.start, span.end));
+    if (tokens === null) continue;
+    let first = 0;
+    while (first < tokens.length && /^[A-Za-z_]\w*=/.test(tokens[first]?.text ?? "")) first += 1;
+    const head = tokens[first]?.text ?? "";
+    if (head.length === 0) continue;
+    const base = path.win32.basename(path.posix.basename(head)).toLowerCase().replace(/\.(?:exe|cmd|bat|ps1)$/, "");
+    if (SHELLISH_HEADS[base] === true || /^\.{1,2}[\\/]/.test(head) || /\.(?:sh|ps1|bat|cmd)$/i.test(head)) return true;
+    if (SCRIPT_RUNNERS[base] === true) {
+      const rest = tokens.slice(first + 1).map((token) => token.text);
+      if (rest.some((word) => CODE_FLAG_RE.test(word))) continue;
+      const script = rest.find((word) => SCRIPT_OPERAND_RE.test(word.replace(/^["']|["']$/g, "")));
+      if (script !== undefined && !LEADER_SCRIPT_RE.test(script.replace(/^["']|["']$/g, ""))) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * `text` with the body of every real here-document blanked (same length, line breaks kept): the body
+ * is text handed to a program on its standard input, not a command line - `cat > notes.md <<'EOF'`
+ * holding prose about `hrv theme push` runs nothing. Fail-closed: only a `<<TAG` outside quotes and
+ * comments counts, it must be the only one on its line and have a terminator line; the consumer is a
+ * bare word of the data-program table that the line does not redefine; an unquoted delimiter whose
+ * body expands a command, a Python body that is not provably inert, a line with `|&` / `>(` / `<(`,
+ * an opening line that goes on into a pipe or another command, and a line that also runs a shell or a
+ * script file leave the text as it is.
+ */
+export function maskHeredocBodies(text: string): string {
+  if (!text.includes("<<") || OPAQUE_FLOW_RE.test(text)) return text;
+  let out = text;
+  let quote = "";
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text.charAt(i);
+    if (quote !== "") {
+      if (ch === "\\" && quote !== "'") i += 1;
+      else if (ch === quote) quote = "";
+      continue;
+    }
+    if (ch === "\\") {
+      i += 1;
+    } else if (ch === '"' || ch === "'" || ch === "`") {
+      quote = ch;
+    } else if (ch === "#" && (i === 0 || /[\s;&|(]/.test(text.charAt(i - 1)))) {
+      const newline = text.indexOf("\n", i);
+      if (newline < 0) break;
+      i = newline;
+    } else if (ch === "<" && text.charAt(i + 1) === "<") {
+      if (text.charAt(i + 2) === "<") {
+        i += 2;
+        continue;
+      }
+      HEREDOC_STICKY_RE.lastIndex = i;
+      const match = HEREDOC_STICKY_RE.exec(text);
+      if (match === null) {
+        i += 1;
+        continue;
+      }
+      const tag = match[3] ?? match[5] ?? "";
+      const quoted = match[2] !== undefined || (match[4] ?? "") === "\\";
+      const lineStart = text.lastIndexOf("\n", i - 1) + 1;
+      const openEnd = i + match[0].length;
+      const lineEndAt = text.indexOf("\n", openEnd);
+      const lineEnd = lineEndAt < 0 ? text.length : lineEndAt;
+      const bodyStart = Math.min(text.length, lineEnd + 1);
+      let bodyEnd = -1;
+      for (let cursor = bodyStart; cursor < text.length; ) {
+        const next = text.indexOf("\n", cursor);
+        const rawLine = text.slice(cursor, next < 0 ? text.length : next).replace(/\r$/, "");
+        if ((match[1] === "-" ? rawLine.replace(/^\t+/, "") : rawLine) === tag) {
+          bodyEnd = cursor;
+          break;
+        }
+        if (next < 0) break;
+        cursor = next + 1;
+      }
+      const body = bodyEnd < 0 ? "" : text.slice(bodyStart, bodyEnd);
+      const consumer = heredocConsumer(text.slice(lineStart, i));
+      const openingTail = text.slice(openEnd, lineEnd).replace(/\d?>>?&?\s*(?:\/dev\/null|[^\s<>|;&`$\\]+)/g, "");
+      const masks =
+        bodyEnd >= 0 &&
+        HEREDOC_DATA_CONSUMERS[consumer] === true &&
+        !text.slice(lineStart, i).includes("<<") &&
+        !redefinesCommand(text, consumer) &&
+        !/[|;&`<>$\\]/.test(openingTail) &&
+        (quoted || !/\$\(|`/.test(body)) &&
+        (PYTHON_CONSUMERS[consumer] !== true || pythonSourceIsInert(body));
+      if (masks) {
+        out = blankOut(out, bodyStart, bodyEnd);
+        i = bodyEnd - 1;
+      } else {
+        i = openEnd - 1;
+      }
+    }
+  }
+  return out !== text && runsShellOrFile(out) ? text : out;
+}
+
+/** Words after which a quoted string is text for the program, not a command line. */
+const QUOTED_DATA_HEADS: Record<string, true> = { echo: true, printf: true, sd: true, git: true };
+
+/**
+ * `quoted`'s content blanked. A double-quoted string that holds `$(` or a backtick is not blanked at
+ * all (the shell runs what is inside, and finding where it ends needs the shell's own parser).
+ */
+function blankQuoted(token: string, keep: (content: string) => boolean): string {
+  const open = token.charAt(0);
+  if ((open !== '"' && open !== "'") || token.length < 2 || token.charAt(token.length - 1) !== open) return token;
+  const content = token.slice(1, -1);
+  if (keep(content) || (open === '"' && /\$\(|`/.test(content))) return token;
+  return open + content.replace(/[^\r\n]/g, " ") + open;
+}
+
+/** `NAME=git ...` / `NAME="echo ..."` assignments of the line: `$NAME` in command position then names that program. */
+function inertVariableHeads(text: string): Record<string, string> {
+  const heads: Record<string, string> = {};
+  for (const match of text.matchAll(/(?:^|[;&|\n]|\s)([A-Za-z_]\w*)=["']?(git|echo|printf)(?=[\s"';]|$)/g)) heads[match[1] ?? ""] = match[2] ?? "";
+  return heads;
+}
+
+/** Config keys a `git -c key=value` may set without making git run a program. */
+const GIT_SAFE_CONFIG_RE = /^(?:user\.(?:name|email|signingkey)|commit\.gpgsign|core\.(?:autocrlf|safecrlf|quotepath|longpaths|filemode)|safe\.directory|color\.ui)=/i;
+
+/** Whether git's own words (before or after the subcommand) could make it run text it was given: an alias, a config key that names a program, `--exec-path`, `--upload-pack`. */
+function gitMayRunConfiguredCommand(words: string[]): boolean {
+  for (let i = 0; i < words.length; i += 1) {
+    const word = words[i] ?? "";
+    if (/alias/i.test(word) || /^--(?:config|exec-path|upload-pack|receive-pack|ext-cmd)/.test(word)) return true;
+    if (/^-c.?/.test(word) && !word.startsWith("--")) {
+      const value = (word.length > 2 ? word.slice(2) : (words[i + 1] ?? "")).replace(/^["']|["']$/g, "");
+      if (!GIT_SAFE_CONFIG_RE.test(value)) return true;
+      if (word.length === 2) i += 1;
+    }
+  }
+  return false;
+}
+
+const GIT_INERT_SUBCOMMANDS = new Set("commit tag log show diff status branch rev-parse".split(" "));
+
+/** Whether the subcommand git is given (past its global options) only records or shows text, and no flag of the call runs a program. */
+function gitSubcommandIsInert(words: string[]): boolean {
+  let i = 0;
+  while (i < words.length) {
+    const word = words[i] ?? "";
+    if (word === "-C" || word === "-c" || word === "--namespace" || word === "--git-dir" || word === "--work-tree") i += 2;
+    else if (/^--(?:git-dir|work-tree|namespace)=/.test(word) || word === "--no-pager" || word === "-P" || /^-c[^-]/.test(word)) i += 1;
+    else break;
+  }
+  const sub = (words[i] ?? "").replace(/^["']|["']$/g, "");
+  if (!GIT_INERT_SUBCOMMANDS.has(sub)) return false;
+  return !words.slice(i + 1).some((word) => /^-(?:x|e|O)|^--(?:exec|edit|output|ext-diff|extcmd|template|open-files-in-pager)/.test(word.replace(/^["']/, "")));
+}
+
+/** One top-level segment with the quoted strings of its text-taking command blanked; the segment unchanged when it is not one. */
+function maskInertSegment(segment: string, variableHeads: Record<string, string>): string {
+  const tokens = quotedTokens(segment);
+  if (tokens === null) return segment;
+  let first = 0;
+  while (first < tokens.length && /^[A-Za-z_]\w*=/.test(tokens[first]?.text ?? "")) first += 1;
+  const headToken = tokens[first];
+  if (headToken === undefined) return segment;
+  const variable = /^\$\{?([A-Za-z_]\w*)\}?$/.exec(headToken.text);
+  const named = variable === null ? /^([A-Za-z0-9]+)(?:\.exe)?$/i.exec(headToken.text) : null;
+  const name = variable === null ? (named?.[1]?.toLowerCase() ?? "") : (variableHeads[variable[1] ?? ""] ?? "");
+  const rest = tokens.slice(first + 1);
+  let from = -1;
+  let keep: (content: string) => boolean = () => false;
+  if (QUOTED_DATA_HEADS[name] === true) {
+    // `git -c alias.x='!cmd' x`, `git rebase -x '...'`, `git bisect run '...'` run what a quoted value says: only a short list of subcommands is data.
+    if (name === "git" && (gitMayRunConfiguredCommand(rest.map((token) => token.text)) || !gitSubcommandIsInert(rest.map((token) => token.text)))) return segment;
+    from = headToken.start + headToken.text.length;
+  } else if (SCRIPT_RUNNERS[name] === true) {
+    const script = rest.find((token) => !token.text.startsWith("-") && !CODE_FLAG_RE.test(token.text));
+    if (rest.some((token) => CODE_FLAG_RE.test(token.text))) {
+      // Only Python code that is provably inert is text; node, bun and deno code is never masked.
+      if (PYTHON_CONSUMERS[name] !== true) return segment;
+      from = headToken.start + headToken.text.length;
+      keep = (content) => !pythonSourceIsInert(content);
+    } else if (script !== undefined && LEADER_SCRIPT_RE.test(script.text.replace(/^["']|["']$/g, ""))) {
+      from = script.start + script.text.length;
+    }
+  }
+  if (from < 0) return segment;
+  let out = segment.slice(0, from);
+  for (const token of tokens) {
+    if (token.start < from) continue;
+    out += " ".repeat(Math.max(0, token.start - out.length));
+    out += token.text.includes('"') || token.text.includes("'") ? maskTokenQuotes(token.text, keep) : token.text;
+  }
+  return out + segment.slice(out.length);
+}
+
+/** A word with its quoted parts blanked (`--title="a b"`, `'x'"y"`); words without quotes pass through. */
+function maskTokenQuotes(word: string, keep: (content: string) => boolean): string {
+  let out = "";
+  for (let i = 0; i < word.length; i += 1) {
+    const ch = word.charAt(i);
+    if (ch === "\\") {
+      out += word.slice(i, i + 2);
+      i += 1;
+    } else if (ch === '"' || ch === "'") {
+      let end = i + 1;
+      while (end < word.length && word.charAt(end) !== ch) end += ch === '"' && word.charAt(end) === "\\" ? 2 : 1;
+      if (end >= word.length) return out + word.slice(i);
+      out += blankQuoted(word.slice(i, end + 1), keep);
+      i = end;
+    } else {
+      out += ch;
+    }
+  }
+  return out;
+}
+
+/** Programs a masked segment may be piped into: they filter or store what they read and run none of it (`sed` and `awk` can, so they are not here). */
+const PIPE_DATA_TARGETS: Record<string, true> = Object.fromEntries("head tail wc sort uniq cut tee rg grep jq cat tr base64 clip".split(" ").map((name) => [name, true]));
+
+/**
+ * `text` with what no shell runs blanked (same length): here-document bodies (`maskHeredocBodies`)
+ * and the quoted strings after `echo`, `printf`, `sd`, `git commit|tag|log|show|diff|status|branch|
+ * rev-parse` (no config override), `python -c` that is provably inert, and the Leader's own
+ * `scripts/leader/*.mjs` - a commit message or a `--title "...Sapo theme..."` names the CLI as
+ * words, not as a command. Fail-closed: a double-quoted string with `$(` or a backtick, text piped
+ * into anything but a filter, `|&`, `>(`, `<(`, and a line that runs a shell or a script file are
+ * left exactly as typed.
+ */
+export function maskInertText(text: string): string {
+  if (OPAQUE_FLOW_RE.test(text)) return text;
+  const heredocFree = maskHeredocBodies(text);
+  const heads = inertVariableHeads(heredocFree);
+  const spans = topLevelSpans(heredocFree);
+  if (runsShellOrFile(heredocFree)) return text;
+  // Text piped, however many filters later, into a shell or an interpreter (`echo "hrv theme push" | tee x | bash`) is a command line, not data.
+  const pipesIntoProgram = (index: number): boolean => {
+    for (let at = index; at < spans.length && heredocFree.charAt(spans[at]?.end ?? -1) === "|"; at += 1) {
+      const next = spans[at + 1];
+      if (next === undefined) continue;
+      const stage = heredocFree.slice(next.start, next.end);
+      const word = stage.trim().split(/\s+/)[0] ?? "";
+      if (word.length === 0) continue;
+      const name = word.toLowerCase();
+      if (PIPE_DATA_TARGETS[name] !== true) return true;
+      if ((name === "rg" || name === "grep" || name === "sort") && dataOnlyArgsStart(stage) === null) return true;
+    }
+    return false;
+  };
+  let out = "";
+  let last = 0;
+  for (const [index, span] of spans.entries()) {
+    const segment = heredocFree.slice(span.start, span.end);
+    if (pipesIntoProgram(index)) continue;
+    const masked = maskInertSegment(segment, heads);
+    if (masked === segment) continue;
+    out += heredocFree.slice(last, span.start) + masked;
+    last = span.end;
+  }
+  return last === 0 ? heredocFree : out + heredocFree.slice(last);
+}
+
+/**
  * What the push rules can say about one shell line. A line that names a theme CLI is only
  * readable when every segment that names it starts with the CLI itself and parses to a
  * command; a wrapper (`bash -c`, `cmd /c`, `powershell -c`, `npx`), a subshell, a quoted or
  * line-continued CLI word, a global option before `theme`, or a write to the binding file
  * hides what runs, so it is refused as COMPLEX instead of being guessed at.
  */
-export function classifyThemeLine(text: string, opts: { assumeDirChanged?: boolean; auth?: boolean } = {}): ThemeLinePlan {
+export function classifyThemeLine(source: string, opts: { assumeDirChanged?: boolean; auth?: boolean } = {}): ThemeLinePlan {
   const authOpts = { auth: opts.auth };
-  if (typeof text !== "string" || !mentionsThemeCli(text, authOpts)) return { decision: "none" };
-  const command = text.trim().slice(0, 200);
+  if (typeof source !== "string" || !mentionsThemeCli(source, authOpts)) return { decision: "none" };
+  // Shape checks read the line with here-document bodies blanked (stored text, never a command); the commands themselves are read
+  // with every inert quoted string blanked too (`git commit -m "..."`, `node script.mjs --title "..."`), so a sentence is not a command.
+  const text = maskHeredocBodies(source);
+  const readable = maskInertText(source);
+  const command = source.trim().slice(0, 200);
   const complex = (why: string): ThemeLinePlan => ({
     decision: "block",
     code: THEME_PUSH_CODES.COMPLEX,
     command,
-    reason: `${THEME_PUSH_CODES.COMPLEX}: '${command}' names the theme CLI in a shape the push rules cannot read (${why}). Run each theme command on its own as one plain bash command - hrv theme <action> ... - with the bash tool's cwd set to the theme folder; no wrapper (bash -c, cmd /c, powershell -c, npx), no ( ), $( ), { }, backtick, backslash-newline or backslash inside a command word, no quoted CLI word, no global option before 'theme', and no mention of the CLI inside another command's text (git commit -F <file> instead of -m). ${ASK}`,
+    reason: `${THEME_PUSH_CODES.COMPLEX}: '${command}' names the theme CLI in a shape the push rules cannot read (${why}). Instead: run each theme command alone as one plain bash command - hrv theme <action> ... - with the bash tool's cwd set to the theme folder (no wrapper such as bash -c / cmd /c / powershell -c / npx, no ( ), $( ), { }, backtick, backslash-newline, quoted CLI word or global option before 'theme'); put prose that merely mentions the CLI in a quoted here-document (cat > file <<'EOF') or the write tool. ${ASK}`,
   });
   if (remoteWriteSnippet(text) !== null) {
     return {
@@ -1762,7 +2129,10 @@ export function classifyThemeLine(text: string, opts: { assumeDirChanged?: boole
     return complex("an alias, variable, eval or expansion hides which command runs");
   }
   if (COMPLEX_SHAPE_RE.test(text)) {
-    return complex("subshell, grouping, backtick, line continuation or .haravan-cli_local.json / .sapo-cli_local.json");
+    return complex("subshell, grouping, backtick or line continuation");
+  }
+  if (writesBindingFile(maskHeredocBodies(source))) {
+    return complex("the line may change .haravan-cli_local.json / .sapo-cli_local.json, which re-points the workspace at another theme");
   }
   if (escapeHidesCommand(text, authOpts)) {
     return complex("an escape, quote or empty expansion changes which command or flag the shell runs");
@@ -1771,7 +2141,7 @@ export function classifyThemeLine(text: string, opts: { assumeDirChanged?: boole
     return complex("a quote, expansion, glob or escape in the CLI word, its command word or a flag hides what the shell runs");
   }
   let mentioningSegments = 0;
-  for (const segment of topLevelSegments(text)) {
+  for (const segment of topLevelSegments(readable)) {
     if (!mentionsThemeCli(segment, authOpts)) continue;
     mentioningSegments += 1;
     const first = segment.trim().split(/\s+/)[0] ?? "";
@@ -1779,7 +2149,7 @@ export function classifyThemeLine(text: string, opts: { assumeDirChanged?: boole
     if (parseThemeCommands(segment, authOpts).length === 0) return complex("no 'theme <action>' directly after the CLI word");
   }
   if (mentioningSegments === 0) return complex("the CLI word and 'theme' are not in the same command");
-  const commands = parseThemeCommands(text, authOpts).map((cmd) => ({
+  const commands = parseThemeCommands(readable, authOpts).map((cmd) => ({
     ...cmd,
     dirChanged: cmd.dirChanged || opts.assumeDirChanged === true,
   }));

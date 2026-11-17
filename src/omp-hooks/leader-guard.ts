@@ -60,7 +60,7 @@ import * as path from "node:path";
 
 import { DEVICE_PATH_RE, WRITE_TOOLS, extractTargetPaths } from "./edit-guard-policy";
 import { isInside, resolveWorkspaceShape } from "./theme-paths";
-import { SUBPROCESS_RE, classifyThemeLine, mentionsThemeCli, planEvalThemeCode, planThemeCommand, sapoIsReadOnly } from "./theme-push-policy";
+import { SUBPROCESS_RE, classifyThemeLine, maskHeredocBodies, mentionsThemeCli, planEvalThemeCode, planThemeCommand, sapoIsReadOnly } from "./theme-push-policy";
 
 export const LEADER_GUARD_CODES = {
   THEME_EDIT: "REFUSED_LEADER_THEME_EDIT",
@@ -415,14 +415,16 @@ function fileTargetsOf(input: Record<string, unknown>): string[] {
   return targets;
 }
 
+// A redirect into `/dev/null`, `NUL` or `$null` (and `2>&1`) discards output: it writes nothing into a theme folder.
 const SHELL_WRITE_RE =
-  /(?:^|[\s;&|(])(?:\d?>>?(?!&)|set-content|add-content|out-file|tee|cp|copy|copy-item|mv|move|move-item|rm|del|erase|remove-item|ren|rename-item|new-item|touch|mkdir|md)(?![\w-])/i;
+  /(?:^|[\s;&|(])(?:\d?>{1,2}(?!>)(?!&|\s*(?:\/dev\/null|nul|\$null)(?![\w./-]))|set-content|add-content|out-file|tee|cp|copy|copy-item|mv|move|move-item|rm|del|erase|remove-item|ren|rename-item|new-item|touch|mkdir|md)(?![\w-])/i;
 
 /** Best-effort: a shell line with a write verb or redirect that names (or runs in) a theme workspace. */
 function shellWritesTheme(command: string, cwd: string, jobsRoot: string, env: Env): string | null {
-  if (!SHELL_WRITE_RE.test(command)) return null;
+  const line = maskHeredocBodies(command);
+  if (!SHELL_WRITE_RE.test(line)) return null;
   if (isThemePath(cwd, jobsRoot, env)) return cwd;
-  const tokens = command
+  const tokens = line
     .replace(/["'`]/g, " ")
     .split(/\s+/)
     .map((token) => token.replace(/^\d?>>?/, ""))
@@ -480,7 +482,7 @@ function themeCliRefusal(source: string, kind: "bash" | "eval"): LeaderRefusal |
     // `${...}` looks like a hidden CLI call. The worker's cell reader tells a string handed to a process
     // from one that is only text; the refusal needs both readings, so it never grows past the plain one.
     if (!SUBPROCESS_RE.test(text) || planEvalThemeCode(text).decision !== "block") return null;
-    return refuse(LEADER_GUARD_CODES.THEME_CLI, "this eval cell runs the theme CLI (hrv/haravan/shopify/sapo ... theme); run read-only theme commands through the bash tool instead");
+    return refuse(LEADER_GUARD_CODES.THEME_CLI, "this eval cell runs the theme CLI (hrv/haravan/shopify/sapo ... theme). Instead: run a read-only theme command (list, info, help) as one plain bash call, or have a worker run it");
   }
   const plan = classifyThemeLine(text, { auth: false });
   if (plan.decision === "none") return null;
@@ -494,7 +496,7 @@ function themeCliRefusal(source: string, kind: "bash" | "eval"): LeaderRefusal |
     const helpOnly = cmd.flags.some((flag) => flag === "--help" || flag === "-h");
     const syncs = (cmd.action === "dev" || cmd.action === "push") && !helpOnly;
     if (syncs || (cmd.cli === "sapo" && !sapoIsReadOnly(cmd)) || planThemeCommand(cmd, null).decision !== "allow") {
-      return refuse(LEADER_GUARD_CODES.THEME_CLI, `'${cmd.text.slice(0, 160)}' changes or syncs a theme; a Leader may only run read-only theme commands (list, info, help ...)`);
+      return refuse(LEADER_GUARD_CODES.THEME_CLI, `'${cmd.text.slice(0, 160)}' changes or syncs a theme. Instead: have a worker run it (terminal.create); a Leader runs only read-only theme commands (list, info, help)`);
     }
   }
   return null;
@@ -506,7 +508,7 @@ function toolNameInTextRefusal(text: string): LeaderRefusal | null {
     return refuse(LEADER_GUARD_CODES.SHEET_WRITE, "this call writes a Google Sheet cell (anti.sheet.write_cell)");
   }
   if (THEME_WRITER_TEXT_RE.test(text)) {
-    return refuse(LEADER_GUARD_CODES.THEME_EDIT, "this call writes a theme file (theme.transaction.write_cas)");
+    return refuse(LEADER_GUARD_CODES.THEME_EDIT, "this call writes a theme file (theme.transaction.write_cas). Instead: have a worker make the edit (terminal.create)");
   }
   return null;
 }
@@ -527,7 +529,7 @@ export function planLeaderToolCall(
     for (const target of fileTargetsOf(input)) {
       const abs = path.resolve(params.cwd, target);
       if (isThemePath(abs, jobsRoot, env)) {
-        return refuse(LEADER_GUARD_CODES.THEME_EDIT, `'${target}' is inside a theme workspace and a Leader never edits theme files`);
+        return refuse(LEADER_GUARD_CODES.THEME_EDIT, `'${target}' is inside a theme workspace and a Leader never edits theme files. Instead: have a worker make the edit (terminal.create)`);
       }
     }
     return null;
@@ -537,7 +539,7 @@ export function planLeaderToolCall(
     return refuse(LEADER_GUARD_CODES.SHEET_WRITE, "anti.sheet.write_cell writes a cell of the customer's sheet; only a worker writes it (read it back with the leader-job verify-sheet command)");
   }
   if (THEME_WRITERS.includes(tool)) {
-    return refuse(LEADER_GUARD_CODES.THEME_EDIT, `'${tool}' writes a theme file and a Leader never edits theme files`);
+    return refuse(LEADER_GUARD_CODES.THEME_EDIT, `'${tool}' writes a theme file and a Leader never edits theme files. Instead: have a worker make the edit (terminal.create)`);
   }
 
   if (tool === "bash") {
@@ -548,7 +550,7 @@ export function planLeaderToolCall(
     const named = toolNameInTextRefusal(command);
     if (named !== null) return named;
     const hit = shellWritesTheme(command, cwd, jobsRoot, env);
-    if (hit !== null) return refuse(LEADER_GUARD_CODES.THEME_EDIT, `this shell line writes into a theme workspace ('${hit}')`);
+    if (hit !== null) return refuse(LEADER_GUARD_CODES.THEME_EDIT, `this shell line writes into a theme workspace ('${hit}'). Instead: have a worker make the change (terminal.create); to only read, drop the write verb or redirect (2>/dev/null is fine)`);
     return null;
   }
   if (tool === "eval") {
@@ -584,6 +586,10 @@ export const LEADER_READ_ALLOW_ROOTS = [
   "C:/Users/Admin/.omp",
   "E:/Work/apps/AntiFan/skills",
   "E:/Work/apps/AntiFan/scripts/leader",
+  // The ledgers, loop logs and night STATE files the Leader keeps for the Gác channels it runs: reading its own books is not investigating.
+  "E:/Work/Gác/plans/reports/muagi",
+  "E:/Work/Gác/plans/reports/engage",
+  "E:/Work/Gác/scratch/tap-night-261115",
 ] as const;
 
 /** Internal URIs are free to read; any other URL (`https://`, `pr://`, `ssh://` ...) is not a local path and is not. */
@@ -841,7 +847,9 @@ function gitInvestigation(args: string[]): string | null {
     (sub === "worktree" && rest[0] === "list") ||
     (sub === "stash" && (rest[0] === "list" || rest[0] === "show")) ||
     (sub === "branch" && !rest.some((arg) => !arg.startsWith("-") || GIT_BRANCH_WRITE_FLAG_RE.test(arg)));
-  return inspects ? `git ${sub}` : null;
+  // Where HEAD is (`rev-parse`, `branch --show-current`): the Leader's integration bookkeeping, not an investigation.
+  const headOnly = sub === "rev-parse" || (sub === "branch" && rest.length === 1 && rest[0] === "--show-current");
+  return inspects && !headOnly ? `git ${sub}` : null;
 }
 
 function fileReadInvestigation(verb: string, args: string[], cwd: string, env: Env): string | null {

@@ -56,21 +56,21 @@
       "kind": "line",
       "text": "cd C:/work/app && cat > re-probe.mjs <<'EOF'\nconst CLI_WORD = String.raw`(?:hrv|haravan-cli|haravan|shopify|sapo)`;\nconst RE = new RegExp(CLI_WORD + '[\\\\s\\\\S]*?theme', 'i');\nEOF\nnode re-probe.mjs",
       "expect": "REFUSED_THEME_COMPLEX",
-      "note": "heredoc that writes a probe script naming CLI words"
+      "note": "heredoc that writes a probe script naming CLI words, then runs it"
     },
     {
       "id": "code-heredoc-policy-probe",
       "kind": "line",
       "text": "cd C:/work/app && cat > probe.ts <<'EOF'\nconst cmds = { A: \"hrv theme push --only a.liquid --nodelete\", B: \"sapo theme push --only a.liquid\" };\nEOF\nnode probe.ts",
       "expect": "REFUSED_THEME_COMPLEX",
-      "note": "heredoc probe holding quoted theme commands"
+      "note": "heredoc probe holding quoted theme commands, then runs it"
     },
     {
       "id": "code-node-e-quoted-theme-commands",
       "kind": "line",
       "text": "cd C:/work/scratch && node -e \"const fs=require('fs');let t=fs.readFileSync('a.mjs','utf8');t=t.replace('x','for (const l of [\\\"hrv theme push --nodelete\\\"]) y');fs.writeFileSync('a.mjs',t)\"",
       "expect": "REFUSED_THEME_COMPLEX",
-      "note": "node -e that rewrites a file with quoted theme commands in it"
+      "note": "node -e that rewrites a file with quoted theme commands in it (node code is never masked)"
     },
     {
       "id": "code-node-e-sample-regex",
@@ -91,14 +91,14 @@
       "kind": "line",
       "text": "now(){ date -u +%H:%M:%SZ; }; printf '%s\\n' \"$(now) gate PASS: the installer reads from haravan, no theme asset write\" >> notes.md",
       "expect": "REFUSED_THEME_COMPLEX",
-      "note": "printf with a command substitution and a sentence naming the CLI"
+      "note": "printf with a command substitution and a sentence naming the CLI (a double-quoted string with $( is never masked)"
     },
     {
       "id": "code-python-c-heredoc-text",
       "kind": "line",
       "text": "cd C:/work/scratch && python -c \"import io\\nhead='first'\\ntask='''Check whether the earlier worker pushed to the live haravan theme and revert it.'''\\nprint(head+task)\"",
-      "expect": "REFUSED_THEME_COMPLEX",
-      "note": "python -c whose text says haravan ... theme"
+      "expect": "pass",
+      "note": "python -c whose text says haravan ... theme and starts no process: text, not a command (audit 2026-11-17 P0-1)"
     },
     {
       "id": "real-fetch-chain-with-rg-filter",

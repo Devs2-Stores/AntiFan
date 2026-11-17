@@ -1630,7 +1630,7 @@ for (const [label, command] of [
   ["npx on the package name", "npx @f1genz/haravan-cli theme push --only a.liquid"],
   ["a quote-split CLI word", 'h""rv theme push --only a.liquid'],
   ["a write to the binding file", 'echo {"theme_id":"999"} > .haravan-cli_local.json && hrv theme push --only a.liquid'],
-  ["a mention inside another command's text", 'git commit -m "fix hrv theme header"'],
+  ["a command substitution inside another command's text", 'git commit -m "$(hrv theme publish 1)"'],
 ]) {
   test(`a worker's ${label} is refused as REFUSED_THEME_COMPLEX before anything reaches the shop`, async () => {
     const root = makeThemeWorkspace();
