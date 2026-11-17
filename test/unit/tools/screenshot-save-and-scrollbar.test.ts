@@ -100,8 +100,7 @@ describe('screenshot saveTo', () => {
       assert.equal(fs.existsSync(outside), false);
     });
 
-    // Grants are hierarchical (execute sees write), so only a session with no grant is denied a saveTo.
-    for (const grant of [undefined] as const) {
+    for (const grant of [undefined, 'execute'] as const) {
       it(`${name} refuses saveTo with POLICY_DENIED under grant ${grant ?? 'none'} and writes nothing`, async () => {
         const capability = surface().get(name);
         assert.ok(capability);
@@ -115,15 +114,6 @@ describe('screenshot saveTo', () => {
         assert.equal(fs.existsSync(path.join(root, relative)), false);
       });
     }
-
-    it(`${name} allows saveTo under grant execute because execute sees write-risk capabilities`, async () => {
-      const capability = surface().get(name);
-      assert.ok(capability);
-      const relative = path.join('exec-shots', `${name.replace(/[^a-z]/gi, '-')}.png`);
-      const result = await capability.execute({ saveTo: relative }, contextWith('execute')) as { savedTo?: string };
-      assert.ok(result.savedTo);
-      assert.equal(fs.readFileSync(path.resolve(result.savedTo), 'utf8'), 'PNGBYTES');
-    });
 
     it(`${name} without saveTo is unchanged and needs no write grant`, async () => {
       const capability = surface().get(name);
