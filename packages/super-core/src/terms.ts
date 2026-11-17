@@ -61,9 +61,19 @@ const EDGE_PUNCT_RE = /^[^\p{L}\p{N}_]+|[^\p{L}\p{N}_]+$/gu;
 const LETTER_RE = /\p{L}/u;
 
 /**
+ * Most terms one request may contribute. A long prompt (a pasted log, a plan, a
+ * whole report) carries hundreds of distinct words; as an FTS expression they
+ * make AND match nothing and the OR fallback match a large part of the store,
+ * so the pack fills with claims that share one incidental word. Past the cap
+ * the most specific terms (longest folded form) are kept, in first-seen order.
+ */
+export const MAX_RETRIEVAL_TERMS = 24;
+
+/**
  * Content terms of a request, in first-seen order and deduplicated by folded
- * form. Empty when the request carries no content word — which the caller must
- * read as "no term-based retrieval", never as "match everything".
+ * form, at most `MAX_RETRIEVAL_TERMS`. Empty when the request carries no content
+ * word — which the caller must read as "no term-based retrieval", never as
+ * "match everything".
  */
 export function buildFtsTerms(text: string): string[] {
   const terms: string[] = [];
@@ -77,7 +87,13 @@ export function buildFtsTerms(text: string): string[] {
     seen.add(folded);
     terms.push(token);
   }
-  return terms;
+  if (terms.length <= MAX_RETRIEVAL_TERMS) return terms;
+  const byLength = terms
+    .map((term, index) => ({ term, index, len: foldTerm(term).length }))
+    .sort((a, b) => b.len - a.len || a.index - b.index)
+    .slice(0, MAX_RETRIEVAL_TERMS)
+    .sort((a, b) => a.index - b.index);
+  return byLength.map((entry) => entry.term);
 }
 
 /** FTS5 expression over content terms, each a prefix match on a quoted token. */

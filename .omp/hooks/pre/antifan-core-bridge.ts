@@ -650,11 +650,17 @@ function runCoreCli(
 	const { promise, resolve } = Promise.withResolvers<CliResult>();
 	let child: ChildProcess;
 	try {
-		child = spawn(resolveNodeRuntime(), [opts.cliPath, command, argsJson], {
+		// The JSON travels on stdin ("-"), never as argv: a long prompt exceeds the
+		// Windows command-line limit and the spawn fails with ENAMETOOLONG.
+		child = spawn(resolveNodeRuntime(), [opts.cliPath, command, "-"], {
 			cwd: opts.cwd,
 			windowsHide: true,
-			stdio: ["ignore", "pipe", "pipe"],
+			stdio: ["pipe", "pipe", "pipe"],
 		});
+		child.stdin?.on("error", () => {
+			/* the CLI may exit before reading stdin; its exit code carries the outcome */
+		});
+		child.stdin?.end(argsJson);
 	} catch (err) {
 		resolve({ ok: false, reason: `spawn failed: ${err instanceof Error ? err.message : String(err)}` });
 		return promise;
@@ -865,6 +871,8 @@ interface DroppedCounts {
 	score: number;
 	coverage: number;
 	duplicate: number;
+	/** Present only when a claim's platform tag did not apply to the prompt. */
+	platform?: number;
 }
 
 interface FilteredClaims {
@@ -909,10 +917,51 @@ function roundScore(value: number): number {
  * coverage is not judged on it: Core always supplies both, so a missing one
  * means a different producer, not a weak claim.
  */
-function filterClaims(claims: Array<Record<string, unknown>>): FilteredClaims {
+/** Words a prompt can match: distinct tokens of three or more letters (a rough stand-in for Core's own term list). */
+function promptWordCount(task: string): number {
+	const words = new Set<string>();
+	for (const raw of task.toLowerCase().split(/[^\p{L}\p{N}_]+/u)) if (raw.length >= 3) words.add(raw);
+	return words.size;
+}
+
+/**
+ * Coverage a claim needs: the configured floor, raised with the length of the
+ * prompt up to 3 matched words. A claim sharing two generic words ("toàn bộ",
+ * "skill") with a long request is coincidence, not evidence; a short request
+ * keeps the floor of 1. `ANTIFAN_CORE_MIN_COVERAGE=0` still turns coverage off.
+ */
+function effectiveMinCoverage(task: string): number {
+	const floor = minCoverageFromEnv();
+	if (floor === 0) return 0;
+	return Math.max(floor, Math.min(3, Math.ceil(promptWordCount(task) / 3)));
+}
+
+const PLATFORM_PROMPT_ALIASES: Record<string, RegExp> = {
+	haravan: /haravan|\bhrv\b/i,
+	sapo: /sapo|bizweb/i,
+	shopify: /shopify/i,
+};
+
+/**
+ * A claim tagged for one e-commerce platform applies only when the workspace
+ * declares that platform or the prompt names it. Claims with no platform tag
+ * are generic and pass. Otherwise every unrelated prompt is fed claims from
+ * the platform that dominates the store.
+ */
+function claimPlatformApplies(claimPlatform: unknown, task: string, declared: string | null): boolean {
+	if (typeof claimPlatform !== "string" || claimPlatform.trim().length === 0) return true;
+	const platform = claimPlatform.trim().toLowerCase();
+	if (declared === platform) return true;
+	const alias = PLATFORM_PROMPT_ALIASES[platform];
+	if (alias) return alias.test(task);
+	return task.toLowerCase().includes(platform);
+}
+
+function filterClaims(claims: Array<Record<string, unknown>>, task = ""): FilteredClaims {
 	const kindsAllowed = injectKindsFromEnv();
 	const minScore = minScoreFromEnv();
-	const minCoverage = minCoverageFromEnv();
+	const minCoverage = effectiveMinCoverage(task);
+	const declaredPlatform = resolvePlatform();
 	const dropped: DroppedCounts = { kind: 0, score: 0, coverage: 0, duplicate: 0 };
 	const kept: Array<Record<string, unknown>> = [];
 	const slotByKey = new Map<string, number>();
@@ -932,6 +981,10 @@ function filterClaims(claims: Array<Record<string, unknown>>): FilteredClaims {
 		const coverage = finiteNumber(claim.coverage);
 		if (coverage !== null && coverage < minCoverage) {
 			dropped.coverage++;
+			continue;
+		}
+		if (!claimPlatformApplies(claim.contextPlatform, task, declaredPlatform)) {
+			dropped.platform = (dropped.platform ?? 0) + 1;
 			continue;
 		}
 		const key = normalizeStatement(claim.statement);
@@ -1397,7 +1450,7 @@ export default function antifanCoreBridgeHook(pi: BridgeAPI): void {
 			state.pack = pack;
 			state.packId = null;
 			state.coreRelease = null;
-			const filtered = filterClaims(pack.claims);
+			const filtered = filterClaims(pack.claims, task);
 			const minInject = minInjectClaimsFromEnv();
 			// A pack Core returned empty stays a pack (identity + diagnostics). A pack
 			// that had candidates but too few survivors is injected as nothing: a

@@ -203,6 +203,22 @@ test('core available: before_agent_start returns one pack message with identity'
 	});
 });
 
+test('a 100K-char prompt reaches the CLI through stdin and returns a pack, not a spawn failure', async () => {
+	const dir = tmpDir('core-bridge-long-');
+	const db = path.join(dir, 'core.db');
+	const log = path.join(dir, 'events.jsonl');
+	await withEnv({ SUPER_CORE_DB: db, ANTIFAN_CORE_BRIDGE_LOG: log, ANTIFAN_CORE_CLI: undefined, ANTIFAN_PROJECT_ROOT: undefined }, async () => {
+		const h = makePi();
+		bridgeHook(h.pi);
+		const prompt = `audit the haravan theme sections ${'lorem ipsum dolor sit amet '.repeat(4000)}`;
+		assert.ok(prompt.length > 100_000);
+		const messages = await h.emitBeforeAgentStart(prompt, { cwd: REPO });
+		assert.equal(messages.length, 1, 'exactly one message seeded');
+		assert.equal(messages[0].details.kind, 'core-context-pack', `got ${messages[0].details.event ?? ''} ${messages[0].details.reason ?? ''}`);
+		assert.ok(!h.entries.some((e) => e.data?.event === 'BRIDGE_CONTEXT_FAILED'), 'no BRIDGE_CONTEXT_FAILED');
+	});
+});
+
 test('pack diagnostics surface store debt in the banner and shutdown telemetry', async () => {
 	const dir = tmpDir('core-bridge-diag-');
 	const db = path.join(dir, 'core.db');
@@ -429,7 +445,7 @@ function recordingStub(dir, reply) {
 	const calls = path.join(dir, 'calls.jsonl');
 	const stub = writeStubCli(
 		dir,
-		`require('node:fs').appendFileSync(${JSON.stringify(calls)}, JSON.stringify({ cmd: process.argv[2], args: JSON.parse(process.argv[3] || '{}') }) + '\\n');\n${reply}`,
+		`const raw = process.argv[3] === '-' ? require('node:fs').readFileSync(0, 'utf8') : process.argv[3];\nrequire('node:fs').appendFileSync(${JSON.stringify(calls)}, JSON.stringify({ cmd: process.argv[2], args: JSON.parse(raw || '{}') }) + '\\n');\n${reply}`,
 	);
 	return { stub, calls: () => readJsonl(calls) };
 }
@@ -579,6 +595,41 @@ test('a pack whose claims all sit under the score floor injects nothing and reco
 		await h.emitBeforeAgentStart('a prompt that matches only weak claims', { cwd: REPO });
 		assert.equal(rec.calls().filter((c) => c.cmd === 'pack').length, 1);
 		assert.equal(eventsOf(h, 'BRIDGE_CONTEXT_SKIPPED').length, 1);
+	});
+});
+
+test('an unrelated prompt gets no haravan-tagged or low-coverage generic claims', async () => {
+	const dir = tmpDir('core-bridge-offtopic-');
+	const rec = packStub(dir, [
+		{ ...rule('fix_patterns library procedure', 0.48, 3), contextPlatform: 'haravan' },
+		{ ...rule('workspaceRoot must be confined', 0.46, 3), contextPlatform: 'haravan' },
+		{ ...rule('obscura panic best practice', 0.51, 2), contextPlatform: 'haravan' },
+		rule('skill antifan-theme domain procedure', 0.47, 2),
+		rule('another generic skill rule', 0.52, 2),
+		rule('third generic rule', 0.5, 2),
+	]);
+	await withEnv(FILTER_ENV(rec, dir), async () => {
+		const h = makePi();
+		bridgeHook(h.pi);
+		const messages = await h.emitBeforeAgentStart('Audit luôn giúp tôi toàn bộ các skill tôi hiện có, trừ các skill ak', { cwd: REPO });
+		assert.equal(messages.length, 0, 'nothing injected');
+		const skipped = eventsOf(h, 'BRIDGE_CONTEXT_SKIPPED');
+		assert.equal(skipped.length, 1);
+		assert.equal(skipped[0].claimCount, 0);
+	});
+	// The same claims are kept when the prompt names the platform and is short.
+	const dir2 = tmpDir('core-bridge-ontopic-');
+	const rec2 = packStub(dir2, [
+		{ ...rule('fix_patterns library procedure', 0.48, 2), contextPlatform: 'haravan' },
+		{ ...rule('workspaceRoot must be confined', 0.46, 2), contextPlatform: 'haravan' },
+		{ ...rule('obscura panic best practice', 0.51, 2), contextPlatform: 'haravan' },
+	]);
+	await withEnv(FILTER_ENV(rec2, dir2), async () => {
+		const h = makePi();
+		bridgeHook(h.pi);
+		const messages = await h.emitBeforeAgentStart('fix haravan settings schema', { cwd: REPO });
+		assert.equal(messages.length, 1);
+		assert.equal(injectedClaims(messages[0]).length, 3);
 	});
 });
 

@@ -9,7 +9,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
 import { openCore, type Core, CORE_NAMESPACES } from './index.js';
-import { buildFtsTerms, contentCoverage, ftsExpression } from './terms.js';
+import { MAX_RETRIEVAL_TERMS, buildFtsTerms, contentCoverage, ftsExpression } from './terms.js';
 import { SCHEMA_VERSION, NAMESPACE_BACKFILL_SQL } from './schema.js';
 
 function fixtureReports() {
@@ -1247,6 +1247,14 @@ test('retrieval terms are content words, emitted as prefix matches', () => {
   assert.equal(ftsExpression(['webcontent'], 'AND'), '"webcontent"*', 'terms are prefix matches');
   assert.equal(ftsExpression(['a"b', 'c'], 'OR'), '"a""b"* OR "c"*', 'quotes inside a term stay escaped');
   assert.equal(contentCoverage('WebContentsView keeps the page opaque', ['webcontent', 'opaque']), 2, 'coverage counts folded hits');
+});
+
+test('a very long prompt yields a bounded term list that keeps the specific words', () => {
+  const filler = Array.from({ length: 5000 }, (_, i) => `w${i}x`).join(' ');
+  const terms = buildFtsTerms(`${filler} WebContentsView hibernation`);
+  assert.equal(terms.length, MAX_RETRIEVAL_TERMS, 'term count is capped');
+  assert.ok(terms.includes('WebContentsView') && terms.includes('hibernation'), 'long specific words survive the cap');
+  assert.equal(buildFtsTerms('màu mặc định').length, 3, 'a short prompt is untouched');
 });
 
 test('a function word cannot retrieve a claim, and a prefix reaches a longer token', () => {

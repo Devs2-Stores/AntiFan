@@ -29,7 +29,9 @@ const path = require('node:path');
 
 const dbPath = process.env.SUPER_CORE_DB || path.join(process.cwd(), '.super-core', 'core.db');
 const cmd = process.argv[2];
-const arg = process.argv[3];
+// `-` as the argument means "read it from stdin": a long prompt cannot travel as
+// argv (Windows caps a command line near 32K, a spawn then fails ENAMETOOLONG).
+const arg = process.argv[3] === '-' ? require('node:fs').readFileSync(0, 'utf8') : process.argv[3];
 
 async function main() {
   let core;
