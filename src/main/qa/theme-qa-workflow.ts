@@ -197,6 +197,8 @@ export interface ThemeQaSummary {
   certificationReasons?: string[];
   /** One sentence telling a reader how to read `verdict` and `certification`; a structural-only PASS says it is not a visual approval. */
   readAs?: string;
+  /** Wall-clock milliseconds per phase of this run (reload, settle, evidence, layoutScans, responsive, ...); `total` bounds their sum. Telemetry only; no verdict reads it. */
+  phaseMs?: Record<string, number>;
   /** Where the registry thresholds came from: explicit caller value, the workspace contract, or the built-in defaults. */
   thresholdsSource?: QaThresholdsSource;
   /** What backed a CERTIFIED verdict: a baseline comparison per viewport, or a declared greenfield run. Absent when STRUCTURAL. */
@@ -1627,6 +1629,33 @@ export interface ThemeQaValidateInput {
   greenfield?: { reason: string; baselineExists?: boolean };
 }
 
+/**
+ * Wall-clock laps of one validate run. `lap(name)` charges the time since the previous lap to `name`
+ * (repeated names add up); `finish` returns whole milliseconds whose sum never exceeds `total`.
+ */
+class QaPhaseClock {
+  private readonly startedAt = performance.now();
+  private last = this.startedAt;
+  // Every phase is always present (0 when a run skips it) so the shape never depends on the profile.
+  private readonly laps = new Map<string, number>(
+    ['prepare', 'reload', 'settle', 'evidence', 'layoutScans', 'responsive', 'responsiveTail', 'scanners', 'stateMatrix', 'finalize'].map((name) => [name, 0] as [string, number]),
+  );
+
+  lap(name: string): void {
+    const now = performance.now();
+    this.laps.set(name, (this.laps.get(name) ?? 0) + (now - this.last));
+    this.last = now;
+  }
+
+  finish(finalName: string): Record<string, number> {
+    this.lap(finalName);
+    const out: Record<string, number> = {};
+    for (const [name, ms] of this.laps) out[name] = Math.floor(ms);
+    out.total = Math.ceil(this.last - this.startedAt);
+    return out;
+  }
+}
+
 export class ThemeQaWorkflow {
   constructor(private readonly ports: ThemeQaWorkflowPorts) {}
 
@@ -1732,6 +1761,7 @@ export class ThemeQaWorkflow {
       throw new CapabilityError('TARGET_STALE', 'Theme QA validation was aborted by document navigation', { cause: 'navigated-away' satisfies TargetStaleCause });
     }
     this.assertOwnership(input.target);
+    const phaseClock = new QaPhaseClock();
     // Greenfield is a declared exception to the baseline requirement, so it is refused unless it
     // names why no baseline exists and the catalogue found none; it also forces the responsive
     // sweep on, because the absolute gates it grades by are measured there.
@@ -1928,8 +1958,10 @@ export class ThemeQaWorkflow {
 
     const ownedReloadToken = `owned-qa-reload-${activeTarget.tabId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
+    phaseClock.lap('prepare');
     const loadPhase = await this.withTrackerIsolation(preReloadTarget, async (rebindTarget) => {
       const reload = await this.ports.reload(preReloadTarget, { ownedReloadToken });
+      phaseClock.lap('reload');
       if (input.signal?.aborted) {
         throw new CapabilityError('TARGET_STALE', 'Theme QA validation was aborted by document navigation', { cause: 'navigated-away' satisfies TargetStaleCause });
       }
@@ -2055,6 +2087,7 @@ export class ThemeQaWorkflow {
       }
       return { receipt, missingCapability, failure: undefined };
     });
+    phaseClock.lap('settle');
     const settleReceipt: VisualSettleReceiptExtended | undefined = loadPhase.result.receipt;
     const settleMissingCapability = loadPhase.result.missingCapability;
     let evidenceFailure: ThemeQaEvidenceFailure | undefined = loadPhase.result.failure;
@@ -2111,6 +2144,7 @@ export class ThemeQaWorkflow {
       if (!failure) throw error;
       evidenceFailure ??= failure;
     }
+    phaseClock.lap('evidence');
     const evidence = { dom, screenshot };
     checkAborted();
     let rawHtml = '';
@@ -2289,6 +2323,7 @@ export class ThemeQaWorkflow {
           const sweepScript = strictProfile
             ? `(() => { const reading = ${sweepIntegrityScript}; try { if (window.innerWidth <= 767) reading.visualQuality = ${VisualQualityScanner.getBrowserScanScript({ thresholds: effectiveThresholds, skipFloating: true })}; } catch (e) { reading.visualQualityError = String((e && e.message) || e); } return reading; })()`
             : sweepIntegrityScript;
+          phaseClock.lap('layoutScans');
           const responsive = await this.ports.browser.responsiveCheck({
             tabId: activeTarget.tabId,
             perWidthScript: sweepScript,
@@ -2369,6 +2404,7 @@ export class ThemeQaWorkflow {
     const runDenseHeaderSweep = input.denseHeaderSweep ?? (strictProfile && runMultiBreakpoint);
     const denseHeaderCriticals = new Map<number, LayoutIntegrityFinding[]>();
     const denseHeaderUnmeasured: number[] = [];
+    phaseClock.lap('responsive');
     if (runDenseHeaderSweep) {
       if (typeof this.ports.browser.responsiveCheck === 'function') {
         try {
@@ -2529,6 +2565,7 @@ export class ThemeQaWorkflow {
       totalImagesScanned: 0,
       totalStylesheetsScanned: 0,
     };
+    phaseClock.lap('responsiveTail');
     let assetScanRan = false;
     let documentStatus: number | undefined;
     await new Promise((r) => setImmediate(r));
@@ -2763,6 +2800,7 @@ export class ThemeQaWorkflow {
 
     // Overlays are driven open and shut with trusted input, which a static scan cannot see: an
     // unclosable drawer or an unstyled modal passes every other check on this page.
+    phaseClock.lap('scanners');
     let stateMatrixResult: StateMatrixResult | undefined;
     let stateMatrixMeasured = false;
     const stateMatrixFailures: Array<{ trigger: string; code: string; message: string }> = [];
@@ -2820,6 +2858,7 @@ export class ThemeQaWorkflow {
         await this.ports.browser.freezeMedia(activeTarget, { freeze: false, normalizeSliders: false });
       } catch {}
     }
+    phaseClock.lap('stateMatrix');
 
     // Which theme the storefront served for this run: the receipt needs it to tell a re-run of the
     // same theme from a run against a different one. Unreadable stays undefined, never a guess.
@@ -3352,7 +3391,9 @@ export class ThemeQaWorkflow {
             )
           : null
         : undefined;
+    const phaseMs = phaseClock.finish('finalize');
     const summary: ThemeQaSummary = {
+      phaseMs,
       passed: summaryVerdict === 'PASS',
       verdict: summaryVerdict,
       totalIssues,
