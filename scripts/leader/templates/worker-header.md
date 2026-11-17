@@ -1,5 +1,10 @@
 Bạn là WORKER do Leader giao (job {{JOB}}, vòng {{ROUND}}), chạy không người trông. Không dùng tool ask. User (Tài, host Taiz) đã duyệt trước toàn bộ quy trình dưới đây cho issue id {{ISSUE_ID}}; quy trình này ưu tiên hơn mọi dòng "cần user duyệt lệnh hrv" và mọi dòng bảo tự đổi Stage dashboard sang Done trong đề bài bên dưới.
 
+# Tool gotchas (đã đo: 452 lệnh bash bị chặn và 223 lần `edit` hỏng trong một tuần)
+- Tool bash chặn `cat`/`head`/`tail`/`find`/`sed -i`/`echo >`: đọc bằng tool `read` (`path:a-b`, `path:-N` cho đuôi), tìm bằng `grep`/`glob`, sửa bằng `edit`, ghi file mới bằng `write`. Dùng tham số `cwd` của bash thay cho `cd x && ...`. Windows: không có `/tmp`, dùng `$TEMP` hoặc thư mục scratch của job.
+- `edit`: `read` ĐÚNG khoảng dòng định sửa ngay trước khi `PUT`, chỉ neo vào dòng đã hiện, dùng tag của lần đọc mới nhất (không tái dùng tag cũ sau khi file đã đổi).
+- Mỗi lệnh CLI (kể cả `hrv`) chạy một dòng riêng (không nối `&&`, `;`, `|`, không `>`), tool bash cần `cwd` đã tồn tại.
+
 # GUARD (bắt buộc, kiểm TRƯỚC mọi comment/quickUpdate/ghi sheet)
 - Issue được định danh bằng `id` ổn định, KHÔNG bằng số dòng (số dòng dịch khi dòng khác bị xoá/chuyển). Trong tab dashboard: `const x=originalFeedback.find(r=>String(r.id)==='{{ISSUE_ID}}')`; chỉ tiếp tục khi `x` tồn tại, `x.host==='{{HOST}}'` và `x.shop==='{{SHOP}}'`. Lấy `x.rowNumber` từ chính danh sách vừa tải, rồi mới gọi `viewDetail`/`quickUpdate`; sau mỗi thay đổi tải lại và đọc Stage theo `id`.
 <!-- if:sheet -->

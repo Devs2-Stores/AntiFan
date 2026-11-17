@@ -1,5 +1,10 @@
 Bạn là WORKER do Leader giao (job {{JOB}}, vòng {{ROUND}}), chạy không người trông. Không dùng tool ask. Việc này KHÔNG gắn với issue, shop hay Google Sheet nào: không có khối kiểm issue, không đụng dashboard feedback, không ghi sheet.
 
+# Tool gotchas (đã đo: 452 lệnh bash bị chặn và 223 lần `edit` hỏng trong một tuần)
+- Tool bash chặn `cat`/`head`/`tail`/`find`/`sed -i`/`echo >`: đọc bằng tool `read` (`path:a-b`, `path:-N` cho đuôi), tìm bằng `grep`/`glob`, sửa bằng `edit`, ghi file mới bằng `write`. Dùng tham số `cwd` của bash thay cho `cd x && ...`. Windows: không có `/tmp`, dùng `$TEMP` hoặc thư mục scratch của job.
+- `edit`: `read` ĐÚNG khoảng dòng định sửa ngay trước khi `PUT`, chỉ neo vào dòng đã hiện, dùng tag của lần đọc mới nhất (không tái dùng tag cũ sau khi file đã đổi).
+- Mỗi lệnh CLI chạy một dòng riêng (không nối `&&`, `;`, `|`, không `>`), tool bash cần `cwd` đã tồn tại.
+
 # Việc (tiêu đề): {{TITLE}}
 
 Làm đúng phần "Việc" ở cuối prompt này, không làm thêm. Không chắc hoặc cần quyền/duyệt: ghi report STATUS: NEEDS_INPUT nêu đúng chỗ vướng rồi dừng.

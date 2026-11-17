@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { after, describe, test } from "node:test";
 
-import { MAX_DEAD_ROUNDS, MAX_ROUNDS_PER_JOB } from "../../scripts/leader/leader-job.mjs";
+import { MAX_DEAD_ROUNDS, MAX_REVIEW_ROUNDS, MAX_ROUNDS_PER_JOB } from "../../scripts/leader/leader-job.mjs";
 import { cleanup, cli, dispatch, initJob, world } from "./leader-job-cli-helpers.mjs";
 
 after(cleanup);
@@ -82,7 +82,7 @@ describe('dead rounds of other kinds', () => {
     const w = world();
     const j = initJob(w);
     assert.equal(dispatch(w, j, 'terminal-7', 'work').code, 0);
-    for (let i = 0; i < 3; i += 1) assert.equal(dispatch(w, j, 'terminal-' + (20 + i), 'review', '{{REVIEW_TARGETS}}').code, 0);
+    for (let i = 0; i < MAX_REVIEW_ROUNDS; i += 1) assert.equal(dispatch(w, j, 'terminal-' + (20 + i), 'review', '{{REVIEW_TARGETS}}').code, 0);
     j.patch((job) => {
       for (const r of job.rounds) if (r.kind === 'review') r.deadAt = Date.now();
     });

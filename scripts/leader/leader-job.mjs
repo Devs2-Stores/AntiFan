@@ -33,9 +33,53 @@ const PROBES = { themeId: "themeId.js", overflow: "overflow.js", "element-rect":
 
 export const EXIT = { OK: 0, CHECK_FAILED: 1, USAGE: 2, TIMEOUT: 3, REFUSED: 4, NEEDS_INPUT: 5, WORKER_DEAD: 6, UNDELIVERED: 7 };
 
-/** Work/followup rounds that are not dead a job may use, and dead rounds it may burn, before dispatch needs --allow-extra-round. */
+/**
+ * Work/followup rounds that are not dead a job may use, and dead rounds it may burn, before dispatch needs --allow-extra-round.
+ * --allow-extra-round is itself bounded: MAX_TOTAL_ROUNDS (every kind but close) and MAX_REVIEW_ROUNDS are hard ceilings with no override,
+ * because a Leader that keeps passing the flag turned one issue into 13 rounds ($42, 7 hours).
+ */
 export const MAX_ROUNDS_PER_JOB = 4;
 export const MAX_DEAD_ROUNDS = 3;
+export const MAX_TOTAL_ROUNDS = 8;
+export const MAX_REVIEW_ROUNDS = 2;
+const CAP_RE = /^([a-z][a-z0-9_-]{0,30})=(\d+(?:\.\d+)?)$/;
+
+/** dispatch --cap name=value (repeatable) and --forbid text (repeatable) into {limits, forbid}, or null when neither is given. */
+export function parseCaps(capFlags, forbidFlags) {
+  const limits = {};
+  for (const raw of capFlags) {
+    const m = CAP_RE.exec(String(raw));
+    if (!m) throw new CliError(EXIT.USAGE, `--cap must be name=number (lowercase name, for example --cap spend=30000 or --cap joins=8), got ${JSON.stringify(raw)}`);
+    if (Object.hasOwn(limits, m[1])) throw new CliError(EXIT.USAGE, `--cap ${m[1]} given twice`);
+    limits[m[1]] = Number(m[2]);
+  }
+  const forbid = [];
+  for (const raw of forbidFlags) {
+    const t = String(raw).trim();
+    if (!t || t.length > 200 || /[\r\n]/.test(t)) throw new CliError(EXIT.USAGE, "--forbid needs one non-empty line of at most 200 characters (for example --forbid caption-edit)");
+    if (!forbid.includes(t)) forbid.push(t);
+  }
+  if (!Object.keys(limits).length && !forbid.length) return null;
+  return { limits, forbid };
+}
+
+function capsPromptBlock(caps, capsFile) {
+  const lines = ["", "# GIỚI HẠN HÀNH ĐỘNG (Leader đặt cho vòng này, bắt buộc, ưu tiên hơn mọi dòng khác trong prompt)"];
+  for (const [name, v] of Object.entries(caps.limits)) lines.push(`- Trần \`${name}\` = ${v}: không vượt quá. Đếm đúng việc đã làm; chạm trần thì dừng và ghi STATUS: NEEDS_INPUT.`);
+  for (const t of caps.forbid) lines.push(`- CẤM: ${t}. Nếu việc cần nó, dừng và ghi STATUS: NEEDS_INPUT, đừng tự làm.`);
+  const used = Object.keys(caps.limits).map((k) => `"${k}": <số đã dùng>`).join(", ");
+  lines.push(
+    `- Report PHẢI có khoá top-level \`"caps": { ${used ? `"used": { ${used} }` : ""}${used && caps.forbid.length ? ", " : ""}${caps.forbid.length ? '"forbiddenDone": []' : ""} }\`. \`used\` là số bạn thực sự đã dùng (≤ trần), \`forbiddenDone\` liệt kê hành động bị cấm mà bạn đã lỡ làm ([] nếu không). Leader sẽ từ chối report thiếu khoá này hoặc vượt trần.`,
+  );
+  const ttb = ["spend", "joins"].filter((k) => Object.hasOwn(caps.limits, k));
+  if (ttb.length || caps.forbid.length) {
+    const args = [...ttb.map((k) => `--${k} ${caps.limits[k]}`), ...caps.forbid.map((t) => `--forbid ${JSON.stringify(t)}`)].join(" ");
+    lines.push(
+      `- Việc nào chạm máy ttb-dash (Wan/chi tiền, join nhóm, sửa caption...) thì cũng bị chặn bằng mã: trong thư mục E:/Work/ttb-dash chạy đúng một lần \`python -m ttbdash.runcaps init ${capsFile} ${args}\` (đọc E:/Work/ttb-dash/ttbdash/runcaps.py nếu cần đúng cú pháp), rồi đặt biến môi trường \`TTB_RUN_CAPS=${capsFile}\` cho mọi lệnh ttb-dash của bạn. Exit 5 từ \`runcaps charge\` nghĩa là bị từ chối: dừng, đừng thử lách.`,
+    );
+  }
+  return `${lines.join("\n")}\n`;
+}
 
 const HELP = `leader-job.mjs - Leader job ledger (feedback jobs for host ${HOST})
 
@@ -60,6 +104,7 @@ Commands
        is fenced by untrusted.mjs and placed before the task text, so the Leader never assembles a prompt by hand.
   dispatch --job DIR --worker TERMINAL [--prompt FILE] [--kind work|followup|close|review]
        [--mode auto|fresh|followup] [--allow-busy] [--allow-low-memory] [--allow-low-disk] [--allow-no-owner] [--allow-extra-round --reason "<text>"]
+       [--cap name=NUMBER]... [--forbid "<action>"]...
        Without --prompt a work/followup round uses the round's own prompt file (<slug>.prompt.md that init wrote, later
        <slug>.rN.prompt.md) and is refused when that file does not exist; close and review write their template there.
        Stamp dispatchedAt/preRunSeq, append a round, state=dispatched, print {input} for terminal.write. A followup round
@@ -77,6 +122,12 @@ Commands
        (created before the field existed, or the registry is unreadable) is not refused; the output says ownerCheck "unknown".
        A work/followup round past ${MAX_ROUNDS_PER_JOB} live rounds, or any dispatch past ${MAX_DEAD_ROUNDS} dead rounds, is refused (exit 4)
        unless --allow-extra-round --reason "<why>" (stored on the round). close and review rounds never count.
+       Hard ceilings, no override: ${MAX_TOTAL_ROUNDS} rounds of any kind but close, and ${MAX_REVIEW_ROUNDS} review rounds per job (exit 4: stop, tell the user,
+       start a new job if the work really continues). --allow-extra-round cannot lift them.
+       --cap name=NUMBER (repeatable, e.g. --cap spend=30000 --cap joins=8) and --forbid "<action>" (repeatable, e.g. --forbid caption-edit)
+       are stored on the round and written into the worker prompt; the report must echo caps {used:{name:N}, forbiddenDone:[]} and
+       validate-report fails when used exceeds a cap, a counter is missing, or forbiddenDone is not empty. spend/joins/forbid also tell
+       the worker to start ttb-dash runcaps (code-enforced) with TTB_RUN_CAPS=<jobdir>/<slug>.rN.caps.json.
        --kind review starts a read-only reviewer over the earlier rounds' reports (template review-followup.md); its
        report carries review {verdict PASS|CONCERNS|FAIL, findings[]} and never changes the verification of the work round.
        A close round's prompt carries APPROVAL_TOKEN (from approve); the worker must echo it as "closeToken" in its report.
@@ -679,6 +730,17 @@ async function cmdDispatch(flags) {
   }
   if (kind === "review" && !job.rounds.some((r) => r.kind !== "review")) throw new CliError(EXIT.REFUSED, "nothing to review: dispatch a work round first");
   let extraRoundReason = null;
+  const caps = parseCaps(many(flags, "cap"), many(flags, "forbid"));
+  if (kind !== "close") {
+    const countable = job.rounds.filter((r) => r.kind !== "close").length;
+    const reviews = job.rounds.filter((r) => r.kind === "review").length;
+    if (kind === "review" && reviews >= MAX_REVIEW_ROUNDS) {
+      throw new CliError(EXIT.REFUSED, `review cap reached: ${reviews} review rounds already ran (max ${MAX_REVIEW_ROUNDS}, no override). A further advisory pass finds what the last ones found; read their reports or ask the user`, { reviewRounds: reviews, maxReviewRounds: MAX_REVIEW_ROUNDS });
+    }
+    if (countable >= MAX_TOTAL_ROUNDS) {
+      throw new CliError(EXIT.REFUSED, `total round cap reached: ${countable} rounds already ran on this job (max ${MAX_TOTAL_ROUNDS} of any kind but close, --allow-extra-round does not lift it). Stop and tell the user what is still unresolved; start a new job only if they say the work continues`, { totalRounds: countable, maxTotalRounds: MAX_TOTAL_ROUNDS });
+    }
+  }
   if (kind === "work" || kind === "followup") {
     const used = liveWorkRounds(job);
     const dead = deadRounds(job);
@@ -770,6 +832,11 @@ async function cmdDispatch(flags) {
     if (missing.length) throw new CliError(EXIT.REFUSED, `fresh worker prompt lacks the guard values: ${missing.join(", ")}`);
   }
   if (rendered !== text) fs.writeFileSync(promptPath, rendered);
+  if (caps) {
+    const capsFile = fwd(path.join(dir, `${job.slug}.r${n}.caps.json`));
+    if (!rendered.includes("# GIỚI HẠN HÀNH ĐỘNG")) rendered = `${rendered.replace(/\s*$/, "")}\n${capsPromptBlock(caps, capsFile)}`;
+    fs.writeFileSync(promptPath, rendered);
+  }
 
   const followupText = `Đọc ${promptPath} rồi làm theo đúng hướng dẫn trong đó (ghi report vào ${reportPath}).`;
   const input = mode === "fresh" ? `omp "@${promptPath}"\r` : `${followupText}\r`;
@@ -790,6 +857,7 @@ async function cmdDispatch(flags) {
   };
   if (kind === "review") round.stateBefore = job.state;
   if (extraRoundReason) round.extraRoundReason = extraRoundReason;
+  if (caps) round.caps = caps;
   const replaced = liveWorkers(job, runsDir, inUseElsewhere(readLeaderJobs(job.leader?.terminal), job)).filter((w) => w.terminal !== worker);
   job.rounds.push(round);
   job.state = "dispatched";
@@ -812,6 +880,7 @@ async function cmdDispatch(flags) {
     roundsUsed: liveWorkRounds(job),
     maxRounds: MAX_ROUNDS_PER_JOB,
     ...(extraRoundReason ? { extraRoundReason } : {}),
+    ...(caps ? { caps } : {}),
     preRunSeq: round.preRunSeq,
     ...(commit ? { commitHeadroomBytes: commit.headroomBytes, commitFloorBytes: commit.floorBytes } : {}),
     ...(replaced.length || mode === "followup"
@@ -1070,7 +1139,7 @@ function cmdValidateReport(flags) {
   let needsInput = null;
   if (text !== null) {
     const approval = job.approval ?? {};
-    const v = validateReportText(text, job, round.n, { kind: round.kind, closeToken: approval.closeToken, tokenUsedAt: approval.tokenUsedAt, tokenUsedRound: approval.tokenUsedRound });
+    const v = validateReportText(text, job, round.n, { kind: round.kind, caps: round.caps, closeToken: approval.closeToken, tokenUsedAt: approval.tokenUsedAt, tokenUsedRound: approval.tokenUsedRound });
     needsInput = v.needsInput;
     status = v.status;
     json = v.json;
