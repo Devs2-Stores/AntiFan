@@ -724,14 +724,14 @@ app.whenReady().then(async () => {
         }
         console.log('[SMOKE-RUNNER] Step 9 PASS: Split terminal compact initial ratio (' + initialRatio.toFixed(3) + '), non-jumping click, custom drag (' + draggedRatio.toFixed(3) + '), tab switch restore (' + restoredSplitRatio.toFixed(3) + '), and clean close verified');
 
-        // Step 10: Shortcut toggle (Ctrl+Shift+D) & Focus Navigation (Alt+Down / Alt+Up)
+        // Step 10: Shortcut toggle (Alt+Shift+D; Ctrl+Shift+D is deliberately not a split chord) & Focus Navigation (Alt+Down / Alt+Up)
         const s1Textarea = s1Item.term.element?.querySelector('textarea');
         if (!s1Textarea) throw new Error('Session 1 helper textarea not found for shortcut dispatch');
-        s1Textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true }));
+        s1Textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'D', altKey: true, shiftKey: true, bubbles: true, cancelable: true }));
         await sleep(350);
 
         const shortcutLowerPane = document.getElementById('terminal-split');
-        if (!shortcutLowerPane) throw new Error('Ctrl+Shift+D failed to mount split pane in DOM');
+        if (!shortcutLowerPane) throw new Error('Alt+Shift+D failed to mount split pane in DOM');
 
         // Test Alt+Down to focus split pane
         s1Textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', altKey: true, bubbles: true, cancelable: true }));
@@ -754,13 +754,13 @@ app.whenReady().then(async () => {
           }
         }
 
-        // Toggle split off via Ctrl+Shift+D
-        s1Textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true }));
+        // Toggle split off via Alt+Shift+D
+        s1Textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'D', altKey: true, shiftKey: true, bubbles: true, cancelable: true }));
         await sleep(300);
         if (document.getElementById('terminal-split')) {
-          throw new Error('Ctrl+Shift+D failed to toggle off split pane');
+          throw new Error('Alt+Shift+D failed to toggle off split pane');
         }
-        console.log('[SMOKE-RUNNER] Step 10 PASS: Ctrl+Shift+D shortcut toggle & Alt+Up/Down focus navigation verified');
+        console.log('[SMOKE-RUNNER] Step 10 PASS: Alt+Shift+D shortcut toggle & Alt+Up/Down focus navigation verified');
 
         await helper.finish({
           ok: true,
