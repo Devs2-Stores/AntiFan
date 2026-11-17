@@ -628,18 +628,29 @@ function resolveNodeRuntime(): string {
 	return process.execPath;
 }
 
+/** Files that mark a directory as a storefront theme workspace (Haravan, Sapo or Shopify). A CLI binding file alone does not: the AntiFan repo itself carries one. */
+const THEME_WORKSPACE_MARKERS = [path.join("config", "settings_schema.json"), path.join("layout", "theme.liquid")];
+
+function isThemeWorkspace(projectRoot: string | null): boolean {
+	if (!projectRoot) return false;
+	return THEME_WORKSPACE_MARKERS.some((marker) => fs.existsSync(path.join(projectRoot, marker)));
+}
+
 /**
  * The e-commerce platform this workspace targets, when it declares one.
  *
  * Passed to `pack` so retrieval is scoped. Not inferred from the prompt: a
  * wrong guess silently drops the correct evidence, which is a worse failure
- * than the extra cross-platform claims it would avoid.
+ * than the extra cross-platform claims it would avoid. It is honoured only in
+ * a theme workspace: the variable is process-wide, so in a repo that is not a
+ * theme (AntiFan itself) it would pull every haravan-tagged claim in.
  */
-function resolvePlatform(): string | null {
+function resolvePlatform(projectRoot: string | null): string | null {
 	const raw = process.env.ANTIFAN_CORE_PLATFORM;
 	if (typeof raw !== "string") return null;
 	const value = raw.trim().toLowerCase();
-	return value.length > 0 ? value : null;
+	if (value.length === 0 || !isThemeWorkspace(projectRoot)) return null;
+	return value;
 }
 
 function runCoreCli(
@@ -957,11 +968,18 @@ function claimPlatformApplies(claimPlatform: unknown, task: string, declared: st
 	return task.toLowerCase().includes(platform);
 }
 
-function filterClaims(claims: Array<Record<string, unknown>>, task = ""): FilteredClaims {
+/**
+ * BUGFIX and FIX_PATTERN claims are mined commit subjects ("fix: fix(canary): ..."):
+ * one shared word like "fix" is no evidence they concern the prompt, so they need
+ * two matched words even for a one- or two-word prompt.
+ */
+const COMMIT_SUBJECT_KINDS: Record<string, true> = { BUGFIX: true, FIX_PATTERN: true };
+
+function filterClaims(claims: Array<Record<string, unknown>>, task = "", projectRoot: string | null = null): FilteredClaims {
 	const kindsAllowed = injectKindsFromEnv();
 	const minScore = minScoreFromEnv();
 	const minCoverage = effectiveMinCoverage(task);
-	const declaredPlatform = resolvePlatform();
+	const declaredPlatform = resolvePlatform(projectRoot);
 	const dropped: DroppedCounts = { kind: 0, score: 0, coverage: 0, duplicate: 0 };
 	const kept: Array<Record<string, unknown>> = [];
 	const slotByKey = new Map<string, number>();
@@ -979,7 +997,8 @@ function filterClaims(claims: Array<Record<string, unknown>>, task = ""): Filter
 			continue;
 		}
 		const coverage = finiteNumber(claim.coverage);
-		if (coverage !== null && coverage < minCoverage) {
+		const needed = COMMIT_SUBJECT_KINDS[kind] && minCoverage > 0 ? Math.max(minCoverage, 2) : minCoverage;
+		if (coverage !== null && coverage < needed) {
 			dropped.coverage++;
 			continue;
 		}
@@ -1399,7 +1418,7 @@ export default function antifanCoreBridgeHook(pi: BridgeAPI): void {
 				});
 				return undefined;
 			}
-			const platform = resolvePlatform();
+			const platform = resolvePlatform(state.projectRoot);
 
 			const result = await runCoreCli(
 				"pack",
@@ -1450,7 +1469,7 @@ export default function antifanCoreBridgeHook(pi: BridgeAPI): void {
 			state.pack = pack;
 			state.packId = null;
 			state.coreRelease = null;
-			const filtered = filterClaims(pack.claims, task);
+			const filtered = filterClaims(pack.claims, task, state.projectRoot);
 			const minInject = minInjectClaimsFromEnv();
 			// A pack Core returned empty stays a pack (identity + diagnostics). A pack
 			// that had candidates but too few survivors is injected as nothing: a

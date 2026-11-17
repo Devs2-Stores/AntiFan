@@ -35,6 +35,7 @@ for (const k of ['ANTIFAN_ANTI_DIRECT', 'ANTIFAN_ANTI_DIRECT_ORIGIN']) delete pr
 // ---------------------------------------------------------------------------
 
 const ENV_KEYS = [
+	'ANTIFAN_CORE_PLATFORM',
 	'SUPER_CORE_DB',
 	'ANTIFAN_CORE_CLI',
 	'ANTIFAN_CORE_BRIDGE_LOG',
@@ -628,6 +629,65 @@ test('an unrelated prompt gets no haravan-tagged or low-coverage generic claims'
 		const h = makePi();
 		bridgeHook(h.pi);
 		const messages = await h.emitBeforeAgentStart('fix haravan settings schema', { cwd: REPO });
+		assert.equal(messages.length, 1);
+		assert.equal(injectedClaims(messages[0]).length, 3);
+	});
+});
+
+// The live pack that slipped through: every claim tagged haravan, coverage 1, generic
+// commit-subject fixes, in a repo (AntiFan) that is not a theme workspace.
+const liveHaravanPack = () => [
+	{ ...rule('fix: fix(canary): stop the aggregate report claiming a live session provenance', 0.45, 2, 'BUGFIX'), contextPlatform: 'haravan' },
+	{ ...rule('fix pattern: fix(guard): completely open forbidden tool lists', 0.44, 2, 'FIX_PATTERN'), contextPlatform: 'haravan' },
+	{ ...rule('principle: check regression paths before committing', 0.53, 1, 'PRINCIPLE'), contextPlatform: 'haravan' },
+	{ ...rule('Gate 2 - choose the workflow before acting', 0.53, 1), contextPlatform: 'haravan' },
+	{ ...rule('fix: fix(verification): aggregate top-level cardinality', 0.42, 1, 'BUGFIX'), contextPlatform: 'haravan' },
+	{ ...rule('fix pattern: fix(verification): aggregate top-level cardinality', 0.42, 1, 'FIX_PATTERN'), contextPlatform: 'haravan' },
+	rule('4. Execution Workflow: read any referenced evidence diagnostics', 0.57, 1),
+	rule('4. Execution Workflow: can the defect be fixed in allowedFiles', 0.55, 1),
+];
+
+test('short fix prompts in the AntiFan repo inject no haravan-tagged or commit-subject claims, even with ANTIFAN_CORE_PLATFORM=haravan', async () => {
+	for (const prompt of ['Vậy fix đi', 'Các lỗi fix xong hết chưa?']) {
+		const dir = tmpDir('core-bridge-livepack-');
+		const rec = packStub(dir, liveHaravanPack());
+		await withEnv({ ...FILTER_ENV(rec, dir), ANTIFAN_CORE_PLATFORM: 'haravan' }, async () => {
+			const h = makePi();
+			bridgeHook(h.pi);
+			const messages = await h.emitBeforeAgentStart(prompt, { cwd: REPO });
+			assert.equal(messages.length, 0, `nothing injected for ${JSON.stringify(prompt)}`);
+			const skipped = eventsOf(h, 'BRIDGE_CONTEXT_SKIPPED');
+			assert.equal(skipped.length, 1);
+			assert.ok(skipped[0].claimCount <= 2, 'only the two generic untagged rules may survive');
+			assert.ok(skipped[0].dropped.platform >= 2, 'haravan-tagged claims that clear the coverage floor are dropped by the platform gate');
+		});
+	}
+});
+
+test('a theme workspace that declares haravan still gets haravan claims, and a prompt naming haravan injects them in the AntiFan repo', async () => {
+	const themeDir = tmpDir('core-bridge-theme-');
+	fs.mkdirSync(path.join(themeDir, 'config'), { recursive: true });
+	fs.writeFileSync(path.join(themeDir, 'config', 'settings_schema.json'), '[]');
+	const claims = [
+		{ ...rule('settings schema rule one', 0.5, 1), contextPlatform: 'haravan' },
+		{ ...rule('settings schema rule two', 0.5, 1), contextPlatform: 'haravan' },
+		{ ...rule('settings schema rule three', 0.5, 1), contextPlatform: 'haravan' },
+	];
+	const dir = tmpDir('core-bridge-themecwd-');
+	const rec = packStub(dir, claims);
+	await withEnv({ ...FILTER_ENV(rec, dir), ANTIFAN_CORE_PLATFORM: 'haravan', ANTIFAN_PROJECT_ROOT: themeDir }, async () => {
+		const h = makePi();
+		bridgeHook(h.pi);
+		const messages = await h.emitBeforeAgentStart('Vậy fix đi', { cwd: themeDir });
+		assert.equal(messages.length, 1);
+		assert.equal(injectedClaims(messages[0]).length, 3);
+	});
+	const dir2 = tmpDir('core-bridge-haravan-prompt-');
+	const rec2 = packStub(dir2, claims);
+	await withEnv(FILTER_ENV(rec2, dir2), async () => {
+		const h = makePi();
+		bridgeHook(h.pi);
+		const messages = await h.emitBeforeAgentStart('fix haravan', { cwd: REPO });
 		assert.equal(messages.length, 1);
 		assert.equal(injectedClaims(messages[0]).length, 3);
 	});
