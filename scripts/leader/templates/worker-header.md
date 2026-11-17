@@ -62,5 +62,18 @@ Bạn là WORKER do Leader giao (job {{JOB}}, vòng {{ROUND}}), chạy không ng
    }
    ```
    Ô sheet ở cột không có chữ tiêu đề (vd cột Stage nằm ở cột A): khai `"col": "", "colLetter": "A"`.
+   Báo cáo NEEDS_INPUT tối thiểu (dòng 1 và khối json là tất cả những gì validator đòi; `guard` vẫn bắt buộc, `notChecked` không bắt buộc khi không phải DONE, nhưng `needsInput` bắt buộc với 2-3 lựa chọn):
+   ```json
+   {
+     "schema": "leader-report/1",
+     "status": "NEEDS_INPUT",
+     "job": "{{JOB}}",
+     "key": "{{KEY}}",
+     "round": {{ROUND}},
+     "guard": { "issueId": "{{ISSUE_ID}}", "host": "{{HOST}}", "shop": "{{SHOP}}", "sheetId": "{{SHEET_ID}}" },
+     "summary": "...",
+     "needsInput": { "question": "...", "options": ["...", "..."] }
+   }
+   ```
    Sau khi ghi report thì kết thúc lượt. Không dùng tool ask.
 8. Cần Leader biết NGAY khi đang chạy (vướng, cần quyền/duyệt, cần user trả lời, bị chặn bởi hook): ghi ngay dòng đầu của `{{REPORT_PATH}}` thành `STATUS: NEEDS_INPUT` (kèm một dòng nêu vướng gì, đúng dòng lệnh nếu là lệnh), rồi làm tiếp phần không phụ thuộc hoặc dừng. Leader theo dõi cả đội bằng `wait-workers.mjs --mine` và thấy thay đổi dòng đầu trong ~2 giây, không cần bạn kết thúc lượt. Khi xong thì GHI ĐÈ cả file bằng báo cáo cuối đúng định dạng mục 7 (dòng 1 `STATUS: DONE|PENDING|FAILED`), không để lại dòng NEEDS_INPUT cũ.
