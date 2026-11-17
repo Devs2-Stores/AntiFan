@@ -771,12 +771,13 @@ export class CapabilityCatalogue {
     if (filter && !isCapabilityNamePermitted(definition.name, filter)) return false;
     if (definition.risk === 'read') return true;
     if (this.runtime.mode !== 'standalone') return false;
-    // Hierarchical: each grant sees everything below it. `execute` (shell input / process launch) sits above `write`
-    // so a plain write grant can no longer type into a shell; `eval` (page script) keeps its own tier and, when
-    // allowed, also sees write and execute.
+    // Tiers are EXCLUSIVE, not hierarchical: each grant sees exactly its own tier. Widening `execute` to also see
+    // `write` (or `eval` to see `execute`) hands every existing shell session the write-tier tools it never asked
+    // for, so that stays out. Closing the shell-input gap on `terminal.write` needs a per-capability grant
+    // requirement or a grants set, which is an owner decision, not a silent broadening of this rule.
     if (grant === 'write') return definition.risk === 'write';
-    if (grant === 'execute') return definition.risk === 'write' || definition.risk === 'execute';
-    if (grant === 'eval') return this.options.allowEval === true && (definition.risk === 'eval' || definition.risk === 'write' || definition.risk === 'execute');
+    if (grant === 'execute') return definition.risk === 'execute';
+    if (grant === 'eval') return this.options.allowEval === true && (definition.risk === 'eval' || definition.risk === 'write');
     return false;
   }
 
