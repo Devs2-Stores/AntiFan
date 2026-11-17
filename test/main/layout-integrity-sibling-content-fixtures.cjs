@@ -78,4 +78,55 @@ module.exports = [
       '<div class="row"><div class="box a">Overlapping words</div><div class="box b">Second line of words</div></div>'
     ),
   },
+  {
+    id: 'floating-label-on-own-field',
+    html: page(
+      '.fl{position:relative;width:300px;margin:24px 0}.fl input{display:block;width:100%;height:50px;box-sizing:border-box;padding:14px 16px;border:1px solid #999}.fl label{position:absolute;left:12px;top:-9px;padding:0 4px;background:#fff;font-size:12px}',
+      '<div class="fl"><input id="em" type="email" value="khach@example.vn"><label for="em">Email dang nhap</label></div>'
+    ),
+  },
+  {
+    id: 'read-more-button-over-clamped-text',
+    html: page(
+      '.desc{position:relative;width:300px;max-height:60px;overflow:hidden;line-height:20px}.desc p{margin:0}.more{position:absolute;left:100px;bottom:2px;width:96px;height:28px}',
+      '<div class="desc"><p>Line one of a long description. Line two of a long description. Line three of a long description. Line four of a long description. Line five of a long description. Line six of a long description.</p><button class="more" type="button">Xem them</button></div>'
+    ),
+  },
+  {
+    id: 'absolute-button-over-unclipped-text',
+    html: page(
+      '.desc{position:relative;width:300px;line-height:20px}.desc p{margin:0}.more{position:absolute;left:100px;top:30px;width:96px;height:28px}',
+      '<div class="desc"><p>Line one of a description. Line two of a description.</p><button class="more" type="button">Xem them</button></div>'
+    ),
+  },
+  {
+    id: 'label-over-different-input',
+    html: page(
+      '.fl{position:relative;width:300px;margin:24px 0}.fl input{display:block;width:100%;height:50px;box-sizing:border-box;padding:14px 16px;border:1px solid #999}.fl label{position:absolute;left:12px;top:-9px;padding:0 4px;background:#fff;font-size:12px}',
+      '<div class="fl"><input id="first" type="text" value="first value"><label for="second">Second field</label></div><div><input id="second" type="text" value="second value"></div>'
+    ),
+  },
+  {
+    id: 'label-in-other-parent-over-third-element',
+    html: page(
+      '.box{position:relative;width:300px;margin:24px 0}.box p{margin:0;line-height:20px}.box label{position:absolute;left:12px;top:12px;padding:0 4px;background:#fff;font-size:12px}',
+      '<div class="box"><button type="button" id="third" style="display:block;width:100%;height:20px">Third element</button><label for="elsewhere">Elsewhere label</label></div><div><input id="elsewhere" type="text" value="far away"></div>'
+    ),
+  },
+  {
+    // The paragraph must stay on one line: a wrapped paragraph is taller than the label, which then lies wholly
+    // inside the paragraph box and is skipped as nesting (pre-existing rule), not as a label exemption.
+    id: 'label-in-other-parent-over-paragraph',
+    html: page(
+      '.box{position:relative;width:300px;margin:24px 0}.box p{margin:0;line-height:20px}.box label{position:absolute;left:12px;top:12px;padding:0 4px;background:#fff;font-size:12px}',
+      '<div class="box"><p>Short paragraph</p><label for="elsewhere">Elsewhere label</label></div><div><input id="elsewhere" type="text" value="far away"></div>'
+    ),
+  },
+  {
+    id: 'read-more-over-hidden-container-that-fits',
+    html: page(
+      '.desc{position:relative;width:300px;height:80px;overflow:hidden;line-height:20px}.desc p{margin:0}.more{position:absolute;left:100px;top:30px;width:96px;height:28px}',
+      '<div class="desc"><p>Line one of a description. Line two of a description.</p><button class="more" type="button">Xem them</button></div>'
+    ),
+  },
 ];

@@ -96,3 +96,31 @@ test('a pair reported as text over text is not reported again (Electron probe)',
   assert.ok(r.findings.some((f) => f.kind === 'overlap' && f.severity === 'critical'), 'the stricter rule still fires');
   assert.deepEqual(siblingFindings(r), [], r.output.slice(-1200));
 });
+
+test('a floating label on its own field and a read-more control over clipped text raise no finding (Electron probe)', (t) => {
+  for (const id of ['floating-label-on-own-field', 'read-more-button-over-clamped-text']) {
+    const r = probe(id);
+    if (r.skipped) return t.skip(r.skipped);
+    assert.deepEqual(siblingFindings(r), [], `${id}: ${r.output.slice(-1200)}`);
+  }
+});
+
+test('an absolute button over text that is not clipped is still reported (Electron probe)', (t) => {
+  const r = probe('absolute-button-over-unclipped-text');
+  if (r.skipped) return t.skip(r.skipped);
+  assert.equal(siblingFindings(r).length, 1, r.output.slice(-1200));
+});
+
+test('a label over a different input than its control, or over a third element, is still reported (Electron probe)', (t) => {
+  for (const id of ['label-over-different-input', 'label-in-other-parent-over-third-element', 'label-in-other-parent-over-paragraph']) {
+    const r = probe(id);
+    if (r.skipped) return t.skip(r.skipped);
+    assert.ok(siblingFindings(r).length >= 1, `${id}: ${r.output.slice(-1200)}`);
+  }
+});
+
+test('a read-more button over an overflow:hidden container whose content fits is still reported (Electron probe)', (t) => {
+  const r = probe('read-more-over-hidden-container-that-fits');
+  if (r.skipped) return t.skip(r.skipped);
+  assert.equal(siblingFindings(r).length, 1, r.output.slice(-1200));
+});

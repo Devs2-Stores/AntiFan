@@ -1811,6 +1811,23 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
     };
     const stackLevel = (k, s, flexOrGridItem) => (s.zIndex !== 'auto' && (s.position !== 'static' || flexOrGridItem) ? s.zIndex : 'auto');
     const holds = (outer, inner) => inner.left >= outer.left - 1 && inner.right <= outer.right + 1 && inner.top >= outer.top - 1 && inner.bottom <= outer.bottom + 1;
+    // Exempt only when ALL hold: one box is a LABEL with position:absolute, and label.control (its for= target or
+    // nested field) is the other sibling or sits inside it. A label whose control is elsewhere is still reported.
+    const labelOfOther = (label, other) => {
+      if (label.tagName !== 'LABEL' || cs(label).position !== 'absolute') return false;
+      const field = label.control;
+      return Boolean(field) && (field === other || other.contains(field));
+    };
+    // Exempt only when ALL hold: the control is position:absolute and in the control set; the shared parent has an
+    // overflow other than visible; and that parent really clips (scrollHeight > clientHeight + 1) or the text box
+    // reaches past the parent edge. A parent whose content fits (nothing cut off) is still reported.
+    const readMoreOverClamp = (parentEl, ctrl, text) => {
+      if (cs(ctrl.k).position !== 'absolute' || !controlSet.has(ctrl.k)) return false;
+      const ps = cs(parentEl);
+      if (ps.overflowY === 'visible' && ps.overflow === 'visible') return false;
+      const pr = parentEl.getBoundingClientRect();
+      return parentEl.scrollHeight > parentEl.clientHeight + 1 || text.r.bottom > pr.bottom + 1 || text.r.top < pr.top - 1;
+    };
     for (let i = 0; i < elementLimit; i++) {
       const parent = allElements[i];
       if (parent.children.length < 2 || parent.closest('svg, head') || parent.closest(CAROUSEL_SLIDE)) continue;
@@ -1846,6 +1863,7 @@ const LAYOUT_INTEGRITY_SCAN = String.raw`(() => {
           const area = ix * iy;
           if (area < 64 || area < 0.2 * Math.min(A.area, B.area)) continue;
           if (holds(A.r, B.r) || holds(B.r, A.r)) continue;
+          if (labelOfOther(A.k, B.k) || labelOfOther(B.k, A.k) || readMoreOverClamp(parent, A, B) || readMoreOverClamp(parent, B, A)) continue;
           if (overlaysInside(A.k, B.k, A.r, B.r) || overlaysInside(B.k, A.k, B.r, A.r)) continue;
           const ov = { left: Math.max(A.r.left, B.r.left), top: Math.max(A.r.top, B.r.top), right: Math.min(A.r.right, B.r.right), bottom: Math.min(A.r.bottom, B.r.bottom) };
           if (reportedStrictly(ov)) continue;
