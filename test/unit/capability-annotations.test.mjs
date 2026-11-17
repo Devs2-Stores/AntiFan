@@ -25,14 +25,15 @@ test('execute tier: flagged capabilities are exactly the process/foreign-code on
   assert.ok(Object.keys(EFFECT_FLAGS).length > 5);
 });
 
-test('hierarchical grant: write cannot see execute-risk tools, execute and eval can', () => {
+test('exclusive grants: each grant sees only its own tier (execute does not inherit write)', () => {
   const cat = new CapabilityCatalogue({ allowEval: true });
   cat.runtime = { mode: 'standalone', lifecycle: 'live' };
   const def = (risk) => ({ name: `t.${risk}`, risk });
-  assert.equal(cat.isVisible(def('execute'), 'write'), false);
+  assert.equal(cat.isVisible(def('execute'), 'write'), false, 'a write grant must not reach shell input');
+  assert.equal(cat.isVisible(def('write'), 'execute'), false, 'an execute grant must not inherit write-tier tools');
   assert.equal(cat.isVisible(def('execute'), 'execute'), true);
-  assert.equal(cat.isVisible(def('write'), 'execute'), true);
-  assert.equal(cat.isVisible(def('execute'), 'eval'), true);
+  assert.equal(cat.isVisible(def('write'), 'write'), true);
+  assert.equal(cat.isVisible(def('execute'), 'eval'), false, 'eval does not inherit the execute tier');
   assert.equal(cat.isVisible(def('write'), 'eval'), true);
   assert.equal(cat.isVisible(def('eval'), 'execute'), false);
   assert.equal(cat.isVisible(def('read'), undefined), true);
