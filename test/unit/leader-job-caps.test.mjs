@@ -57,7 +57,7 @@ describe("parseCaps", () => {
     assert.equal(parseCaps([], []), null);
   });
   test("malformed values are refused", () => {
-    for (const bad of ["spend", "spend=", "Spend=1", "spend=-1", "spend=1e3", "=3"]) assert.throws(() => parseCaps([bad], []), /--cap must be/);
+    for (const bad of ["spend", "spend=", "Spend=1", "spend=-1", "spend=1e3", "=3", "spend=0", "spend=1.5"]) assert.throws(() => parseCaps([bad], []), /--cap (must be|spend must be)/);
     assert.throws(() => parseCaps(["a=1", "a=2"], []), /given twice/);
     assert.throws(() => parseCaps([], [" "]), /--forbid/);
     assert.throws(() => parseCaps([], ["x\ny"]), /--forbid/);
@@ -76,7 +76,12 @@ describe("validateCapsEcho", () => {
     assert.match(validateCapsEcho({ used: { spend: 1, joins: 1 } }, caps, "DONE").join("|"), /forbiddenDone/);
     assert.match(validateCapsEcho(undefined, caps, "DONE").join("|"), /must carry caps/);
   });
-  test("a NEEDS_INPUT report may omit the echo, but a present one is still checked", () => {
+  test("a NEEDS_INPUT report may be partial: missing counters pass, but present values are still checked", () => {
+    assert.deepEqual(validateCapsEcho({ used: { spend: 5 } }, caps, "NEEDS_INPUT"), []);
+    assert.deepEqual(validateCapsEcho({}, caps, "NEEDS_INPUT"), []);
+    assert.match(validateCapsEcho({ used: { joins: 9 } }, caps, "NEEDS_INPUT").join("|"), /cap exceeded: joins/);
+    assert.match(validateCapsEcho({ forbiddenDone: ["caption-edit"] }, caps, "NEEDS_INPUT").join("|"), /forbidden action reported done/);
+    assert.match(validateCapsEcho({ used: { spend: 5 } }, caps, "DONE").join("|"), /caps\.used\.joins/);
     assert.deepEqual(validateCapsEcho(undefined, caps, "NEEDS_INPUT"), []);
     assert.match(validateCapsEcho({ used: { spend: 500, joins: 1 }, forbiddenDone: [] }, caps, "NEEDS_INPUT").join("|"), /cap exceeded/);
   });
@@ -124,6 +129,31 @@ describe("dispatch --cap / --forbid end to end", () => {
     writeReport(j, 1, { caps: { used: { spend: 10, joins: 2 }, forbiddenDone: [] } });
     v = run();
     assert.equal(v.code, 0, v.stdout + v.stderr);
+  });
+
+  test("a reused prompt carries exactly one caps block, and a dispatch without --cap strips a stale one", () => {
+    const w = world();
+    const j = initJob(w);
+    const stale = "\n# GIỚI HẠN HÀNH ĐỘNG (cũ)\n- Trần `spend` = 1: cũ\n";
+    assert.equal(dispatch(w, j, "terminal-7", "work", stale, ["--cap", "spend=50"]).code, 0);
+    const first = fs.readFileSync(j.job().rounds[0].promptPath, "utf8");
+    assert.equal(first.match(/# GIỚI HẠN HÀNH ĐỘNG/g).length, 1);
+    assert.match(first, /`spend` = 50/);
+    assert.doesNotMatch(first, /cũ/);
+    assert.equal(dispatch(w, j, "terminal-7", "followup", stale).code, 0);
+    const second = j.job().rounds[1];
+    assert.equal(second.caps, undefined);
+    assert.doesNotMatch(fs.readFileSync(second.promptPath, "utf8"), /GIỚI HẠN HÀNH ĐỘNG/);
+  });
+
+  test("a zero or fractional --cap is refused at dispatch", () => {
+    const w = world();
+    const j = initJob(w);
+    for (const bad of ["spend=0", "joins=2.5"]) {
+      const d = dispatch(w, j, "terminal-7", "work", "", ["--cap", bad]);
+      assert.equal(d.code, 2, d.stderr);
+    }
+    assert.equal(j.job().rounds.length, 0);
   });
 
   test("a round without caps needs no echo", () => {

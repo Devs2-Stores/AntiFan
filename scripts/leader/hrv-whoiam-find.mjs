@@ -56,6 +56,8 @@ export function find(orgs, query) {
   return { found: false, orgId: null };
 }
 
+export const SAFE_BIN = /^[A-Za-z0-9._:\\/ -]+$/;
+
 export function main(argv = process.argv.slice(2), env = process.env) {
   const query = argv[0];
   if (!query) return emit({ error: "usage: hrv-whoiam-find.mjs <orgId|name>" }, 2);
@@ -63,6 +65,8 @@ export function main(argv = process.argv.slice(2), env = process.env) {
   const childEnv = { ...env, NO_COLOR: "1" };
   delete childEnv.FORCE_COLOR;
   const viaShell = process.platform === "win32" && (!env.HRV_BIN || /\.(cmd|bat)$/i.test(bin));
+  // cmd.exe parses the line when a .cmd shim runs: only a plain path may reach it (no quote, &, |, <, >, ^, %, !, backtick, newline).
+  if (viaShell && !SAFE_BIN.test(bin)) return emit({ error: "HRV_BIN must be a plain path (letters, digits, space, . _ - : / \\) to run through the shell" }, 2);
   const opts = { encoding: "utf8", timeout: 60_000, maxBuffer: 16 * 1024 * 1024, windowsHide: true, env: childEnv };
   const r = viaShell ? spawnSync(`"${bin}" whoiam`, { ...opts, shell: true }) : spawnSync(bin, ["whoiam"], opts);
   if (r.error) return emit({ error: `cannot run ${path.basename(bin)}: ${String(r.error.code ?? r.error.message).slice(0, 120)}` }, 1);

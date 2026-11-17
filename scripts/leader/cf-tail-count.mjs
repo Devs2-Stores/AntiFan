@@ -105,6 +105,11 @@ export function summarizeTail(lines, { org = null, top: n = 10 } = {}) {
   };
 }
 
+import { createRequire } from "node:module";
+
+/** Every value that reaches the wrangler child: letters, digits, dot, underscore, hyphen only (no shell metacharacter, no flag-looking value). */
+export const SAFE_ARG = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
 function parseArgs(argv) {
   const o = { top: 10, minutes: 2 };
   for (let i = 0; i < argv.length; i++) {
@@ -123,15 +128,39 @@ function parseArgs(argv) {
     else if (a === "--cwd") o.cwd = val();
     else throw new Error(`unknown argument ${a}`);
   }
+  for (const [flag, v] of [["--worker", o.worker], ["--org", o.org]]) {
+    if (v !== undefined && !SAFE_ARG.test(v)) throw new Error(`${flag} must match ${SAFE_ARG} (got ${JSON.stringify(String(v).slice(0, 60))})`);
+  }
   if (!Number.isFinite(o.top) || o.top < 1) throw new Error("--top must be a positive number");
   if (!Number.isFinite(o.minutes) || o.minutes <= 0 || o.minutes > 30) throw new Error("--minutes must be 0-30");
   if ([o.file, o.stdin, o.worker].filter(Boolean).length !== 1) throw new Error("give exactly one of --file, --stdin, --worker");
   return o;
 }
 
-function tailWorker(worker, minutes, cwd) {
+/** wrangler's own entry point, found from `cwd` (no PATH lookup, no cmd.exe): node runs it directly with shell:false. */
+export function resolveWrangler(cwd) {
+  try {
+    return createRequire(path.join(cwd, "noop.js")).resolve("wrangler/bin/wrangler.js");
+  } catch {
+    throw new Error(`wrangler is not installed under ${cwd}: run npm i there, or tail with --file/--stdin`);
+  }
+}
+
+export function tailArgs(worker, wranglerJs) {
+  if (!SAFE_ARG.test(String(worker))) throw new Error(`worker name must match ${SAFE_ARG}`);
+  return [wranglerJs, "tail", worker, "--format", "json"];
+}
+
+function tailWorker(worker, minutes, cwd, spawnFn = spawn) {
   return new Promise((resolve, reject) => {
-    const child = spawn("npx", ["wrangler", "tail", worker, "--format", "json"], { cwd, shell: process.platform === "win32", stdio: ["ignore", "pipe", "pipe"] });
+    let argv;
+    try {
+      argv = tailArgs(worker, resolveWrangler(cwd));
+    } catch (e) {
+      reject(e);
+      return;
+    }
+    const child = spawnFn(process.execPath, argv, { cwd, shell: false, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
     let out = "";
     let err = "";
     child.stdout.on("data", (d) => (out += d));

@@ -42,16 +42,21 @@ export const MAX_ROUNDS_PER_JOB = 4;
 export const MAX_DEAD_ROUNDS = 3;
 export const MAX_TOTAL_ROUNDS = 8;
 export const MAX_REVIEW_ROUNDS = 2;
-const CAP_RE = /^([a-z][a-z0-9_-]{0,30})=(\d+(?:\.\d+)?)$/;
+const CAP_RE = /^([a-z][a-z0-9_-]{0,30})=(\d+)$/;
+const CAPS_HEADING = "# GIỚI HẠN HÀNH ĐỘNG";
+/** Drop every caps block (its heading and the bullet lines under it) so a reused prompt never carries a stale limit. */
+export const stripCapsBlock = (text) => text.replace(/\n?# GIỚI HẠN HÀNH ĐỘNG[^\n]*\n(?:- [^\n]*(?:\n|$))*/g, "\n");
 
 /** dispatch --cap name=value (repeatable) and --forbid text (repeatable) into {limits, forbid}, or null when neither is given. */
 export function parseCaps(capFlags, forbidFlags) {
   const limits = {};
   for (const raw of capFlags) {
     const m = CAP_RE.exec(String(raw));
-    if (!m) throw new CliError(EXIT.USAGE, `--cap must be name=number (lowercase name, for example --cap spend=30000 or --cap joins=8), got ${JSON.stringify(raw)}`);
+    if (!m) throw new CliError(EXIT.USAGE, `--cap must be name=positive integer (lowercase name, for example --cap spend=30000 or --cap joins=8; forbid an action with --forbid instead of a zero cap), got ${JSON.stringify(raw)}`);
     if (Object.hasOwn(limits, m[1])) throw new CliError(EXIT.USAGE, `--cap ${m[1]} given twice`);
-    limits[m[1]] = Number(m[2]);
+    const v = Number(m[2]);
+    if (!Number.isSafeInteger(v) || v < 1) throw new CliError(EXIT.USAGE, `--cap ${m[1]} must be an integer greater than 0, got ${JSON.stringify(m[2])}`);
+    limits[m[1]] = v;
   }
   const forbid = [];
   for (const raw of forbidFlags) {
@@ -64,7 +69,7 @@ export function parseCaps(capFlags, forbidFlags) {
 }
 
 function capsPromptBlock(caps, capsFile) {
-  const lines = ["", "# GIỚI HẠN HÀNH ĐỘNG (Leader đặt cho vòng này, bắt buộc, ưu tiên hơn mọi dòng khác trong prompt)"];
+  const lines = ["", `${CAPS_HEADING} (Leader đặt cho vòng này, bắt buộc, ưu tiên hơn mọi dòng khác trong prompt)`];
   for (const [name, v] of Object.entries(caps.limits)) lines.push(`- Trần \`${name}\` = ${v}: không vượt quá. Đếm đúng việc đã làm; chạm trần thì dừng và ghi STATUS: NEEDS_INPUT.`);
   for (const t of caps.forbid) lines.push(`- CẤM: ${t}. Nếu việc cần nó, dừng và ghi STATUS: NEEDS_INPUT, đừng tự làm.`);
   const used = Object.keys(caps.limits).map((k) => `"${k}": <số đã dùng>`).join(", ");
@@ -75,7 +80,7 @@ function capsPromptBlock(caps, capsFile) {
   if (ttb.length || caps.forbid.length) {
     const args = [...ttb.map((k) => `--${k} ${caps.limits[k]}`), ...caps.forbid.map((t) => `--forbid ${JSON.stringify(t)}`)].join(" ");
     lines.push(
-      `- Việc nào chạm máy ttb-dash (Wan/chi tiền, join nhóm, sửa caption...) thì cũng bị chặn bằng mã: trong thư mục E:/Work/ttb-dash chạy đúng một lần \`python -m ttbdash.runcaps init ${capsFile} ${args}\` (đọc E:/Work/ttb-dash/ttbdash/runcaps.py nếu cần đúng cú pháp), rồi đặt biến môi trường \`TTB_RUN_CAPS=${capsFile}\` cho mọi lệnh ttb-dash của bạn. Exit 5 từ \`runcaps charge\` nghĩa là bị từ chối: dừng, đừng thử lách.`,
+      `- Một hành động chỉ bị chặn bằng mã khi script ttb-dash thực hiện nó gọi \`runcaps.charge\`; hành động khác chỉ được giữ bằng report \`caps\` ở trên và việc Leader tự kiểm, nên đừng coi "CẤM" là có rào cản kỹ thuật. Nếu bạn chạy script ttb-dash (Wan/chi tiền, join nhóm...): trong thư mục E:/Work/ttb-dash chạy đúng một lần \`python -m ttbdash.runcaps init ${capsFile} ${args}\` (đọc E:/Work/ttb-dash/ttbdash/runcaps.py nếu cần đúng cú pháp), rồi đặt biến môi trường \`TTB_RUN_CAPS=${capsFile}\` cho mọi lệnh ttb-dash của bạn. Exit 5 từ \`runcaps charge\` nghĩa là bị từ chối: dừng, đừng thử lách.`,
     );
   }
   return `${lines.join("\n")}\n`;
@@ -831,12 +836,9 @@ async function cmdDispatch(flags) {
     const missing = [["issueId", String(s.issueId)], ["host", s.host], ["shop", s.shop], ["sheetId", s.sheetId]].filter(([, v]) => !rendered.includes(v)).map(([k]) => k);
     if (missing.length) throw new CliError(EXIT.REFUSED, `fresh worker prompt lacks the guard values: ${missing.join(", ")}`);
   }
+  rendered = stripCapsBlock(rendered);
+  if (caps) rendered = `${rendered.replace(/\s*$/, "")}\n${capsPromptBlock(caps, fwd(path.join(dir, `${job.slug}.r${n}.caps.json`)))}`;
   if (rendered !== text) fs.writeFileSync(promptPath, rendered);
-  if (caps) {
-    const capsFile = fwd(path.join(dir, `${job.slug}.r${n}.caps.json`));
-    if (!rendered.includes("# GIỚI HẠN HÀNH ĐỘNG")) rendered = `${rendered.replace(/\s*$/, "")}\n${capsPromptBlock(caps, capsFile)}`;
-    fs.writeFileSync(promptPath, rendered);
-  }
 
   const followupText = `Đọc ${promptPath} rồi làm theo đúng hướng dẫn trong đó (ghi report vào ${reportPath}).`;
   const input = mode === "fresh" ? `omp "@${promptPath}"\r` : `${followupText}\r`;

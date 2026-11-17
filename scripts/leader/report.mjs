@@ -206,14 +206,15 @@ export function validateReportObject(parsed, job, round, ctx = {}) {
 /**
  * The round's side-effect caps (dispatch --cap name=value / --forbid text) against the worker's own `caps` echo:
  * { used: {name: number}, forbiddenDone: [] }. Usage above a cap, a missing counter or any forbidden action listed is an error.
- * A NEEDS_INPUT report may omit the echo (it can be written mid-run), but a present echo is still checked.
+ * A NEEDS_INPUT report may omit the echo or list only some counters (it can be written mid-run), but any value present is still checked.
  */
 export function validateCapsEcho(echo, caps, status) {
   const errors = [];
   const limits = caps.limits ?? {};
   const forbid = caps.forbid ?? [];
+  const partial = status === "NEEDS_INPUT";
   if (echo === undefined) {
-    if (status !== "NEEDS_INPUT") {
+    if (!partial) {
       const want = [...Object.keys(limits).map((k) => `used.${k}`), ...(forbid.length ? ["forbiddenDone"] : [])].join(", ");
       errors.push(`this round has side-effect caps: the report must carry caps {used, forbiddenDone} (${want})`);
     }
@@ -222,16 +223,20 @@ export function validateCapsEcho(echo, caps, status) {
   if (!isObj(echo)) return ["caps must be an object {used: {name: number}, forbiddenDone: []}"];
   const names = Object.keys(limits);
   if (names.length) {
-    if (!isObj(echo.used)) errors.push("caps.used must be an object of counters, one per cap");
-    else {
+    if (echo.used !== undefined && !isObj(echo.used)) errors.push("caps.used must be an object of counters, one per cap");
+    else if (echo.used === undefined) {
+      if (!partial) errors.push("caps.used must be an object of counters, one per cap");
+    } else {
       for (const name of names) {
         const v = echo.used[name];
+        if (v === undefined && partial) continue;
         if (typeof v !== "number" || !Number.isFinite(v) || v < 0) errors.push(`caps.used.${name} must be a non-negative number (cap ${limits[name]})`);
         else if (v > limits[name]) errors.push(`cap exceeded: ${name} used ${v}, cap ${limits[name]}`);
       }
     }
   }
   if (forbid.length) {
+    if (echo.forbiddenDone === undefined && partial) return errors;
     if (!isStrArray(echo.forbiddenDone)) errors.push("caps.forbiddenDone must be an array of strings (forbidden actions you did; [] when none)");
     else if (echo.forbiddenDone.length) errors.push(`forbidden action reported done: ${echo.forbiddenDone.join(", ")}`);
   }

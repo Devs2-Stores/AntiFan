@@ -5,7 +5,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { after, describe, test } from "node:test";
 
-import { summarizeTail } from "../../scripts/leader/cf-tail-count.mjs";
+import { resolveWrangler, SAFE_ARG, summarizeTail, tailArgs } from "../../scripts/leader/cf-tail-count.mjs";
+import { SAFE_BIN } from "../../scripts/leader/hrv-whoiam-find.mjs";
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "cf-tail-"));
 after(() => fs.rmSync(TMP, { recursive: true, force: true }));
@@ -53,5 +54,41 @@ describe("summarizeTail", () => {
     assert.equal(JSON.parse(ok.stdout).matched, 2);
     const bad = spawnSync(process.execPath, [script], { encoding: "utf8" });
     assert.equal(bad.status, 2);
+  });
+});
+
+const INJECTIONS = ["x & calc", "x && calc", "x | more", "x; id", 'x"y', "x\ny", "$(id)", "`id`", "--format", "-x", "a b", "%PATH%", "x>out", ""];
+
+describe("no shell reaches the child processes", () => {
+  const script = path.resolve("scripts/leader/cf-tail-count.mjs");
+  test("SAFE_ARG accepts worker names and refuses every injection string", () => {
+    for (const ok of ["f1genz-multilanguage", "worker_1.v2", "123"]) assert.ok(SAFE_ARG.test(ok), ok);
+    for (const bad of INJECTIONS) assert.ok(!SAFE_ARG.test(bad), JSON.stringify(bad));
+  });
+  test("--worker and --org injections exit 2 before anything is spawned", () => {
+    for (const bad of INJECTIONS.filter((b) => b)) {
+      for (const flag of ["--worker", "--org"]) {
+        const r = spawnSync(process.execPath, [script, flag, bad, ...(flag === "--org" ? ["--stdin"] : [])], { encoding: "utf8", input: "" });
+        assert.equal(r.status, 2, `${flag} ${JSON.stringify(bad)} ${r.stderr}`);
+        assert.match(r.stderr, /must match/);
+        assert.equal(r.stdout, "");
+      }
+    }
+  });
+  test("tailArgs refuses an unsafe name and returns an argv array, never a command line string", () => {
+    assert.deepEqual(tailArgs("my-worker", "W.js"), ["W.js", "tail", "my-worker", "--format", "json"]);
+    for (const bad of INJECTIONS) assert.throws(() => tailArgs(bad, "W.js"), /must match/);
+  });
+  test("resolveWrangler reports a missing install instead of falling back to PATH or a shell", () => {
+    assert.throws(() => resolveWrangler(TMP), /wrangler is not installed/);
+  });
+  test("hrv-whoiam-find only lets a plain path reach cmd.exe (SAFE_BIN)", () => {
+    for (const ok of ["hrv", "C:\\Program Files\\hrv\\hrv.cmd", "C:/tools/hrv.cmd"]) assert.ok(SAFE_BIN.test(ok), ok);
+    for (const bad of ['x"&calc&"y.cmd', "x|y.cmd", "x^y.cmd", "%COMSPEC%.cmd", "x\ny.cmd", "x>y.cmd", "`id`.cmd"]) assert.ok(!SAFE_BIN.test(bad), JSON.stringify(bad));
+  });
+  test("hrv-whoiam-find refuses an injected HRV_BIN before spawning (win32)", { skip: process.platform !== "win32" }, () => {
+    const r = spawnSync(process.execPath, [path.resolve("scripts/leader/hrv-whoiam-find.mjs"), "123456"], { encoding: "utf8", env: { ...process.env, HRV_BIN: 'x" & echo pwned & "y.cmd' } });
+    assert.equal(r.status, 2, r.stdout + r.stderr);
+    assert.match(r.stdout, /plain path/);
   });
 });
