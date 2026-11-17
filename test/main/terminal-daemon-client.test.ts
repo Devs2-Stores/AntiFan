@@ -15,6 +15,7 @@ import * as net from 'node:net';
 import * as http from 'node:http';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { DaemonClient, DaemonTerminalProxy, HANDSHAKE_TIMEOUT_MS } from '../../src/main/terminal-daemon/daemon-client';
+import { CapabilityError } from '../../src/shared/control-plane-contracts';
 import { HOST_METHOD, HOST_EVENT_TO_LOCAL } from '../../src/main/terminal-daemon/protocol';
 
 const SETTLE_BOUND_MS = 2000;
@@ -507,5 +508,54 @@ describe('DaemonTerminalProxy — workspace capsule scope', () => {
     assert.equal(state.activeSessionId, 'session-b', 'the cached active session is what the daemon last reported');
 
     assert.equal(JSON.stringify(proxy.getSessionState()), before, 'a read never rewrites the cache');
+  });
+});
+
+describe('DaemonClient — typed refusals survive the RPC', () => {
+  async function callAgainst(reply: (id: string) => Record<string, unknown>): Promise<unknown> {
+    const openSockets = new Set<net.Socket>();
+    const server = http.createServer();
+    const wss = new WebSocketServer({ server });
+    server.on('connection', (s) => {
+      openSockets.add(s);
+      s.on('close', () => openSockets.delete(s));
+    });
+    wss.on('connection', (ws) => {
+      ws.on('message', (raw) => {
+        const frame = JSON.parse(String(raw)) as { id: string };
+        ws.send(JSON.stringify(reply(frame.id)));
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const addr = server.address() as net.AddressInfo;
+    const client = new DaemonClient({ port: addr.port, token: 'test-token' });
+    try {
+      return await client.call('x').then(() => undefined, (err: unknown) => err);
+    } finally {
+      client.close();
+      for (const s of openSockets) s.destroy();
+      wss.close();
+      server.close();
+    }
+  }
+
+  it('rebuilds a CapabilityError with its code and details', async () => {
+    const err = await callAgainst((id) => ({
+      id,
+      success: false,
+      error: 'Terminal wait timed out after 5000ms',
+      data: { capabilityError: { code: 'WAIT_TIMEOUT', details: { lastSeq: 9, sessionGeneration: 2 } } },
+    }));
+    assert.ok(err instanceof CapabilityError);
+    assert.equal(err.code, 'WAIT_TIMEOUT');
+    assert.equal(err.message, 'Terminal wait timed out after 5000ms');
+    assert.equal(err.details?.lastSeq, 9);
+  });
+
+  it('keeps a plain Error for an untyped daemon failure', async () => {
+    const err = await callAgainst((id) => ({ id, success: false, error: 'boom' }));
+    assert.ok(err instanceof Error);
+    assert.ok(!(err instanceof CapabilityError));
+    assert.equal(err.message, 'boom');
   });
 });

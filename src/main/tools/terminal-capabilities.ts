@@ -11,6 +11,7 @@ import {
   type TargetStaleCause,
 } from '../../shared/control-plane-contracts';
 import type { TerminalRunSnapshot } from '../../shared/contracts';
+import { SHARE_TAB_GUIDANCE } from '../../shared/tab-sharing';
 import { LeaderRegistry, type LeaderMintedRecord } from '../leader/leader-registry';
 import {
   clearRunFilesOf,
@@ -221,8 +222,8 @@ export const TERMINAL_WAIT_MAX_TIMEOUT_MS = TERMINAL_WAIT_BUDGET_MS - TERMINAL_W
 
 /**
  * The deadline a `terminal.wait` call runs with: the caller's own up to the per-call maximum.
- * `clamped` is set only when the caller asked for more than one call may block, which is the one
- * case where running out of time is the cap's doing rather than the caller's.
+ * `clamped` is set when the caller asked for more than one call may block. Either way a deadline that
+ * elapses is an answer, not a failure: `{satisfied:false,timedOut:true}` with the cursor to continue from.
  */
 export function planTerminalWaitTimeout(requested: number | undefined): { timeoutMs: number; clamped: boolean } {
   if (typeof requested !== 'number' || !Number.isFinite(requested)) return { timeoutMs: TERMINAL_WAIT_MAX_TIMEOUT_MS, clamped: false };
@@ -230,10 +231,20 @@ export function planTerminalWaitTimeout(requested: number | undefined): { timeou
   return { timeoutMs: requested, clamped: false };
 }
 
-function clampedWaitTimedOutResult(sessionId: string, requestedTimeoutMs: number, err: CapabilityError): TerminalWaitTimedOutResult {
+function waitTimedOutResult(
+  sessionId: string,
+  requestedTimeoutMs: number | undefined,
+  plan: { timeoutMs: number; clamped: boolean },
+  err: CapabilityError,
+  what: string
+): TerminalWaitTimedOutResult {
   const details = err.details ?? {};
   const lastSeq = typeof details.lastSeq === 'number' ? details.lastSeq : 0;
   const sessionGeneration = typeof details.sessionGeneration === 'number' ? details.sessionGeneration : 0;
+  const requested = requestedTimeoutMs ?? plan.timeoutMs;
+  const shortened = plan.clamped
+    ? `terminal.wait runs at most ${TERMINAL_WAIT_MAX_TIMEOUT_MS}ms per call (the platform aborts a call at its ${TERMINAL_WAIT_BUDGET_MS}ms execution deadline, so the wait answers ${TERMINAL_WAIT_BUDGET_MARGIN_MS}ms ahead of it), so the requested ${requested}ms was shortened and ${what} within ${plan.timeoutMs}ms. `
+    : `${what} within the requested ${plan.timeoutMs}ms. `;
   return {
     satisfied: false,
     timedOut: true,
@@ -241,11 +252,11 @@ function clampedWaitTimedOutResult(sessionId: string, requestedTimeoutMs: number
     sessionGeneration,
     lastSeq,
     ...(typeof details.outputTail === 'string' ? { outputTail: details.outputTail } : {}),
-    timeoutMs: TERMINAL_WAIT_MAX_TIMEOUT_MS,
-    requestedTimeoutMs,
+    timeoutMs: plan.timeoutMs,
+    requestedTimeoutMs: requested,
     maxTimeoutMs: TERMINAL_WAIT_MAX_TIMEOUT_MS,
     message:
-      `terminal.wait runs at most ${TERMINAL_WAIT_MAX_TIMEOUT_MS}ms per call (the platform aborts a call at its ${TERMINAL_WAIT_BUDGET_MS}ms execution deadline, so the wait answers ${TERMINAL_WAIT_BUDGET_MARGIN_MS}ms ahead of it), so the requested ${requestedTimeoutMs}ms was shortened and elapsed without the condition. ` +
+      shortened +
       `The session is unaffected: call terminal.wait again with afterSeq=${lastSeq} and the same condition and pattern, and repeat until it is satisfied.`,
   };
 }
@@ -662,13 +673,13 @@ async function waitForRunIdle(
     return { satisfied: true, sessionGeneration, lastSeq, run };
   } catch (err) {
     if (!(err instanceof CapabilityError) || err.code !== 'WAIT_TIMEOUT') throw err;
-    const details = { ...err.details, sessionGeneration, lastSeq };
-    const timeout = new CapabilityError('WAIT_TIMEOUT', err.message, details);
-    if (!plan.clamped) throw timeout;
+    const timeout = new CapabilityError('WAIT_TIMEOUT', err.message, { ...err.details, sessionGeneration, lastSeq });
     return {
-      ...clampedWaitTimedOutResult(params.sessionId, params.timeoutMs as number, timeout),
+      ...waitTimedOutResult(params.sessionId, params.timeoutMs, plan, timeout, 'the run did not settle'),
       message:
-        `terminal.wait runs at most ${TERMINAL_WAIT_MAX_TIMEOUT_MS}ms per call, so the requested ${params.timeoutMs}ms was shortened and the run did not settle in time. ` +
+        (plan.clamped
+          ? `terminal.wait runs at most ${TERMINAL_WAIT_MAX_TIMEOUT_MS}ms per call, so the requested ${params.timeoutMs}ms was shortened and the run did not settle in time. `
+          : `The run did not settle within the requested ${plan.timeoutMs}ms. `) +
         `The terminal is unaffected: call terminal.wait again with condition "run-idle" (same minRunSeq / afterEventAt) and repeat until it is satisfied.`,
     };
   }
@@ -727,7 +738,6 @@ async function waitForAnyRunIdle(
     return { satisfied: true, sessionId, sessionIds: [...sessionIds], ...sleepingNote, ...cursorOf(sessionId), run };
   } catch (err) {
     if (!(err instanceof CapabilityError) || err.code !== 'WAIT_TIMEOUT') throw err;
-    if (!plan.clamped) throw new CapabilityError('WAIT_TIMEOUT', err.message, { ...err.details, sessionIds: [...sessionIds], ...sleepingNote });
     return {
       satisfied: false,
       timedOut: true,
@@ -735,11 +745,13 @@ async function waitForAnyRunIdle(
       sessionIds: [...sessionIds],
       ...sleepingNote,
       ...cursorOf(firstAwake),
-      timeoutMs: TERMINAL_WAIT_MAX_TIMEOUT_MS,
-      requestedTimeoutMs: params.timeoutMs as number,
+      timeoutMs: plan.timeoutMs,
+      requestedTimeoutMs: params.timeoutMs ?? plan.timeoutMs,
       maxTimeoutMs: TERMINAL_WAIT_MAX_TIMEOUT_MS,
       message:
-        `terminal.wait runs at most ${TERMINAL_WAIT_MAX_TIMEOUT_MS}ms per call, so the requested ${params.timeoutMs}ms was shortened and none of the ${awake.length} terminals settled in time. ` +
+        (plan.clamped
+          ? `terminal.wait runs at most ${TERMINAL_WAIT_MAX_TIMEOUT_MS}ms per call, so the requested ${params.timeoutMs}ms was shortened and none of the ${awake.length} terminals settled in time. `
+          : `None of the ${awake.length} terminals settled within the requested ${plan.timeoutMs}ms. `) +
         `They are unaffected: call terminal.wait again with the same sessionIds and condition "run-idle" and repeat until one is satisfied.`,
     };
   }
@@ -1294,8 +1306,8 @@ export function registerTerminalCapabilities(
         if (condition === 'run-idle') return await waitForRunIdle(input, lifecycle, plan, signal);
         return await terminal.waitTerminal({ ...input, timeoutMs: plan.timeoutMs }, signal);
       } catch (err) {
-        if (plan.clamped && err instanceof CapabilityError && err.code === 'WAIT_TIMEOUT') {
-          return clampedWaitTimedOutResult(sessionId, params.timeoutMs as number, err);
+        if (err instanceof CapabilityError && err.code === 'WAIT_TIMEOUT') {
+          return waitTimedOutResult(sessionId, params.timeoutMs, plan, err, 'the condition was not met');
         }
         throw err;
       }
@@ -1534,12 +1546,14 @@ export function registerTerminalCapabilities(
       if (!affiliation.live) {
         throw new CapabilityError(
           'TARGET_STALE',
-          `Target tab "${scope.tabId}" is not owned by any live window`,
+          `Target tab "${scope.tabId}" is not owned by any live window, so repeating the same call cannot succeed. Call anti.browser.tabs.list, then anti.browser.rebind_target with a live tabId. ${SHARE_TAB_GUIDANCE}`,
           {
             tabId: scope.tabId,
             cause: 'unowned' satisfies TargetStaleCause,
             canRebind: true,
+            retryable: false,
             recovery: 'anti.browser.tabs.list then anti.browser.rebind_target',
+            shareRecovery: SHARE_TAB_GUIDANCE,
           }
         );
       }

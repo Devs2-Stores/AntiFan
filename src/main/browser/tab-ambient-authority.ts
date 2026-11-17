@@ -119,11 +119,13 @@ export class TabAmbientAuthority {
       const owner = this.deps.directory.hostForTab(tabId);
       if (owner) return owner;
       this.noteUnowned(tabId, 'bootstrap-refusal');
-      throw new CapabilityError('TARGET_STALE', `Target tab '${tabId}' is not owned by any live window`, {
+      throw new CapabilityError('TARGET_STALE', `Target tab '${tabId}' is not owned by any live window, so repeating the same call cannot succeed. Call anti.browser.tabs.list, then anti.browser.rebind_target with a live tabId (or open a new one with anti.browser.tabs.create). ${SHARE_TAB_GUIDANCE}`, {
         tabId,
         canRebind: true,
+        retryable: false,
         cause: 'unowned' satisfies TargetStaleCause,
         recovery: 'anti.browser.tabs.list',
+        shareRecovery: SHARE_TAB_GUIDANCE,
       });
     }
     return this.ambientHostOrThrow(projectId);
@@ -144,12 +146,13 @@ export class TabAmbientAuthority {
     if (owner.kind === 'project' && owner.projectId !== projectId) {
       throw new CapabilityError(
         'POLICY_DENIED',
-        `Cannot create a tab for project '${projectId}' on anchor tab '${anchorTabId}': the anchor lives in the window of project '${owner.projectId}'. A tab pinned to one project's capsule is never placed in another project's window. Rebind the session to a live tab of project '${projectId}' (anti.browser.rebind_target), then retry.`,
+        `Cannot create a tab for project '${projectId}' on anchor tab '${anchorTabId}': the anchor lives in the window of project '${owner.projectId}'. A tab pinned to one project's capsule is never placed in another project's window. Rebind the session to a live tab of project '${projectId}' (anti.browser.rebind_target), then retry. ${SHARE_TAB_GUIDANCE}`,
         {
           anchorTabId,
           requestedProjectId: projectId,
           windowProjectId: owner.projectId,
           recovery: 'anti.browser.rebind_target',
+          shareRecovery: SHARE_TAB_GUIDANCE,
         }
       );
     }

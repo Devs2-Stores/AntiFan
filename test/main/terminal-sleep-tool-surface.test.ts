@@ -352,9 +352,10 @@ describe('Terminal sleep: tool surface + Haravan sync barrier tolerance', () => 
       'terminal.wait',
       { sessionId: id, condition: 'output-match', pattern: 'AWAKE_MARKER_ABSENT', timeoutMs: 120 },
       readContext()
-    ).catch((err: unknown) => err)) as CapabilityError;
-    assert.ok(waitResult instanceof CapabilityError);
-    assert.strictEqual(waitResult.code, 'WAIT_TIMEOUT', 'a running session keeps the historical wait semantics');
+    )) as { satisfied: boolean; timedOut?: boolean; sleeping?: boolean };
+    assert.strictEqual(waitResult.satisfied, false);
+    assert.strictEqual(waitResult.timedOut, true, 'a running session that never matches answers a normal timedOut result');
+    assert.strictEqual(waitResult.sleeping, undefined);
   });
 
   it('3. terminal.write reports an un-woken sleeping session honestly instead of claiming delivery', async () => {

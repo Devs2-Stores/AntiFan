@@ -242,50 +242,42 @@ describe('Terminal Capabilities, Generation Tracking & Wait Lifecycle (Phase 04)
     assert.ok(waitRes.lastSeq > afterSeq);
 
     // Output that arrived at or before afterSeq must still NOT satisfy the wait.
-    await assert.rejects(
-      () =>
-        catalogue.dispatch(
-          'terminal.wait',
-          {
-            sessionId,
-            condition: 'output-match',
-            pattern: 'Synced » update config/settings_data\\.json',
-            afterSeq: session.lastSeq,
-            timeoutMs: 120,
-          },
-          { lease, leaseToken: lease.token, projectId, workspaceId, grant: 'read' }
-        ),
-      (err: unknown) => err instanceof CapabilityError && err.code === 'WAIT_TIMEOUT'
-    );
+    const stale = (await catalogue.dispatch(
+      'terminal.wait',
+      {
+        sessionId,
+        condition: 'output-match',
+        pattern: 'Synced » update config/settings_data\\.json',
+        afterSeq: session.lastSeq,
+        timeoutMs: 120,
+      },
+      { lease, leaseToken: lease.token, projectId, workspaceId, grant: 'read' }
+    )) as TerminalWaitResult & { timedOut?: boolean };
+    assert.strictEqual(stale.satisfied, false);
+    assert.strictEqual(stale.timedOut, true);
   });
 
-  it('6. Times out on unsatisfied terminal.wait and clears all listeners', async () => {
+  it('6. An unsatisfied terminal.wait answers timedOut with the cursor (not an error) and clears all listeners', async () => {
     const sessionId = terminalManager.getActiveSessionId();
     assert.ok(sessionId);
 
-    await assert.rejects(
-      () =>
-        catalogue.dispatch(
-          'terminal.wait',
-          {
-            sessionId,
-            condition: 'output-match',
-            pattern: 'NON_EXISTENT_MARKER_NEVER_EMITTED',
-            timeoutMs: 150,
-          },
-          { lease, leaseToken: lease.token, projectId, workspaceId, grant: 'read' }
-        ),
-      (err: unknown) => {
-        assert.ok(err instanceof CapabilityError);
-        assert.strictEqual(err.code, 'WAIT_TIMEOUT');
-        // The caller learns where the session stood when the deadline passed.
-        assert.strictEqual(err.details?.sessionId, sessionId);
-        assert.strictEqual(typeof err.details?.outputTail, 'string');
-        assert.strictEqual(typeof err.details?.lastSeq, 'number');
-        assert.strictEqual(typeof err.details?.sessionGeneration, 'number');
-        return true;
-      }
-    );
+    const result = (await catalogue.dispatch(
+      'terminal.wait',
+      {
+        sessionId,
+        condition: 'output-match',
+        pattern: 'NON_EXISTENT_MARKER_NEVER_EMITTED',
+        timeoutMs: 150,
+      },
+      { lease, leaseToken: lease.token, projectId, workspaceId, grant: 'read' }
+    )) as TerminalWaitResult & { timedOut?: boolean; outputTail?: string; timeoutMs?: number; sessionId?: string };
+    assert.strictEqual(result.satisfied, false);
+    assert.strictEqual(result.timedOut, true);
+    assert.strictEqual(result.sessionId, sessionId);
+    assert.strictEqual(typeof result.outputTail, 'string');
+    assert.strictEqual(typeof result.lastSeq, 'number');
+    assert.strictEqual(typeof result.sessionGeneration, 'number');
+    assert.strictEqual(result.timeoutMs, 150);
   });
 
   it('7. Aborts terminal.wait when AbortSignal fires', async () => {

@@ -1123,6 +1123,9 @@ export class WaitRegistry {
   private readonly MAX_PER_TAB = 4;
   private readonly MAX_GLOBAL = 16;
   private readonly DEFAULT_TIMEOUT_MS = 5_000;
+  get defaultTimeoutMs(): number {
+    return this.DEFAULT_TIMEOUT_MS;
+  }
   private readonly MAX_TIMEOUT_MS: number;
   private closeAdmission?: PageCloseAdmission;
 
@@ -1781,6 +1784,20 @@ export const VISUAL_COMPARE_EXECUTION_BUDGET_MS = 150_000;
 export const VISUAL_COMPARE_CANCELLATION_ACK_MS = 30_000;
 /** Cleanup budget inside the reserved grace (leaves margin for receipt writes). */
 export const VISUAL_COMPARE_CLEANUP_BUDGET_MS = 25_000;
+/**
+ * Whether a measured viewport dimension is the requested one. Chromium rounds a fractional layout
+ * size per axis, so 768x1024 measures 769x1026 and 769x1000 measures 771x1002 on a healthy tab.
+ * The tolerance is a fixed 2px: above rounding, far below the gap between real device sizes.
+ */
+export function viewportDimensionMatches(observed: number, requested: number): boolean {
+  return Math.abs(observed - requested) <= 2;
+}
+
+/** True for the wait registry's own deadline (the `LEASE_EXPIRED` it raises with `details.deadline: 'wait'`). */
+function isWaitDeadlineError(err: unknown): boolean {
+  return err instanceof CapabilityError && err.code === 'LEASE_EXPIRED' && err.details?.deadline === 'wait';
+}
+
 /**
  * Longest observation a single wait may run (`browser.wait` / `anti.browser.wait`,
  * the `WaitRegistry` cap, and the ceiling any condition — including
@@ -4696,7 +4713,11 @@ export class BrowserControlPort {
         };
       }, { timeoutMs: delayMs + 2000, signal }).catch((err: unknown) => {
         const clamped = this.clampedWaitResult(params, 'timeout', sleepStartedAt, err);
-        if (clamped) return clamped;
+        if (clamped) {
+          // A sleep for the ceiling itself races the registry deadline that guards it: the full delay elapsed, so it is a success.
+          if (clamped.clamped !== true) return { satisfied: true, condition: 'timeout', durationMs: Date.now() - sleepStartedAt };
+          return clamped;
+        }
         throw err;
       });
     }
@@ -5052,27 +5073,34 @@ export class BrowserControlPort {
   }
 
   /**
-   * The result a wait resolves with when the caller asked for more than the wait ceiling and the
-   * wait ended on that ceiling: not an error, the caller simply calls wait again for the rest.
-   * Only the wait registry's own deadline qualifies; a wait at or under the ceiling keeps rejecting.
+   * The result a wait resolves with when it ends on the wait registry's own deadline: not an error, the
+   * caller simply calls wait again. `clamped` is set only when the caller asked for more than the ceiling.
+   * Without `err` (a sleep that finished) only a request above the ceiling qualifies; with `err` only the
+   * registry's own deadline qualifies, whatever value the caller asked for, so a wait for exactly the
+   * ceiling (or any shorter one) answers the same way instead of dying with LEASE_EXPIRED.
    */
   private clampedWaitResult(params: BrowserWaitParams, condition: string, startedAt: number, err?: unknown): BrowserWaitResult | null {
-    const requested = params.timeoutMs;
     const max = this.waitRegistry.maxTimeoutMs;
-    if (typeof requested !== 'number' || !Number.isFinite(requested) || requested <= max) return null;
-    if (err !== undefined) {
-      const details = err instanceof CapabilityError ? (err.details as Record<string, unknown> | undefined) : undefined;
-      if (!(err instanceof CapabilityError) || err.code !== 'LEASE_EXPIRED' || details?.deadline !== 'wait') return null;
+    const asked = typeof params.timeoutMs === 'number' && Number.isFinite(params.timeoutMs) ? params.timeoutMs : undefined;
+    if (err === undefined) {
+      if (asked === undefined || asked <= max) return null;
+    } else if (!isWaitDeadlineError(err)) {
+      return null;
     }
+    const requested = asked ?? Math.min(max, this.waitRegistry.defaultTimeoutMs);
+    const clamped = requested > max;
+    const ranMs = Math.min(requested, max);
     return {
       satisfied: false,
       timedOut: true,
-      clamped: true,
+      ...(clamped ? { clamped: true } : {}),
       requestedTimeoutMs: requested,
       maxTimeoutMs: max,
       condition,
       durationMs: Date.now() - startedAt,
-      message: `The condition was not met within the ${max}ms ceiling of one wait (requested ${requested}ms). Call wait again for the remaining time.`,
+      message: clamped
+        ? `The condition was not met within the ${max}ms ceiling of one wait (requested ${requested}ms). Call wait again for the remaining time.`
+        : `The condition was not met within the requested ${ranMs}ms. This is a timeout answer, not a failure: call wait again, or check the page state.`,
     };
   }
 
@@ -6291,16 +6319,16 @@ export class BrowserControlPort {
     };
     const mismatched = (m: ObservedMeasurement): boolean => {
       if (m.vw < 1 || m.vh < 1) return true;
-      const vwMatch = Math.abs(m.vw - options.width) <= 1 && Math.abs(m.vh - options.height) <= 1;
+      const vwMatch = viewportDimensionMatches(m.vw, options.width) && viewportDimensionMatches(m.vh, options.height);
       if (vwMatch) return false;
       if (isMobile) {
         const vvMatch = (m.visualViewportWidth ?? 0) >= 1 && (m.visualViewportHeight ?? 0) >= 1 &&
-          Math.abs((m.visualViewportWidth ?? 0) - options.width) <= 1 &&
-          Math.abs((m.visualViewportHeight ?? 0) - options.height) <= 1;
+          viewportDimensionMatches(m.visualViewportWidth ?? 0, options.width) &&
+          viewportDimensionMatches(m.visualViewportHeight ?? 0, options.height);
         if (vvMatch) return false;
         const screenMatch = (m.screenWidth ?? 0) >= 1 && (m.screenHeight ?? 0) >= 1 &&
-          Math.abs((m.screenWidth ?? 0) - options.width) <= 1 &&
-          Math.abs((m.screenHeight ?? 0) - options.height) <= 1;
+          viewportDimensionMatches(m.screenWidth ?? 0, options.width) &&
+          viewportDimensionMatches(m.screenHeight ?? 0, options.height);
         if (screenMatch) return false;
       }
       return true;
@@ -6377,7 +6405,7 @@ export class BrowserControlPort {
     // A mobile page wider than its viewport lays out at its scroll width, so the
     // emulation was confirmed through visualViewport/screen instead: report the
     // confirmed viewport, and the layout size separately so the overflow stays visible.
-    const layoutMatched = Math.abs(observed.vw - options.width) <= 1 && Math.abs(observed.vh - options.height) <= 1;
+    const layoutMatched = viewportDimensionMatches(observed.vw, options.width) && viewportDimensionMatches(observed.vh, options.height);
     return {
       success: ok,
       width: options.width,

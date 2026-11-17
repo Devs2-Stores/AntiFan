@@ -103,7 +103,7 @@ describe('terminal.wait stays inside its invocation budget', () => {
     assert.ok(result.message.includes('afterSeq=42'), result.message);
   });
 
-  it('a deadline inside the cap that elapses is still the caller\'s own WAIT_TIMEOUT', async () => {
+  it('a deadline inside the cap that elapses answers timedOut too, with the real requested deadline', async () => {
     const facade = facadeWith({
       waitTerminal: async (input: TerminalWaitInput) => {
         throw new CapabilityError('WAIT_TIMEOUT', `Terminal wait timed out after ${input.timeoutMs}ms`, { lastSeq: 1 });
@@ -113,9 +113,30 @@ describe('terminal.wait stays inside its invocation budget', () => {
     registerTerminalCapabilities(catalogue, facade);
     const capability = catalogue.get('terminal.wait');
     assert.ok(capability);
+    for (const timeoutMs of [1_000, 20_000, 25_000, TERMINAL_WAIT_MAX_TIMEOUT_MS]) {
+      const result = (await capability.execute({ sessionId: 's1', condition: 'exit', timeoutMs }, unboundContext)) as TerminalWaitTimedOutResult;
+      assert.equal(result.satisfied, false);
+      assert.equal(result.timedOut, true);
+      assert.equal(result.timeoutMs, timeoutMs);
+      assert.equal(result.requestedTimeoutMs, timeoutMs);
+      assert.equal(result.lastSeq, 1);
+      assert.ok(!result.message.includes('shortened'), result.message);
+    }
+  });
+
+  it('other typed failures still throw', async () => {
+    const facade = facadeWith({
+      waitTerminal: async () => {
+        throw new CapabilityError('INVALID_ARGUMENT', 'gone');
+      },
+    });
+    const catalogue = newCatalogue();
+    registerTerminalCapabilities(catalogue, facade);
+    const capability = catalogue.get('terminal.wait');
+    assert.ok(capability);
     await assert.rejects(
       () => Promise.resolve(capability.execute({ sessionId: 's1', condition: 'exit', timeoutMs: 1_000 }, unboundContext)),
-      (error: unknown) => error instanceof CapabilityError && error.code === 'WAIT_TIMEOUT'
+      (error: unknown) => error instanceof CapabilityError && error.code === 'INVALID_ARGUMENT'
     );
   });
 
@@ -159,7 +180,10 @@ describe('terminal.create on a dead bound tab', () => {
         assert.equal(error.details?.tabId, 'tab-dead');
         assert.equal(error.details?.cause, 'unowned');
         assert.equal(error.details?.canRebind, true);
+        assert.equal(error.details?.retryable, false);
         assert.equal(error.details?.recovery, 'anti.browser.tabs.list then anti.browser.rebind_target');
+        assert.match(error.message, /right-click INSIDE THE PAGE/);
+        assert.match(error.message, /Cho agent của project này dùng tab/);
         return true;
       }
     );

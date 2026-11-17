@@ -399,6 +399,19 @@ describe('TabDevToolsHost evaluation failures cross the Electron boundary readab
     assert.deepStrictEqual(cdpCalls, ['Runtime.evaluate']);
   });
 
+  it('the CDP fallback runs under a bound above the in-page budget, not the 10s CDP default', async () => {
+    const refused = `(() => { throw new EvalError("Refused to evaluate a string as JavaScript because 'unsafe-eval' is not an allowed source of script in the following Content Security Policy directive: \\"script-src 'none'\\"."); })()`;
+    const host = makeHost();
+    const bounds: Array<number | undefined> = [];
+    host.sendCdpCommand = (async (_wc: Electron.WebContents, _method: string, _params?: Record<string, unknown>, timeoutMs?: number) => {
+      bounds.push(timeoutMs);
+      return { result: { value: 1 } };
+    }) as typeof host.sendCdpCommand;
+    await host.evalJs(refused, 'tab-1', 'desktop', false, 15_000);
+    assert.equal(bounds.length, 1);
+    assert.ok((bounds[0] as number) > 15_000, `CDP bound ${bounds[0]} must exceed the 15000ms in-page budget so the guard answers first`);
+  });
+
   it('an in-page Event rejection surfaces Event(type) and target instead of empty {}', async () => {
     await assert.rejects(
       () => makeHost().evalJs(`Promise.reject(new Event('error'))`, 'tab-1', 'desktop', false, 2_000),

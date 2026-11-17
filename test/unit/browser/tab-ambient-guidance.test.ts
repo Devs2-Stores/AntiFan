@@ -7,6 +7,7 @@ import * as assert from 'node:assert/strict';
 import { TabAmbientAuthority } from '../../../src/main/browser/tab-ambient-authority';
 import { CapabilityError } from '../../../src/shared/control-plane-contracts';
 import type { NativeTabHost } from '../../../src/main/browser/native-tab-host';
+import { describeRelayedFailure } from '../../../src/main/tools/capability-transport';
 
 const MENU_LABEL = 'Cho agent của project này dùng tab';
 
@@ -45,6 +46,10 @@ describe('TARGET_STALE for a tab no window owns', () => {
     assert.equal(err.details?.cause, 'unowned');
     assert.equal(err.details?.canRebind, true);
     assert.equal(err.details?.recovery, 'anti.browser.tabs.list');
+    assert.equal(err.details?.retryable, false);
+    assert.match(err.message, /right-click INSIDE THE PAGE/);
+    assert.match(err.message, new RegExp(MENU_LABEL));
+    assert.equal(describeRelayedFailure(err).retryable, false, 'the wire advice marks an unowned tab non-retryable');
   });
 });
 

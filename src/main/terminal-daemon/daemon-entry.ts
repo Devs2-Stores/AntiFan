@@ -21,6 +21,7 @@ import type { HostShutdownRefusal } from './protocol';
 import { listLiveRuns } from '../run/live-runs';
 import { OutputBatcher } from './output-batcher';
 import type { BridgeRequestPayload, BridgeResponsePayload, BridgeEventPayload, TerminalDataPayload } from '../../shared/contracts';
+import { CapabilityError } from '../../shared/control-plane-contracts';
 
 const HOST = '127.0.0.1';
 
@@ -577,7 +578,10 @@ function main(): void {
             respond(false, undefined, `UNKNOWN_METHOD: ${clean}`);
         }
       } catch (err) {
-        respond(false, undefined, err instanceof Error ? err.message : String(err));
+        // A typed refusal (WAIT_TIMEOUT, SESSION_NOT_FOUND, …) must keep its code and details across the RPC;
+        // the message alone makes the caller see a generic CAPABILITY_ERROR.
+        const typed = err instanceof CapabilityError ? { capabilityError: { code: err.code, details: err.details } } : undefined;
+        respond(false, typed, err instanceof Error ? err.message : String(err));
       }
     });
 

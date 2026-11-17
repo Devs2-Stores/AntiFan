@@ -3892,7 +3892,8 @@ export class TabDevToolsHost {
             returnByValue: true,
             awaitPromise: true,
             userGesture,
-          });
+            // The default 10s CDP bound would cut a 15s eval before its own in-page guard answers.
+          }, hardBudgetMs);
           if (cdpRes?.exceptionDetails) {
             const detail = cdpRes.exceptionDetails.exception?.description || cdpRes.exceptionDetails.text || 'CDP evaluation exception';
             throw new Error(detail);

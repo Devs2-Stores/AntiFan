@@ -866,12 +866,14 @@ describe('Leader scope of the terminal capabilities', () => {
       clearTimeout(newTurn);
       assert.strictEqual(second.run.runSeq, 2);
 
-      // A run that never settles ends in the ordinary WAIT_TIMEOUT.
+      // A run that never settles answers a normal timedOut result (not an error) inside the caller's own deadline.
       writeRun('terminal-w1', 'running', 3);
-      await assert.rejects(
-        () => catalogue.dispatch('terminal.wait', { sessionId: 'terminal-w1', condition: 'run-idle', timeoutMs: 200 }, ctx()),
-        code('WAIT_TIMEOUT')
-      );
+      const timedOut = (await catalogue.dispatch('terminal.wait', { sessionId: 'terminal-w1', condition: 'run-idle', timeoutMs: 200 }, ctx())) as {
+        satisfied: boolean; timedOut?: boolean; timeoutMs: number;
+      };
+      assert.strictEqual(timedOut.satisfied, false);
+      assert.strictEqual(timedOut.timedOut, true);
+      assert.strictEqual(timedOut.timeoutMs, 200);
     });
 
     it('terminal.write returns writtenAt, and run-idle with afterEventAt ignores a run older than that write', async () => {
@@ -1073,15 +1075,19 @@ describe('Leader scope of the terminal capabilities', () => {
         assert.strictEqual(waited.run.runSeq, 2);
       });
 
-      it('ends in WAIT_TIMEOUT naming the terminals when none settles within the deadline', async () => {
+      it('answers timedOut naming the terminals when none settles within the deadline', async () => {
         LeaderRegistry.getInstance().setLeader('terminal-lead', true);
         const { catalogue } = build();
         writeRun('terminal-w1', 'running', 1);
         writeRun('terminal-plain', 'running', 1);
-        await assert.rejects(
-          () => catalogue.dispatch('terminal.wait', { sessionIds: ['terminal-w1', 'terminal-plain'], timeoutMs: 200 }, ctx()),
-          (err: unknown) => err instanceof CapabilityError && err.code === 'WAIT_TIMEOUT' && JSON.stringify(err.details?.sessionIds) === JSON.stringify(['terminal-w1', 'terminal-plain'])
-        );
+        const result = (await catalogue.dispatch('terminal.wait', { sessionIds: ['terminal-w1', 'terminal-plain'], timeoutMs: 200 }, ctx())) as {
+          satisfied: boolean; timedOut?: boolean; sessionIds?: string[]; timeoutMs: number; requestedTimeoutMs: number;
+        };
+        assert.strictEqual(result.satisfied, false);
+        assert.strictEqual(result.timedOut, true);
+        assert.deepStrictEqual(result.sessionIds, ['terminal-w1', 'terminal-plain']);
+        assert.strictEqual(result.timeoutMs, 200);
+        assert.strictEqual(result.requestedTimeoutMs, 200);
       });
 
       it('never polls a sleeping terminal and says so; all asleep answers SESSION_SLEEPING', async () => {

@@ -160,22 +160,16 @@ describe('Phase 03: Browser Deterministic Wait & Registry Capacity Invariants', 
     assert.strictEqual(details?.currentGeneration, 2);
   });
 
-  it('browser.wait condition generation times out when generation does not advance', async () => {
+  it('browser.wait condition generation answers timedOut when generation does not advance', async () => {
     const host = createMockHost(undefined, {
       getDocumentGeneration: () => 1,
     });
     const port = new BrowserControlPort(host);
 
-    await assert.rejects(
-      async () => {
-        await port.wait(baseTarget, { condition: 'generation', minGeneration: 5, timeoutMs: 100 });
-      },
-      (err: unknown) => {
-        assert.ok(err instanceof CapabilityError);
-        assert.strictEqual(err.code, 'LEASE_EXPIRED');
-        return true;
-      }
-    );
+    const res = await port.wait(baseTarget, { condition: 'generation', minGeneration: 5, timeoutMs: 100 });
+    assert.strictEqual(res.satisfied, false);
+    assert.strictEqual(res.timedOut, true);
+    assert.strictEqual(res.clamped, undefined);
   });
 
   it('browser.wait condition navigation resolves when document transition completes', async () => {
@@ -225,23 +219,16 @@ describe('Phase 03: Browser Deterministic Wait & Registry Capacity Invariants', 
     );
   });
 
-  it('browser.wait condition navigation times out when no transition occurs', async () => {
+  it('browser.wait condition navigation answers timedOut when no transition occurs', async () => {
     const host = createMockHost(undefined, {
       getDocumentGeneration: () => 1,
       getTabUrl: () => 'https://example.com/static',
     });
     const port = new BrowserControlPort(host);
 
-    await assert.rejects(
-      async () => {
-        await port.wait(baseTarget, { condition: 'navigation', timeoutMs: 100 });
-      },
-      (err: unknown) => {
-        assert.ok(err instanceof CapabilityError);
-        assert.strictEqual(err.code, 'LEASE_EXPIRED');
-        return true;
-      }
-    );
+    const res = await port.wait(baseTarget, { condition: 'navigation', timeoutMs: 100 });
+    assert.strictEqual(res.satisfied, false);
+    assert.strictEqual(res.timedOut, true);
   });
 
   it('browser.wait condition actionability validates selector or ref requirement', async () => {
@@ -277,7 +264,7 @@ describe('Phase 03: Browser Deterministic Wait & Registry Capacity Invariants', 
     assert.strictEqual(details?.rect?.width, 80);
   });
 
-  it('browser.wait condition actionability times out when element remains non-actionable', async () => {
+  it('browser.wait condition actionability answers timedOut when element remains non-actionable', async () => {
     const host = createMockHost(undefined, {
       evalJs: async () => ({
         actionable: false,
@@ -287,16 +274,9 @@ describe('Phase 03: Browser Deterministic Wait & Registry Capacity Invariants', 
     });
     const port = new BrowserControlPort(host);
 
-    await assert.rejects(
-      async () => {
-        await port.wait(baseTarget, { condition: 'actionability', selector: '#disabled-btn', timeoutMs: 100 });
-      },
-      (err: unknown) => {
-        assert.ok(err instanceof CapabilityError);
-        assert.strictEqual(err.code, 'LEASE_EXPIRED');
-        return true;
-      }
-    );
+    const res = await port.wait(baseTarget, { condition: 'actionability', selector: '#disabled-btn', timeoutMs: 100 });
+    assert.strictEqual(res.satisfied, false);
+    assert.strictEqual(res.timedOut, true);
   });
 
   it('browser.wait condition selector with state actionable checks actionability', async () => {
@@ -410,33 +390,23 @@ describe('Phase 03: Browser Deterministic Wait & Registry Capacity Invariants', 
     assert.strictEqual(res.condition, 'images-settled');
   });
 
-  it('browser.wait images-settled times out while a srcless or broken image persists', async () => {
+  it('browser.wait images-settled answers timedOut while a srcless or broken image persists', async () => {
     const host = createMockHost(undefined, {
       evalJs: async () => ({ pendingImages: 0, srclessImages: 1, brokenImages: [], imageCount: 3 }),
     });
     const port = new BrowserControlPort(host);
 
-    await assert.rejects(
-      async () => port.wait(baseTarget, { condition: 'images-settled', timeoutMs: 150 }),
-      (err: unknown) => {
-        assert.ok(err instanceof CapabilityError);
-        assert.strictEqual(err.code, 'LEASE_EXPIRED');
-        return true;
-      }
-    );
+    const srcless = await port.wait(baseTarget, { condition: 'images-settled', timeoutMs: 150 });
+    assert.strictEqual(srcless.satisfied, false);
+    assert.strictEqual(srcless.timedOut, true);
 
     const brokenHost = createMockHost(undefined, {
       evalJs: async () => ({ pendingImages: 0, srclessImages: 0, brokenImages: ['https://x.test/gone.png'], imageCount: 3 }),
     });
     const brokenPort = new BrowserControlPort(brokenHost);
-    await assert.rejects(
-      async () => brokenPort.wait(baseTarget, { condition: 'images-settled', timeoutMs: 150 }),
-      (err: unknown) => {
-        assert.ok(err instanceof CapabilityError);
-        assert.strictEqual(err.code, 'LEASE_EXPIRED');
-        return true;
-      }
-    );
+    const broken = await brokenPort.wait(baseTarget, { condition: 'images-settled', timeoutMs: 150 });
+    assert.strictEqual(broken.satisfied, false);
+    assert.strictEqual(broken.timedOut, true);
   });
 
   it('browser.wait images-settled refuses a timeoutMs above the capability invocation budget', async () => {
@@ -575,12 +545,32 @@ describe('Phase 03: Browser Deterministic Wait & Registry Capacity Invariants', 
     assert.match(String(result.message), /again/);
   });
 
-  it('a wait at or under the ceiling that never holds still rejects with LEASE_EXPIRED', async () => {
+  it('a wait at or under the ceiling that never holds answers timedOut without clamped', async () => {
     const port = portWithCeiling(createMockHost(undefined, { getDocumentGeneration: () => 1 }), 100);
-    await assert.rejects(
-      () => port.wait(baseTarget, { condition: 'generation', minGeneration: 5, timeoutMs: 100 }),
-      (err: unknown) => err instanceof CapabilityError && err.code === 'LEASE_EXPIRED'
-    );
+    for (const timeoutMs of [100, 100 - 1]) {
+      const result = await port.wait(baseTarget, { condition: 'generation', minGeneration: 5, timeoutMs });
+      assert.strictEqual(result.satisfied, false);
+      assert.strictEqual(result.timedOut, true);
+      assert.strictEqual(result.clamped, undefined);
+      assert.strictEqual(result.requestedTimeoutMs, timeoutMs);
+    }
+  });
+
+  it('a timeout condition for exactly the ceiling succeeds instead of racing the registry deadline', async () => {
+    const port = portWithCeiling(createMockHost(), 100);
+    const result = await port.wait(baseTarget, { condition: 'timeout', timeoutMs: 100 });
+    assert.strictEqual(result.satisfied, true);
+    assert.strictEqual(result.clamped, undefined);
+  });
+
+  it('a timeout-condition sleep within 2s of the ceiling, or at it, completes as satisfied', async () => {
+    const port = portWithCeiling(createMockHost(), 200);
+    for (const timeoutMs of [150, 190, 199, 200]) {
+      const result = await port.wait(baseTarget, { condition: 'timeout', timeoutMs });
+      assert.strictEqual(result.satisfied, true, `timeoutMs ${timeoutMs}`);
+      assert.strictEqual(result.timedOut, undefined);
+      assert.strictEqual(result.clamped, undefined);
+    }
   });
 
   it('a clamped timeout condition reports the shortened sleep instead of a plain success', async () => {

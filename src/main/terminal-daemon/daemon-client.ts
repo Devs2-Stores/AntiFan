@@ -25,8 +25,22 @@ import { LIVE_RUNS_CODE, LiveRunsError } from './protocol';
 import type { HostNewSessionParams, HostNewSessionResult, HostRestartParams, HostShutdownParams, HostStartParams, HostStartResult, HostTransferOwnerParams } from './protocol';
 import type { BridgeRequestPayload, BridgeResponsePayload, BridgeEventPayload, TerminalAckPayload, TerminalSleepResult, TerminalRoleMeta } from '../../shared/contracts';
 import { CapabilityError } from '../../shared/control-plane-contracts';
-import type { TerminalWaitInput, TerminalWaitResult } from '../../shared/control-plane-contracts';
+import type { CapabilityErrorCode, TerminalWaitInput, TerminalWaitResult } from '../../shared/control-plane-contracts';
 import type { DaemonSpawnResult } from './daemon-spawner';
+
+/** The typed refusal a daemon handler threw, as carried in the RPC envelope's `data` (see daemon-entry). */
+export function typedCapabilityFailure(data: unknown): { code: CapabilityErrorCode; details?: Record<string, unknown> } | undefined {
+  if (!data || typeof data !== 'object' || !('capabilityError' in data)) return undefined;
+  const carried = data.capabilityError;
+  if (!carried || typeof carried !== 'object' || !('code' in carried)) return undefined;
+  const code = carried.code;
+  if (typeof code !== 'string' || !code) return undefined;
+  const details = 'details' in carried && carried.details && typeof carried.details === 'object' ? carried.details : undefined;
+  return {
+    code: code as CapabilityErrorCode,
+    ...(details ? { details: { ...details } } : {}),
+  };
+}
 
 const HOST = '127.0.0.1';
 const CALL_TIMEOUT_MS = 15000;
@@ -206,7 +220,10 @@ export class DaemonClient {
       // `success:false` with `error:undefined` is how a boolean-returning handler reports "not
       // applied". Dropping the envelope here leaves callers — and the probes that gate dispatch —
       // holding an unreadable `<method> failed` with nothing to triage.
-      const err = new Error(resp.error || `${method} failed`) as Error & {
+      const typed = typedCapabilityFailure(resp.data);
+      const err = (typed
+        ? new CapabilityError(typed.code, resp.error || `${method} failed`, typed.details)
+        : new Error(resp.error || `${method} failed`)) as Error & {
         rpcFailure?: { data?: unknown; error?: string };
       };
       err.rpcFailure = { data: resp.data, error: resp.error };

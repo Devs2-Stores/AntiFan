@@ -3,7 +3,7 @@ import * as assert from 'node:assert/strict';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { BrowserControlPort, BrowserHostPort, VIEWPORT_CONFIRM_BOUND_MS } from '../../src/main/tools/browser-control-port';
+import { BrowserControlPort, BrowserHostPort, VIEWPORT_CONFIRM_BOUND_MS, viewportDimensionMatches } from '../../src/main/tools/browser-control-port';
 import { SESSION_TAB_LIMIT } from '../../src/shared/tab-sharing';
 import { BrowserTarget, CapabilityError } from '../../src/shared/control-plane-contracts';
 import { TabDevToolsHost, TabDevToolsContext } from '../../src/main/browser/tab-devtools-host';
@@ -612,5 +612,27 @@ describe('Large captures stage through the sink async path', () => {
     assert.strictEqual(res.ok, true);
     assert.strictEqual(staged.length, 1);
     assert.deepStrictEqual(res.artifactRef, { id: 'artifact-1', runId: 'run-1', mime: 'image/png' });
+  });
+});
+
+describe('Viewport confirmation tolerates rendering rounding, not a wrong size', () => {
+  it('accepts the measured rounding seen at 768/769 and refuses a different device size', () => {
+    assert.ok(viewportDimensionMatches(769, 768));
+    assert.ok(viewportDimensionMatches(1026, 1024));
+    assert.ok(viewportDimensionMatches(771, 769));
+    assert.ok(viewportDimensionMatches(1002, 1000));
+    assert.ok(!viewportDimensionMatches(1352, 375));
+    assert.ok(!viewportDimensionMatches(1200, 1440));
+    assert.ok(!viewportDimensionMatches(375, 390), 'two real mobile widths stay distinct');
+    assert.ok(!viewportDimensionMatches(1029, 1024), 'a 5px gap is a wrong size, not rounding');
+    assert.ok(viewportDimensionMatches(1026, 1024));
+    assert.ok(!viewportDimensionMatches(1027, 1024));
+  });
+
+  it('setViewport at 768x1024 confirms a tab that measures 769x1026', async () => {
+    const { host } = buildHost({ surface: { vw: 769, vh: 1026 }, setViewportSize: () => true });
+    const port = new BrowserControlPort(host);
+    const res = (await port.setViewport({ width: 768, height: 1024, tabId: 'tab-b' })) as { success: boolean };
+    assert.strictEqual(res.success, true);
   });
 });
