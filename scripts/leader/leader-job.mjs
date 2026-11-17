@@ -1028,6 +1028,12 @@ export function reconcileSettled(dir, job, runsDir, now = Date.now()) {
   return changed;
 }
 
+/** The one-line refusal for a validate-report on a round the ledger has not settled: names the exact wait command and what the worker is doing. */
+export function unsettledRoundError(round, dir, run) {
+  const state = !run ? "its run file is missing" : run.unreadable ? "its run file is unreadable" : run.state === "running" ? "the worker is still running" : `the worker is ${run.state ?? "idle"} but the ledger has not seen it`;
+  return `round ${round.n} is not settled yet (${state}); run: node scripts/leader/leader-job.mjs wait --job ${dir}`;
+}
+
 function cmdValidateReport(flags) {
   const { dir, job } = loadJob(flags);
   reconcileSettled(dir, job, runsDirOf(flags));
@@ -1047,7 +1053,7 @@ function cmdValidateReport(flags) {
     errors.push(
       round.deadAt
         ? `round ${round.n} has no usable report: its worker died (${round.deadWhy ?? "no reason recorded"}); inspect its repo and dispatch a new round to a fresh worker`
-        : `round ${round.n} is not settled yet (run wait first)`,
+        : unsettledRoundError(round, dir, readRun(runsDirOf(flags), round.worker.terminal)),
     );
   }
   let status = null;
