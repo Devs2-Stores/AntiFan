@@ -4,12 +4,38 @@ import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { packagerIgnore, privateRootsLeaking } from './lib/package-allowlist.mjs';
+import { checkPackageTree } from './check-package-tree.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 
+/**
+ * Electron fuses. RunAsNode stays ENABLED on purpose: the terminal daemon-host and the Core health probe run
+ * this executable as Node (ELECTRON_RUN_AS_NODE=1). Cookie encryption is not flipped: it would invalidate the
+ * browser sessions already stored by installed builds. Fails closed when @electron/fuses is not installed.
+ */
+async function applyFuses(exePath) {
+  let fuses;
+  try {
+    fuses = await import('@electron/fuses');
+  } catch {
+    throw new Error('[package] @electron/fuses is not installed. Run: npm install --save-dev @electron/fuses');
+  }
+  const { flipFuses, FuseVersion, FuseV1Options } = fuses;
+  await flipFuses(exePath, {
+    version: FuseVersion.V1,
+    [FuseV1Options.EnableNodeCliInspectArguments]: false,
+    [FuseV1Options.EnableNodeOptionsEnvironmentVariable]: false,
+  });
+  console.log('[package] Fuses applied: EnableNodeCliInspectArguments=off, EnableNodeOptionsEnvironmentVariable=off (RunAsNode kept on).');
+}
+
 async function build() {
   console.log('[package] Packaging AntiFan Browser Desktop for win32-x64...');
+  // The allow-list must reject every private root that exists on disk, or packaging refuses.
+  const leaking = privateRootsLeaking((name) => fs.existsSync(path.join(ROOT, name)));
+  if (leaking.length) throw new Error(`[package] refusing to package: private root(s) would ship: ${leaking.join(', ')}. Fix scripts/lib/package-allowlist.mjs.`);
   
   const artifactsDir = path.join(ROOT, 'plans', '260827-1345-production-cutover-release-hardening', 'reports', 'artifacts');
   fs.mkdirSync(artifactsDir, { recursive: true });
@@ -34,34 +60,14 @@ async function build() {
       unpackDir: '{node_modules/node-pty,.compiled/src/main/native-messaging,.compiled/src/main/config,.compiled/src/main/security}',
     },
     icon: fs.existsSync(path.join(ROOT, 'assets', 'icon.ico')) ? path.join(ROOT, 'assets', 'icon.ico') : undefined,
-    ignore: [
-      /^\/\.git/,
-      /^\/src/,
-      /^\/test/,
-      /^\/docs/,
-      /^\/plans/,
-      /^\/\.cursor/,
-      /^\/\.vscode/,
-      /^\/appdata/,
-      /^\/dist/,
-      /^\/\.antigravity/,
-      /^\/\.compiled\/test/,
-      /^\/\.compiled\/scripts/,
-      /^\/out/,
-      /^\/node_modules\/node-pty\/prebuilds\/darwin-arm64/,
-      /^\/node_modules\/node-pty\/prebuilds\/darwin-x64/,
-      /^\/node_modules\/node-pty\/prebuilds\/win32-arm64/,
-      /\.pdb$/,
-      /\.md$/,
-      /\.ts$/,
-      /\.map$/,
-    ],
+    ignore: packagerIgnore,
     prune: true,
     appVersion: pkgJson.version || '1.0.0',
     appCopyright: 'Copyright (C) 2026 AntiFan Team',
   });
 
   console.log('[package] Successfully packaged to:', appPaths);
+  await applyFuses(path.join(appPaths[0], 'antifan-browser-desktop.exe'));
   const outDir = appPaths[0];
   const exePath = path.join(outDir, 'antifan-browser-desktop.exe');
   
@@ -127,6 +133,13 @@ async function build() {
   } else {
     throw new Error(`[package] Missing required host binary: ${srcBridgeHostExe}. Build it first!`);
   }
+  // Post-pack assertion: the shipped tree must not carry private data, and must not balloon.
+  const tree = checkPackageTree({ appDir: outDir });
+  if (!tree.ok) {
+    for (const b of tree.bad) console.error('[package] FORBIDDEN in package:', b);
+    throw new Error(`[package] package tree check failed (${tree.bad.length} forbidden path(s)${tree.grew ? ', app.asar grew past baseline' : ''}).`);
+  }
+  console.log(`[package] Tree check OK: ${tree.entries} entries, app.asar ${tree.asarBytes} bytes.`);
 
   let gitRevision = 'unknown';
   try {

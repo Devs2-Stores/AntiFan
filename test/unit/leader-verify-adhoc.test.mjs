@@ -62,8 +62,8 @@ describe("allowlist", () => {
     assert.deepEqual(c.argv, ["rg", "--no-config", "-n", "-i", "-e", "foo", SELF]);
     assert.deepEqual(checkVerifyCommand(`rg -F -e foo ${SELF}`).argv, ["rg", "--no-config", "-F", "-e", "foo", SELF]);
     assert.deepEqual(checkVerifyCommand(`rg -n -e "foo bar" ${SELF}`).argv.slice(-2), ["foo bar", SELF]);
-    const s = stub({ status: 0, stdout: "x" });
-    runVerifyEntry({ cmd: `rg -n -e foo ${SELF}`, expect: "x" }, { spawn: s.spawn });
+    const s = stub({ status: 0, stdout: "xyz" });
+    runVerifyEntry({ cmd: `rg -n -e foo ${SELF}`, expect: "xyz" }, { spawn: s.spawn });
     assert.equal(s.calls[0].opts.shell, false);
     assert.equal(s.calls[0].opts.timeout, 60_000);
     assert.deepEqual(s.calls[0].opts.stdio, ["ignore", "pipe", "pipe"]);
@@ -72,6 +72,24 @@ describe("allowlist", () => {
   test("a bare pattern (no -e) and an unbalanced quote are refused", () => {
     refused(`rg -n foo ${SELF}`);
     refused(`rg -n -e "foo ${SELF}`);
+  });
+
+  test("an empty, whitespace or 1-2 character expect is refused at run time without spawning", () => {
+    for (const expect of ["", "   ", "x", "..", undefined]) {
+      const s = stub({ status: 0, stdout: "anything at all" });
+      const r = runVerifyEntry({ cmd: `rg -n -e foo ${SELF}`, expect }, { spawn: s.spawn });
+      assert.equal(r.verdict, "REFUSED", JSON.stringify(expect));
+      assert.match(r.why, /at least 3 characters/);
+      assert.equal(s.calls.length, 0);
+    }
+  });
+
+  test("the exceptions: node --check may omit expect, rg -c may expect a bare count", () => {
+    const sc = stub({ status: 0, stdout: "" });
+    assert.equal(runVerifyEntry({ cmd: `node --check ${SELF}`, expect: "" }, { spawn: sc.spawn }).verdict, "PASS");
+    const cnt = stub({ status: 0, stdout: "3\n" });
+    assert.equal(runVerifyEntry({ cmd: `rg -c -e foo ${SELF}`, expect: "3" }, { spawn: cnt.spawn }).verdict, "PASS");
+    assert.equal(runVerifyEntry({ cmd: `rg -n -e foo ${SELF}`, expect: "3" }, { spawn: stub({ status: 0, stdout: "3" }).spawn }).verdict, "REFUSED", "a bare digit is only allowed with -c");
   });
 });
 
@@ -89,7 +107,7 @@ describe("running", () => {
   });
 
   test("FAIL on a non-zero exit (rg finds nothing)", () => {
-    const r = runVerifyEntry({ cmd: `rg -n -e qqq-no-such-text-qqq ${SELF}`, expect: "" });
+    const r = runVerifyEntry({ cmd: `rg -n -e qqq-no-such-text-qqq ${SELF}`, expect: "qqq" });
     assert.equal(r.verdict, "FAIL");
     assert.equal(r.exit, 1);
   });
@@ -107,7 +125,7 @@ describe("running", () => {
 
   test("timeout is reported as FAIL", () => {
     const s = stub({ error: Object.assign(new Error("spawnSync rg ETIMEDOUT"), { code: "ETIMEDOUT" }), signal: "SIGTERM", stdout: "partial" });
-    const r = runVerifyEntry({ cmd: `rg -n -e foo ${SELF}`, expect: "" }, { spawn: s.spawn, timeoutMs: 5 });
+    const r = runVerifyEntry({ cmd: `rg -n -e foo ${SELF}`, expect: "foo" }, { spawn: s.spawn, timeoutMs: 5 });
     assert.equal(r.verdict, "FAIL");
     assert.match(r.why, /timeout after 5 ms/);
     assert.equal(s.calls[0].opts.timeout, 5);
@@ -115,7 +133,7 @@ describe("running", () => {
 
   test("stdout is cut to 8 KB", () => {
     const s = stub({ status: 0, stdout: "a".repeat(20_000) });
-    assert.equal(runVerifyEntry({ cmd: `rg -n -e foo ${SELF}`, expect: "" }, { spawn: s.spawn }).stdout.length, 8192);
+    assert.equal(runVerifyEntry({ cmd: `rg -n -e foo ${SELF}`, expect: "aaa" }, { spawn: s.spawn }).stdout.length, 8192);
   });
 });
 
@@ -137,7 +155,7 @@ describe("config and NODE_OPTIONS are neutralised", () => {
     process.env.NODE_OPTIONS = "--no-such-node-option-for-test";
     try {
       const s = stub();
-      runVerifyEntry({ cmd: `rg -n -e foo ${SELF}`, expect: "" }, { spawn: s.spawn });
+      runVerifyEntry({ cmd: `rg -n -e foo ${SELF}`, expect: "foo" }, { spawn: s.spawn });
       assert.equal("RIPGREP_CONFIG_PATH" in s.calls[0].opts.env, false);
       assert.equal("NODE_OPTIONS" in s.calls[0].opts.env, false);
       assert.equal(s.calls[0].args[0], "--no-config");

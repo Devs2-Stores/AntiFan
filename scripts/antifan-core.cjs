@@ -52,6 +52,18 @@ async function main() {
     case 'recommend': out = core.recommend(parse(arg)); break;
     case 'receipt': out = core.receipt(parse(arg)); break;
     case 'outcome': out = core.ingestOutcome(parse(arg)); break;
+    // Injection ledger: the bridge reports the claim ids it actually rendered.
+    case 'inject-ack': out = core.markInjected(parse(arg)); break;
+    case 'reinforce': out = core.reinforce(parse(arg)); break;
+    case 'unknown': out = core.recordUnknown(parse(arg)); break;
+    case 'unknown-update': out = core.updateUnknown(parse(arg)); break;
+    case 'adjudicate-batch': out = core.adjudicateBatch(parse(arg)); break;
+    case 'session-summary': out = core.upsertSessionSummary(parse(arg)); break;
+    case 'search-index': out = core.searchIndex(parse(arg)); break;
+    case 'timeline': out = core.timeline(parse(arg)); break;
+    case 'get-many': out = core.getMany(parse(arg)); break;
+    case 'unknowns': out = core.unknowns(parse(arg)); break;
+    case 'last-summary': out = core.lastSummary(parse(arg)); break;
     case 'adjudicate': out = core.adjudicate(parse(arg)); break;
     case 'stats': out = core.stats(); break;
     case 'domain': out = core.domain(arg); break;

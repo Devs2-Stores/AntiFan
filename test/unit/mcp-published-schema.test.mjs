@@ -260,7 +260,10 @@ test('rows without aliases or relaxations are published exactly as defined', () 
     description: 'Emulate a named responsive device preset (viewport, DPR, mobile UA, and touch) on a tab instead of manual set_viewport calls.',
     inputSchema: { type: 'object', properties: { presetId: { type: 'string' }, tabId: { type: 'string' }, reload: { type: 'boolean' } }, required: ['presetId'] },
   };
-  assert.deepEqual(published(unrelated.name), unrelated);
+  // Annotations are generated from the catalogue policy (scripts/mcp-annotations.json); the schema itself is still exactly as defined.
+  const { annotations, ...shape } = published(unrelated.name);
+  assert.ok(annotations === undefined || typeof annotations === 'object');
+  assert.deepEqual(shape, unrelated);
   const row = proxy.definitions.find(([n]) => n === unrelated.name);
   assert.deepEqual(row, [unrelated.name, unrelated.description, unrelated.inputSchema.properties, ['presetId'], [], 'tabId']);
 });

@@ -1,4 +1,22 @@
 {
-  "bytes": 130995,
-  "tools": 172
+  "full": {
+    "bytes": 143336,
+    "tools": 183
+  },
+  "qa": {
+    "bytes": 102564,
+    "tools": 102
+  },
+  "leader": {
+    "bytes": 19947,
+    "tools": 18
+  },
+  "core-admin": {
+    "bytes": 23489,
+    "tools": 63
+  },
+  "device": {
+    "bytes": 3676,
+    "tools": 10
+  }
 }

@@ -1,0 +1,7 @@
+{
+  "_comment": "Capabilities flagged launchesProcess/executesForeignCode (src/main/tools/capability-annotations.ts EFFECT_FLAGS) that may sit BELOW the execute/eval tier, each with a reason. The gate fails on a flagged tool missing here (no new shell-capable tool may join as plain write) and on a stale entry, so this list can only shrink. Migrating a tool to risk 'execute' removes it from sessions holding a plain 'write' grant (Leader workers and tests mint write); do it only together with a grant change for those sessions.",
+  "allow": {
+    "terminal.write": "types into a shell pane; Leader/worker sessions are minted with a write grant (worker-terminal-input-gate and leader-terminal tests), migrating needs a worker grant change",
+    "terminal.create": "creates a shell pane; same worker-grant dependency as terminal.write"
+  }
+}

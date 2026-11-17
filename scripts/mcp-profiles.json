@@ -1,0 +1,6 @@
+{
+  "qa": ["anti.*", "theme.*", "browser.*", "storefront.*", "artifact.*"],
+  "leader": ["terminal.*", "anti.browser.tabs.*", "anti.artifact.*", "artifact.*", "core.query", "core.context_pack", "core.context_pack_v2", "file.*"],
+  "core-admin": ["core.*"],
+  "device": ["device.*"]
+}

@@ -2,7 +2,48 @@
 // All tables use TEXT primary keys (sha1/uuid-derived) — no autoincrement
 // coupling to import order.
 
-export const SCHEMA_VERSION = 12;
+export const SCHEMA_VERSION = 15;
+
+// Shared by DDL (fresh stores) and migration 14->15 (existing stores).
+const UNKNOWNS_AND_SUMMARIES_SQL = `CREATE TABLE IF NOT EXISTS unknowns (
+  unknownId TEXT PRIMARY KEY,
+  domain TEXT NOT NULL,
+  question TEXT NOT NULL,
+  scopeKey TEXT,
+  platform TEXT,
+  status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','investigating','blocked','contradicted','resolved')),
+  severity TEXT NOT NULL DEFAULT 'medium' CHECK (severity IN ('low','medium','high','critical')),
+  requiredAuthority TEXT,
+  requiredConfidence TEXT NOT NULL DEFAULT 'observed',
+  supportingJson TEXT NOT NULL DEFAULT '[]',
+  contradictingJson TEXT NOT NULL DEFAULT '[]',
+  probesJson TEXT NOT NULL DEFAULT '[]',
+  relationsJson TEXT NOT NULL DEFAULT '[]',
+  resolutionJson TEXT,
+  revision INTEGER NOT NULL DEFAULT 1,
+  createdAt TEXT NOT NULL,
+  updatedAt TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_unknowns_open ON unknowns(status, platform, severity);
+CREATE TABLE IF NOT EXISTS unknown_revisions (
+  unknownId TEXT NOT NULL REFERENCES unknowns(unknownId) ON DELETE CASCADE,
+  revision INTEGER NOT NULL,
+  snapshotJson TEXT NOT NULL,
+  at TEXT NOT NULL,
+  PRIMARY KEY (unknownId, revision)
+);
+CREATE TABLE IF NOT EXISTS session_summaries (
+  summaryId TEXT PRIMARY KEY,
+  sessionId TEXT NOT NULL,
+  segment INTEGER NOT NULL DEFAULT 0,
+  projectRoot TEXT,
+  request TEXT, investigated TEXT, learned TEXT, completed TEXT, nextSteps TEXT, notes TEXT,
+  episodeCount INTEGER NOT NULL DEFAULT 0,
+  trust TEXT NOT NULL DEFAULT 'EPISODIC' CHECK (trust = 'EPISODIC'),
+  createdAt TEXT NOT NULL,
+  UNIQUE (sessionId, segment)
+);
+CREATE VIRTUAL TABLE IF NOT EXISTS session_summaries_fts USING fts5(request, learned, completed, nextSteps, summaryId UNINDEXED);`;
 
 export const CORE_NAMESPACES = ['PLATFORM_KNOWLEDGE', 'ANTIFAN_ENGINEERING', 'PERSONAL_PRACTICE'] as const;
 export type CoreNamespace = typeof CORE_NAMESPACES[number];
@@ -188,7 +229,10 @@ CREATE TABLE IF NOT EXISTS claims (
   subject TEXT,
   lastSeen TEXT,
   agingSince TEXT,
-  namespace TEXT
+  namespace TEXT,
+  reinforcementDates TEXT,
+  lastReinforced TEXT,
+  authority TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_claims_unit ON claims(unitId);
 CREATE INDEX IF NOT EXISTS idx_claims_kind ON claims(kind);
@@ -249,7 +293,8 @@ CREATE TABLE IF NOT EXISTS cases (
   unitId TEXT,
   platform TEXT,
   createdAt TEXT NOT NULL,
-  namespace TEXT
+  namespace TEXT,
+  projectRoot TEXT
 );
 
 CREATE TABLE IF NOT EXISTS candidates (
@@ -548,6 +593,25 @@ CREATE TABLE IF NOT EXISTS skill_versions (
   createdAt TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_skill_versions ON skill_versions(skillId);
+${UNKNOWNS_AND_SUMMARIES_SQL}
+CREATE TABLE IF NOT EXISTS pack_injections (
+  injectionId TEXT PRIMARY KEY,
+  packId TEXT NOT NULL,
+  claimId TEXT NOT NULL,
+  sessionId TEXT,
+  projectRoot TEXT,
+  rank INTEGER NOT NULL,
+  injectedAt TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_pack_injections_claim ON pack_injections(claimId, injectedAt);
+CREATE INDEX IF NOT EXISTS idx_pack_injections_pack ON pack_injections(packId);
+CREATE TABLE IF NOT EXISTS outcome_pack_links (
+  caseId TEXT NOT NULL REFERENCES cases(caseId) ON DELETE CASCADE,
+  packId TEXT NOT NULL,
+  link TEXT NOT NULL DEFAULT 'session',
+  PRIMARY KEY (caseId, packId)
+);
+CREATE INDEX IF NOT EXISTS idx_outcome_pack_links_pack ON outcome_pack_links(packId);
 `;
 
 // Indexes on v6 columns. These CANNOT live in DDL: DDL runs before migrations,
@@ -563,6 +627,7 @@ CREATE INDEX IF NOT EXISTS idx_cases_namespace ON cases(namespace);
 CREATE INDEX IF NOT EXISTS idx_decisions_namespace ON decisions(namespace);
 CREATE INDEX IF NOT EXISTS idx_packs_task ON packs(task);
 CREATE INDEX IF NOT EXISTS idx_conflicts_state_platform ON conflicts(state, platform);
+CREATE INDEX IF NOT EXISTS idx_claims_authority ON claims(authority);
 `;
 
 export const MIGRATIONS: Array<{ from: number; to: number; sql: string }> = [
@@ -749,5 +814,58 @@ ${NAMESPACE_BACKFILL_SQL}`,
     // first-writer-wins merge path instead of per-file duplication.
     from: 11, to: 12,
     sql: `ALTER TABLE principles ADD COLUMN statementHash TEXT;`,
+  },
+  {
+    // Injection ledger, outcome->pack links and reinforcement. lastSeen had no
+    // writer, so every claim aged out 90 days after import regardless of use.
+    // decayEpoch is a deliberate, recorded decision: the stale cutoff never
+    // reaches back before it, deferring mass staleness to epoch+90d while real
+    // lastSeen/reinforcement data accrues (see Core.decayCutoff).
+    from: 12, to: 13,
+    sql: `CREATE TABLE IF NOT EXISTS pack_injections (
+  injectionId TEXT PRIMARY KEY,
+  packId TEXT NOT NULL,
+  claimId TEXT NOT NULL,
+  sessionId TEXT,
+  projectRoot TEXT,
+  rank INTEGER NOT NULL,
+  injectedAt TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_pack_injections_claim ON pack_injections(claimId, injectedAt);
+CREATE INDEX IF NOT EXISTS idx_pack_injections_pack ON pack_injections(packId);
+CREATE TABLE IF NOT EXISTS outcome_pack_links (
+  caseId TEXT NOT NULL REFERENCES cases(caseId) ON DELETE CASCADE,
+  packId TEXT NOT NULL,
+  link TEXT NOT NULL DEFAULT 'session',
+  PRIMARY KEY (caseId, packId)
+);
+CREATE INDEX IF NOT EXISTS idx_outcome_pack_links_pack ON outcome_pack_links(packId);
+ALTER TABLE claims ADD COLUMN reinforcementDates TEXT;
+ALTER TABLE claims ADD COLUMN lastReinforced TEXT;
+INSERT OR IGNORE INTO meta(key,value) VALUES ('decayEpoch', strftime('%Y-%m-%dT%H:%M:%fZ','now'));`,
+  },
+  {
+    // Closed confidence/authority vocabularies. SQLite cannot add a CHECK to an
+    // existing column, so the code validates; the UPDATEs fold the four legacy
+    // vocabularies (observed/inferred/HIGH/NULL) into the closed set.
+    from: 13, to: 14,
+    sql: `ALTER TABLE claims ADD COLUMN authority TEXT;
+UPDATE claims SET confidence = CASE
+    WHEN confidence IN ('observed','derived','inferred') THEN confidence
+    WHEN confidence = 'HIGH' THEN 'observed'
+    WHEN sourceKind IN ('skill-md','doc-section','plan-doc','git-commit','git-log','filename-signal','extract/commerce-tools','manifest') THEN 'observed'
+    ELSE 'inferred' END
+  WHERE confidence IS NULL OR confidence NOT IN ('observed','derived','inferred');
+UPDATE claims SET authority = CASE
+    WHEN sourceKind = 'adjudication' THEN 'adjudication'
+    WHEN sourceKind IN ('git-commit','git-log') THEN 'git-history'
+    WHEN sourceKind IN ('archetype-classification','platform-inference') THEN 'agent-inference'
+    ELSE 'source-file' END WHERE authority IS NULL;
+CREATE INDEX IF NOT EXISTS idx_claims_authority ON claims(authority);`,
+  },
+  {
+    from: 14, to: 15,
+    sql: `ALTER TABLE cases ADD COLUMN projectRoot TEXT;
+${UNKNOWNS_AND_SUMMARIES_SQL}`,
   },
 ];

@@ -68,6 +68,17 @@ export interface CoreStorePort {
   contextPackV2(opts: Record<string, unknown>): unknown;
   receiptV2(opts: Record<string, unknown>): unknown;
   knowledgeGaps(opts?: Record<string, unknown>): unknown;
+  markInjected(opts: { packId: string; sessionId?: string; projectRoot?: string; claimIds: string[] }): unknown;
+  reinforce(opts: { claimIds: string[]; reason: 'outcome' | 'receipt' | 'manual'; day?: string }): unknown;
+  searchIndex(opts: { text: string; platform?: string; scope?: string; kinds?: string[]; limit?: number }): unknown;
+  timeline(opts: { anchorId: string; before?: number; after?: number }): unknown;
+  getMany(opts: { ids: string[]; maxIds?: number }): unknown;
+  recordUnknown(opts: Record<string, unknown>): unknown;
+  updateUnknown(opts: Record<string, unknown>): unknown;
+  unknowns(opts?: Record<string, unknown>): unknown;
+  adjudicateBatch(opts: Record<string, unknown>): unknown;
+  upsertSessionSummary(opts: Record<string, unknown>): unknown;
+  lastSummary(opts?: { projectRoot?: string }): unknown;
 }
 
 // Lazy adapter: resolves packages/super-core/dist relative to this compiled
@@ -130,6 +141,17 @@ export function createLazyCorePort(): CoreStorePort {
     principles: (o) => load().principles(o),
     recordHiddenRequirement: (o) => load().recordHiddenRequirement(o),
     hiddenRequirements: (o) => load().hiddenRequirements(o),
+    markInjected: (o) => load().markInjected(o),
+    reinforce: (o) => load().reinforce(o),
+    searchIndex: (o) => load().searchIndex(o),
+    timeline: (o) => load().timeline(o),
+    getMany: (o) => load().getMany(o),
+    recordUnknown: (o) => load().recordUnknown(o),
+    updateUnknown: (o) => load().updateUnknown(o),
+    unknowns: (o) => load().unknowns(o),
+    adjudicateBatch: (o) => load().adjudicateBatch(o),
+    upsertSessionSummary: (o) => load().upsertSessionSummary(o),
+    lastSummary: (o) => load().lastSummary(o),
     recordCommercial: (o) => load().recordCommercial(o),
     commercialIntel: (o) => load().commercialIntel(o),
     recordTool: (o) => load().recordTool(o),
@@ -264,7 +286,7 @@ export function registerCoreCapabilities(catalogue: CapabilityCatalogue, core: C
     { type: 'object', properties: {} },
     READ_POLICY, () => core.corpusAudit());
   reg('core.candidates', 'List adjudication candidates (default PENDING).',
-    { type: 'object', properties: { status: { type: 'string' }, limit: { type: 'number' } } },
+    { type: 'object', properties: { status: { type: 'string' }, limit: { type: 'number' }, triage: { type: 'boolean' } } },
     READ_POLICY, (p: Record<string, unknown>) => core.candidates(p));
 
   // v4: Phase Gates
@@ -366,7 +388,7 @@ export function registerCoreCapabilities(catalogue: CapabilityCatalogue, core: C
     WRITE_POLICY, (p: Parameters<CoreStorePort['receipt']>[0]) => core.receipt(p));
 
   reg('core.ingest_outcome', 'Ingest a verified outcome as a case + pending candidate (never auto-promoted).',
-    { type: 'object', properties: { task: { type: 'string' }, context: { type: 'string' }, outcome: { type: 'string' }, verificationRef: { type: 'string' }, unitId: { type: 'string' }, platform: { type: 'string' } }, required: ['task', 'outcome'] },
+    { type: 'object', properties: { task: { type: 'string' }, context: { type: 'string' }, outcome: { type: 'string' }, verificationRef: { type: 'string' }, unitId: { type: 'string' }, platform: { type: 'string' }, packIds: { type: 'array', items: { type: 'string' } }, linkKind: { type: 'string', enum: ['session', 'leader-job', 'manual'] }, lesson: { type: 'string' }, projectRoot: { type: 'string' } }, required: ['task', 'outcome'] },
     WRITE_POLICY, (p: Parameters<CoreStorePort['ingestOutcome']>[0]) => core.ingestOutcome(p));
 
   reg('core.adjudicate', 'Adjudicate a candidate (PROMOTE/REJECT/SUPERSEDE) with explicit authority.',
@@ -388,4 +410,41 @@ export function registerCoreCapabilities(catalogue: CapabilityCatalogue, core: C
   reg('core.rollback', 'Restore claims/candidates to a release snapshot.',
     { type: 'object', properties: { releaseId: { type: 'string' } }, required: ['releaseId'] },
     WRITE_POLICY, (p: { releaseId: string }) => core.rollback(p.releaseId));
+
+  // Injection ledger, reinforcement, layered retrieval, unknowns registry, batch adjudication, session summaries.
+  const STR_ARRAY = { type: 'array', items: { type: 'string' } } as const;
+  const OBJ_ARRAY = { type: 'array', items: { type: 'object' } } as const;
+  reg('core.mark_injected', 'Record the claim ids a pack actually rendered into a session (the only writer of claims.lastSeen).',
+    { type: 'object', properties: { packId: { type: 'string' }, sessionId: { type: 'string' }, projectRoot: { type: 'string' }, claimIds: STR_ARRAY }, required: ['packId', 'claimIds'] },
+    WRITE_POLICY, (p: Parameters<CoreStorePort['markInjected']>[0]) => core.markInjected(p));
+  reg('core.reinforce', 'Reinforce claims that a verified outcome or receipt relied on (idempotent per UTC day).',
+    { type: 'object', properties: { claimIds: STR_ARRAY, reason: { type: 'string', enum: ['outcome', 'receipt', 'manual'] }, day: { type: 'string' } }, required: ['claimIds', 'reason'] },
+    WRITE_POLICY, (p: Parameters<CoreStorePort['reinforce']>[0]) => core.reinforce(p));
+  reg('core.search_index', 'Index first: compact rows (id, kind, title, score) across claims/candidates. Fetch bodies only for chosen ids with core.get_many.',
+    { type: 'object', properties: { text: { type: 'string' }, platform: { type: 'string' }, scope: { type: 'string' }, kinds: STR_ARRAY, limit: { type: 'number' } }, required: ['text'] },
+    READ_POLICY, (p: Parameters<CoreStorePort['searchIndex']>[0]) => core.searchIndex(p));
+  reg('core.timeline', 'Rows around an index id, ordered by time.',
+    { type: 'object', properties: { anchorId: { type: 'string' }, before: { type: 'number' }, after: { type: 'number' } }, required: ['anchorId'] },
+    READ_POLICY, (p: Parameters<CoreStorePort['timeline']>[0]) => core.timeline(p));
+  reg('core.get_many', 'Full bodies and evidence anchors for ids chosen from core.search_index (max 50).',
+    { type: 'object', properties: { ids: STR_ARRAY, maxIds: { type: 'number' } }, required: ['ids'] },
+    READ_POLICY, (p: Parameters<CoreStorePort['getMany']>[0]) => core.getMany(p));
+  reg('core.record_unknown', 'Record an open question Core could not verify (deduplicated by normalized question).',
+    { type: 'object', properties: { domain: { type: 'string' }, question: { type: 'string' }, scope: { type: 'string' }, platform: { type: 'string' }, severity: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] }, requiredAuthority: { type: 'string' }, requiredConfidence: { type: 'string' }, probes: OBJ_ARRAY }, required: ['domain', 'question'] },
+    WRITE_POLICY, (p: Parameters<CoreStorePort['recordUnknown']>[0]) => core.recordUnknown(p));
+  reg('core.update_unknown', 'Compare-and-swap update of an unknown (expectedRevision); resolve with evidence.',
+    { type: 'object', properties: { unknownId: { type: 'string' }, expectedRevision: { type: 'number' }, status: { type: 'string', enum: ['open', 'investigating', 'blocked', 'contradicted', 'resolved'] }, severity: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] }, supporting: STR_ARRAY, contradicting: STR_ARRAY, resolution: { type: 'object' } }, required: ['unknownId', 'expectedRevision'] },
+    WRITE_POLICY, (p: Parameters<CoreStorePort['updateUnknown']>[0]) => core.updateUnknown(p));
+  reg('core.unknowns', 'List recorded unknowns (open questions). Newest first.',
+    { type: 'object', properties: { status: { type: 'string', enum: ['open', 'investigating', 'blocked', 'contradicted', 'resolved'] }, platform: { type: 'string' }, scope: { type: 'string' }, ...LIST_PAGE } },
+    READ_POLICY, (p: Parameters<CoreStorePort['unknowns']>[0]) => core.unknowns(p));
+  reg('core.adjudicate_batch', 'Adjudicate several candidates in one call; authority is mandatory and still human-granted.',
+    { type: 'object', properties: { items: OBJ_ARRAY, authority: { type: 'string' }, scope: { type: 'string', enum: ['production', 'acceptance-test'] } }, required: ['items', 'authority'] },
+    WRITE_POLICY, (p: Parameters<CoreStorePort['adjudicateBatch']>[0]) => core.adjudicateBatch(p));
+  reg('core.upsert_session_summary', 'Store the summary of a session segment (request/investigated/learned/completed/nextSteps/notes).',
+    { type: 'object', properties: { sessionId: { type: 'string' }, segment: { type: 'number' }, projectRoot: { type: 'string' }, request: { type: 'string' }, investigated: { type: 'string' }, learned: { type: 'string' }, completed: { type: 'string' }, nextSteps: { type: 'string' }, notes: { type: 'string' } }, required: ['sessionId'] },
+    WRITE_POLICY, (p: Parameters<CoreStorePort['upsertSessionSummary']>[0]) => core.upsertSessionSummary(p));
+  reg('core.last_summary', 'Newest stored session summary for a project root.',
+    { type: 'object', properties: { projectRoot: { type: 'string' } } },
+    READ_POLICY, (p: Parameters<CoreStorePort['lastSummary']>[0]) => core.lastSummary(p));
 }

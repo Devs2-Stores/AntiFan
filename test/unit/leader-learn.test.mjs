@@ -76,7 +76,7 @@ describe("buildOutcome", () => {
     assert.match(o.outcome, /files: sections\/header\.liquid/);
     assert.match(o.outcome, /pushed: sections\/header\.liquid/);
     assert.match(o.outcome, /dead rounds: r1: run file gone/);
-    assert.equal(o.verificationRef, job.rounds[1].reportPath);
+    assert.equal(o.verificationRef, null, "a report path is not a Core receipt id; reuseMetric joins on receipts.receiptId");
   });
 
   it("copes with a job without any valid report", () => {

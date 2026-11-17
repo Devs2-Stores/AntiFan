@@ -19,6 +19,10 @@ import * as path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+// These tests set a 1 ms Core timeout, so every pack call fails by design. Their bridge events must never land in the
+// production .canary/core-bridge/events.jsonl: send them to a throwaway file.
+process.env.ANTIFAN_CORE_BRIDGE_LOG = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'anti-direct-log-')), 'events.jsonl');
+
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const HOOK_PATH = path.join(REPO, '.omp', 'hooks', 'pre', 'antifan-core-bridge.ts');
 const AUDITS_PATH = path.join(REPO, '.canary', 'tools', 'fix-loop', 'audits.mjs');

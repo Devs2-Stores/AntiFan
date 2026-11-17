@@ -1,0 +1,568 @@
+{
+ "anti.browser.tabs.list": {
+  "readOnlyHint": true
+ },
+ "anti.browser.tabs.get": {
+  "readOnlyHint": true
+ },
+ "anti.browser.tabs.create": {
+  "destructiveHint": false,
+  "idempotentHint": true
+ },
+ "anti.browser.tabs.activate": {
+  "destructiveHint": false,
+  "idempotentHint": true
+ },
+ "anti.browser.tabs.close": {
+  "destructiveHint": false,
+  "idempotentHint": true
+ },
+ "anti.browser.rebind_target": {
+  "destructiveHint": false
+ },
+ "anti.browser.set_automation_target": {
+  "destructiveHint": false
+ },
+ "anti.browser.navigate": {
+  "destructiveHint": false,
+  "idempotentHint": true
+ },
+ "anti.browser.reload": {
+  "destructiveHint": false,
+  "idempotentHint": true
+ },
+ "anti.inspect.dom": {
+  "readOnlyHint": true
+ },
+ "anti.inspect.console": {
+  "readOnlyHint": true
+ },
+ "anti.inspect.network": {
+  "readOnlyHint": true
+ },
+ "anti.screenshot.viewport": {
+  "readOnlyHint": true
+ },
+ "anti.screenshot.full_page": {
+  "readOnlyHint": true
+ },
+ "anti.reference.capture": {
+  "readOnlyHint": true
+ },
+ "anti.browser.set_viewport": {
+  "destructiveHint": false,
+  "idempotentHint": true
+ },
+ "anti.browser.get_viewport": {
+  "readOnlyHint": true
+ },
+ "anti.agent.cursor.click": {
+  "destructiveHint": false
+ },
+ "anti.agent.cursor.move": {
+  "destructiveHint": false
+ },
+ "anti.agent.cursor.type": {
+  "destructiveHint": false
+ },
+ "anti.agent.cursor.scroll": {
+  "destructiveHint": false
+ },
+ "anti.agent.cursor.hover": {
+  "destructiveHint": false
+ },
+ "anti.agent.cursor.highlight": {
+  "destructiveHint": false
+ },
+ "anti.agent.cursor.clear": {
+  "destructiveHint": false
+ },
+ "anti.agent.set_control": {
+  "destructiveHint": false
+ },
+ "anti.browser.dialog": {
+  "destructiveHint": false
+ },
+ "device.list": {
+  "readOnlyHint": true
+ },
+ "device.status": {
+  "readOnlyHint": true
+ },
+ "device.open_safari": {
+  "destructiveHint": false,
+  "idempotentHint": true
+ },
+ "device.navigate": {
+  "destructiveHint": false,
+  "idempotentHint": true
+ },
+ "device.reload": {
+  "destructiveHint": false,
+  "idempotentHint": true
+ },
+ "device.screenshot": {
+  "readOnlyHint": true
+ },
+ "device.tap": {
+  "destructiveHint": false
+ },
+ "device.swipe": {
+  "destructiveHint": false
+ },
+ "device.type": {
+  "destructiveHint": false
+ },
+ "device.wait": {
+  "readOnlyHint": true
+ },
+ "theme.qa_validate": {
+  "readOnlyHint": true
+ },
+ "theme.debug_bundle": {
+  "readOnlyHint": true
+ },
+ "theme.settings_check": {
+  "readOnlyHint": true
+ },
+ "theme.assert_cart": {
+  "readOnlyHint": true
+ },
+ "theme.resolve_product": {
+  "readOnlyHint": true
+ },
+ "theme.cockpit_list": {
+  "readOnlyHint": true
+ },
+ "theme.cockpit_mark": {
+  "destructiveHint": false,
+  "idempotentHint": true
+ },
+ "theme.cockpit_mark_page": {
+  "destructiveHint": false,
+  "idempotentHint": true
+ },
+ "theme.cockpit_add_item": {
+  "destructiveHint": false,
+  "idempotentHint": true
+ },
+ "theme.cockpit_remove_item": {
+  "destructiveHint": false,
+  "idempotentHint": true
+ },
+ "theme.cockpit_scan": {
+  "destructiveHint": false
+ },
+ "theme.cockpit_findings": {
+  "readOnlyHint": true
+ },
+ "theme.cockpit_report": {
+  "readOnlyHint": true
+ },
+ "theme.style_override": {
+  "destructiveHint": false,
+  "idempotentHint": true
+ },
+ "anti.agent.file_upload": {
+  "destructiveHint": false
+ },
+ "anti.agent.drop": {
+  "destructiveHint": false
+ },
+ "anti.agent.drag": {
+  "destructiveHint": false
+ },
+ "anti.inspect.snapshot": {
+  "readOnlyHint": true
+ },
+ "anti.telemetry.record_fallback": {
+  "destructiveHint": false,
+  "idempotentHint": true
+ },
+ "anti.inspect.styles": {
+  "readOnlyHint": true
+ },
+ "anti.inspect.region": {
+  "readOnlyHint": true
+ },
+ "anti.trace.interaction": {
+  "destructiveHint": false
+ },
+ "anti.visual.compare": {
+  "readOnlyHint": true
+ },
+ "browser.promote-baseline": {
+  "destructiveHint": false,
+  "idempotentHint": true
+ },
+ "anti.visual.promote_baseline": {
+  "destructiveHint": false,
+  "idempotentHint": true
+ },
+ "anti.media.freeze": {
+  "destructiveHint": false
+ },
+ "anti.layout.compare_candidates": {
+  "destructiveHint": false
+ },
+ "anti.qa.state_matrix": {
+  "destructiveHint": false
+ },
+ "anti.qa.visual_quality": {
+  "readOnlyHint": true
+ },
+ "anti.qa.variant_image_probe": {
+  "destructiveHint": false
+ },
+ "anti.qa.pdp_contract": {
+  "readOnlyHint": true
+ },
+ "anti.qa.cart_contract": {
+  "destructiveHint": false
+ },
+ "anti.qa.menu_depth": {
+  "destructiveHint": false
+ },
+ "anti.qa.page_structure": {
+  "readOnlyHint": true
+ },
+ "anti.qa.pick_product": {
+  "readOnlyHint": true
+ },
+ "theme.package_check": {
+  "readOnlyHint": true
+ },
+ "anti.inspect.page_inventory": {
+  "readOnlyHint": true
+ },
+ "anti.inspect.style_diff": {
+  "readOnlyHint": true
+ },
+ "anti.spec.validate_gate": {
+  "readOnlyHint": true
+ },
+ "anti.agent.sequence": {
+  "destructiveHint": false
+ },
+ "anti.artifact.read": {
+  "readOnlyHint": true
+ },
+ "anti.artifact.stat": {
+  "readOnlyHint": true
+ },
+ "browser.set-viewport": {
+  "destructiveHint": false,
+  "idempotentHint": true
+ },
+ "browser.get-viewport": {
+  "readOnlyHint": true
+ },
+ "browser.wait": {
+  "readOnlyHint": true
+ },
+ "file.read": {
+  "readOnlyHint": true
+ },
+ "file.write": {
+  "destructiveHint": false,
+  "idempotentHint": true
+ },
+ "anti.theme.resolve_element": {
+  "readOnlyHint": true
+ },
+ "anti.inspect.matched_styles": {
+  "readOnlyHint": true
+ },
+ "anti.inspect.responsive_matrix": {
+  "readOnlyHint": true
+ },
+ "anti.theme.await_cdn_sync": {
+  "destructiveHint": false,
+  "idempotentHint": true
+ },
+ "anti.qa.batch_matrix": {
+  "destructiveHint": false,
+  "idempotentHint": true
+ },
+ "anti.verification.record_claim": {
+  "destructiveHint": false,
+  "idempotentHint": true
+ },
+ "anti.verification.verify_claim": {
+  "destructiveHint": false,
+  "idempotentHint": true
+ },
+ "anti.theme.export_clean": {
+  "destructiveHint": false,
+  "idempotentHint": true
+ },
+ "anti.browser.dump_dom": {
+  "destructiveHint": false,
+  "idempotentHint": true
+ },
+ "anti.verification.list": {
+  "readOnlyHint": true
+ },
+ "core.query": {
+  "readOnlyHint": true
+ },
+ "core.context_pack": {
+  "readOnlyHint": true
+ },
+ "core.recommend": {
+  "readOnlyHint": true
+ },
+ "core.receipt": {
+  "destructiveHint": false
+ },
+ "core.ingest_outcome": {
+  "destructiveHint": false
+ },
+ "core.adjudicate": {
+  "destructiveHint": false
+ },
+ "core.stats": {
+  "readOnlyHint": true
+ },
+ "core.health": {
+  "readOnlyHint": true
+ },
+ "core.reuse_metric": {
+  "readOnlyHint": true
+ },
+ "core.domain": {
+  "readOnlyHint": true
+ },
+ "core.invalidate": {
+  "destructiveHint": false
+ },
+ "core.revoke": {
+  "destructiveHint": false
+ },
+ "core.snapshot": {
+  "destructiveHint": false
+ },
+ "core.rollback": {
+  "destructiveHint": false
+ },
+ "core.record_experience_node": {
+  "destructiveHint": false
+ },
+ "core.record_experience_edge": {
+  "destructiveHint": false
+ },
+ "core.experience_chain": {
+  "readOnlyHint": true
+ },
+ "core.record_anti_pattern": {
+  "destructiveHint": false
+ },
+ "core.anti_patterns": {
+  "readOnlyHint": true
+ },
+ "core.record_workaround": {
+  "destructiveHint": false
+ },
+ "core.workarounds": {
+  "readOnlyHint": true
+ },
+ "core.record_fix_pattern": {
+  "destructiveHint": false
+ },
+ "core.fix_patterns": {
+  "readOnlyHint": true
+ },
+ "core.find_similar": {
+  "readOnlyHint": true
+ },
+ "core.classify_uncertainty": {
+  "readOnlyHint": true
+ },
+ "core.decay_check": {
+  "readOnlyHint": true
+ },
+ "core.corpus_audit": {
+  "readOnlyHint": true
+ },
+ "core.candidates": {
+  "readOnlyHint": true
+ },
+ "core.mark_injected": {
+  "destructiveHint": false
+ },
+ "core.reinforce": {
+  "destructiveHint": false
+ },
+ "core.search_index": {
+  "readOnlyHint": true
+ },
+ "core.timeline": {
+  "readOnlyHint": true
+ },
+ "core.get_many": {
+  "readOnlyHint": true
+ },
+ "core.record_unknown": {
+  "destructiveHint": false
+ },
+ "core.update_unknown": {
+  "destructiveHint": false
+ },
+ "core.unknowns": {
+  "readOnlyHint": true
+ },
+ "core.adjudicate_batch": {
+  "destructiveHint": false
+ },
+ "core.upsert_session_summary": {
+  "destructiveHint": false
+ },
+ "core.last_summary": {
+  "readOnlyHint": true
+ },
+ "core.knowledge_gaps": {
+  "readOnlyHint": true
+ },
+ "core.check_phase_gate": {
+  "readOnlyHint": true
+ },
+ "core.resolve_conflict": {
+  "destructiveHint": false
+ },
+ "core.record_regression": {
+  "destructiveHint": false
+ },
+ "core.replay_regression": {
+  "destructiveHint": false
+ },
+ "core.record_observation": {
+  "destructiveHint": false
+ },
+ "core.record_principle": {
+  "destructiveHint": false
+ },
+ "core.principles": {
+  "readOnlyHint": true
+ },
+ "core.record_hidden_requirement": {
+  "destructiveHint": false
+ },
+ "core.hidden_requirements": {
+  "readOnlyHint": true
+ },
+ "core.record_commercial": {
+  "destructiveHint": false
+ },
+ "core.commercial_intel": {
+  "readOnlyHint": true
+ },
+ "core.record_tool": {
+  "destructiveHint": false
+ },
+ "core.tool_intel": {
+  "readOnlyHint": true
+ },
+ "core.record_archetype": {
+  "destructiveHint": false
+ },
+ "core.archetypes": {
+  "readOnlyHint": true
+ },
+ "core.record_platform_semantic": {
+  "destructiveHint": false
+ },
+ "core.platform_semantics": {
+  "readOnlyHint": true
+ },
+ "core.record_practice_parity": {
+  "destructiveHint": false
+ },
+ "core.practice_parity": {
+  "readOnlyHint": true
+ },
+ "core.record_skill_version": {
+  "destructiveHint": false
+ },
+ "core.skill_genealogy": {
+  "readOnlyHint": true
+ },
+ "core.context_pack_v2": {
+  "readOnlyHint": true
+ },
+ "core.receipt_v2": {
+  "destructiveHint": false
+ },
+ "terminal.resize": {
+  "destructiveHint": false,
+  "idempotentHint": true
+ },
+ "terminal.wait": {
+  "readOnlyHint": true
+ },
+ "terminal.list": {
+  "readOnlyHint": true
+ },
+ "anti.sheet.extract": {
+  "readOnlyHint": true
+ },
+ "anti.sheet.write_cell": {
+  "destructiveHint": false
+ },
+ "anti.sheet.write_range": {
+  "destructiveHint": false
+ },
+ "anti.sheet.find_rows": {
+  "readOnlyHint": true
+ },
+ "anti.inspect.layout": {
+  "readOnlyHint": true
+ },
+ "anti.inspect.font": {
+  "readOnlyHint": true
+ },
+ "browser.set-device-preset": {
+  "destructiveHint": false,
+  "idempotentHint": true
+ },
+ "browser.list-device-presets": {
+  "readOnlyHint": true
+ },
+ "theme.transaction.begin": {
+  "destructiveHint": false,
+  "idempotentHint": true
+ },
+ "theme.transaction.write_cas": {
+  "destructiveHint": false,
+  "idempotentHint": true
+ },
+ "theme.transaction.await_sync_and_reload": {
+  "destructiveHint": false,
+  "idempotentHint": true
+ },
+ "theme.transaction.settle": {
+  "destructiveHint": false,
+  "idempotentHint": true
+ },
+ "theme.transaction.rollback": {
+  "idempotentHint": true
+ },
+ "theme.transaction.resolve_hold": {
+  "idempotentHint": true
+ },
+ "anti.browser.wait": {
+  "readOnlyHint": true
+ },
+ "anti.theme.qa_validate": {
+  "readOnlyHint": true
+ },
+ "anti.theme.debug_bundle": {
+  "readOnlyHint": true
+ },
+ "anti.theme.style_override": {
+  "destructiveHint": false,
+  "idempotentHint": true
+ },
+ "storefront.resolve_product": {
+  "readOnlyHint": true
+ }
+}

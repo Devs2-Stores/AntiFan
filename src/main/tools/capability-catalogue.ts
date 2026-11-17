@@ -771,9 +771,12 @@ export class CapabilityCatalogue {
     if (filter && !isCapabilityNamePermitted(definition.name, filter)) return false;
     if (definition.risk === 'read') return true;
     if (this.runtime.mode !== 'standalone') return false;
+    // Hierarchical: each grant sees everything below it. `execute` (shell input / process launch) sits above `write`
+    // so a plain write grant can no longer type into a shell; `eval` (page script) keeps its own tier and, when
+    // allowed, also sees write and execute.
     if (grant === 'write') return definition.risk === 'write';
-    if (grant === 'execute') return definition.risk === 'execute';
-    if (grant === 'eval') return this.options.allowEval === true && (definition.risk === 'eval' || definition.risk === 'write');
+    if (grant === 'execute') return definition.risk === 'write' || definition.risk === 'execute';
+    if (grant === 'eval') return this.options.allowEval === true && (definition.risk === 'eval' || definition.risk === 'write' || definition.risk === 'execute');
     return false;
   }
 

@@ -8,6 +8,10 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { randomBytes } from 'node:crypto';
+
+/** Owners that must never be killed by a boot sweep: the terminal daemon-host and the PTYs it holds. */
+export const NEVER_SWEEP_OWNERS: readonly string[] = ['terminal', 'pty', 'daemon-host', 'terminal-daemon'];
 import * as cp from 'node:child_process';
 import { StorageLocations } from '../config/storage-locations';
 import { recordLifecycleEvent } from '../diagnostics/main-lifecycle-log';
@@ -38,6 +42,9 @@ export interface ProcessMarkerRecord {
   command?: string;
   createdAt: number;
   osStartTime: number | null;
+  /** PID of the AntiFan main that registered the process. */
+  hostPid?: number;
+  runToken?: string;
 }
 
 export interface SweepReport {
@@ -45,6 +52,8 @@ export interface SweepReport {
   alreadyDead: number;
   killed: number;
   pidReusedSkipped: number;
+  /** Records left alone: never-swept owners, owners outside the allow-list, or a still-running host. */
+  ownerSkipped: number;
   errors: Array<{ pid: number; error: string }>;
 }
 
@@ -303,7 +312,10 @@ export class ProcessRegistry {
   private readonly killProcess: (pid: number) => Promise<boolean>;
   private readonly killProcessSync: (pid: number) => boolean;
   private readonly logger: (event: string, fields?: Record<string, unknown>) => void;
+  /** 128-bit id of this main-process generation; stamped on every marker record and in each spawnOwned child's env. */
+  public readonly runToken = randomBytes(16).toString('hex');
 
+  private sweepSurvivors: ProcessMarkerRecord[] = [];
   private exitHooksInstalled = false;
   private disposed = false;
   private exitHandler: (() => void) | null = null;
@@ -494,7 +506,7 @@ export class ProcessRegistry {
    * Verifies each recorded PID against its original creation time before killing,
    * guaranteeing that a reused/recycled PID belonging to an innocent process is NEVER killed.
    */
-  public async sweepOrphans(options?: { toleranceMs?: number; maxAgeMs?: number }): Promise<SweepReport> {
+  public async sweepOrphans(options?: { toleranceMs?: number; maxAgeMs?: number; owners?: string[] }): Promise<SweepReport> {
     const toleranceMs = options?.toleranceMs ?? 5000;
     const maxAgeMs = options?.maxAgeMs ?? 7 * 24 * 60 * 60 * 1000; // 7 days
     const now = this.now();
@@ -504,6 +516,7 @@ export class ProcessRegistry {
       alreadyDead: 0,
       killed: 0,
       pidReusedSkipped: 0,
+      ownerSkipped: 0,
       errors: [],
     };
 
@@ -520,6 +533,21 @@ export class ProcessRegistry {
     for (const record of records) {
       // If this PID is actively tracked by this running session instance, preserve it
       if (this.tracked.has(record.pid)) {
+        survivingRecords.push(record);
+        continue;
+      }
+
+      // Daemon-host and its PTYs outlive the main process on purpose (detached; a restart would kill every OMP
+      // session), so they are never swept. An owner allow-list narrows the sweep further.
+      if (NEVER_SWEEP_OWNERS.includes(record.owner) || (options?.owners && !options.owners.includes(record.owner))) {
+        report.ownerSkipped += 1;
+        survivingRecords.push(record);
+        continue;
+      }
+
+      // A record written by another AntiFan main that is still running belongs to that instance, not to a crash.
+      if (typeof record.hostPid === 'number' && record.hostPid !== process.pid && this.isProcessAlive(record.hostPid)) {
+        report.ownerSkipped += 1;
         survivingRecords.push(record);
         continue;
       }
@@ -597,7 +625,10 @@ export class ProcessRegistry {
       }
     }
 
-    this.writeMarkerFile(survivingRecords);
+    // Merge, never overwrite: a child registered while the sweep awaited probes already
+    // persisted its record, and this write must keep it.
+    this.sweepSurvivors = survivingRecords.filter((r) => !this.tracked.has(r.pid));
+    this.persistMarkerFile();
 
     this.logger('process.orphanSweep.complete', {
       scanned: report.scanned,
@@ -678,14 +709,18 @@ export class ProcessRegistry {
   }
 
   private persistMarkerFile(): void {
-    const records: ProcessMarkerRecord[] = Array.from(this.tracked.values()).map((p) => ({
+    const tracked: ProcessMarkerRecord[] = Array.from(this.tracked.values()).map((p) => ({
       pid: p.pid,
       owner: p.owner,
       name: p.name,
       command: p.command,
       createdAt: p.createdAt,
       osStartTime: p.osStartTime,
+      hostPid: process.pid,
+      runToken: this.runToken,
     }));
-    this.writeMarkerFile(records);
+    // Records a sweep deliberately kept (owner-skipped, other live host, failed kill) stay on disk.
+    const kept = this.sweepSurvivors.filter((r) => !this.tracked.has(r.pid));
+    this.writeMarkerFile([...kept, ...tracked]);
   }
 }

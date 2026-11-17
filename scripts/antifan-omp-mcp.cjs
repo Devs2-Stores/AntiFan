@@ -172,7 +172,7 @@ const definitions = [
   ['core.context_pack', 'Build a Context Pack for a task: relevant claims, unresolved conflicts, unknowns, permission scope. Packs dedupe on (task, platform, sessionId, scope). diagnostics=true piggybacks store hygiene (stale claims, knowledge gaps, PENDING adjudication candidates) onto the pack.', { task: { type: 'string' }, platform: { type: 'string' }, unitIds: { type: 'array', items: { type: 'string' } }, limit: { type: 'number' }, sessionId: { type: 'string' }, includeGlobal: { type: 'boolean' }, diagnostics: { type: 'boolean' }, scope: { type: 'string', description: 'Project root (absolute path) whose units rank first. A preference, not a filter: cross-project claims still fill the pack.' } }, ['task']],
   ['core.recommend', 'Recommend from evidence: Context Pack + recommendation or explicit abstention.', { task: { type: 'string' }, platform: { type: 'string' }, unitIds: { type: 'array', items: { type: 'string' } }, sessionId: { type: 'string' }, includeGlobal: { type: 'boolean' }, scope: { type: 'string', description: 'Project root (absolute path) whose units rank first. A preference, not a filter: cross-project claims still fill the pack.' } }, ['task']],
   ['core.receipt', 'Issue a Decision Receipt binding task context and evidence revisions. Refused when Core unavailable.', { task: { type: 'string' }, packId: { type: 'string' }, recommendation: { type: 'string' }, abstained: { type: 'boolean' } }, ['task', 'recommendation']],
-  ['core.ingest_outcome', 'Ingest a verified outcome as a case + pending candidate (never auto-promoted).', { task: { type: 'string' }, context: { type: 'string' }, outcome: { type: 'string' }, verificationRef: { type: 'string' }, unitId: { type: 'string' }, platform: { type: 'string' } }, ['task', 'outcome']],
+  ['core.ingest_outcome', 'Ingest a verified outcome as a case + pending candidate (never auto-promoted). packIds links the case to the packs the task used.', { task: { type: 'string' }, context: { type: 'string' }, outcome: { type: 'string' }, verificationRef: { type: 'string' }, unitId: { type: 'string' }, platform: { type: 'string' }, packIds: { type: 'array', items: { type: 'string' } }, linkKind: { type: 'string', enum: ['session', 'leader-job', 'manual'] }, lesson: { type: 'string' }, projectRoot: { type: 'string' } }, ['task', 'outcome']],
   ['core.adjudicate', 'Adjudicate a candidate (PROMOTE/REJECT/SUPERSEDE) with explicit authority. Refused when Core unavailable.', { candidateId: { type: 'string' }, decision: { type: 'string', enum: ['PROMOTE', 'REJECT', 'SUPERSEDE'] }, authority: { type: 'string' }, rationale: { type: 'string' }, scope: { type: 'string', enum: ['production', 'acceptance-test'] } }, ['candidateId', 'decision', 'authority']],
   ['core.stats', 'Return Super Core store counts for verification.', {}],
   ['core.health', 'Aggregated Core Health: status, reasonCode, stats, audit, decay and phase gates. Read-only.', { staleDays: { type: 'number' } }],
@@ -202,7 +202,18 @@ const definitions = [
   // v4: Knowledge Decay
   ['core.decay_check', 'Check for stale/aging claims beyond a threshold.', { staleDays: { type: 'number' } }],
   ['core.corpus_audit', 'Run a corpus completion audit (read-only evaluation).', {}],
-  ['core.candidates', 'List adjudication candidates (default PENDING).', { status: { type: 'string' }, limit: { type: 'number' } }],
+  ['core.candidates', 'List adjudication candidates (default PENDING). triage=true adds age/duplicate/recommendation fields.', { status: { type: 'string' }, limit: { type: 'number' }, triage: { type: 'boolean' } }],
+  ['core.mark_injected', 'Record the claim ids a pack actually rendered into a session (the only writer of claims.lastSeen).', { packId: { type: 'string' }, sessionId: { type: 'string' }, projectRoot: { type: 'string' }, claimIds: { type: 'array', items: { type: 'string' } } }, ['packId', 'claimIds']],
+  ['core.reinforce', 'Reinforce claims that a verified outcome or receipt relied on (idempotent per UTC day).', { claimIds: { type: 'array', items: { type: 'string' } }, reason: { type: 'string', enum: ['outcome', 'receipt', 'manual'] }, day: { type: 'string' } }, ['claimIds', 'reason']],
+  ['core.search_index', 'Index first: compact rows (id, kind, title, score) across claims/candidates. Fetch bodies only for chosen ids with core.get_many.', { text: { type: 'string' }, platform: { type: 'string' }, scope: { type: 'string' }, kinds: { type: 'array', items: { type: 'string' } }, limit: { type: 'number' } }, ['text']],
+  ['core.timeline', 'Rows around an index id, ordered by time.', { anchorId: { type: 'string' }, before: { type: 'number' }, after: { type: 'number' } }, ['anchorId']],
+  ['core.get_many', 'Full bodies and evidence anchors for ids chosen from core.search_index (max 50).', { ids: { type: 'array', items: { type: 'string' } }, maxIds: { type: 'number' } }, ['ids']],
+  ['core.record_unknown', 'Record an open question Core could not verify (deduplicated by normalized question).', { domain: { type: 'string' }, question: { type: 'string' }, scope: { type: 'string' }, platform: { type: 'string' }, severity: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] }, requiredAuthority: { type: 'string' }, requiredConfidence: { type: 'string' }, probes: { type: 'array', items: { type: 'object' } } }, ['domain', 'question']],
+  ['core.update_unknown', 'Compare-and-swap update of an unknown (expectedRevision); resolve with evidence.', { unknownId: { type: 'string' }, expectedRevision: { type: 'number' }, status: { type: 'string', enum: ['open', 'investigating', 'blocked', 'contradicted', 'resolved'] }, severity: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] }, supporting: { type: 'array', items: { type: 'string' } }, contradicting: { type: 'array', items: { type: 'string' } }, resolution: { type: 'object' } }, ['unknownId', 'expectedRevision']],
+  ['core.unknowns', 'List recorded unknowns (open questions). Newest first.', { status: { type: 'string', enum: ['open', 'investigating', 'blocked', 'contradicted', 'resolved'] }, platform: { type: 'string' }, scope: { type: 'string' }, limit: { type: 'number', description: 'Rows per page (default 100; fix_patterns 50; max 1000)' }, offset: { type: 'number', description: 'Rows to skip, newest first' } }],
+  ['core.adjudicate_batch', 'Adjudicate several candidates in one call; authority is mandatory and still human-granted.', { items: { type: 'array', items: { type: 'object' } }, authority: { type: 'string' }, scope: { type: 'string', enum: ['production', 'acceptance-test'] } }, ['items', 'authority']],
+  ['core.upsert_session_summary', 'Store the summary of a session segment (request/investigated/learned/completed/nextSteps/notes).', { sessionId: { type: 'string' }, segment: { type: 'number' }, projectRoot: { type: 'string' }, request: { type: 'string' }, investigated: { type: 'string' }, learned: { type: 'string' }, completed: { type: 'string' }, nextSteps: { type: 'string' }, notes: { type: 'string' } }, ['sessionId']],
+  ['core.last_summary', 'Newest stored session summary for a project root.', { projectRoot: { type: 'string' } }],
   ['core.knowledge_gaps', 'Classify per-platform knowledge gaps: NO_EVIDENCE (never had claims), STALE (claims exist, none fresh), CONFLICTED (claims + unresolved conflicts), NONE.', { staleDays: { type: 'number' } }],
   // v4: Phase Gates
   ['core.check_phase_gate', 'Check a phase gate (coverage, evidence, conflict, temporal, promotion, regression).', { phase: { type: 'string' }, gate: { type: 'string' } }, ['phase', 'gate']],
@@ -276,9 +287,21 @@ const DEFINITION_ALIASES = Object.freeze([
 for (const [alias, base] of DEFINITION_ALIASES) {
   const baseRow = definitions.find(([name]) => name === base);
   if (!baseRow) throw new Error(`${base} definition is required to advertise its ${alias} alias`);
-  const text = String(baseRow[1]);
-  definitions.push([alias, `Alias of ${base}: ${text.charAt(0).toLowerCase()}${text.slice(1)}`, ...baseRow.slice(2)]);
+  // The alias carries the base's whole description: agents call the alias name, so the guidance must be on it
+  // (pinned by test/unit/mcp-published-schema.test.mjs; collapsing it saves about 1 KB and was rejected).
+  const aliasText = String(baseRow[1]);
+  definitions.push([alias, `Alias of ${base}: ${aliasText.charAt(0).toLowerCase()}${aliasText.slice(1)}`, ...baseRow.slice(2)]);
 }
+
+// MCP annotations (readOnlyHint / destructiveHint / idempotentHint), generated from the catalogue policy by
+// scripts/check-mcp-budget-dominance.mjs (--update-annotations) and verified there on every compile.
+const MCP_ANNOTATIONS = (() => {
+  try {
+    return JSON.parse(fs.readFileSync(require('node:path').join(__dirname, 'mcp-annotations.json'), 'utf8'));
+  } catch {
+    return {};
+  }
+})();
 
 let currentAuthorityRevision = null;
 let dynamicBootstrap = null;
@@ -845,6 +868,17 @@ const CORE_DISPATCH = Object.freeze({
   'core.skill_genealogy': ['skillGenealogy', (p) => [p], false],
   'core.context_pack_v2': ['contextPackV2', (p) => [p], false],
   'core.receipt_v2': ['receiptV2', (p) => [p], true],
+  'core.mark_injected': ['markInjected', (p) => [p], true],
+  'core.reinforce': ['reinforce', (p) => [p], true],
+  'core.search_index': ['searchIndex', (p) => [p], false],
+  'core.timeline': ['timeline', (p) => [p], false],
+  'core.get_many': ['getMany', (p) => [p], false],
+  'core.record_unknown': ['recordUnknown', (p) => [p], true],
+  'core.update_unknown': ['updateUnknown', (p) => [p], true],
+  'core.unknowns': ['unknowns', (p) => [p], false],
+  'core.adjudicate_batch': ['adjudicateBatch', (p) => [p], true],
+  'core.upsert_session_summary': ['upsertSessionSummary', (p) => [p], true],
+  'core.last_summary': ['lastSummary', (p) => [p], false],
 });
 async function invokeCore(method, params) {
   // Mutability is declared in CORE_DISPATCH, next to each store binding, so a new
@@ -1508,6 +1542,33 @@ function asAllowList(list) {
   return list.length === 0 ? ['!*'] : list;
 }
 
+// Named tool profiles (scripts/mcp-profiles.json): ANTIFAN_TOOL_PROFILE=qa,leader expands to an allow-list so a
+// caller pays only for the tools it uses. Opt-in: the default stays the full list. An unknown or unreadable
+// profile resolves to "nothing allowed" (fail closed), reported once on stderr, never to "everything".
+const reportedBadProfiles = new Set();
+function resolveToolProfile() {
+  const argv = process.argv.find((a) => typeof a === 'string' && a.startsWith('--tool-profile='));
+  const raw = String(process.env.ANTIFAN_TOOL_PROFILE || (argv ? argv.slice('--tool-profile='.length) : '')).trim();
+  if (!raw) return undefined;
+  let profiles = null;
+  try {
+    profiles = JSON.parse(fs.readFileSync(require('node:path').join(__dirname, 'mcp-profiles.json'), 'utf8'));
+  } catch {}
+  const patterns = [];
+  for (const name of raw.split(',').map((s) => s.trim()).filter(Boolean)) {
+    const list = profiles && profiles[name];
+    if (!Array.isArray(list) || list.length === 0 || !list.every((p) => typeof p === 'string')) {
+      if (!reportedBadProfiles.has(name)) {
+        reportedBadProfiles.add(name);
+        console.error(`[antifan-mcp] tool profile '${name}' is unknown or unreadable; refusing every capability`);
+      }
+      return ['!*'];
+    }
+    patterns.push(...list);
+  }
+  return patterns.length > 0 ? patterns : ['!*'];
+}
+
 function resolveAllowedCapabilities() {
   if (isFixerSession) {
     return [...fixerToolSurface];
@@ -1521,6 +1582,8 @@ function resolveAllowedCapabilities() {
     const label = allowArg.slice(0, allowArg.indexOf('='));
     return asAllowList(parseCapabilityList(allowArg.slice(allowArg.indexOf('=') + 1), label));
   }
+  const profileList = resolveToolProfile();
+  if (profileList) return profileList;
   return undefined;
 }
 
@@ -1740,6 +1803,11 @@ const READ_SAFE_CAPABILITIES = Object.freeze({
   'core.decay_check': true,
   'core.corpus_audit': true,
   'core.candidates': true,
+  'core.search_index': true,
+  'core.timeline': true,
+  'core.get_many': true,
+  'core.unknowns': true,
+  'core.last_summary': true,
   'core.knowledge_gaps': true,
   'core.check_phase_gate': true,
   'core.principles': true,
@@ -4046,6 +4114,7 @@ function publishedTool([name, description, properties, required, forms]) {
       const names = aliases.filter(([, to]) => to === field).map(([from]) => from);
       return names.length > 0 ? field + ' (or ' + names.join(', ') + ')' : field;
     }).join(', ') + '.';
+  const annotations = MCP_ANNOTATIONS[name];
   return {
     name,
     description: description + argumentFormsNote(forms) + requiredNote,
@@ -4054,6 +4123,7 @@ function publishedTool([name, description, properties, required, forms]) {
       properties: published,
       ...(publishedRequired.length > 0 ? { required: publishedRequired } : {}),
     },
+    ...(annotations ? { annotations } : {}),
   };
 }
 

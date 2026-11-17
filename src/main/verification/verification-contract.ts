@@ -225,6 +225,15 @@ export interface VerificationRecord {
   terminalOutcome?: FixLifecycleState;
   scopeDiscovery?: ScopeDiscoveryInfo;
   evidencePath?: string;
+  /** Files this verification certified (absolute path, sha256, bytes). Lets a reader tell the receipt no longer applies. */
+  inputs?: Array<{ path: string; sha256: string; bytes: number }>;
+  evidenceDigest?: string;
+  /** Layout version of `bodySha256` (identity fields only; see qa/receipt-digest.ts). */
+  hashVersion?: number;
+  bodySha256?: string;
+  /** Read-time flags set by IssueRegister.listVerifications; never persisted. */
+  tampered?: boolean;
+  stale?: boolean;
   timestamp: number;
   timeFormatted: string;
   linkedIssueId?: string;

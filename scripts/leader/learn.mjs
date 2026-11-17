@@ -34,7 +34,7 @@ function readReportJson(file) {
  * Pure summary of a job.json object (reads only the report file of the last valid round).
  * @returns {{task:string, outcome:string, verificationRef:string|null}}
  */
-export function buildOutcome(job) {
+export function buildOutcome(job, env = process.env) {
   const rounds = Array.isArray(job?.rounds) ? job.rounds : [];
   const subject = job?.subject ?? {};
   const label = [subject.issueId ? `issue ${subject.issueId}` : null, subject.shop ?? null].filter(Boolean).join(" @ ");
@@ -59,7 +59,16 @@ export function buildOutcome(job) {
   if (extra.length) parts.push(`extra rounds: ${extra.join("; ")}`);
   const review = rounds.filter((r) => r?.kind === "review").length;
   if (review) parts.push(`${review} review round${review === 1 ? "" : "s"}`);
-  return { task, outcome: parts.join(". "), verificationRef: validRound ? String(validRound.reportPath) : null };
+  // verificationRef must be a Core receiptId: reuseMetric joins it on receipts.receiptId, a file path can never match.
+  const receiptRe = /^rcpt-[\w-]+$/;
+  const receiptId = [rep?.receiptId, validRound?.receiptId, job?.receiptId].find((v) => typeof v === "string" && receiptRe.test(v)) ?? null;
+  const packIds = [...new Set([...strs(rep?.packIds), ...strs(job?.packIds), ...(typeof env.ANTIFAN_CORE_PACK_ID === "string" ? [env.ANTIFAN_CORE_PACK_ID] : [])].filter((p) => p.trim()))];
+  const result = { task, outcome: parts.join(". "), verificationRef: receiptId };
+  if (packIds.length) result.packIds = packIds;
+  if (typeof rep?.summary === "string" && rep.summary.trim()) result.lesson = clip(rep.summary, 300);
+  const projectRoot = [job?.projectRoot, job?.cwd].find((v) => typeof v === "string" && v.trim());
+  if (projectRoot) result.projectRoot = projectRoot;
+  return result;
 }
 
 function runCore({ coreScript, cwd, env, timeoutMs, spawn }, args) {
@@ -97,7 +106,7 @@ function runCore({ coreScript, cwd, env, timeoutMs, spawn }, args) {
 export function ingestOutcome(job, { coreScript, cwd, env, timeoutMs = 15000, spawn } = {}) {
   try {
     if ((env ?? process.env).LEADER_LEARN === "off") return { ok: false, caseId: null, candidateId: null, error: "disabled" };
-    const payload = JSON.stringify(buildOutcome(job));
+    const payload = JSON.stringify(buildOutcome(job, env ?? process.env));
     const r = runCore({ coreScript, cwd, env, timeoutMs, spawn }, ["outcome", payload]);
     if (!r.ok) return { ok: false, caseId: null, candidateId: null, error: r.error };
     const caseId = r.json?.caseId ?? null;

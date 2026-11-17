@@ -20,6 +20,7 @@ import { reportHeadOf } from "./report-head.mjs";
 import { ingestOutcome, listPending } from "./learn.mjs";
 import { wrapUntrusted } from "./untrusted.mjs";
 import { readRegistry } from "./fleet-watch.mjs";
+import { crossCheckRound } from "./evidence-xcheck.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_JOBS_ROOT = "E:/Work/scratch/leader";
@@ -1325,8 +1326,14 @@ function cmdRecord(flags) {
   if (!VERIFY_STATUSES.includes(status)) throw new CliError(EXIT.USAGE, `--status must be one of ${VERIFY_STATUSES.join(", ")}`);
   round.verification[kind] = { status, notes: many(flags, "note"), at: Date.now() };
   const res = applyVerification(job, round);
+  // Warn-only: what the worker did (transcript) vs what its report claims. Never blocks the record.
+  let xcheck = null;
+  try {
+    xcheck = crossCheckRound({ round, run: readRun(runsDirOf(flags), round.worker.terminal), sessionsDir: one(flags, "sessions-dir") || defaultSessionsDir(), jobKind: job.subject?.kind });
+    if (xcheck) round.xcheck = xcheck;
+  } catch {}
   saveJob(dir, job);
-  emit({ cmd: "record", ok: status === "PASS" || status === "WARN", job: job.job, round: round.n, kind, status, state: job.state, missing: res.missing });
+  emit({ cmd: "record", ok: status === "PASS" || status === "WARN", job: job.job, round: round.n, kind, status, state: job.state, missing: res.missing, ...(xcheck ? { xcheck: { corroborated: xcheck.corroborated.length, uncorroborated: xcheck.uncorroborated, contradicted: xcheck.contradicted } } : {}) });
   return status === "PASS" || status === "WARN" ? EXIT.OK : EXIT.CHECK_FAILED;
 }
 
@@ -1436,6 +1443,11 @@ export function runVerifyEntry(entry, { timeoutMs = VERIFY_TIMEOUT_MS, spawn = s
   const cmd = entry?.cmd;
   const chk = checkVerifyCommand(cmd);
   if (chk.refused) return { verdict: "REFUSED", cmd: String(cmd ?? ""), exit: null, stdout: "", why: chk.refused };
+  // An empty/whitespace expect passes on any stdout. `node --check` prints nothing (exit code is the proof) and `rg -c` yields a bare count.
+  const wanted = String(entry.expect ?? "").trim();
+  const isSyntaxCheck = chk.argv[1] === "--check";
+  const isCount = /^\d+$/.test(wanted) && chk.argv.some((a) => a === "-c" || a === "--count");
+  if (wanted.length < 3 && !isSyntaxCheck && !isCount) return { verdict: "REFUSED", cmd: String(cmd), exit: null, stdout: "", why: "expect must be a distinctive string of at least 3 characters" };
   const r = spawn(chk.argv[0], chk.argv.slice(1), { shell: false, stdio: ["ignore", "pipe", "pipe"], encoding: "utf8", timeout: timeoutMs, maxBuffer: 1024 * 1024, windowsHide: true, env: verifyEnv() });
   const stdout = (r.stdout ?? "").slice(0, VERIFY_STDOUT_MAX);
   if (r.error?.code === "ETIMEDOUT" || (r.error && r.signal)) return { verdict: "FAIL", cmd, exit: null, stdout, why: `timeout after ${timeoutMs} ms` };

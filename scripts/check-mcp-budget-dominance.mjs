@@ -53,6 +53,13 @@ const SUPER_CORE_SRC = path.join(ROOT, 'packages', 'super-core', 'src', 'index.t
 const TOOLS_BASELINE_PATH = path.join(ROOT, 'scripts', 'mcp-tools-list-baseline.json');
 /** The published tool list may grow this much over the baseline before the compile fails. */
 const TOOLS_BASELINE_GROWTH = 1.05;
+/** A named profile is held to a tighter bound than the full list. */
+const TOOLS_PROFILE_GROWTH = 1.02;
+/** A list that shrinks past this fraction of its baseline must be re-recorded (the ratchet). */
+const TOOLS_BASELINE_SHRINK = 0.9;
+const TOOL_PROFILES_PATH = path.join(ROOT, 'scripts', 'mcp-profiles.json');
+const ANNOTATIONS_PATH = path.join(ROOT, 'scripts', 'mcp-annotations.json');
+const EXECUTE_ALLOWLIST_PATH = path.join(ROOT, 'scripts', 'mcp-execute-allowlist.json');
 const usingFixtureProxy = process.argv.includes('--proxy');
 
 const problems = [];
@@ -107,6 +114,7 @@ for (const name of [
   'ANTIFAN_ALLOWED_CAPABILITY_NAMES',
   'ANTIFAN_FORBIDDEN_CAPABILITIES',
   'ANTIFAN_FORBIDDEN_CAPABILITY_NAMES',
+  'ANTIFAN_TOOL_PROFILE',
 ]) {
   delete process.env[name];
 }
@@ -223,6 +231,55 @@ if (CapabilityCatalogue && BrowserControlPort && makeControlPlaneId && problems.
   for (const name of Object.keys(proxy.READ_SAFE_CAPABILITIES || {})) {
     if (!(proxy.definitions || []).some(row => row[0] === name)) {
       problems.push(`replay safety names unadvertised capability '${name}'`);
+    }
+  }
+  // Annotations (readOnlyHint / destructiveHint / idempotentHint) published by the proxy are generated from the
+  // catalogue policy, so a client's view of "read vs destructive" can never drift from the server's.
+  const annotationsMod = required('main/tools/capability-annotations.js');
+  if (annotationsMod) {
+    const computed = {};
+    for (const [name] of proxy.definitions || []) {
+      const resolved = map[name] || name;
+      const policy = catalogue.getPolicy(resolved);
+      if (!policy) continue;
+      const ann = annotationsMod.annotationsFromPolicy(resolved, policy);
+      if (Object.keys(ann).length > 0) computed[name] = ann;
+    }
+    const computedText = `${JSON.stringify(computed, null, 1)}\n`;
+    if (process.argv.includes('--update-annotations')) {
+      fs.writeFileSync(ANNOTATIONS_PATH, computedText);
+      notes.push(`annotations written: ${Object.keys(computed).length} tools`);
+    } else if (!usingFixtureProxy) {
+      let onDisk = null;
+      try {
+        onDisk = fs.readFileSync(ANNOTATIONS_PATH, 'utf8').replace(/\r\n/g, '\n');
+      } catch {}
+      if (onDisk !== computedText) {
+        problems.push(`${path.relative(ROOT, ANNOTATIONS_PATH)} is stale or missing against the catalogue policy (regenerate: node scripts/check-mcp-budget-dominance.mjs --update-annotations)`);
+      }
+    }
+    // Execute-tier audit: a capability that launches a process or runs foreign code may not sit at write risk
+    // unless it is listed (with a reason) in scripts/mcp-execute-allowlist.json. The list may only shrink.
+    let allow = {};
+    try {
+      allow = JSON.parse(fs.readFileSync(EXECUTE_ALLOWLIST_PATH, 'utf8')).allow ?? {};
+    } catch {
+      problems.push(`execute allowlist unreadable: ${path.relative(ROOT, EXECUTE_ALLOWLIST_PATH)}`);
+    }
+    for (const name of Object.keys(annotationsMod.EFFECT_FLAGS)) {
+      if (!catalogue.has(name)) problems.push(`EFFECT_FLAGS names '${name}', which the catalogue does not register`);
+    }
+    const flagged = new Set();
+    for (const entry of catalogue.listAll()) {
+      if (!annotationsMod.needsExecuteTier(entry.name)) continue;
+      flagged.add(entry.name);
+      const risk = catalogue.getPolicy(entry.name)?.risk;
+      const tiered = risk === 'execute' || risk === 'eval';
+      if (!tiered && !allow[entry.name]) problems.push(`'${entry.name}' launches a process or runs foreign code but has risk '${risk}'; raise it to execute/eval or list it with a reason in ${path.relative(ROOT, EXECUTE_ALLOWLIST_PATH)}`);
+      if (tiered && allow[entry.name]) problems.push(`'${entry.name}' is already at the ${risk} tier; remove its stale entry from ${path.relative(ROOT, EXECUTE_ALLOWLIST_PATH)}`);
+    }
+    for (const name of Object.keys(allow)) {
+      if (!flagged.has(name)) problems.push(`execute allowlist names '${name}', which is not a flagged capability`);
     }
   }
   for (const entry of catalogue.listAll()) {
@@ -442,9 +499,34 @@ if (CapabilityCatalogue && BrowserControlPort && makeControlPlaneId && problems.
   if (Buffer.byteLength(JSON.stringify(await proxy.listTools())) !== listBytes) {
     problems.push('tools/list is not deterministic: two consecutive calls returned different bytes');
   }
+  // A published readOnlyHint must say exactly what the replay-safety table says.
+  for (const tool of published.tools) {
+    const hinted = tool.annotations?.readOnlyHint === true;
+    if (hinted !== (proxy.READ_SAFE_CAPABILITIES?.[tool.name] === true)) {
+      problems.push(`published readOnlyHint for '${tool.name}' disagrees with READ_SAFE_CAPABILITIES`);
+    }
+  }
+  const measureList = async (profile) => {
+    if (profile) process.env.ANTIFAN_TOOL_PROFILE = profile;
+    else delete process.env.ANTIFAN_TOOL_PROFILE;
+    try {
+      const list = await proxy.listTools();
+      return { bytes: Buffer.byteLength(JSON.stringify(list)), tools: list.tools.length };
+    } finally {
+      delete process.env.ANTIFAN_TOOL_PROFILE;
+    }
+  };
+  let profileNames = [];
+  try {
+    profileNames = Object.keys(JSON.parse(fs.readFileSync(TOOL_PROFILES_PATH, 'utf8')));
+  } catch {
+    problems.push(`tool profiles unreadable: ${path.relative(ROOT, TOOL_PROFILES_PATH)}`);
+  }
+  const measured = { full: { bytes: listBytes, tools: published.tools.length } };
+  if (!usingFixtureProxy) for (const name of profileNames) measured[name] = await measureList(name);
   if (process.argv.includes('--update-tools-baseline')) {
-    fs.writeFileSync(TOOLS_BASELINE_PATH, `${JSON.stringify({ bytes: listBytes, tools: published.tools.length }, null, 2)}\n`);
-    notes.push(`tools/list baseline written: ${listBytes} bytes, ${published.tools.length} tools`);
+    fs.writeFileSync(TOOLS_BASELINE_PATH, `${JSON.stringify(measured, null, 2)}\n`);
+    notes.push(`tools/list baseline written: ${Object.entries(measured).map(([n, m]) => `${n}=${m.bytes}B/${m.tools}`).join(' ')}`);
   } else if (!usingFixtureProxy) {
     let baseline = null;
     try {
@@ -452,17 +534,31 @@ if (CapabilityCatalogue && BrowserControlPort && makeControlPlaneId && problems.
     } catch {
       problems.push(`tools/list baseline unreadable: ${path.relative(ROOT, TOOLS_BASELINE_PATH)} (create it with --update-tools-baseline)`);
     }
-    if (baseline && typeof baseline.bytes === 'number') {
-      notes.push(`tools/list: ${listBytes} bytes, ${published.tools.length} tools (baseline ${baseline.bytes})`);
-      if (listBytes > baseline.bytes * TOOLS_BASELINE_GROWTH) {
-        problems.push(
-          `tools/list grew to ${listBytes} bytes, over ${Math.round((TOOLS_BASELINE_GROWTH - 1) * 100)}% above the baseline ${baseline.bytes}; ` +
-            'every agent session pays this on each request. Shrink the descriptions, or if the growth is intended run: ' +
-            'node scripts/check-mcp-budget-dominance.mjs --update-tools-baseline'
-        );
+    if (baseline && typeof baseline.bytes === 'number' && !baseline.full) baseline = { full: baseline };
+    if (baseline) {
+      for (const [name, now] of Object.entries(measured)) {
+        const base = baseline[name];
+        if (!base || typeof base.bytes !== 'number') {
+          problems.push(`tools/list baseline has no entry for '${name}' (run node scripts/check-mcp-budget-dominance.mjs --update-tools-baseline)`);
+          continue;
+        }
+        notes.push(`tools/list[${name}]: ${now.bytes} bytes, ${now.tools} tools (baseline ${base.bytes})`);
+        const growth = name === 'full' ? TOOLS_BASELINE_GROWTH : TOOLS_PROFILE_GROWTH;
+        if (now.bytes > base.bytes * growth) {
+          problems.push(
+            `tools/list[${name}] grew to ${now.bytes} bytes, over ${Math.round((growth - 1) * 100)}% above the baseline ${base.bytes}; ` +
+              'every agent session pays this on each request. Shrink the descriptions, or if the growth is intended run: ' +
+              'node scripts/check-mcp-budget-dominance.mjs --update-tools-baseline'
+          );
+        }
+        // Ratchet: a shrink must be recorded so the freed bytes cannot be silently spent again.
+        if (now.bytes < base.bytes * TOOLS_BASELINE_SHRINK) {
+          problems.push(
+            `tools/list[${name}] shrank to ${now.bytes} bytes, more than ${Math.round((1 - TOOLS_BASELINE_SHRINK) * 100)}% below the baseline ${base.bytes}; ` +
+              'record the gain so it ratchets: node scripts/check-mcp-budget-dominance.mjs --update-tools-baseline'
+          );
+        }
       }
-    } else if (baseline) {
-      problems.push(`tools/list baseline ${path.relative(ROOT, TOOLS_BASELINE_PATH)} has no numeric bytes`);
     }
   }
   // The proxy words the terminal.wait cap without a number of its own: a published description

@@ -429,7 +429,7 @@ describe('CoreHealthService real CLI path', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-core-cli-'));
     const pkgDir = path.join(tmp, 'packages', 'super-core');
     fs.mkdirSync(pkgDir, { recursive: true });
-    for (const f of ['index.ts', 'schema.ts', 'terms.ts']) {
+    for (const f of fs.readdirSync(path.join(REPO_ROOT, 'packages', 'super-core', 'src')).filter((n) => n.endsWith('.ts') && !n.endsWith('.test.ts'))) {
       const src = path.join(REPO_ROOT, 'packages', 'super-core', 'src', f);
       if (!fs.existsSync(src)) {
         t.skip(`super-core source ${f} is absent from this checkout`);

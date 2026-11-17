@@ -28,6 +28,9 @@ export type CompareReceiptPane = 'desktop' | 'mobile';
 /** Tolerance `anti.visual.compare` applies when the caller passes none. */
 export const COMPARE_DEFAULT_TOLERANCE_PERCENT = 5;
 
+/** Current hash layout of a compare receipt. */
+export const COMPARE_RECEIPT_HASH_VERSION = 1;
+
 export interface CompareReceiptRecord {
   id: string;
   workspaceId: string;
@@ -54,6 +57,8 @@ export interface CompareReceiptRecord {
   /** Tolerance the verdict used, including the default when the caller passed none. */
   tolerancePercent?: number | null;
   settleComplete?: boolean | null;
+  /** Hash layout version; absent on records minted before it existed (verified with the v0 layout). */
+  hashVersion?: number;
   createdAt: string;
   bodySha256: string;
 }
@@ -92,7 +97,7 @@ type HashedBody = Omit<CompareReceiptRecord, 'bodySha256'>;
 
 /** Fixed key order so the hash does not depend on how the record was assembled or re-serialised. */
 function canonicalBody(record: HashedBody): string {
-  return JSON.stringify([
+  const fields = [
     record.id,
     record.workspaceId,
     record.projectId ?? null,
@@ -113,7 +118,10 @@ function canonicalBody(record: HashedBody): string {
     record.clipped ?? null,
     record.selector ?? null,
     record.maskedAreaRatio ?? null,
-  ]);
+  ];
+  // v0 (records minted before hashVersion existed) hashes the bare array; v1+ leads with the version so a later
+  // field change cannot silently validate an old record under the new layout.
+  return JSON.stringify(record.hashVersion === undefined ? fields : [record.hashVersion, fields]);
 }
 
 function hashBody(record: HashedBody): string {
@@ -207,6 +215,7 @@ export function mintCompareReceipt(input: CompareReceiptInput, opts?: CompareRec
     match: input.match,
     tolerancePercent: input.tolerancePercent ?? null,
     settleComplete: input.settleComplete ?? null,
+    hashVersion: COMPARE_RECEIPT_HASH_VERSION,
     createdAt: new Date(nowMs).toISOString(),
   };
   const record: CompareReceiptRecord = { ...body, bodySha256: hashBody(body) };

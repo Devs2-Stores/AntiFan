@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { StorageLocations } from '../config/storage-locations';
+import { RECEIPT_HASH_VERSION, checkIntegrity, digestFile, isStale, receiptBodySha256 } from '../qa/receipt-digest';
 import {
   VerificationRecord,
   VerificationVerdict,
@@ -1214,6 +1215,12 @@ export class IssueRegister {
       timeFormatted: new Date(now).toISOString(),
       stalemateState: entry.stalemateState || 'ACTIVE',
     };
+    if (fullRecord.evidencePath && !fullRecord.evidenceDigest) {
+      const d = digestFile(fullRecord.evidencePath);
+      if (d) fullRecord.evidenceDigest = d.sha256;
+    }
+    fullRecord.hashVersion = RECEIPT_HASH_VERSION;
+    fullRecord.bodySha256 = receiptBodySha256(fullRecord);
 
     this.readIssuesForMutation();
     const targetIssueId = entry.linkedIssueId || this.issues.find((i) => i.claimId === fullRecord.id)?.id;
@@ -1267,7 +1274,13 @@ export class IssueRegister {
     if (options?.limit && options.limit > 0) {
       result = result.slice(0, options.limit);
     }
-    return result;
+    // Read-time flags only (never persisted): a receipt whose identity hash no longer matches, or whose certified
+    // input files changed on disk, must not be cited as current.
+    return result.map((v) => {
+      const tampered = checkIntegrity(v) === 'tampered';
+      const stale = isStale(v.inputs);
+      return tampered || stale ? { ...v, ...(tampered ? { tampered: true } : {}), ...(stale ? { stale: true } : {}) } : v;
+    });
   }
 
   public getVerification(id: string): VerificationRecord | undefined {

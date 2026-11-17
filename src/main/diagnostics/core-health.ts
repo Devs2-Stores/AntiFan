@@ -8,7 +8,7 @@
  * state reports DEGRADED, never a confident-looking percentage. Unknowns are
  * surfaced explicitly, never hidden.
  */
-import { spawn } from 'node:child_process';
+import { spawnOwned } from '../process/spawn-owned';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { IssueRegister, type IssueRecord } from '../session/issue-register';
@@ -338,7 +338,10 @@ export class CoreHealthService {
           resolve(outcome);
         };
 
-        const child = spawn(process.execPath, args, {
+        // spawnOwned registers the child with the ProcessRegistry (crash-safe marker, run token) and unregisters it on close.
+        const child = spawnOwned(process.execPath, args, {
+          owner: 'core-health',
+          name: command,
           cwd: this.repoRoot,
           env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
           windowsHide: true,
@@ -362,29 +365,13 @@ export class CoreHealthService {
         }, this.timeoutMs);
         timer.unref?.();
 
-        if (child.pid) {
-          ProcessRegistry.getInstance().register({
-            pid: child.pid,
-            owner: 'core-health',
-            name: command,
-            command: args.join(' '),
-            processRef: child,
-            osStartTime: Date.now(),
-          });
-        }
 
         child.stdout?.on('data', (d: Buffer) => { stdout += d.toString('utf8'); });
         child.stderr?.on('data', (d: Buffer) => { stderr += d.toString('utf8'); });
         child.on('error', (error) => {
-          if (child.pid) {
-            ProcessRegistry.getInstance().unregister(child.pid);
-          }
           settle({ status: null, stdout, stderr, error });
         });
         child.on('close', (status) => {
-          if (child.pid) {
-            ProcessRegistry.getInstance().unregister(child.pid, status);
-          }
           settle({ status, stdout, stderr });
         });
       });

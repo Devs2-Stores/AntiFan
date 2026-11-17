@@ -8,6 +8,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { DDL, MIGRATIONS, SCHEMA_VERSION, PLATFORM_BACKFILL_SQL, POST_SCHEMA_SQL, NAMESPACE_BACKFILL_SQL, CORE_NAMESPACES, CoreNamespace, KNOWN_PLATFORMS } from './schema.js';
 import { buildFtsTerms, contentCoverage, foldTerm, ftsExpression } from './terms.js';
+import { defaultRedactionConfig, sanitizeJson, sanitizeText } from './privacy.js';
 export { CORE_NAMESPACES, CoreNamespace };
 
 const id = (s: string) => crypto.createHash('sha1').update(s).digest('hex').slice(0, 20);
@@ -71,6 +72,97 @@ const principleAnchors = (source: string | null, derivedFrom: string | null): st
  *  row they produced is already what the next open's consolidation computes. */
 const canonicalDerivedFrom = (anchors: string[]): string => JSON.stringify([...new Set(anchors)]);
 
+// ---- closed vocabularies (CM-06) ------------------------------------------------
+// `confidence` says how the fact was obtained, `authority` says who/what vouches
+// for it. SQLite cannot CHECK an existing column, so the write paths validate.
+export const CONFIDENCE_VALUES = ['observed', 'derived', 'inferred'] as const;
+export type ClaimConfidence = (typeof CONFIDENCE_VALUES)[number];
+export const AUTHORITY_VALUES = ['source-file', 'git-history', 'live-probe', 'adjudication', 'agent-inference', 'external-doc'] as const;
+export type ClaimAuthority = (typeof AUTHORITY_VALUES)[number];
+const OBSERVED_SOURCE_KINDS = new Set(['skill-md', 'doc-section', 'plan-doc', 'git-commit', 'git-log', 'filename-signal', 'extract/commerce-tools', 'manifest']);
+export function assertConfidence(v: unknown): ClaimConfidence {
+  if (typeof v === 'string' && (CONFIDENCE_VALUES as readonly string[]).includes(v)) return v as ClaimConfidence;
+  throw new Error(`invalid confidence ${String(v)}; must be one of ${CONFIDENCE_VALUES.join('|')}`);
+}
+export function assertAuthority(v: unknown): ClaimAuthority {
+  if (typeof v === 'string' && (AUTHORITY_VALUES as readonly string[]).includes(v)) return v as ClaimAuthority;
+  throw new Error(`invalid authority ${String(v)}; must be one of ${AUTHORITY_VALUES.join('|')}`);
+}
+/** Lenient import path: legacy free text folds into the closed set ('HIGH' -> observed, anything else by source kind). */
+export function confidenceForImport(raw: unknown, sourceKind: unknown): ClaimConfidence {
+  if (typeof raw === 'string') {
+    const v = raw.trim();
+    if ((CONFIDENCE_VALUES as readonly string[]).includes(v)) return v as ClaimConfidence;
+    if (v.toUpperCase() === 'HIGH') return 'observed';
+  }
+  return typeof sourceKind === 'string' && OBSERVED_SOURCE_KINDS.has(sourceKind) ? 'observed' : 'inferred';
+}
+export function authorityForSourceKind(sourceKind: unknown): ClaimAuthority {
+  if (sourceKind === 'adjudication') return 'adjudication';
+  if (sourceKind === 'git-commit' || sourceKind === 'git-log') return 'git-history';
+  if (sourceKind === 'archetype-classification' || sourceKind === 'platform-inference') return 'agent-inference';
+  return 'source-file';
+}
+
+// ---- reinforcement (CM-02) --------------------------------------------------------
+// Reinforcement is earned by a verified outcome or receipt, never by bare
+// injection (that would be rich-get-richer); injection only moves lastSeen.
+const MAX_REINFORCEMENT_HISTORY = 10;
+const REINFORCE_DECAY = 0.5;
+export const REINFORCE_REASONS = ['outcome', 'receipt', 'manual'] as const;
+const utcDay = (d = new Date()) => d.toISOString().slice(0, 10);
+const parseDays = (raw: unknown): string[] => {
+  if (typeof raw !== 'string' || raw === '') return [];
+  try {
+    const v: unknown = JSON.parse(raw);
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+  } catch { return []; }
+};
+const envNumber = (name: string, fallback: number): number => {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === '') return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+};
+
+// ---- unknowns registry (CM-11) ----------------------------------------------------
+export type UnknownErrorReason = 'not-found' | 'revision-conflict' | 'invalid-transition' | 'invalid-evidence' | 'invalid-relation' | 'invalid-input';
+export class UnknownRegistryError extends Error {
+  constructor(readonly reason: UnknownErrorReason, message: string) {
+    super(`${reason}: ${message}`);
+    this.name = 'UnknownRegistryError';
+  }
+}
+export const UNKNOWN_STATUSES = ['open', 'investigating', 'blocked', 'contradicted', 'resolved'] as const;
+export type UnknownStatus = (typeof UNKNOWN_STATUSES)[number];
+export const UNKNOWN_SEVERITIES = ['low', 'medium', 'high', 'critical'] as const;
+export type UnknownSeverity = (typeof UNKNOWN_SEVERITIES)[number];
+const UNKNOWN_RELATIONS = ['depends-on', 'related-to', 'contradicts'] as const;
+const UNKNOWN_DISPOSITIONS = ['verified', 'withdrawn', 'out-of-scope'] as const;
+export interface UnknownResolution { disposition: (typeof UNKNOWN_DISPOSITIONS)[number]; rationale?: string; evidenceIds?: string[] }
+export interface UnknownRelation { type: (typeof UNKNOWN_RELATIONS)[number]; unknownId: string }
+export interface UnknownRecord {
+  unknownId: string; domain: string; question: string; scopeKey: string | null; platform: string | null;
+  status: UnknownStatus; severity: UnknownSeverity; requiredAuthority: string | null; requiredConfidence: string;
+  supporting: string[]; contradicting: string[]; probes: Array<{ operation: string; rationale: string }>;
+  relations: UnknownRelation[]; resolution: UnknownResolution | null; revision: number; createdAt: string; updatedAt: string;
+}
+
+// ---- layered retrieval (CM-10) -----------------------------------------------------
+export type MemKind = 'claim' | 'candidate' | 'summary';
+export interface IndexRow {
+  id: string; kind: MemKind; title: string; score: number; platform: string | null; namespace: string | null;
+  authority: string | null; evidenceCount: number; createdAt: string;
+}
+const INDEX_TITLE_MAX = 120;
+const GET_MANY_DEFAULT = 50;
+const MEM_PREFIX: Record<MemKind, string> = { claim: 'c:', candidate: 'k:', summary: 's:' };
+
+export interface SessionSummaryInput {
+  sessionId: string; segment?: number; projectRoot?: string; request?: string; investigated?: string;
+  learned?: string; completed?: string; nextSteps?: string; notes?: string;
+}
+
 /**
  * Collapse claims that assert the same sentence, keeping the strongest row (the
  * input is already ranked) and recording how many copies it stands for. Namespace
@@ -126,10 +218,22 @@ export interface PackDiagnostics {
   gapKinds: Array<{ platform: string; kind: string }>;
   pendingCount: number;
   pendingTop: Array<{ candidateId: string; statement: string; createdAt: string; platform: string | null; caseTask: string | null }>;
-  /** true when no stale claims, no non-NONE gaps, zero pending debt. Gates the bridge banner. */
+  /** Age in days of the oldest PENDING candidate in scope (0 when none). */
+  pendingOldestDays: number;
+  /** Pending debt is only alert-worthy at >= ANTIFAN_CORE_PENDING_ALERT_COUNT (25) items AND oldest >= ANTIFAN_CORE_PENDING_ALERT_DAYS (3) days. */
+  pendingAlert: boolean;
+  /** true when no stale claims, no non-NONE gaps and no alert-worthy pending debt. Gates the bridge banner. */
   healthy: boolean;
 }
-export interface OutcomeInput { task: string; context?: string; outcome: string; verificationRef?: string; unitId?: string; platform?: string; namespace?: CoreNamespace; }
+export interface OutcomeInput {
+  task: string; context?: string; outcome: string; verificationRef?: string; unitId?: string; platform?: string; namespace?: CoreNamespace;
+  /** Packs this task consumed; links the case to the claims they actually injected (reuseMetric.outcomeLinked). */
+  packIds?: string[];
+  linkKind?: 'session' | 'leader-job' | 'manual';
+  /** Distilled lesson; stored as the candidate statement instead of the mechanical `Outcome of ...` text. */
+  lesson?: string;
+  projectRoot?: string;
+}
 
 // A regression check is a re-executable invariant over live store state.
 // claim-status: claimId must hold `expect` ('LIVE' = not stale/revoked/superseded).
@@ -208,6 +312,10 @@ function generationMemo<A, R>(compute: (arg: A) => R, ttlMs: number): (key: stri
 export class Core {
   private db: DatabaseSync;
   readonly dbPath: string;
+  private readonly redaction = defaultRedactionConfig();
+
+  /** The single privacy choke point: every write path routes free text through here before SQLite. */
+  private clean<T>(value: T): T { return sanitizeJson(value, this.redaction); }
 
   constructor(dbPath: string) {
     this.dbPath = dbPath;
@@ -227,10 +335,25 @@ export class Core {
     // step — the replay then dies on `duplicate column name` and the store can
     // never be opened again. SQLite DDL is transactional, so one transaction per
     // step makes the upgrade all-or-nothing.
+    const readVersion = () => {
+      const r = this.db.prepare("SELECT value FROM meta WHERE key = 'schemaVersion'").get() as { value: string } | undefined;
+      return r ? parseInt(r.value, 10) : v;
+    };
     for (const m of MIGRATIONS) {
       if (v !== m.from) continue;
+      // The 13->14 fold rewrites confidence in place and cannot be undone: keep a
+      // consistent sibling copy of the store first (never overwritten once present).
+      if (m.to === 14) this.backupBeforeFold(m.to);
       this.db.exec('BEGIN IMMEDIATE');
       try {
+        // Another process may have advanced the schema while this one waited
+        // for the write lock: re-read inside the transaction, never replay.
+        const current = readVersion();
+        if (current !== m.from) {
+          this.db.exec('ROLLBACK');
+          v = current;
+          continue;
+        }
         this.db.exec(m.sql);
         this.db.prepare('INSERT OR REPLACE INTO meta(key,value) VALUES (?,?)').run('schemaVersion', String(m.to));
         this.db.exec('COMMIT');
@@ -248,6 +371,14 @@ export class Core {
     this.db.exec(POST_SCHEMA_SQL);
     this.consolidatePrinciples();
     this.db.exec(`PRAGMA user_version = ${PREPARED_STAMP}`);
+  }
+
+  /** `<db>.pre-v<to>.bak` via VACUUM INTO (a consistent snapshot even under WAL); skipped when present. */
+  private backupBeforeFold(to: number) {
+    const target = `${this.dbPath}.pre-v${to}.bak`;
+    if (fs.existsSync(target)) return;
+    this.db.exec(`VACUUM INTO '${target.replace(/'/g, "''")}'`);
+    console.error(`[super-core] pre-migration backup written: ${target}`);
   }
 
   close() { this.db.close(); }
@@ -345,7 +476,7 @@ export class Core {
       lineage: this.db.prepare('INSERT OR REPLACE INTO lineage(id,kind,subject,evidence,strength,membersJson) VALUES (?,?,?,?,?,?)'),
       // Upsert claims but never resurrect an operator-set terminal status
       // (REVOKED / SUPERSEDED / STALE_SOURCE_CHANGED) back to OBSERVED on re-import.
-      claim: this.db.prepare(`INSERT INTO claims(claimId,unitId,statement,kind,status,extractorVersion,contextPlatform,contextVersion,createdAt,confidence,validFrom,validUntil,sourceKind,subject,namespace) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      claim: this.db.prepare(`INSERT INTO claims(claimId,unitId,statement,kind,status,extractorVersion,contextPlatform,contextVersion,createdAt,confidence,validFrom,validUntil,sourceKind,subject,namespace,authority) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT(claimId) DO UPDATE SET
           unitId=excluded.unitId, statement=excluded.statement, kind=excluded.kind,
           extractorVersion=excluded.extractorVersion, contextPlatform=excluded.contextPlatform,
@@ -353,6 +484,7 @@ export class Core {
           validFrom=excluded.validFrom, validUntil=excluded.validUntil,
           sourceKind=excluded.sourceKind, subject=excluded.subject,
           namespace=COALESCE(excluded.namespace, claims.namespace),
+          authority=COALESCE(excluded.authority, claims.authority),
           status=CASE WHEN claims.status IN ('REVOKED','SUPERSEDED','STALE_SOURCE_CHANGED','PROMOTED') THEN claims.status ELSE excluded.status END`),
       decision: this.db.prepare('INSERT OR REPLACE INTO decisions(decisionId,unitId,statement,context,alternatives,chosen,evidenceJson,problem,tradeoffs,outcome,confidence,platform,createdAt,namespace) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)'),
       dependency: this.db.prepare('INSERT OR REPLACE INTO dependencies(id,fromUnitId,toUnitId,kind,evidenceJson) VALUES (?,?,?,?,?)'),
@@ -360,7 +492,7 @@ export class Core {
     let skippedLines = 0;
     let unanchoredPrinciples = 0;
     const jsonl = (f: string) => fs.existsSync(f)
-      ? fs.readFileSync(f, 'utf8').split(/\r?\n/).filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { skippedLines++; return null; } }).filter(Boolean)
+      ? fs.readFileSync(f, 'utf8').split(/\r?\n/).filter(Boolean).map((l) => { try { return this.clean(JSON.parse(l)); } catch { skippedLines++; return null; } }).filter(Boolean)
       : [];
     // Prepares the statement once and runs it per JSONL line; `row` lists the
     // bind values in the column order of `sql`.
@@ -471,7 +603,8 @@ export class Core {
                 this.isAntifanInternalUnit(uid) ? 'ANTIFAN_ENGINEERING' :
                 null
               );
-              ins.claim.run(c.claimId, uid, c.statement, c.kind, c.status ?? 'OBSERVED', c.extractorVersion ?? null, c.context?.platform ?? null, c.context?.version ?? null, c.createdAt ?? now(), c.confidence ?? null, c.validFrom ?? null, c.validUntil ?? null, c.sourceKind ?? null, c.subject ?? null, claimNs);
+              const claimAuthority = (AUTHORITY_VALUES as readonly string[]).includes(c.authority) ? c.authority : authorityForSourceKind(c.sourceKind);
+              ins.claim.run(c.claimId, uid, c.statement, c.kind, c.status ?? 'OBSERVED', c.extractorVersion ?? null, c.context?.platform ?? null, c.context?.version ?? null, c.createdAt ?? now(), confidenceForImport(c.confidence, c.sourceKind), c.validFrom ?? null, c.validUntil ?? null, c.sourceKind ?? null, c.subject ?? null, claimNs, claimAuthority);
               for (const e of c.evidenceRefs ?? []) {
                 ins.evidence.run(id(`${c.claimId}${e.entryId ?? e.anchor ?? ''}${e.anchor ?? ''}`), c.claimId, e.entryId ?? null, e.revision ?? null, e.path ?? null, e.anchor ?? null);
               }
@@ -602,7 +735,19 @@ export class Core {
     }
     const created = Date.parse((c.createdAt as string) ?? '') || 0;
     const ageDays = created ? Math.max(0, (Date.now() - created) / 86400_000) : 365;
-    const recencyScore = 1 / (1 + ageDays / 180);
+    let recencyScore = 1 / (1 + ageDays / 180);
+    if (c.reinforcementDates) {
+      // Opt-in (ANTIFAN_CORE_REINFORCE_ALPHA > 0): outcome-verified reuse can lift a
+      // claim above its age-decayed recency. alpha 0 keeps ranking identical to before.
+      const alpha = envNumber('ANTIFAN_CORE_REINFORCE_ALPHA', 0);
+      const days = parseDays(c.reinforcementDates);
+      if (alpha > 0 && days.length) {
+        const pow = (ageD: number) => Math.pow(Math.max(1, ageD), -REINFORCE_DECAY);
+        const reinforcedSum = days.reduce((a, d) => a + pow((Date.now() - (Date.parse(`${d}T00:00:00Z`) || Date.now())) / 86400_000), 0);
+        const act = Math.log(1 + pow(ageDays) + alpha * reinforcedSum);
+        recencyScore = Math.max(recencyScore, act / (act + 0.5));
+      }
+    }
     const rankMagnitude = typeof c.rank === 'number' && Number.isFinite(c.rank) ? Math.max(0, -c.rank) : null;
     const textScore = rankMagnitude === null ? TEXT_NEUTRAL : rankMagnitude / (rankMagnitude + BM25_HALF_SATURATION);
     const conflicted = c.subject != null && opts.conflictSubjects?.has(c.subject as string) ? 1 : 0;
@@ -838,14 +983,15 @@ export class Core {
     // it, a pack issued in one repo is re-issued verbatim in another, carrying
     // claims about a codebase the caller is not in. A pack issued with no scope
     // keeps the pre-scope identity, so existing rows are still reused.
-    const taskHash = id(opts.task);
+    const cleanTask = this.clean(opts.task);
+    const taskHash = id(cleanTask);
     const sessionId = opts.sessionId ?? '';
     const scopeKey = projectScope?.key ?? null;
     const packId = `pack-${id(`${taskHash}|${opts.platform ?? ''}|${sessionId}|${scopeKey ?? ''}`)}`;
     const issuedAt = now();
     this.db.prepare(`INSERT INTO packs(packId,task,platform,claimIdsJson,createdAt,taskHash,sessionId,lastIssuedAt,scopeKey) VALUES (?,?,?,?,?,?,?,?,?)
       ON CONFLICT(packId) DO UPDATE SET claimIdsJson=excluded.claimIdsJson, lastIssuedAt=excluded.lastIssuedAt`)
-      .run(packId, opts.task, opts.platform ?? null, JSON.stringify(claims.map((c) => c.claimId)), issuedAt, taskHash, sessionId, issuedAt, scopeKey);
+      .run(packId, cleanTask, opts.platform ?? null, JSON.stringify(claims.map((c) => c.claimId)), issuedAt, taskHash, sessionId, issuedAt, scopeKey);
     // Store hygiene rides the pack because the pack is the one caller that
     // already fires on every agent turn (before_agent_start bridge hook).
     // health(), decayCheck(), knowledgeGaps() and candidates() are otherwise
@@ -884,6 +1030,13 @@ export class Core {
          FROM candidates c LEFT JOIN cases cs ON cs.caseId = c.caseId
          WHERE ${pendingWhere.join(' AND ')} ORDER BY c.createdAt ASC LIMIT 3`
       ).all(...pendingArgs as never[]) as PackDiagnostics['pendingTop'];
+      const oldestRow = this.db.prepare(
+        `SELECT MIN(c.createdAt) AS oldest FROM candidates c LEFT JOIN cases cs ON cs.caseId = c.caseId WHERE ${pendingWhere.join(' AND ')}`
+      ).get(...pendingArgs as never[]) as { oldest: string | null } | undefined;
+      const oldestMs = oldestRow?.oldest ? Date.parse(oldestRow.oldest) : NaN;
+      const pendingOldestDays = Number.isFinite(oldestMs) ? Math.max(0, Math.round(((Date.now() - oldestMs) / 86400_000) * 10) / 10) : 0;
+      const pendingAlert = pendingTotal >= envNumber('ANTIFAN_CORE_PENDING_ALERT_COUNT', 25)
+        && pendingOldestDays >= envNumber('ANTIFAN_CORE_PENDING_ALERT_DAYS', 3);
       const gapKinds = (gaps.gaps as PackDiagnostics['gapKinds'])
         .filter((g) => g.kind !== 'NONE');
       diagnostics = {
@@ -892,10 +1045,13 @@ export class Core {
         gapKinds,
         pendingCount: pendingTotal,
         pendingTop,
-        // healthy gates the banner: nothing stale, no gaps, no pending debt.
-        healthy: decay.staleCount === 0 && gapKinds.length === 0 && pendingTotal === 0,
+        pendingOldestDays,
+        pendingAlert,
+        // healthy gates the banner: nothing stale, no gaps, no alert-worthy pending debt.
+        healthy: decay.staleCount === 0 && gapKinds.length === 0 && !pendingAlert,
       };
     }
+    const openUnknowns = this.openUnknownsFor(opts);
     return {
       packId,
       task: opts.task,
@@ -908,15 +1064,20 @@ export class Core {
       conflicts,
       unknowns,
       diagnostics,
+      openUnknowns,
     };
   }
 
   receipt(opts: { task: string; packId?: string; recommendation: string; abstained?: boolean }) {
     let revisions: string[];
+    let packPlatform: string | null = null;
+    let injected: string[] = [];
     if (opts.packId) {
-      const pack = this.db.prepare('SELECT * FROM packs WHERE packId = ?').get(opts.packId) as { claimIdsJson: string } | undefined;
+      const pack = this.db.prepare('SELECT * FROM packs WHERE packId = ?').get(opts.packId) as { claimIdsJson: string; platform: string | null } | undefined;
       if (!pack) throw new Error(`unknown packId ${opts.packId}`);
+      packPlatform = pack.platform;
       const claimIds = JSON.parse(pack.claimIdsJson) as string[];
+      injected = this.injectedClaimsForPacks([opts.packId]);
       revisions = claimIds.length
         ? (this.db.prepare(`SELECT DISTINCT revision FROM evidence WHERE revision IS NOT NULL AND claimId IN (${claimIds.map(() => '?').join(',')})`).all(...claimIds as never[]) as Array<{ revision: string }>).map((r) => r.revision)
         : [];
@@ -924,9 +1085,20 @@ export class Core {
       revisions = (this.db.prepare('SELECT DISTINCT revision FROM evidence WHERE revision IS NOT NULL').all() as Array<{ revision: string }>).map((r) => r.revision);
     }
     const receiptId = `rcpt-${uuid()}`;
+    const task = this.clean(opts.task);
+    const recommendation = this.clean(opts.recommendation);
     this.db.prepare('INSERT INTO receipts(receiptId,taskContext,packId,evidenceRevisions,recommendation,abstained,createdAt) VALUES (?,?,?,?,?,?,?)')
-      .run(receiptId, opts.task, opts.packId ?? null, JSON.stringify(revisions), opts.recommendation, opts.abstained ? 1 : 0, now());
-    return { receiptId, task: opts.task, packId: opts.packId ?? null, evidenceRevisions: revisions, recommendation: opts.recommendation, abstained: Boolean(opts.abstained), createdAt: now() };
+      .run(receiptId, task, opts.packId ?? null, JSON.stringify(revisions), recommendation, opts.abstained ? 1 : 0, now());
+    // A substantiated receipt reinforces the claims the pack really injected; an
+    // abstained one records WHAT was not known as an unknown (same identity as the
+    // pack-time unknown, so the two link).
+    let unknownId: string | null = null;
+    if (opts.abstained) {
+      if (task.trim()) unknownId = this.recordUnknown({ domain: 'abstained-pack', question: task.trim().slice(0, 500), platform: packPlatform ?? undefined }).unknownId;
+    } else if (injected.length) {
+      this.reinforce({ claimIds: injected, reason: 'receipt' });
+    }
+    return { receiptId, task, packId: opts.packId ?? null, evidenceRevisions: revisions, recommendation, abstained: Boolean(opts.abstained), unknownId, createdAt: now() };
   }
 
   // ---- learning ------------------------------------------------------------
@@ -934,7 +1106,8 @@ export class Core {
   // observation, the case, the PENDING candidate, and the experience-graph
   // trace linking all three. It NEVER writes a claim — promotion is the sole
   // responsibility of adjudicate().
-  ingestOutcome(o: OutcomeInput) {
+  ingestOutcome(input: OutcomeInput) {
+    const o = this.clean(input);
     const caseId = `case-${uuid()}`;
     const candidateId = `cand-${uuid()}`;
     const platform = o.platform ?? this.unitPlatform(o.unitId);
@@ -943,14 +1116,18 @@ export class Core {
       this.isAntifanInternalUnit(o.unitId) ? 'ANTIFAN_ENGINEERING' :
       this.inferQueryNamespace({ task: o.task, text: o.context }) ?? 'ANTIFAN_ENGINEERING'
     );
+    const linkKind = o.linkKind ?? 'session';
+    if (!['session', 'leader-job', 'manual'].includes(linkKind)) throw new Error(`invalid linkKind ${String(linkKind)}`);
+    const packIds = [...new Set((Array.isArray(o.packIds) ? o.packIds : []).filter((p): p is string => typeof p === 'string' && p !== ''))];
+    const statement = typeof o.lesson === 'string' && o.lesson.trim() !== '' ? o.lesson.trim() : `Outcome of "${o.task}": ${o.outcome}`;
     this.db.exec('BEGIN');
     try {
-      this.db.prepare('INSERT INTO cases(caseId,task,context,outcome,verificationRef,unitId,platform,createdAt,namespace) VALUES (?,?,?,?,?,?,?,?,?)')
-        .run(caseId, o.task, o.context ?? null, o.outcome, o.verificationRef ?? null, o.unitId ?? null, platform, now(), caseNs);
+      this.db.prepare('INSERT INTO cases(caseId,task,context,outcome,verificationRef,unitId,platform,createdAt,namespace,projectRoot) VALUES (?,?,?,?,?,?,?,?,?,?)')
+        .run(caseId, o.task, o.context ?? null, o.outcome, o.verificationRef ?? null, o.unitId ?? null, platform, now(), caseNs, o.projectRoot ?? null);
       const { observationId } = this.writeObservation('ingestOutcome', 'TASK_OUTCOME',
-        { task: o.task, outcome: o.outcome, caseId, candidateId, unitId: o.unitId ?? null, platform, verificationRef: o.verificationRef ?? null });
+        { task: o.task, outcome: o.outcome, caseId, candidateId, unitId: o.unitId ?? null, platform, verificationRef: o.verificationRef ?? null, packIds });
       const taskNode = this.writeExperienceNode('TASK', caseId, o.task, o.context ?? null);
-      const lessonNode = this.writeExperienceNode('LESSON', candidateId, `Outcome of "${o.task}": ${o.outcome}`, null);
+      const lessonNode = this.writeExperienceNode('LESSON', candidateId, statement, null);
       this.writeExperienceEdge(taskNode, lessonNode, 'PRODUCED', observationId);
       let verificationNode: string | null = null;
       if (o.verificationRef) {
@@ -959,7 +1136,7 @@ export class Core {
         this.writeExperienceEdge(lessonNode, verificationNode, 'SUPPORTED_BY', observationId);
       }
       this.db.prepare('INSERT INTO candidates(candidateId,caseId,statement,kind,evidenceJson,status,createdAt) VALUES (?,?,?,?,?,?,?)')
-        .run(candidateId, caseId, `Outcome of "${o.task}": ${o.outcome}`, 'OUTCOME', JSON.stringify({
+        .run(candidateId, caseId, statement, 'OUTCOME', JSON.stringify({
           verificationRef: o.verificationRef ?? null,
           caseId,
           unitId: o.unitId ?? null,
@@ -969,8 +1146,12 @@ export class Core {
           lessonNode,
           verificationNode,
         }), 'PENDING', now());
+      const link = this.db.prepare('INSERT OR IGNORE INTO outcome_pack_links(caseId,packId,link) VALUES (?,?,?)');
+      for (const packId of packIds) link.run(caseId, packId, linkKind);
+      // A verified outcome is the success signal that earns reinforcement for the claims its packs injected.
+      if (packIds.length && o.verificationRef) this.applyReinforcement(this.injectedClaimsForPacks(packIds), utcDay());
       this.db.exec('COMMIT');
-      return { caseId, candidateId, observationId, status: 'PENDING' };
+      return { caseId, candidateId, observationId, status: 'PENDING', packLinks: packIds.length };
     } catch (e) { this.db.exec('ROLLBACK'); throw e; }
   }
 
@@ -983,8 +1164,11 @@ export class Core {
 
   private writeObservation(source: string, kind: string, payload: unknown) {
     const observationId = `obs-${uuid()}`;
+    const stored = typeof payload === 'string'
+      ? sanitizeText(payload, this.redaction).text
+      : JSON.stringify(this.clean(payload ?? null));
     this.db.prepare('INSERT INTO observations(id,source,kind,payload,ingestedAt) VALUES (?,?,?,?,?)')
-      .run(observationId, source, kind, typeof payload === 'string' ? payload : JSON.stringify(payload ?? null), now());
+      .run(observationId, source, kind, stored, now());
     return { observationId };
   }
 
@@ -1004,7 +1188,7 @@ export class Core {
     this.db.exec('BEGIN');
     try {
       this.db.prepare('INSERT INTO adjudications(id,candidateId,decision,authority,rationale,at,scope) VALUES (?,?,?,?,?,?,?)')
-        .run(adjId, opts.candidateId, opts.decision, opts.authority, opts.rationale ?? null, now(), scope);
+        .run(adjId, opts.candidateId, opts.decision, opts.authority, opts.rationale == null ? null : this.clean(opts.rationale), now(), scope);
       const status = opts.decision === 'PROMOTE' ? 'PROMOTED' : opts.decision === 'REJECT' ? 'REJECTED' : 'SUPERSEDED';
       this.db.prepare('UPDATE candidates SET status = ? WHERE candidateId = ?').run(status, opts.candidateId);
       if (opts.decision === 'PROMOTE') {
@@ -1015,10 +1199,10 @@ export class Core {
         if (full) {
           const claimId = `claim-${opts.candidateId}`;
           const claimNs = full.caseNamespace ?? (full.casePlatform ? 'PLATFORM_KNOWLEDGE' : 'ANTIFAN_ENGINEERING');
-          this.db.prepare(`INSERT INTO claims(claimId,unitId,statement,kind,status,extractorVersion,createdAt,confidence,sourceKind,subject,contextPlatform,namespace)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+          this.db.prepare(`INSERT INTO claims(claimId,unitId,statement,kind,status,extractorVersion,createdAt,confidence,sourceKind,subject,contextPlatform,namespace,authority)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(claimId) DO UPDATE SET statement=excluded.statement, status='PROMOTED', namespace=COALESCE(excluded.namespace, claims.namespace)`)
-            .run(claimId, full.caseUnitId ?? 'learning-loop', full.statement, full.kind, 'PROMOTED', 'adjudication', now(), 'HIGH', 'adjudication', opts.candidateId, full.casePlatform ?? null, claimNs);
+            .run(claimId, full.caseUnitId ?? 'learning-loop', full.statement, full.kind, 'PROMOTED', 'adjudication', now(), 'observed', 'adjudication', opts.candidateId, full.casePlatform ?? null, claimNs, 'adjudication');
           this.db.prepare('DELETE FROM claims_fts WHERE claimId = ?').run(claimId);
           this.db.prepare('INSERT INTO claims_fts(rowid,statement,kind,unitId,claimId) VALUES ((SELECT rowid FROM claims WHERE claimId=?),?,?,?,?)')
             .run(claimId, full.statement, full.kind, full.caseUnitId ?? 'learning-loop', claimId);
@@ -1034,11 +1218,59 @@ export class Core {
   // The read path for the adjudication queue: PENDING candidates were only
   // reachable out of band, so nothing could list what adjudicate() would act
   // on. Read-only; status defaults to PENDING because that is the queue.
-  candidates(opts?: { status?: string; limit?: number }) {
+  candidates(opts?: { status?: string; limit?: number; triage?: boolean }) {
     const where = opts?.status ? 'WHERE status = ?' : "WHERE status = 'PENDING'";
     const args = opts?.status ? [opts.status] : [];
     const limit = Math.max(1, Math.min(opts?.limit ?? 200, 1000));
-    return this.db.prepare(`SELECT * FROM candidates ${where} ORDER BY createdAt ASC LIMIT ?`).all(...args as never[], limit);
+    const rows = this.db.prepare(`SELECT * FROM candidates ${where} ORDER BY createdAt ASC LIMIT ?`).all(...args as never[], limit);
+    return opts?.triage ? this.triageCandidates(rows as Array<Record<string, unknown>>) : rows;
+  }
+
+  // Advisory only: the recommendation never adjudicates anything. Duplicate
+  // detection is by normalized statement within the returned page (earliest wins).
+  private triageCandidates(rows: Array<Record<string, unknown>>) {
+    const caseRef = this.db.prepare('SELECT verificationRef FROM cases WHERE caseId = ?');
+    const isReceipt = this.db.prepare('SELECT 1 AS x FROM receipts WHERE receiptId = ?');
+    const firstByKey = new Map<string, string>();
+    return rows.map((r) => {
+      const statement = String(r.statement ?? '');
+      const ref = r.caseId ? (caseRef.get(String(r.caseId)) as { verificationRef: string | null } | undefined)?.verificationRef ?? null : null;
+      const key = normalizeStatement(statement);
+      const duplicateOf = firstByKey.get(key);
+      if (!duplicateOf) firstByKey.set(key, String(r.candidateId));
+      const created = Date.parse(String(r.createdAt ?? ''));
+      const lesson = statement.includes('": ') ? statement.slice(statement.lastIndexOf('": ') + 3) : statement;
+      const recommendation = duplicateOf ? 'SUPERSEDE-DUPLICATE' : lesson.trim().length < 8 ? 'REJECT-EMPTY' : 'PROMOTE-REVIEW';
+      return {
+        ...r,
+        ageDays: Number.isFinite(created) ? Math.round(((Date.now() - created) / 86400_000) * 10) / 10 : null,
+        hasVerification: ref !== null && ref !== '',
+        verificationIsReceipt: ref ? Boolean(isReceipt.get(ref)) : false,
+        duplicateOf: duplicateOf ?? null,
+        lengthChars: statement.length,
+        recommendation,
+      };
+    });
+  }
+
+  // Batch drain of the PENDING queue. authority stays mandatory and is checked
+  // before ANY write, so a batch can never launder a verdict with no human behind
+  // it; each item is its own transaction and one bad item cannot sink the rest.
+  adjudicateBatch(o: { items: Array<{ candidateId: string; decision: 'PROMOTE' | 'REJECT' | 'SUPERSEDE'; rationale?: string }>; authority: string; scope?: 'production' | 'acceptance-test' }) {
+    if (typeof o?.authority !== 'string' || o.authority.trim().length === 0)
+      throw new Error('authority required — adjudication needs an explicit human authority');
+    if (!Array.isArray(o.items)) throw new Error('adjudicateBatch requires items[]');
+    let done = 0;
+    const failed: Array<{ candidateId: string; error: string }> = [];
+    for (const item of o.items) {
+      try {
+        this.adjudicate({ candidateId: item.candidateId, decision: item.decision, authority: o.authority, rationale: item.rationale, scope: o.scope });
+        done++;
+      } catch (e) {
+        failed.push({ candidateId: String(item?.candidateId), error: e instanceof Error ? e.message : String(e) });
+      }
+    }
+    return { done, failed };
   }
 
   // ---- releases / rollback ---------------------------------------------------
@@ -1168,6 +1400,7 @@ export class Core {
 
   // ---- v4: Experience Graph (§14) ------------------------------------------
   recordExperienceNode(opts: { kind: string; refId?: string; label?: string; context?: string }) {
+    opts = this.clean(opts);
     return { nodeId: this.writeExperienceNode(opts.kind, opts.refId ?? null, opts.label ?? null, opts.context ?? null) };
   }
 
@@ -1179,6 +1412,7 @@ export class Core {
   }
 
   recordExperienceEdge(opts: { fromNodeId: string; toNodeId: string; kind: string; evidence?: string }) {
+    opts = this.clean(opts);
     return { edgeId: this.writeExperienceEdge(opts.fromNodeId, opts.toNodeId, opts.kind, opts.evidence ?? null) };
   }
 
@@ -1208,6 +1442,7 @@ export class Core {
 
   // ---- v4: Anti-Pattern Library (§28) ----------------------------------------
   recordAntiPattern(opts: { name: string; whatNotToDo?: string; symptoms?: string; evidence?: string; affectedPlatform?: string; replacement?: string }) {
+    opts = this.clean(opts);
     const patternId = `ap-${uuid()}`;
     this.db.prepare('INSERT INTO anti_patterns(patternId,name,whatNotToDo,symptoms,evidence,affectedPlatform,replacement,status,createdAt) VALUES (?,?,?,?,?,?,?,?,?)')
       .run(patternId, opts.name, opts.whatNotToDo ?? null, opts.symptoms ?? null, opts.evidence ?? null, opts.affectedPlatform ?? null, opts.replacement ?? null, 'OBSERVED', now());
@@ -1225,6 +1460,7 @@ export class Core {
 
   // ---- v4: Workaround Library (§29) ------------------------------------------
   recordWorkaround(opts: { problem: string; condition?: string; solution?: string; reason?: string; platform?: string; version?: string; evidence?: string }) {
+    opts = this.clean(opts);
     const workaroundId = `wa-${uuid()}`;
     this.db.prepare('INSERT INTO workarounds(workaroundId,problem,condition,solution,reason,platform,version,evidence,stillValid,createdAt) VALUES (?,?,?,?,?,?,?,?,?,?)')
       .run(workaroundId, opts.problem, opts.condition ?? null, opts.solution ?? null, opts.reason ?? null, opts.platform ?? null, opts.version ?? null, opts.evidence ?? null, 1, now());
@@ -1242,6 +1478,7 @@ export class Core {
 
   // ---- v4: Fix Patterns (§31) -------------------------------------------------
   recordFixPattern(opts: { before?: string; after?: string; why?: string; evidence?: string; lesson?: string; platform?: string }) {
+    opts = this.clean(opts);
     const fixId = `fix-${uuid()}`;
     this.db.prepare('INSERT INTO fix_patterns(fixId,before,after,why,evidence,lesson,platform,createdAt) VALUES (?,?,?,?,?,?,?,?)')
       .run(fixId, opts.before ?? null, opts.after ?? null, opts.why ?? null, opts.evidence ?? null, opts.lesson ?? null, opts.platform ?? null, now());
@@ -1339,7 +1576,7 @@ export class Core {
   // describe exactly the same scope.
   private decayScope(opts?: { staleDays?: number; platform?: string; unitIds?: string[]; includeGlobal?: boolean }) {
     const staleDays = opts?.staleDays ?? 90;
-    const cutoff = new Date(Date.now() - staleDays * 86400_000).toISOString();
+    const { cutoff, deferred } = this.decayCutoff(staleDays);
     // Diagnostics is a caller-scoped contract: when a platform or units are
     // given, decay outside that scope must not flip the pack's healthy gate —
     // un-actionable cross-platform debt is the alert-fatigue failure mode.
@@ -1347,6 +1584,7 @@ export class Core {
       "status NOT IN ('STALE_SOURCE_CHANGED','REVOKED','SUPERSEDED')",
       "(lastSeen IS NULL OR lastSeen < ?) AND createdAt < ?",
     ];
+    if (deferred) staleWhere.push('0 = 1');
     const staleArgs: unknown[] = [cutoff, cutoff];
     const agingWhere: string[] = ['agingSince IS NOT NULL AND agingSince < ?'];
     const agingArgs: unknown[] = [cutoff];
@@ -1444,7 +1682,9 @@ export class Core {
   // CONFLICTED (has claims + unresolved conflicts). NONE = covered.
   knowledgeGaps(opts?: { staleDays?: number; platform?: string }) {
     const staleDays = opts?.staleDays ?? 90;
-    const cutoff = new Date(Date.now() - staleDays * 86400_000).toISOString();
+    const { cutoff, deferred } = this.decayCutoff(staleDays);
+    // While the decay epoch is inside the window every claim still counts as fresh ('' is below every timestamp).
+    const freshCutoff = deferred ? '' : cutoff;
     const platforms = (this.db.prepare(
       `SELECT p FROM (
          SELECT contextPlatform AS p FROM claims WHERE contextPlatform IS NOT NULL
@@ -1472,7 +1712,7 @@ export class Core {
          SELECT platform AS p, 0, 0, 1 FROM conflicts
          WHERE state = 'UNRESOLVED' AND platform IS NOT NULL ${scoped ? 'AND platform = ?' : ''}
        ) GROUP BY p`,
-    ).all(...(scoped ? [cutoff, cutoff, scoped, scoped] : [cutoff, cutoff]) as never[]) as Array<{ p: string; active: number; fresh: number; unresolved: number }>;
+    ).all(...(scoped ? [freshCutoff, freshCutoff, scoped, scoped] : [freshCutoff, freshCutoff]) as never[]) as Array<{ p: string; active: number; fresh: number; unresolved: number }>;
     for (const r of aggregate) stats.set(r.p, { active: Number(r.active), fresh: Number(r.fresh), unresolved: Number(r.unresolved) });
     const gaps = platforms
       // A platform-scoped pack reports only its own platform's gap; an
@@ -1634,7 +1874,7 @@ export class Core {
       failedGates,
       stats,
       audit,
-      decay: this.decayCheck(opts.staleDays ? { staleDays: opts.staleDays } : undefined),
+      decay: this.decayHealth(opts.staleDays),
       gates,
       // The largest store signal reaches the health surface: per-platform gap
       // classification (NO_EVIDENCE / STALE / CONFLICTED / NONE) computed from
@@ -1684,6 +1924,17 @@ export class Core {
       for (const row of linkRows) {
         for (const id of JSON.parse(row.ids) as string[]) if (injectedFlag[id]) linkedFlag[id] = true;
       }
+      // Second witness: the case was explicitly linked to the pack it consumed, and
+      // the claims that pack ACTUALLY injected (ledger) intersect what it returned.
+      const injectedRows = this.db
+        .prepare(
+          `SELECT DISTINCT i.claimId AS claimId FROM cases c
+           JOIN outcome_pack_links l ON l.caseId = c.caseId
+           JOIN pack_injections i ON i.packId = l.packId
+           WHERE c.task = ? AND l.packId = ?`,
+        )
+        .all(opts.task, packRow.packId) as Array<{ claimId: string }>;
+      for (const row of injectedRows) if (injectedFlag[row.claimId]) linkedFlag[row.claimId] = true;
     }
     return {
       metric: 'found + injected + outcome-linked',
@@ -1694,7 +1945,7 @@ export class Core {
       outcomeLinked: {
         value: Object.keys(linkedFlag).length,
         claimIds: Object.keys(linkedFlag).sort(),
-        witness: 'cases.verificationRef -> receipts.receiptId -> receipts.packId -> packs.claimIdsJson',
+        witness: 'cases.verificationRef -> receipts.receiptId -> receipts.packId -> packs.claimIdsJson; outcome_pack_links -> pack_injections',
       },
     };
   }
@@ -1719,6 +1970,7 @@ export class Core {
   // state. A regression with no replay has replayResult NULL and fails the
   // 'regression' phase gate closed.
   recordRegression(opts: { newKnowledge?: string; affectedRules?: string[]; affectedCases?: string[]; affectedRecommendations?: string[]; checks?: RegressionCheck[] }) {
+    opts = this.clean(opts);
     if ('replayResult' in opts) {
       throw new Error('replayResult is produced by replayRegression(), never accepted at record time');
     }
@@ -1777,6 +2029,7 @@ export class Core {
 
   // ---- v4: Principles (§23) -----------------------------------------------------
   recordPrinciple(opts: { statement: string; source?: string; derivedFrom?: string }) {
+    opts = this.clean(opts);
     // A principle with no provenance can never be traced or merged later and
     // fails the `principles` phase gate, so refuse it here instead of storing it.
     const source = typeof opts.source === 'string' && opts.source.trim() !== '' ? opts.source.trim() : null;
@@ -1822,6 +2075,7 @@ export class Core {
 
   // ---- v4: Hidden Requirements (§25) --------------------------------------------
   recordHiddenRequirement(opts: { task: string; explicitReq?: string; inferredReq?: string; likelihood?: string; evidence?: string }) {
+    opts = this.clean(opts);
     const reqId = `req-${uuid()}`;
     this.db.prepare('INSERT INTO hidden_requirements(reqId,task,explicitReq,inferredReq,likelihood,evidence,createdAt) VALUES (?,?,?,?,?,?,?)')
       .run(reqId, opts.task, opts.explicitReq ?? null, opts.inferredReq ?? null, opts.likelihood ?? null, opts.evidence ?? null, now());
@@ -1836,6 +2090,7 @@ export class Core {
 
   // ---- v4: Commercial Intelligence (§26) ----------------------------------------
   recordCommercial(opts: { taskType: string; quote?: number; scope?: string; estimate?: number; actual?: number; risk?: string; revisionCount?: number }) {
+    opts = this.clean(opts);
     const intelId = `ci-${uuid()}`;
     this.db.prepare('INSERT INTO commercial_intel(intelId,taskType,quote,scope,estimate,actual,risk,revisionCount,createdAt) VALUES (?,?,?,?,?,?,?,?,?)')
       .run(intelId, opts.taskType, opts.quote ?? null, opts.scope ?? null, opts.estimate ?? null, opts.actual ?? null, opts.risk ?? null, opts.revisionCount ?? null, now());
@@ -1850,6 +2105,7 @@ export class Core {
 
   // ---- v4: Tool Intelligence (§27) -----------------------------------------------
   recordTool(opts: { name: string; problemSolved?: string; workflowStage?: string; inputs?: string; outputs?: string; failureModes?: string; timeSaved?: number; maintenanceCost?: number; roi?: number; usageFrequency?: string }) {
+    opts = this.clean(opts);
     const toolId = `tool-${uuid()}`;
     this.db.prepare('INSERT INTO tool_intel(toolId,name,problemSolved,workflowStage,inputs,outputs,failureModes,timeSaved,maintenanceCost,roi,usageFrequency,status,createdAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
       .run(toolId, opts.name, opts.problemSolved ?? null, opts.workflowStage ?? null, opts.inputs ?? null, opts.outputs ?? null, opts.failureModes ?? null, opts.timeSaved ?? null, opts.maintenanceCost ?? null, opts.roi ?? null, opts.usageFrequency ?? null, 'OBSERVED', now());
@@ -1864,6 +2120,7 @@ export class Core {
 
   // ---- v4: Archetypes (§33) ------------------------------------------------------
   recordArchetype(opts: { name: string; platform?: string; maturityLevel?: number; evidence?: string[] }) {
+    opts = this.clean(opts);
     const archetypeId = `arch-${uuid()}`;
     this.db.prepare('INSERT INTO archetypes(archetypeId,name,platform,maturityLevel,evidenceJson,createdAt) VALUES (?,?,?,?,?,?)')
       .run(archetypeId, opts.name, opts.platform ?? null, opts.maturityLevel ?? null, JSON.stringify(opts.evidence ?? []), now());
@@ -1878,6 +2135,7 @@ export class Core {
 
   // ---- v4: Platform Semantics (§12) -----------------------------------------------
   recordPlatformSemantic(opts: { platform: string; semanticRole: string; propertyName?: string; cssFact?: string; semanticTruth?: string; evidence?: string }) {
+    opts = this.clean(opts);
     const semanticId = `sem-${uuid()}`;
     this.db.prepare('INSERT INTO platform_semantics(semanticId,platform,semanticRole,propertyName,cssFact,semanticTruth,evidence,createdAt) VALUES (?,?,?,?,?,?,?,?)')
       .run(semanticId, opts.platform, opts.semanticRole, opts.propertyName ?? null, opts.cssFact ?? null, opts.semanticTruth ?? null, opts.evidence ?? null, now());
@@ -1895,6 +2153,7 @@ export class Core {
 
   // ---- v4: Practice Parity (§21) ---------------------------------------------------
   recordPracticeParity(opts: { practice: string; declared?: string; observed?: string; gap?: string; evidence?: string }) {
+    opts = this.clean(opts);
     const parityId = `pp-${uuid()}`;
     this.db.prepare('INSERT INTO practice_parity(parityId,practice,declared,observed,gap,evidence,createdAt) VALUES (?,?,?,?,?,?,?)')
       .run(parityId, opts.practice, opts.declared ?? null, opts.observed ?? null, opts.gap ?? null, opts.evidence ?? null, now());
@@ -1909,6 +2168,7 @@ export class Core {
 
   // ---- v4: Skill Genealogy (§22) ----------------------------------------------------
   recordSkillVersion(opts: { skillId: string; version?: string; failure?: string; fix?: string; production?: string }) {
+    opts = this.clean(opts);
     const versionId = `sv-${uuid()}`;
     this.db.prepare('INSERT INTO skill_versions(versionId,skillId,version,failure,fix,production,createdAt) VALUES (?,?,?,?,?,?,?)')
       .run(versionId, opts.skillId, opts.version ?? null, opts.failure ?? null, opts.fix ?? null, opts.production ?? null, now());
@@ -1938,6 +2198,10 @@ export class Core {
       confidence = 'UNKNOWN';
     }
     const abstained = confidence === 'UNKNOWN';
+    if (abstained && opts.task.trim()) {
+      // Sanitize BEFORE the cap so a cut cannot sever a <private> pair.
+      this.recordUnknown({ domain: 'abstained-pack', question: this.clean(opts.task).trim().slice(0, 500), platform: opts.platform });
+    }
     return {
       ...pack,
       rules,
@@ -2012,6 +2276,395 @@ export class Core {
       confidence,
       reasonCode,
     };
+  }
+
+  // ---- decay helpers (CM-02) ---------------------------------------------------------
+  /**
+   * A claim ages from max(createdAt, decayEpoch). decayEpoch is stamped once by
+   * migration 12->13: until lastSeen/reinforcement data has had time to accrue,
+   * nothing imported before the epoch counts as stale, which defers the
+   * mass-staleness event to epoch + staleDays by an explicit, recorded decision.
+   * `deferred` is true while the epoch itself is still inside the stale window.
+   */
+  private decayCutoff(staleDays: number): { cutoff: string; epoch: string | null; deferred: boolean } {
+    const cutoff = new Date(Date.now() - staleDays * 86400_000).toISOString();
+    const row = this.db.prepare("SELECT value FROM meta WHERE key = 'decayEpoch'").get() as { value: string } | undefined;
+    const epoch = row?.value && Number.isFinite(Date.parse(row.value)) ? new Date(row.value).toISOString() : null;
+    return { cutoff, epoch, deferred: epoch !== null && epoch >= cutoff };
+  }
+
+  private static readonly DECAY_SAMPLE = 20;
+
+  // health() must never serialize every decayed claim: counts plus a bounded sample.
+  private decayHealth(staleDays?: number) {
+    const scopeOpts = staleDays ? { staleDays } : undefined;
+    const { staleCount, agingCount } = this.decayCounts(scopeOpts);
+    const { staleWhere, staleArgs, agingWhere, agingArgs, cutoff } = this.decayScope(scopeOpts);
+    const stale = this.db.prepare(
+      `SELECT claimId, substr(statement, 1, 200) AS statement, status, lastSeen, createdAt FROM claims WHERE ${staleWhere.join(' AND ')} LIMIT ?`,
+    ).all(...staleArgs as never[], Core.DECAY_SAMPLE);
+    const aging = this.db.prepare(
+      `SELECT claimId, substr(statement, 1, 200) AS statement, status, agingSince FROM claims WHERE ${agingWhere.join(' AND ')} LIMIT ?`,
+    ).all(...agingArgs as never[], Core.DECAY_SAMPLE);
+    return { staleCount, agingCount, stale, aging, sampleLimit: Core.DECAY_SAMPLE, cutoff, decayEpoch: this.decayCutoff(staleDays ?? 90).epoch };
+  }
+
+  // ---- injection ledger (CM-01) ---------------------------------------------------------
+  /** Records which claims a pack actually rendered; the only writer of lastSeen besides reinforce(). */
+  markInjected(o: { packId: string; sessionId?: string; projectRoot?: string; claimIds: string[] }): { recorded: number } {
+    if (!o || typeof o.packId !== 'string' || o.packId === '') throw new Error('markInjected requires packId');
+    const ids = [...new Set((Array.isArray(o.claimIds) ? o.claimIds : []).filter((c): c is string => typeof c === 'string' && c !== ''))].slice(0, 200);
+    if (!ids.length) return { recorded: 0 };
+    const at = now();
+    const exists = this.db.prepare('SELECT 1 AS x FROM claims WHERE claimId = ?');
+    const ins = this.db.prepare('INSERT OR IGNORE INTO pack_injections(injectionId,packId,claimId,sessionId,projectRoot,rank,injectedAt) VALUES (?,?,?,?,?,?,?)');
+    const seen = this.db.prepare('UPDATE claims SET lastSeen = ? WHERE claimId = ?');
+    let recorded = 0;
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      ids.forEach((claimId, i) => {
+        if (!exists.get(claimId)) return;
+        const res = ins.run(id(`${o.packId}|${o.sessionId ?? ''}|${claimId}`), o.packId, claimId, o.sessionId ?? null, o.projectRoot ?? null, i + 1, at);
+        recorded += Number(res.changes);
+        seen.run(at, claimId);
+      });
+      this.db.exec('COMMIT');
+    } catch (e) { this.db.exec('ROLLBACK'); throw e; }
+    return { recorded };
+  }
+
+  private injectedClaimsForPacks(packIds: string[]): string[] {
+    if (!packIds.length) return [];
+    return (this.db.prepare(`SELECT DISTINCT claimId FROM pack_injections WHERE packId IN (${packIds.map(() => '?').join(',')})`)
+      .all(...packIds as never[]) as Array<{ claimId: string }>).map((r) => r.claimId);
+  }
+
+  /** Success-triggered reinforcement: idempotent per UTC day, FIFO-capped history, also refreshes lastSeen. */
+  reinforce(o: { claimIds: string[]; reason: 'outcome' | 'receipt' | 'manual'; day?: string }): { changed: number } {
+    if (!(REINFORCE_REASONS as readonly string[]).includes(o?.reason)) throw new Error(`invalid reinforce reason ${String(o?.reason)}; must be ${REINFORCE_REASONS.join('|')}`);
+    if (o.day !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(o.day)) throw new Error(`invalid day ${o.day}; expected YYYY-MM-DD`);
+    const ids = [...new Set((Array.isArray(o.claimIds) ? o.claimIds : []).filter((c): c is string => typeof c === 'string' && c !== ''))];
+    if (!ids.length) return { changed: 0 };
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const changed = this.applyReinforcement(ids, o.day ?? utcDay());
+      this.db.exec('COMMIT');
+      return { changed };
+    } catch (e) { this.db.exec('ROLLBACK'); throw e; }
+  }
+
+  private applyReinforcement(claimIds: string[], day: string): number {
+    const sel = this.db.prepare('SELECT reinforcementDates FROM claims WHERE claimId = ?');
+    const upd = this.db.prepare('UPDATE claims SET reinforcementDates = ?, lastReinforced = ?, lastSeen = ? WHERE claimId = ?');
+    const at = now();
+    let changed = 0;
+    for (const claimId of claimIds) {
+      const row = sel.get(claimId) as { reinforcementDates: string | null } | undefined;
+      if (!row) continue;
+      const days = parseDays(row.reinforcementDates);
+      if (days.includes(day)) continue;
+      days.push(day);
+      upd.run(JSON.stringify(days.slice(-MAX_REINFORCEMENT_HISTORY)), day, at, claimId);
+      changed++;
+    }
+    return changed;
+  }
+
+  // ---- unknowns registry (CM-11) --------------------------------------------------------
+  private hydrateUnknown(r: Record<string, unknown>): UnknownRecord {
+    const arr = (v: unknown): unknown[] => { try { const p: unknown = JSON.parse(String(v ?? '[]')); return Array.isArray(p) ? p : []; } catch { return []; } };
+    return {
+      unknownId: String(r.unknownId), domain: String(r.domain), question: String(r.question),
+      scopeKey: (r.scopeKey as string | null) ?? null, platform: (r.platform as string | null) ?? null,
+      status: r.status as UnknownStatus, severity: r.severity as UnknownSeverity,
+      requiredAuthority: (r.requiredAuthority as string | null) ?? null, requiredConfidence: String(r.requiredConfidence),
+      supporting: arr(r.supportingJson) as string[], contradicting: arr(r.contradictingJson) as string[],
+      probes: arr(r.probesJson) as UnknownRecord['probes'], relations: arr(r.relationsJson) as UnknownRelation[],
+      resolution: r.resolutionJson ? (JSON.parse(String(r.resolutionJson)) as UnknownResolution) : null,
+      revision: Number(r.revision), createdAt: String(r.createdAt), updatedAt: String(r.updatedAt),
+    };
+  }
+
+  /** Records a question the store could not answer. Identity = (domain, normalized question, scope): re-recording is a no-op. */
+  recordUnknown(input: { domain: string; question: string; scope?: string; platform?: string; severity?: UnknownSeverity; requiredAuthority?: ClaimAuthority; requiredConfidence?: ClaimConfidence; probes?: Array<{ operation: string; rationale: string }> }) {
+    const o = this.clean(input);
+    if (typeof o.domain !== 'string' || o.domain.trim() === '') throw new UnknownRegistryError('invalid-input', 'domain required');
+    if (typeof o.question !== 'string' || o.question.trim() === '') throw new UnknownRegistryError('invalid-input', 'question required');
+    const severity = o.severity ?? 'medium';
+    if (!(UNKNOWN_SEVERITIES as readonly string[]).includes(severity)) throw new UnknownRegistryError('invalid-input', `severity ${String(severity)}`);
+    const requiredAuthority = o.requiredAuthority === undefined ? null : assertAuthority(o.requiredAuthority);
+    const requiredConfidence = o.requiredConfidence === undefined ? 'observed' : assertConfidence(o.requiredConfidence);
+    const scopeKey = typeof o.scope === 'string' && o.scope.trim() !== '' ? o.scope.trim() : null;
+    const unknownId = `unk_${id(`${o.domain.trim().toLowerCase()}|${normalizeStatement(o.question).toLowerCase()}|${scopeKey ?? ''}`)}`;
+    const existing = this.db.prepare('SELECT revision FROM unknowns WHERE unknownId = ?').get(unknownId) as { revision: number } | undefined;
+    if (existing) return { unknownId, status: 'exists' as const, revision: Number(existing.revision) };
+    const at = now();
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      this.db.prepare(`INSERT INTO unknowns(unknownId,domain,question,scopeKey,platform,status,severity,requiredAuthority,requiredConfidence,probesJson,revision,createdAt,updatedAt)
+        VALUES (?,?,?,?,?,'open',?,?,?,?,1,?,?)`)
+        .run(unknownId, o.domain.trim(), normalizeStatement(o.question), scopeKey, o.platform ?? null, severity, requiredAuthority, requiredConfidence, JSON.stringify(o.probes ?? []), at, at);
+      this.snapshotUnknown(unknownId);
+      this.db.exec('COMMIT');
+    } catch (e) { this.db.exec('ROLLBACK'); throw e; }
+    return { unknownId, status: 'created' as const, revision: 1 };
+  }
+
+  private snapshotUnknown(unknownId: string) {
+    const row = this.db.prepare('SELECT * FROM unknowns WHERE unknownId = ?').get(unknownId) as Record<string, unknown>;
+    this.db.prepare('INSERT OR REPLACE INTO unknown_revisions(unknownId,revision,snapshotJson,at) VALUES (?,?,?,?)')
+      .run(unknownId, Number(row.revision), JSON.stringify(this.hydrateUnknown(row)), now());
+  }
+
+  /** Compare-and-swap update (expectedRevision) with the status-machine invariants of the registry. */
+  updateUnknown(input: {
+    unknownId: string; expectedRevision: number; status?: UnknownStatus; severity?: UnknownSeverity;
+    supporting?: string[]; contradicting?: string[]; probes?: Array<{ operation: string; rationale: string }>;
+    relations?: UnknownRelation[]; resolution?: UnknownResolution;
+  }): UnknownRecord {
+    const o = this.clean(input);
+    const row = this.db.prepare('SELECT * FROM unknowns WHERE unknownId = ?').get(o.unknownId) as Record<string, unknown> | undefined;
+    if (!row) throw new UnknownRegistryError('not-found', String(o.unknownId));
+    const cur = this.hydrateUnknown(row);
+    if (cur.revision !== o.expectedRevision) throw new UnknownRegistryError('revision-conflict', `expected ${String(o.expectedRevision)}, current ${cur.revision}`);
+    const status = o.status ?? cur.status;
+    if (!(UNKNOWN_STATUSES as readonly string[]).includes(status)) throw new UnknownRegistryError('invalid-input', `status ${String(status)}`);
+    const severity = o.severity ?? cur.severity;
+    if (!(UNKNOWN_SEVERITIES as readonly string[]).includes(severity)) throw new UnknownRegistryError('invalid-input', `severity ${String(severity)}`);
+    const supporting = o.supporting ?? cur.supporting;
+    const contradicting = o.contradicting ?? cur.contradicting;
+    const relations = o.relations ?? cur.relations;
+    const probes = o.probes ?? cur.probes;
+    if (supporting.some((e) => contradicting.includes(e))) throw new UnknownRegistryError('invalid-evidence', 'an id cannot both support and contradict');
+    if (status === 'contradicted' && contradicting.length === 0) throw new UnknownRegistryError('invalid-evidence', 'contradicted needs contradicting ids');
+    for (const rel of relations) {
+      if (!(UNKNOWN_RELATIONS as readonly string[]).includes(rel.type)) throw new UnknownRegistryError('invalid-relation', `type ${String(rel.type)}`);
+      if (rel.unknownId === cur.unknownId) throw new UnknownRegistryError('invalid-relation', 'self-relation');
+    }
+    let resolution: UnknownResolution | null;
+    if (status === 'resolved') {
+      resolution = o.resolution ?? (cur.status === 'resolved' ? cur.resolution : null);
+      if (!resolution) throw new UnknownRegistryError('invalid-transition', 'resolved requires a resolution');
+      if (!(UNKNOWN_DISPOSITIONS as readonly string[]).includes(resolution.disposition)) throw new UnknownRegistryError('invalid-transition', `disposition ${String(resolution.disposition)}`);
+      if (resolution.disposition === 'verified' && !(resolution.evidenceIds?.length)) throw new UnknownRegistryError('invalid-evidence', 'verified resolution needs evidenceIds');
+    } else {
+      if (o.resolution) throw new UnknownRegistryError('invalid-transition', `only a resolved unknown carries a resolution (status ${status})`);
+      resolution = null;
+    }
+    const at = now();
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const res = this.db.prepare(`UPDATE unknowns SET status=?, severity=?, supportingJson=?, contradictingJson=?, probesJson=?, relationsJson=?, resolutionJson=?, revision=revision+1, updatedAt=?
+        WHERE unknownId=? AND revision=?`)
+        .run(status, severity, JSON.stringify(supporting), JSON.stringify(contradicting), JSON.stringify(probes), JSON.stringify(relations), resolution ? JSON.stringify(resolution) : null, at, cur.unknownId, cur.revision);
+      if (Number(res.changes) !== 1) throw new UnknownRegistryError('revision-conflict', 'concurrent update');
+      this.snapshotUnknown(cur.unknownId);
+      this.db.exec('COMMIT');
+    } catch (e) { this.db.exec('ROLLBACK'); throw e; }
+    return this.hydrateUnknown(this.db.prepare('SELECT * FROM unknowns WHERE unknownId = ?').get(cur.unknownId) as Record<string, unknown>);
+  }
+
+  unknowns(opts?: { status?: UnknownStatus; platform?: string; scope?: string } & ListPage): UnknownRecord[] {
+    const where: string[] = [];
+    const args: unknown[] = [];
+    if (opts?.status) { where.push('status = ?'); args.push(opts.status); }
+    if (opts?.platform) { where.push('platform = ?'); args.push(opts.platform); }
+    if (opts?.scope) { where.push('scopeKey = ?'); args.push(opts.scope); }
+    const sql = `SELECT * FROM unknowns${where.length ? ' WHERE ' + where.join(' AND ') : ''} ORDER BY updatedAt DESC, unknownId LIMIT ? OFFSET ?`;
+    return (this.db.prepare(sql).all(...args as never[], ...pageArgs(opts)) as Array<Record<string, unknown>>).map((r) => this.hydrateUnknown(r));
+  }
+
+  /** Explicit expiry: open unknowns untouched for `days` (default 60) become withdrawn. Returns what it closed. */
+  resolveStale(opts?: { days?: number }): { resolved: number; unknownIds: string[] } {
+    const days = opts?.days ?? 60;
+    const cutoff = new Date(Date.now() - days * 86400_000).toISOString();
+    const rows = this.db.prepare("SELECT unknownId, revision FROM unknowns WHERE status = 'open' AND updatedAt < ?").all(cutoff) as Array<{ unknownId: string; revision: number }>;
+    const unknownIds: string[] = [];
+    for (const r of rows) {
+      this.updateUnknown({ unknownId: r.unknownId, expectedRevision: Number(r.revision), status: 'resolved', resolution: { disposition: 'withdrawn', rationale: `auto-expired: untouched ${days} days` } });
+      unknownIds.push(r.unknownId);
+    }
+    return { resolved: unknownIds.length, unknownIds };
+  }
+
+  // Open questions relevant to this pack's task (at most 3). Platform policy matches the pack's.
+  private openUnknownsFor(opts: { task: string; platform?: string; includeGlobal?: boolean }) {
+    const terms = buildFtsTerms(opts.task ?? '');
+    if (!terms.length) return [];
+    const args: unknown[] = [];
+    const platformSql = this.platformPredicate('platform', opts, args);
+    const rows = this.db.prepare(`SELECT unknownId, question, severity, status FROM unknowns WHERE status IN ('open','blocked') AND ${platformSql} ORDER BY updatedAt DESC LIMIT 100`)
+      .all(...args as never[]) as Array<{ unknownId: string; question: string; severity: string; status: string }>;
+    return rows.filter((r) => contentCoverage(r.question, terms) > 0).slice(0, 3);
+  }
+
+  // ---- session summaries (CM-13) ----------------------------------------------------------
+  upsertSessionSummary(input: SessionSummaryInput): { summaryId: string } {
+    const o = this.clean(input);
+    if (typeof o.sessionId !== 'string' || o.sessionId === '') throw new Error('upsertSessionSummary requires sessionId');
+    const segment = o.segment ?? 0;
+    if (!Number.isInteger(segment) || segment < 0) throw new Error(`invalid segment ${String(o.segment)}`);
+    const cap = (s: unknown) => (typeof s === 'string' && s.trim() !== '' ? s.trim().slice(0, 4000) : null);
+    const summaryId = `sum-${id(`${o.sessionId}|${segment}`)}`;
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      // Repeated upserts of the same (session, segment) refine one row; createdAt is the last write time.
+      this.db.prepare(`INSERT INTO session_summaries(summaryId,sessionId,segment,projectRoot,request,investigated,learned,completed,nextSteps,notes,createdAt)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?)
+        ON CONFLICT(sessionId, segment) DO UPDATE SET
+          projectRoot=COALESCE(excluded.projectRoot, session_summaries.projectRoot),
+          request=COALESCE(excluded.request, session_summaries.request),
+          investigated=COALESCE(excluded.investigated, session_summaries.investigated),
+          learned=COALESCE(excluded.learned, session_summaries.learned),
+          completed=COALESCE(excluded.completed, session_summaries.completed),
+          nextSteps=COALESCE(excluded.nextSteps, session_summaries.nextSteps),
+          notes=COALESCE(excluded.notes, session_summaries.notes),
+          createdAt=excluded.createdAt`)
+        .run(summaryId, o.sessionId, segment, cap(o.projectRoot), cap(o.request), cap(o.investigated), cap(o.learned), cap(o.completed), cap(o.nextSteps), cap(o.notes), now());
+      const row = this.db.prepare('SELECT request, learned, completed, nextSteps FROM session_summaries WHERE summaryId = ?').get(summaryId) as Record<string, string | null>;
+      this.db.prepare('DELETE FROM session_summaries_fts WHERE summaryId = ?').run(summaryId);
+      this.db.prepare('INSERT INTO session_summaries_fts(request,learned,completed,nextSteps,summaryId) VALUES (?,?,?,?,?)')
+        .run(row.request ?? '', row.learned ?? '', row.completed ?? '', row.nextSteps ?? '', summaryId);
+      this.db.exec('COMMIT');
+    } catch (e) { this.db.exec('ROLLBACK'); throw e; }
+    return { summaryId };
+  }
+
+  /** Newest summary (optionally for one project root, case-insensitive). Summaries are EPISODIC: unverified context, never claims. */
+  lastSummary(opts?: { projectRoot?: string }): Record<string, unknown> | null {
+    const where = opts?.projectRoot ? 'WHERE lower(projectRoot) = lower(?)' : '';
+    const args = opts?.projectRoot ? [opts.projectRoot] : [];
+    return (this.db.prepare(`SELECT * FROM session_summaries ${where} ORDER BY createdAt DESC, rowid DESC LIMIT 1`).get(...args as never[]) as Record<string, unknown> | undefined) ?? null;
+  }
+
+  // ---- layered retrieval (CM-10): index -> timeline -> getMany -------------------------------
+  // Index first; fetch full bodies only for the ids you selected.
+  searchIndex(o: { text: string; platform?: string; scope?: string; kinds?: MemKind[]; limit?: number }): IndexRow[] {
+    const limit = Math.max(1, Math.min(Math.floor(Number(o?.limit ?? 20)) || 20, 100));
+    const kinds = new Set<MemKind>(o?.kinds?.length ? o.kinds : ['claim', 'candidate', 'summary']);
+    const terms = buildFtsTerms(o?.text ?? '');
+    const title = (s: unknown) => normalizeStatement(s).slice(0, INDEX_TITLE_MAX);
+    const lists: Record<MemKind, IndexRow[]> = { claim: [], candidate: [], summary: [] };
+    if (kinds.has('claim')) {
+      lists.claim = this.query({ text: o.text, platform: o.platform, scope: o.scope, limit: Math.min(limit * 2, 200) }).map((c) => ({
+        id: `${MEM_PREFIX.claim}${c.claimId}`, kind: 'claim' as const, title: title(c.statement), score: c.score,
+        platform: c.contextPlatform, namespace: c.namespace, authority: (c.authority as string | null) ?? null,
+        evidenceCount: c.evidenceCount, createdAt: String(c.createdAt),
+      }));
+    }
+    if (kinds.has('candidate') && terms.length) {
+      const args: unknown[] = [];
+      const platformSql = o.platform ? (args.push(o.platform), 'cs.platform = ?') : '1=1';
+      const rows = this.db.prepare(
+        `SELECT c.candidateId, c.statement, c.createdAt, cs.platform, cs.namespace FROM candidates c LEFT JOIN cases cs ON cs.caseId = c.caseId
+         WHERE ${platformSql} ORDER BY c.createdAt DESC LIMIT 500`,
+      ).all(...args as never[]) as Array<{ candidateId: string; statement: string; createdAt: string; platform: string | null; namespace: string | null }>;
+      lists.candidate = rows
+        .map((r) => ({ r, score: contentCoverage(r.statement, terms) }))
+        .filter((x) => x.score > 0)
+        .sort((a, b) => (b.score - a.score) || b.r.createdAt.localeCompare(a.r.createdAt) || a.r.candidateId.localeCompare(b.r.candidateId))
+        .slice(0, limit)
+        .map(({ r, score }) => ({ id: `${MEM_PREFIX.candidate}${r.candidateId}`, kind: 'candidate' as const, title: title(r.statement), score, platform: r.platform, namespace: r.namespace, authority: null, evidenceCount: 0, createdAt: r.createdAt }));
+    }
+    // Summaries carry no platform tag: under the platform policy they are excluded when one is requested.
+    if (kinds.has('summary') && terms.length && !o.platform) {
+      const run = (join: 'AND' | 'OR') => this.db.prepare(
+        `SELECT s.summaryId, s.request, s.learned, s.completed, s.createdAt, bm25(session_summaries_fts) AS rank
+         FROM session_summaries_fts f JOIN session_summaries s ON s.summaryId = f.summaryId
+         WHERE session_summaries_fts MATCH ? ORDER BY rank LIMIT ?`,
+      ).all(ftsExpression(terms, join), limit) as Array<{ summaryId: string; request: string | null; learned: string | null; completed: string | null; createdAt: string; rank: number }>;
+      let rows = run('AND');
+      if (!rows.length && terms.length > 1) rows = run('OR');
+      lists.summary = rows.map((r) => {
+        const mag = Math.max(0, -r.rank);
+        return { id: `${MEM_PREFIX.summary}${r.summaryId}`, kind: 'summary' as const, title: title(r.request || r.learned || r.completed), score: mag / (mag + BM25_HALF_SATURATION), platform: null, namespace: null, authority: null, evidenceCount: 0, createdAt: r.createdAt };
+      });
+    }
+    // Per-kind round-robin so one kind cannot crowd the others out of the window.
+    const order = (['claim', 'candidate', 'summary'] as MemKind[]).filter((k) => kinds.has(k));
+    const out: IndexRow[] = [];
+    for (let i = 0; out.length < limit; i++) {
+      let any = false;
+      for (const k of order) {
+        const row = lists[k][i];
+        if (!row) continue;
+        out.push(row);
+        any = true;
+        if (out.length >= limit) break;
+      }
+      if (!any) break;
+    }
+    return out;
+  }
+
+  // Union of every addressable memory item, ordered by (createdAt, kind, id). Revoked/superseded and
+  // blocked-content claims are excluded, exactly as in query().
+  private memoryUnionSql(): string {
+    return `SELECT 'claim' AS kind, claimId AS rid, createdAt, statement AS title, contextPlatform AS platform, namespace, authority,
+              (SELECT COUNT(*) FROM evidence e WHERE e.claimId = claims.claimId) AS evidenceCount
+            FROM claims WHERE status NOT IN ('STALE_SOURCE_CHANGED','REVOKED','SUPERSEDED') AND ${this.eligibleContentPredicate('claims')}
+            UNION ALL
+            SELECT 'candidate', c.candidateId, c.createdAt, c.statement, cs.platform, cs.namespace, NULL, 0
+            FROM candidates c LEFT JOIN cases cs ON cs.caseId = c.caseId
+            UNION ALL
+            SELECT 'summary', summaryId, createdAt, COALESCE(request, learned, completed, ''), NULL, NULL, NULL, 0 FROM session_summaries`;
+  }
+
+  private toIndexRow(r: Record<string, unknown>): IndexRow {
+    const kind = r.kind as MemKind;
+    return {
+      id: `${MEM_PREFIX[kind]}${String(r.rid)}`, kind, title: normalizeStatement(r.title).slice(0, INDEX_TITLE_MAX), score: 0,
+      platform: (r.platform as string | null) ?? null, namespace: (r.namespace as string | null) ?? null,
+      authority: (r.authority as string | null) ?? null, evidenceCount: Number(r.evidenceCount ?? 0), createdAt: String(r.createdAt),
+    };
+  }
+
+  private parseMemId(raw: unknown): { kind: MemKind; rid: string } | null {
+    if (typeof raw !== 'string') return null;
+    for (const kind of Object.keys(MEM_PREFIX) as MemKind[]) {
+      if (raw.startsWith(MEM_PREFIX[kind]) && raw.length > MEM_PREFIX[kind].length) return { kind, rid: raw.slice(MEM_PREFIX[kind].length) };
+    }
+    return null;
+  }
+
+  timeline(o: { anchorId: string; before?: number; after?: number }): IndexRow[] {
+    const anchor = this.parseMemId(o?.anchorId);
+    if (!anchor) return [];
+    const union = this.memoryUnionSql();
+    const a = this.db.prepare(`SELECT * FROM (${union}) WHERE kind = ? AND rid = ?`).get(anchor.kind, anchor.rid) as Record<string, unknown> | undefined;
+    if (!a) return [];
+    const clamp = (n: unknown, d: number) => Math.max(0, Math.min(Math.floor(Number(n ?? d)), 50) || 0);
+    const before = this.db.prepare(`SELECT * FROM (${union}) WHERE (createdAt, kind, rid) < (?, ?, ?) ORDER BY createdAt DESC, kind DESC, rid DESC LIMIT ?`)
+      .all(a.createdAt as string, a.kind as string, a.rid as string, clamp(o.before, 3)) as Array<Record<string, unknown>>;
+    const after = this.db.prepare(`SELECT * FROM (${union}) WHERE (createdAt, kind, rid) > (?, ?, ?) ORDER BY createdAt ASC, kind ASC, rid ASC LIMIT ?`)
+      .all(a.createdAt as string, a.kind as string, a.rid as string, clamp(o.after, 3)) as Array<Record<string, unknown>>;
+    return [...before.reverse(), a, ...after].map((r) => this.toIndexRow(r));
+  }
+
+  /** Full bodies for selected ids. Unknown, malformed, revoked or content-blocked ids are silently skipped. */
+  getMany(o: { ids: string[]; maxIds?: number }): Array<{ id: string; kind: MemKind; body: Record<string, unknown>; evidence: Array<{ path: string | null; anchor: string | null; revision: string | null }> }> {
+    const max = Math.max(1, Math.min(Math.floor(Number(o?.maxIds ?? GET_MANY_DEFAULT)) || GET_MANY_DEFAULT, 200));
+    const ids = [...new Set(Array.isArray(o?.ids) ? o.ids : [])].slice(0, max);
+    const out: Array<{ id: string; kind: MemKind; body: Record<string, unknown>; evidence: Array<{ path: string | null; anchor: string | null; revision: string | null }> }> = [];
+    const evidenceFor = this.db.prepare('SELECT path, anchor, revision FROM evidence WHERE claimId = ? ORDER BY rowid LIMIT 200');
+    for (const raw of ids) {
+      const p = this.parseMemId(raw);
+      if (!p) continue;
+      if (p.kind === 'claim') {
+        const row = this.db.prepare(`SELECT * FROM claims c WHERE c.claimId = ? AND c.status NOT IN ('STALE_SOURCE_CHANGED','REVOKED','SUPERSEDED') AND ${this.eligibleContentPredicate('c')}`).get(p.rid) as Record<string, unknown> | undefined;
+        if (row) out.push({ id: raw, kind: 'claim', body: row, evidence: evidenceFor.all(p.rid) as never });
+      } else if (p.kind === 'candidate') {
+        const row = this.db.prepare(
+          `SELECT c.*, cs.task AS caseTask, cs.outcome AS caseOutcome, cs.verificationRef AS caseVerificationRef, cs.platform AS casePlatform, cs.projectRoot AS caseProjectRoot
+           FROM candidates c LEFT JOIN cases cs ON cs.caseId = c.caseId WHERE c.candidateId = ?`,
+        ).get(p.rid) as Record<string, unknown> | undefined;
+        if (row) out.push({ id: raw, kind: 'candidate', body: row, evidence: [] });
+      } else {
+        const row = this.db.prepare('SELECT * FROM session_summaries WHERE summaryId = ?').get(p.rid) as Record<string, unknown> | undefined;
+        if (row) out.push({ id: raw, kind: 'summary', body: row, evidence: [] });
+      }
+    }
+    return out;
   }
 }
 

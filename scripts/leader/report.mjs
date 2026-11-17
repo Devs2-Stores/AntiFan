@@ -124,6 +124,8 @@ export function validateReportObject(parsed, job, round, ctx = {}) {
     else
       j.verify.forEach((v, i) => {
         if (!isObj(v) || !isNonEmptyStr(v.cmd) || !isStr(v.expect)) errors.push(`verify[${i}] must be {cmd, expect} with a non-empty cmd string and an expect string`);
+        // An empty expect passes on any stdout. `node --check` prints nothing (its exit code is the proof), and `rg -c` prints a bare count.
+        else if (v.expect.trim().length < 3 && !/^\s*node\s+--check\s/.test(v.cmd) && !(/^\d+$/.test(v.expect.trim()) && /\s(-c|--count)(\s|$)/.test(v.cmd))) errors.push(`verify[${i}].expect must be a non-empty distinctive string (at least 3 characters)`);
       });
   }
 

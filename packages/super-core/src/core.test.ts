@@ -8,9 +8,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
-import { openCore, type Core, CORE_NAMESPACES } from './index.js';
+import { openCore, type Core, CORE_NAMESPACES, AUTHORITY_VALUES, assertAuthority, assertConfidence } from './index.js';
 import { MAX_RETRIEVAL_TERMS, buildFtsTerms, contentCoverage, ftsExpression } from './terms.js';
 import { SCHEMA_VERSION, NAMESPACE_BACKFILL_SQL } from './schema.js';
+import { defaultRedactionConfig, isExcludedProject, redactSecrets, sanitizeJson, stripPrivate } from './privacy.js';
 
 function fixtureReports() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'core-fixture-'));
@@ -1831,4 +1832,499 @@ test('importScout prepares its JSONL statements once per table, not once per lin
     fs.rmSync(small, { recursive: true, force: true });
     fs.rmSync(large, { recursive: true, force: true });
   }
+});
+
+// ---- memory-core cards: ledger, reinforcement, privacy, enums, layers, unknowns, backlog, summaries ----
+
+const rawDb = (core: Core) => (core as unknown as { db: DatabaseSync }).db;
+const freshCore = () => openCore(path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'core-mem-')), 'core.db'));
+const addClaim = (core: Core, claimId: string, statement: string, createdAt = '2026-01-01T00:00:00.000Z') => {
+  const db = rawDb(core);
+  db.prepare("INSERT INTO claims(claimId,unitId,statement,kind,status,createdAt) VALUES (?,?,?,?,'OBSERVED',?)").run(claimId, 'u-x', statement, 'RULE', createdAt);
+  db.prepare('INSERT INTO claims_fts(rowid,statement,kind,unitId,claimId) VALUES ((SELECT rowid FROM claims WHERE claimId=?),?,?,?,?)').run(claimId, statement, 'RULE', 'u-x', claimId);
+};
+
+test('markInjected records rendered claims and is the only writer of claims.lastSeen', () => {
+  const dir = fixtureReports();
+  const dbPath = path.join(dir, 'core.db');
+  const core = openCore(dbPath);
+  core.importScout(dir);
+  const pack = core.contextPack({ task: 'package.json declares name', limit: 5 });
+  const ids = pack.claims.map((c) => c.claimId as string).slice(0, 2);
+  assert.ok(ids.length >= 1);
+  const raw = new DatabaseSync(dbPath);
+  try {
+    const seen = () => (raw.prepare('SELECT COUNT(*) n FROM claims WHERE lastSeen IS NOT NULL').get() as { n: number }).n;
+    assert.equal(seen(), 0, 'building a pack alone does not mark a claim seen');
+    assert.equal(core.markInjected({ packId: pack.packId, sessionId: 's1', claimIds: ids }).recorded, ids.length);
+    assert.equal(core.markInjected({ packId: pack.packId, sessionId: 's1', claimIds: ids }).recorded, 0, 'idempotent per (pack, session, claim)');
+    assert.equal(core.markInjected({ packId: pack.packId, sessionId: 's1', claimIds: ['no-such-claim'] }).recorded, 0, 'unknown claims are not recorded');
+    assert.equal(seen(), ids.length);
+    const rank = raw.prepare('SELECT rank FROM pack_injections WHERE claimId = ?').get(ids[0]) as { rank: number };
+    assert.equal(rank.rank, 1);
+  } finally { raw.close(); }
+  assert.throws(() => core.markInjected({ packId: '', claimIds: ids }), /packId/);
+  core.close();
+});
+
+test('reinforce is idempotent per UTC day, FIFO-capped at 10, and keeps a used claim out of decayCheck', () => {
+  const core = freshCore();
+  addClaim(core, 'old-1', 'legacy rule about cart drawers');
+  assert.equal(core.reinforce({ claimIds: ['old-1'], reason: 'manual', day: '2026-01-01' }).changed, 1);
+  assert.equal(core.reinforce({ claimIds: ['old-1'], reason: 'manual', day: '2026-01-01' }).changed, 0);
+  for (let d = 2; d <= 14; d++) core.reinforce({ claimIds: ['old-1'], reason: 'manual', day: `2026-01-${String(d).padStart(2, '0')}` });
+  const row = rawDb(core).prepare('SELECT reinforcementDates d, lastReinforced FROM claims WHERE claimId = ?').get('old-1') as { d: string; lastReinforced: string };
+  const days = JSON.parse(row.d) as string[];
+  assert.equal(days.length, 10);
+  assert.equal(days[0], '2026-01-05', 'oldest entries fall off first');
+  assert.equal(row.lastReinforced, '2026-01-14');
+  assert.ok((core.decayCheck().stale as Array<{ claimId: string }>).some((s) => s.claimId === 'old-1') === false, 'reinforcement stamped lastSeen = now');
+  addClaim(core, 'old-2', 'legacy rule about cart drawers too');
+  assert.ok((core.decayCheck().stale as Array<{ claimId: string }>).some((s) => s.claimId === 'old-2'), 'an unused old claim is stale');
+  assert.throws(() => core.reinforce({ claimIds: ['old-1'], reason: 'bogus' as never }), /invalid reinforce reason/);
+  core.close();
+});
+
+test('decayEpoch floors the stale cutoff, and health() reports counts with a bounded sample instead of every stale row', () => {
+  const core = freshCore();
+  for (let i = 0; i < 30; i++) addClaim(core, `stale-${i}`, `ancient storefront rule number ${i}`);
+  const stale = () => (core.decayCheck().stale as unknown[]).length;
+  assert.equal(stale(), 30);
+  rawDb(core).prepare("INSERT OR REPLACE INTO meta(key,value) VALUES ('decayEpoch', ?)").run(new Date().toISOString());
+  assert.equal(stale(), 0, 'nothing imported before the epoch ages out yet');
+  assert.equal(core.checkPhaseGate('t', 'temporal').gate, 'temporal');
+  rawDb(core).prepare("DELETE FROM meta WHERE key = 'decayEpoch'").run();
+  const decay = core.health().decay as { staleCount: number; stale: unknown[]; sampleLimit: number };
+  assert.equal(decay.staleCount, 30);
+  assert.equal(decay.stale.length, 20, 'sample is bounded');
+  assert.equal(decay.sampleLimit, 20);
+  core.close();
+});
+
+test('migrating a v12 store adds the new schema, stamps decayEpoch and folds legacy confidence into the closed set', () => {
+  const dir = fixtureReports();
+  const dbPath = path.join(dir, 'core.db');
+  const first = openCore(dbPath);
+  first.importScout(dir);
+  first.close();
+  const raw = new DatabaseSync(dbPath);
+  raw.exec(`DROP TABLE pack_injections; DROP TABLE outcome_pack_links; DROP TABLE unknown_revisions; DROP TABLE unknowns;
+    DROP TABLE session_summaries_fts; DROP TABLE session_summaries; DROP INDEX idx_claims_authority;
+    ALTER TABLE claims DROP COLUMN reinforcementDates; ALTER TABLE claims DROP COLUMN lastReinforced; ALTER TABLE claims DROP COLUMN authority;
+    ALTER TABLE cases DROP COLUMN projectRoot;`);
+  raw.exec("UPDATE claims SET confidence = NULL WHERE claimId = 'c1'; UPDATE claims SET confidence = 'HIGH', sourceKind = 'adjudication' WHERE claimId = 'c2'");
+  raw.exec("DELETE FROM meta WHERE key = 'decayEpoch'; UPDATE meta SET value = '12' WHERE key = 'schemaVersion'; PRAGMA user_version = 0");
+  raw.close();
+  const core = openCore(dbPath);
+  const check = new DatabaseSync(dbPath);
+  try {
+    assert.equal((check.prepare("SELECT value FROM meta WHERE key = 'schemaVersion'").get() as { value: string }).value, String(SCHEMA_VERSION));
+    assert.ok((check.prepare("SELECT value FROM meta WHERE key = 'decayEpoch'").get() as { value: string }).value.startsWith('20'), 'decayEpoch stamped');
+    const rows = check.prepare('SELECT claimId, confidence, authority FROM claims').all() as Array<{ claimId: string; confidence: string; authority: string }>;
+    assert.ok(rows.every((r) => ['observed', 'derived', 'inferred'].includes(r.confidence)), 'no NULL or legacy confidence left');
+    assert.equal(rows.find((r) => r.claimId === 'c2')?.confidence, 'observed');
+    assert.equal(rows.find((r) => r.claimId === 'c2')?.authority, 'adjudication');
+    assert.ok(rows.every((r) => r.authority), 'authority backfilled');
+  } finally { check.close(); }
+  assert.equal(core.markInjected({ packId: 'p', claimIds: ['c1'] }).recorded, 1, 'migrated store has the ledger table');
+  core.close();
+});
+
+test('ingestOutcome links its case to the packs the task used; reuseMetric reports them outcome-linked; a verified outcome reinforces', () => {
+  const dir = fixtureReports();
+  const core = openCore(path.join(dir, 'core.db'));
+  core.importScout(dir);
+  const task = 'package.json declares name';
+  const pack = core.contextPack({ task, limit: 5 });
+  const ids = pack.claims.map((c) => c.claimId as string);
+  assert.ok(ids.length >= 1);
+  core.markInjected({ packId: pack.packId, claimIds: ids });
+  assert.equal(core.reuseMetric({ task }).outcomeLinked.value, 0, 'no link before the outcome');
+  const out = core.ingestOutcome({ task, outcome: 'ok', verificationRef: '/reports/r1.json', packIds: [pack.packId], linkKind: 'leader-job' });
+  assert.equal(out.packLinks, 1);
+  const m = core.reuseMetric({ task });
+  assert.equal(m.outcomeLinked.value, ids.length);
+  assert.deepEqual(m.outcomeLinked.claimIds, [...ids].sort());
+  const r = rawDb(core).prepare('SELECT COUNT(*) n FROM claims WHERE reinforcementDates IS NOT NULL').get() as { n: number };
+  assert.equal(r.n, ids.length, 'verified outcome reinforced exactly the injected claims');
+  assert.equal((rawDb(core).prepare('SELECT link FROM outcome_pack_links').get() as { link: string }).link, 'leader-job');
+  assert.throws(() => core.ingestOutcome({ task, outcome: 'x', linkKind: 'bogus' as never }), /invalid linkKind/);
+  core.close();
+});
+
+test('receipt reinforces what a pack injected; an abstained receipt records an unknown whose identity is stable', () => {
+  const dir = fixtureReports();
+  const core = openCore(path.join(dir, 'core.db'));
+  core.importScout(dir);
+  const pack = core.contextPack({ task: 'package.json declares name', limit: 5 });
+  const ids = pack.claims.map((c) => c.claimId as string);
+  core.markInjected({ packId: pack.packId, claimIds: ids });
+  core.receipt({ task: 'package.json declares name', packId: pack.packId, recommendation: 'use it' });
+  assert.equal((rawDb(core).prepare('SELECT COUNT(*) n FROM claims WHERE reinforcementDates IS NOT NULL').get() as { n: number }).n, ids.length);
+  const a1 = core.receipt({ task: 'what is the weather', recommendation: 'none', abstained: true });
+  const a2 = core.receipt({ task: 'what  is the   weather', recommendation: 'none', abstained: true });
+  assert.ok(a1.unknownId);
+  assert.equal(a1.unknownId, a2.unknownId, 'whitespace does not fork the unknown');
+  assert.equal(core.unknowns({ status: 'open' }).length, 1);
+  core.close();
+});
+
+test('contextPackV2 abstention records an unknown and later packs surface it as openUnknowns', () => {
+  const core = freshCore();
+  const v2 = core.contextPackV2({ task: 'quantum widget calibration procedure' });
+  assert.equal(v2.abstained, true);
+  assert.equal(core.unknowns().length, 1);
+  const pack = core.contextPack({ task: 'quantum widget calibration procedure' });
+  assert.equal(pack.openUnknowns.length, 1);
+  assert.match(pack.openUnknowns[0].question, /quantum widget/);
+  assert.equal(core.contextPack({ task: 'completely different billing topic' }).openUnknowns.length, 0);
+  core.close();
+});
+
+test('writeObservation and ingestOutcome never store a secret or a <private> block', () => {
+  const dir = fixtureReports();
+  const dbPath = path.join(dir, 'core.db');
+  const core = openCore(dbPath);
+  const body = 'abcdefghijklmnopqrstuvwx';
+  const sec = `Bearer ${body} and hatch_sess=XYZ123456`;
+  core.recordObservation({ source: 't', kind: 'k', payload: { out: `ok <private>cookie ${sec}</private> tail ${sec}` } });
+  core.recordObservation({ source: 't', kind: 'k2', payload: `plain ${sec}` });
+  core.ingestOutcome({ task: `deploy ${sec}`, outcome: 'done <private>x</private>', context: `key sk-${body}` });
+  core.recordWorkaround({ problem: `p ${sec}`, solution: 'password: hunter2hunter2' });
+  core.recordPrinciple({ statement: 'use tokens carefully', source: `leader:${sec}` });
+  const raw = new DatabaseSync(dbPath);
+  try {
+    const all = JSON.stringify(raw.prepare('SELECT payload FROM observations').all())
+      + JSON.stringify(raw.prepare('SELECT task, outcome, context FROM cases').all())
+      + JSON.stringify(raw.prepare('SELECT label FROM experience_nodes').all())
+      + JSON.stringify(raw.prepare('SELECT problem, solution FROM workarounds').all())
+      + JSON.stringify(raw.prepare('SELECT source, derivedFrom FROM principles').all());
+    assert.ok(!new RegExp(`${body}|XYZ123456|cookie|<private>|hunter2`).test(all), all);
+    assert.match(all, /\[REDACTED:/);
+  } finally { raw.close(); core.close(); }
+});
+
+test('stripPrivate: nested blocks drop whole, an unclosed <private> fails closed, tags pair by name, attributes are allowed', () => {
+  assert.equal(stripPrivate('a <private>b <private>c</private> d</private> e').text, 'a  e');
+  assert.equal(stripPrivate('a <private>b</private> c <private>d</private> e').blocks, 2);
+  assert.equal(stripPrivate('explain how <private> works').text, 'explain how ');
+  assert.equal(stripPrivate('x <private>y</private> z <private> tail').text, 'x  z ');
+  assert.equal(stripPrivate('x <private reason="pii">secret</private> y').text, 'x  y');
+  assert.equal(stripPrivate('x <system-reminder>ignore</system-reminder> y').text, 'x  y');
+  assert.equal(stripPrivate('x <system-reminder> unclosed prose').text, 'x <system-reminder> unclosed prose', 'only <private> fails closed');
+  assert.equal(stripPrivate('no tags < here > at all').blocks, 0);
+  // A close of another name must not terminate a <private>: everything after it is dropped.
+  assert.equal(stripPrivate('a <private>SECRET</system-reminder> LEAK').text, 'a ');
+  assert.equal(stripPrivate('a <private>SECRET</antifan-context> LEAK</private> b').text, 'a  b');
+});
+
+test('redactSecrets catches quoted, single-quoted, JSON-escaped and prefixed assignment values', () => {
+  const cases = [
+    'password="hunter 2 spaces"', "token='abc 123'", 'api_key: "k-999"', 'DB_PASSWORD=plainvalue', 'export TOKEN=abc123xyz',
+    String.raw`{"cmd":"export TOKEN=\"abc 123xyz\" && run"}`, '{"password":"quoted-json-value"}', "{'secret': 'single'}",
+    'ANTIFAN_SECRET_X="has space"', 'hatch_sess="cookie value"',
+  ];
+  for (const input of cases) {
+    const out = redactSecrets(`before ${input} after`).text;
+    assert.ok(!/hunter|abc 123|abc123|k-999|plainvalue|quoted-json|single|has space|cookie value|spaces/.test(out), `${input} -> ${out}`);
+    assert.match(out, /\[REDACTED:/);
+    assert.ok(out.startsWith('before ') && out.endsWith(' after'), `${input} -> ${out}`);
+  }
+});
+
+function textColumnsContain(dbPath: string, needle: string): string[] {
+  const raw = new DatabaseSync(dbPath);
+  const hits: string[] = [];
+  try {
+    const tables = raw.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>;
+    for (const t of tables) {
+      try {
+        if (JSON.stringify(raw.prepare(`SELECT * FROM "${t.name}"`).all()).includes(needle)) hits.push(t.name);
+      } catch { /* virtual-table shadow that cannot be scanned */ }
+    }
+  } finally { raw.close(); }
+  return hits;
+}
+
+test('every task/recommendation/rationale/import/abstain path sanitizes before SQLite (no table keeps the marker)', () => {
+  const marker = 'zq9marker7';
+  const dir = fixtureReports();
+  fs.appendFileSync(path.join(dir, 'units', 'u-test', 'claims.jsonl'), JSON.stringify({
+    claimId: 'c-priv', unitId: 'u-test', statement: `imported rule <private>${marker}</private> password="${marker}"`, kind: 'RULE', status: 'OBSERVED', extractorVersion: 't',
+    evidenceRefs: [{ entryId: 'e1', revision: 'abc', path: 'p', anchor: 'a' }],
+  }) + '\n');
+  fs.writeFileSync(path.join(dir, 'decisions.jsonl'), JSON.stringify({ decisionId: 'd-priv', unitId: 'u-test', statement: 'decision', context: `ctx <private>${marker}</private>` }) + '\n');
+  const dbPath = path.join(dir, 'core.db');
+  const core = openCore(dbPath);
+  core.importScout(dir);
+  const secretTask = `fix the header <private>${marker}</private> now`;
+  const pack = core.contextPack({ task: secretTask });
+  core.receipt({ task: secretTask, packId: pack.packId, recommendation: `use it <private>${marker}</private> token=${marker}` });
+  core.receipt({ task: secretTask, recommendation: 'none', abstained: true });
+  core.ingestOutcome({ task: 'learn something durable', outcome: 'ok' });
+  const cand = (rawDb(core).prepare('SELECT candidateId FROM candidates LIMIT 1').get() as { candidateId: string }).candidateId;
+  core.adjudicate({ candidateId: cand, decision: 'REJECT', authority: 'test-human', rationale: `no <private>${marker}</private> password: "${marker}"` });
+  // Abstained pack: the <private> block opens before char 500 and closes after it.
+  const long = `${'quantum '.repeat(60)}<private>${marker}${' pad'.repeat(100)}</private> tail`;
+  core.contextPackV2({ task: long });
+  core.close();
+  assert.deepEqual(textColumnsContain(dbPath, marker), [], 'no table may keep the private marker');
+});
+
+test('an unclosed <private> in a task never reaches packs, receipts or unknowns', () => {
+  const marker = 'zq8leak3';
+  const dir = fixtureReports();
+  const dbPath = path.join(dir, 'core.db');
+  const core = openCore(dbPath);
+  core.importScout(dir);
+  const task = `quantum widget <private>${marker} but never closed`;
+  const v2 = core.contextPackV2({ task });
+  core.receipt({ task, packId: v2.packId, recommendation: 'x', abstained: true });
+  core.close();
+  assert.deepEqual(textColumnsContain(dbPath, marker), []);
+});
+
+function legacyV12Store() {
+  const dir = fixtureReports();
+  const dbPath = path.join(dir, 'core.db');
+  const first = openCore(dbPath);
+  first.importScout(dir);
+  first.close();
+  const raw = new DatabaseSync(dbPath);
+  raw.exec(`DROP TABLE pack_injections; DROP TABLE outcome_pack_links; DROP TABLE unknown_revisions; DROP TABLE unknowns;
+    DROP TABLE session_summaries_fts; DROP TABLE session_summaries; DROP INDEX idx_claims_authority;
+    ALTER TABLE claims DROP COLUMN reinforcementDates; ALTER TABLE claims DROP COLUMN lastReinforced; ALTER TABLE claims DROP COLUMN authority;
+    ALTER TABLE cases DROP COLUMN projectRoot;`);
+  raw.exec("UPDATE claims SET confidence = 'HIGH', sourceKind = 'adjudication' WHERE claimId = 'c2'");
+  raw.exec("DELETE FROM meta WHERE key = 'decayEpoch'; UPDATE meta SET value = '12' WHERE key = 'schemaVersion'; PRAGMA user_version = 0");
+  raw.close();
+  return dbPath;
+}
+
+test('the irreversible confidence fold is preceded by exactly one sibling backup, and reopening is idempotent', () => {
+  const dbPath = legacyV12Store();
+  const bak = `${dbPath}.pre-v14.bak`;
+  assert.equal(fs.existsSync(bak), false);
+  openCore(dbPath).close();
+  assert.ok(fs.existsSync(bak), 'backup written beside the db');
+  const snap = new DatabaseSync(bak);
+  try {
+    assert.equal((snap.prepare("SELECT confidence FROM claims WHERE claimId = 'c2'").get() as { confidence: string }).confidence, 'HIGH', 'backup holds the pre-fold vocabulary');
+    assert.equal((snap.prepare("SELECT value FROM meta WHERE key = 'schemaVersion'").get() as { value: string }).value, '13');
+  } finally { snap.close(); }
+  const before = fs.statSync(bak);
+  // Force the open path to run again on the already-migrated store.
+  const raw = new DatabaseSync(dbPath);
+  raw.exec('PRAGMA user_version = 0');
+  raw.close();
+  openCore(dbPath).close();
+  const after = fs.statSync(bak);
+  assert.equal(after.size, before.size);
+  assert.equal(after.mtimeMs, before.mtimeMs, 'backup not rewritten');
+  assert.equal(fs.readdirSync(path.dirname(dbPath)).filter((f) => f.endsWith('.bak')).length, 1, 'one backup');
+  const check = new DatabaseSync(dbPath);
+  try {
+    assert.equal((check.prepare("SELECT value FROM meta WHERE key = 'schemaVersion'").get() as { value: string }).value, String(SCHEMA_VERSION));
+    assert.equal((check.prepare("SELECT confidence FROM claims WHERE claimId = 'c2'").get() as { confidence: string }).confidence, 'observed');
+  } finally { check.close(); }
+});
+
+test('an existing pre-v14 backup is never overwritten', () => {
+  const dbPath = legacyV12Store();
+  const bak = `${dbPath}.pre-v14.bak`;
+  fs.writeFileSync(bak, 'sentinel');
+  openCore(dbPath).close();
+  assert.equal(fs.readFileSync(bak, 'utf8'), 'sentinel');
+});
+
+
+test('redactSecrets covers the builtin token shapes, honours extra patterns and the off switch', () => {
+  const b = 'abcdefghijklmnopqrstuvwxyz0123';
+  const cases: Array<[string, string]> = [
+    [`sk-${b}`, 'sk-key'], [`oc_sk_${b}`, 'oc-key'], [`ghp_${b}`, 'github'], [`EAA${b}`, 'meta-token'],
+    [`eyJhbGciOi.eyJzdWIiOi.sig_nature`, 'jwt'], [`Bearer ${b}`, 'bearer'], ['hatch_gw=zzz', 'hatch'],
+    ['ANTIFAN_SECRET_FOO=bar', 'antifan-secret'], ['api_key: abc123', 'assign'], ['token=abc', 'assign'],
+  ];
+  for (const [input, name] of cases) {
+    const r = redactSecrets(`before ${input} after`);
+    assert.match(r.text, new RegExp(`\\[REDACTED:${name}\\]`), `${name}: ${r.text}`);
+    assert.ok(r.text.startsWith('before ') && r.text.endsWith(' after'));
+  }
+  assert.equal(redactSecrets('the token economy and password policy').text, 'the token economy and password policy', 'words without an assignment survive');
+  const cfg = defaultRedactionConfig({ ANTIFAN_CORE_REDACT_PATTERNS: 'ORDER-\\d{6}' } as NodeJS.ProcessEnv);
+  assert.equal(redactSecrets('see ORDER-123456 now', cfg).text, 'see [REDACTED:custom1] now');
+  assert.equal(defaultRedactionConfig({ ANTIFAN_CORE_REDACT: 'off' } as NodeJS.ProcessEnv).patterns.length, 0);
+  assert.deepEqual(sanitizeJson({ a: [`Bearer ${b}`], n: 3 }), { a: ['[REDACTED:bearer]'], n: 3 });
+  assert.equal(isExcludedProject('E:\\Work\\Secret\\app', defaultRedactionConfig({ ANTIFAN_CORE_EXCLUDED_PROJECTS: 'e:/work/secret' } as NodeJS.ProcessEnv)), true);
+  assert.equal(isExcludedProject('E:\\Work\\Secret2', defaultRedactionConfig({ ANTIFAN_CORE_EXCLUDED_PROJECTS: 'e:/work/secret' } as NodeJS.ProcessEnv)), false);
+});
+
+test('imported and promoted claims carry closed confidence and authority; legacy free text is accepted', () => {
+  const dir = fixtureReports();
+  fs.appendFileSync(path.join(dir, 'units', 'u-test', 'claims.jsonl'), JSON.stringify({
+    claimId: 'c-legacy', unitId: 'u-test', statement: 'legacy high confidence rule', kind: 'RULE', status: 'OBSERVED', confidence: 'HIGH', sourceKind: 'git-commit',
+    evidenceRefs: [{ entryId: 'e1', revision: 'abc', path: 'p', anchor: 'a' }],
+  }) + '\n');
+  const core = openCore(path.join(dir, 'core.db'));
+  core.importScout(dir);
+  const rows = rawDb(core).prepare('SELECT claimId, confidence, authority FROM claims').all() as Array<{ claimId: string; confidence: string; authority: string }>;
+  assert.ok(rows.every((r) => ['observed', 'derived', 'inferred'].includes(r.confidence)));
+  assert.ok(rows.every((r) => AUTHORITY_VALUES.includes(r.authority as never)));
+  const legacy = rows.find((r) => r.claimId === 'c-legacy');
+  assert.equal(legacy?.confidence, 'observed');
+  assert.equal(legacy?.authority, 'git-history');
+  const { candidateId } = core.ingestOutcome({ task: 'promote me please', outcome: 'a long enough outcome' });
+  core.adjudicate({ candidateId, decision: 'PROMOTE', authority: 'Tai' });
+  const promoted = rawDb(core).prepare('SELECT confidence, authority FROM claims WHERE claimId = ?').get(`claim-${candidateId}`) as { confidence: string; authority: string };
+  assert.deepEqual({ ...promoted }, { confidence: 'observed', authority: 'adjudication' });
+  assert.equal(assertConfidence('derived'), 'derived');
+  assert.throws(() => assertConfidence('HIGH'), /invalid confidence/);
+  assert.throws(() => assertAuthority('me'), /invalid authority/);
+  core.close();
+});
+
+test('searchIndex returns short rows, round-robins kinds, and getMany returns exact bodies and ignores unknown ids', () => {
+  const core = freshCore();
+  for (let i = 0; i < 10; i++) addClaim(core, `w${i}`, `widget layout rule ${i} ${'x'.repeat(300)}`, `2026-02-0${(i % 9) + 1}T00:00:00.000Z`);
+  core.upsertSessionSummary({ sessionId: 'sa', request: 'tune the widget grid', learned: 'widget grid needs gap' });
+  core.upsertSessionSummary({ sessionId: 'sb', request: 'widget cleanup', completed: 'removed widget cruft' });
+  const rows = core.searchIndex({ text: 'widget', limit: 8 });
+  assert.ok(rows.length === 8);
+  assert.ok(rows.every((r) => r.title.length <= 120));
+  assert.ok(rows.slice(0, 4).some((r) => r.kind === 'summary'), 'a minority kind is not crowded out');
+  assert.ok(rows.every((r) => /^(c|s|k):/.test(r.id)));
+  assert.ok(!('statement' in rows[0]) && !('evidence' in rows[0]));
+  assert.deepEqual(core.searchIndex({ text: 'widget', kinds: ['summary'] }).map((r) => r.kind), ['summary', 'summary']);
+  assert.equal(core.searchIndex({ text: 'widget', platform: 'haravan' }).length, 0, 'untagged rows are excluded under a platform policy');
+  const many = core.getMany({ ids: ['c:w3', 'c:nope', 'garbage', 's:nope', rows.find((r) => r.kind === 'summary')!.id] });
+  assert.deepEqual(many.map((m) => m.kind), ['claim', 'summary']);
+  assert.equal(many[0].body.statement, `widget layout rule 3 ${'x'.repeat(300)}`);
+  assert.equal(core.getMany({ ids: ['c:w1', 'c:w2', 'c:w3'], maxIds: 2 }).length, 2);
+  core.close();
+});
+
+test('getMany withholds revoked claims and claims anchored to blocked content; timeline order is stable under equal createdAt', () => {
+  const core = freshCore();
+  const t = '2026-03-01T00:00:00.000Z';
+  for (const n of ['a', 'b', 'c', 'd', 'e']) addClaim(core, `t-${n}`, `timeline rule ${n}`, t);
+  const db = rawDb(core);
+  db.prepare("INSERT INTO artifacts(entryId,unitId,rootId,relPath,absPath,type,disposition,contentPolicy,observedAt) VALUES ('blk','u-x','r','b','b','file','ANALYZED_WITH_CLAIMS','BLOCKED','x')").run();
+  db.prepare("INSERT INTO evidence(id,claimId,entryId,path,anchor) VALUES ('ev1','t-e','blk','b','a')").run();
+  db.prepare("UPDATE claims SET status = 'REVOKED' WHERE claimId = 't-d'").run();
+  assert.deepEqual(core.getMany({ ids: ['c:t-a', 'c:t-d', 'c:t-e'] }).map((m) => m.id), ['c:t-a']);
+  const tl = core.timeline({ anchorId: 'c:t-b', before: 5, after: 5 });
+  assert.deepEqual(tl.map((r) => r.id), ['c:t-a', 'c:t-b', 'c:t-c']);
+  assert.deepEqual(core.timeline({ anchorId: 'c:t-b', before: 1, after: 0 }).map((r) => r.id), ['c:t-a', 'c:t-b']);
+  assert.deepEqual(core.timeline({ anchorId: 'c:nope' }), []);
+  assert.deepEqual(core.timeline({ anchorId: 'zzz' }), []);
+  core.close();
+});
+
+test('unknowns registry: stable identity, CAS revisions, invariants, history rows and stale expiry', () => {
+  const core = freshCore();
+  const a = core.recordUnknown({ domain: 'theme', question: 'Does sapo  support   section schemas?', platform: 'sapo' });
+  const b = core.recordUnknown({ domain: 'theme', question: 'does sapo support section schemas?', platform: 'sapo' });
+  assert.equal(a.status, 'created');
+  assert.equal(b.status, 'exists');
+  assert.equal(a.unknownId, b.unknownId);
+  assert.match(a.unknownId, /^unk_/);
+  const other = core.recordUnknown({ domain: 'theme', question: 'a different question entirely' });
+  assert.throws(() => core.updateUnknown({ unknownId: a.unknownId, expectedRevision: 7, status: 'investigating' }), /revision-conflict/);
+  assert.throws(() => core.updateUnknown({ unknownId: 'unk_nope', expectedRevision: 1 }), /not-found/);
+  assert.throws(() => core.updateUnknown({ unknownId: a.unknownId, expectedRevision: 1, status: 'resolved' }), /invalid-transition/);
+  assert.throws(() => core.updateUnknown({ unknownId: a.unknownId, expectedRevision: 1, status: 'open', resolution: { disposition: 'withdrawn' } }), /invalid-transition/);
+  assert.throws(() => core.updateUnknown({ unknownId: a.unknownId, expectedRevision: 1, status: 'contradicted' }), /invalid-evidence/);
+  assert.throws(() => core.updateUnknown({ unknownId: a.unknownId, expectedRevision: 1, supporting: ['x'], contradicting: ['x'] }), /invalid-evidence/);
+  assert.throws(() => core.updateUnknown({ unknownId: a.unknownId, expectedRevision: 1, relations: [{ type: 'related-to', unknownId: a.unknownId }] }), /invalid-relation/);
+  assert.throws(() => core.updateUnknown({ unknownId: a.unknownId, expectedRevision: 1, status: 'resolved', resolution: { disposition: 'verified' } }), /invalid-evidence/);
+  const r2 = core.updateUnknown({ unknownId: a.unknownId, expectedRevision: 1, status: 'investigating', relations: [{ type: 'depends-on', unknownId: other.unknownId }] });
+  assert.equal(r2.revision, 2);
+  const r3 = core.updateUnknown({ unknownId: a.unknownId, expectedRevision: 2, status: 'resolved', resolution: { disposition: 'verified', evidenceIds: ['claim-1'] } });
+  assert.equal(r3.resolution?.disposition, 'verified');
+  const hist = rawDb(core).prepare('SELECT revision FROM unknown_revisions WHERE unknownId = ? ORDER BY revision').all(a.unknownId) as Array<{ revision: number }>;
+  assert.deepEqual(hist.map((h) => h.revision), [1, 2, 3], 'one revision row per revision');
+  assert.equal(core.unknowns({ status: 'resolved' }).length, 1);
+  const reopened = core.updateUnknown({ unknownId: a.unknownId, expectedRevision: 3, status: 'open' });
+  assert.equal(reopened.resolution, null);
+  assert.throws(() => core.recordUnknown({ domain: 'd', question: 'q', requiredAuthority: 'nobody' as never }), /invalid authority/);
+  rawDb(core).prepare("UPDATE unknowns SET updatedAt = '2020-01-01T00:00:00.000Z' WHERE unknownId = ?").run(other.unknownId);
+  const expired = core.resolveStale({ days: 60 });
+  assert.deepEqual(expired.unknownIds, [other.unknownId]);
+  assert.equal(core.unknowns({ status: 'resolved' })[0].resolution?.disposition, 'withdrawn');
+  core.close();
+});
+
+test('candidates({triage}) is advisory, adjudicateBatch refuses without authority before any write, and drains in one call', () => {
+  const core = freshCore();
+  const ids: string[] = [];
+  ids.push(core.ingestOutcome({ task: 'fix drawer', outcome: 'the drawer closes on escape now' }).candidateId);
+  ids.push(core.ingestOutcome({ task: 'fix drawer', outcome: 'the drawer closes on escape now' }).candidateId);
+  ids.push(core.ingestOutcome({ task: 'fix menu', outcome: 'ok' }).candidateId);
+  ids.push(core.ingestOutcome({ task: 'fix footer', outcome: 'x', lesson: 'Footer links need rel=noopener when target=_blank' }).candidateId);
+  const triage = core.candidates({ triage: true }) as unknown as Array<{ candidateId: string; recommendation: string; duplicateOf: string | null; hasVerification: boolean; lengthChars: number; ageDays: number }>;
+  const rec = (id: string) => triage.find((t) => t.candidateId === id)!;
+  assert.equal(rec(ids[0]).recommendation, 'PROMOTE-REVIEW');
+  assert.equal(rec(ids[1]).recommendation, 'SUPERSEDE-DUPLICATE');
+  assert.equal(rec(ids[1]).duplicateOf, ids[0]);
+  assert.equal(rec(ids[2]).recommendation, 'REJECT-EMPTY');
+  assert.equal(rec(ids[3]).lengthChars, 'Footer links need rel=noopener when target=_blank'.length, 'lesson replaces the mechanical statement');
+  assert.equal(rec(ids[0]).hasVerification, false);
+  assert.equal(core.candidates().length, 4, 'triage did not adjudicate');
+  assert.equal((core.candidates() as unknown[]).length, 4);
+  assert.throws(() => core.adjudicateBatch({ items: [{ candidateId: ids[0], decision: 'PROMOTE' }], authority: '  ' }), /authority required/);
+  assert.equal((rawDb(core).prepare('SELECT COUNT(*) n FROM adjudications').get() as { n: number }).n, 0);
+  const res = core.adjudicateBatch({
+    authority: 'Tai (uy quyen)',
+    items: [
+      { candidateId: ids[0], decision: 'PROMOTE' }, { candidateId: ids[1], decision: 'SUPERSEDE', rationale: 'dup' },
+      { candidateId: ids[2], decision: 'REJECT' }, { candidateId: 'cand-missing', decision: 'PROMOTE' },
+    ],
+  });
+  assert.equal(res.done, 3);
+  assert.equal(res.failed.length, 1);
+  assert.match(res.failed[0].error, /unknown candidate/);
+  assert.equal((rawDb(core).prepare('SELECT COUNT(*) n FROM adjudications').get() as { n: number }).n, 3);
+  assert.equal(core.candidates().length, 1, 'only the untouched candidate is still pending');
+  core.close();
+});
+
+test('the pending-debt banner needs both volume and age; a young or small backlog stays healthy', () => {
+  const core = freshCore();
+  for (let i = 0; i < 3; i++) core.ingestOutcome({ task: `t${i}`, outcome: `outcome number ${i}` });
+  const diag = () => core.contextPack({ task: 'anything', diagnostics: true }).diagnostics!;
+  assert.equal(diag().healthy, true, '3 fresh pending items are not alert-worthy');
+  for (let i = 3; i < 30; i++) core.ingestOutcome({ task: `t${i}`, outcome: `outcome number ${i}` });
+  assert.equal(diag().pendingCount, 30);
+  assert.equal(diag().pendingAlert, false, 'many but young');
+  assert.equal(diag().healthy, true);
+  rawDb(core).prepare("UPDATE candidates SET createdAt = ?").run(new Date(Date.now() - 5 * 86400_000).toISOString());
+  assert.equal(diag().pendingAlert, true);
+  assert.equal(diag().healthy, false);
+  assert.ok(diag().pendingOldestDays >= 4.9);
+  rawDb(core).prepare("DELETE FROM candidates WHERE candidateId NOT IN (SELECT candidateId FROM candidates LIMIT 5)").run();
+  assert.equal(diag().healthy, true, 'old but few');
+  core.close();
+});
+
+test('session summaries upsert per (session, segment), redact secrets, and lastSummary returns the newest for a project', () => {
+  const core = freshCore();
+  const first = core.upsertSessionSummary({ sessionId: 's1', projectRoot: 'E:/Work/apps/A', request: 'port the header', notes: `key sk-${'abcdefghijklmnopqrstuvwx'}` });
+  const again = core.upsertSessionSummary({ sessionId: 's1', learned: 'header needs aria labels' });
+  assert.equal(first.summaryId, again.summaryId);
+  core.upsertSessionSummary({ sessionId: 's1', segment: 1, projectRoot: 'E:/Work/apps/A', request: 'after compaction' });
+  core.upsertSessionSummary({ sessionId: 's2', projectRoot: 'E:/Work/apps/B', request: 'other project' });
+  const db = rawDb(core);
+  assert.equal((db.prepare('SELECT COUNT(*) n FROM session_summaries').get() as { n: number }).n, 3);
+  const row = db.prepare('SELECT request, learned, notes FROM session_summaries WHERE summaryId = ?').get(first.summaryId) as { request: string; learned: string; notes: string };
+  assert.equal(row.request, 'port the header', 'later partial upsert keeps earlier fields');
+  assert.equal(row.learned, 'header needs aria labels');
+  assert.match(row.notes, /\[REDACTED:sk-key\]/);
+  db.prepare("UPDATE session_summaries SET createdAt = '2026-01-01T00:00:00.000Z' WHERE sessionId = 's1' AND segment = 0").run();
+  db.prepare("UPDATE session_summaries SET createdAt = '2026-01-02T00:00:00.000Z' WHERE sessionId = 's1' AND segment = 1").run();
+  assert.equal(core.lastSummary({ projectRoot: 'e:/work/apps/a' })?.request, 'after compaction');
+  assert.equal(core.lastSummary({ projectRoot: 'E:/Work/apps/B' })?.sessionId, 's2');
+  assert.equal(core.lastSummary({ projectRoot: 'E:/nowhere' }), null);
+  assert.equal((db.prepare("SELECT COUNT(*) n FROM session_summaries_fts WHERE session_summaries_fts MATCH 'aria'").get() as { n: number }).n, 1);
+  assert.throws(() => core.upsertSessionSummary({ sessionId: '' }), /sessionId/);
+  core.close();
 });

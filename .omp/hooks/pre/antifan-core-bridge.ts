@@ -221,6 +221,12 @@ interface BridgeState {
 	 * anti-direct latch, and the mode is what the session actually ran in.
 	 */
 	directMode: EditMode;
+	/** Episodic spool bookkeeping (see tool_result). */
+	spoolEvents: number;
+	spoolSeen: Set<string>;
+	spoolDrained: number;
+	spoolDirReady: boolean;
+	fallbackSessionId: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -291,6 +297,12 @@ const RECEIPT_REQUIRED_CANONICAL: Record<string, true> = {
 	"core.record.observation": true,
 	"core.record.principle": true,
 	"core.record.hidden.requirement": true,
+	"core.mark.injected": true,
+	"core.reinforce": true,
+	"core.record.unknown": true,
+	"core.update.unknown": true,
+	"core.adjudicate.batch": true,
+	"core.upsert.session.summary": true,
 	"core.record.commercial": true,
 	"core.record.tool": true,
 	"core.record.archetype": true,
@@ -333,6 +345,12 @@ const RECEIPT_REQUIRED_CLI_COMMANDS: Record<string, true> = {
 	"platform-semantic": true,
 	"practice-parity": true,
 	"skill-version": true,
+	"inject-ack": true,
+	reinforce: true,
+	unknown: true,
+	"unknown-update": true,
+	"adjudicate-batch": true,
+	"session-summary": true,
 	"import": true,
 };
 
@@ -379,6 +397,8 @@ function resolveLogPath(projectRoot: string | null): string | null {
 		}
 		return path.isAbsolute(override) ? override : path.resolve(override.trim());
 	}
+	// Unit tests that never name a log must not append to the production file.
+	if (process.env.NODE_TEST_CONTEXT) return null;
 	if (!projectRoot) return null;
 	return path.join(projectRoot, ".canary", "core-bridge", "events.jsonl");
 }
@@ -842,6 +862,13 @@ const FORBIDDEN_RETRIEVAL_ACTIONS: Record<string, true> = {
 	"core.knowledge.gaps": true,
 	"core.knowledgegaps": true,
 	"core.candidates": true,
+	"core.search.index": true,
+	"core.searchindex": true,
+	"core.timeline": true,
+	"core.get.many": true,
+	"core.getmany": true,
+	"core.unknowns": true,
+	"core.last.summary": true,
 };
 
 /**
@@ -1035,37 +1062,155 @@ function filterClaims(claims: Array<Record<string, unknown>>, task = "", project
 	};
 }
 
-function renderPackContent(pack: CorePack, taskHash: string, projectRoot: string, injected: Array<Record<string, unknown>>): string {
-	const claims = injected.slice(0, MAX_CLAIMS_IN_MESSAGE).map((c) => {
-		const score = finiteNumber(c.score);
-		return {
-			claimId: c.claimId,
-			kind: c.kind,
-			statement: typeof c.statement === "string" ? c.statement.slice(0, MAX_STATEMENT_CHARS) : c.statement,
-			confidence: c.confidence,
-			score: score === null ? null : roundScore(score),
-			coverage: finiteNumber(c.coverage),
-			contextPlatform: c.contextPlatform ?? null,
-		};
-	});
-	const body = {
-		source: "antifan-core-bridge",
-		packId: pack.packId,
-		taskHash,
-		projectRoot,
-		coreRelease: pack.release?.releaseId ?? null,
-		permissionScope: pack.permissionScope,
-		generatedAt: pack.generatedAt,
-		claimCount: claims.length,
-		conflictCount: pack.conflicts.length,
-		unknowns: pack.unknowns,
-		diagnostics: pack.diagnostics ?? null,
-		claims,
-		conflicts: pack.conflicts.slice(0, 10),
-	};
-	let text = `[AntiFan Core context pack ${pack.packId} — permissionScope=${pack.permissionScope}]\n`;
+// ---------------------------------------------------------------------------
+// Privacy choke point (bridge-local copy: the hook is standalone and cannot
+// import packages/super-core). Every string that leaves the bridge toward the
+// model or toward a spool file passes through sanitizeText / deepSanitize.
+// ---------------------------------------------------------------------------
+
+const PRIVATE_TAG_RE = /<(\/?)(private|antifan-context|system-reminder|persisted-output)(?:\s[^>]*)?>/gi;
+
+/**
+ * Linear balanced scanner: drops whole `<private>…</private>` style blocks
+ * (nested same-name blocks count by depth; an open pairs only with a close of
+ * the same name). An unclosed `<private>` fails closed: the rest of the string
+ * is dropped. Other unclosed tags in prose are left alone. Runs BEFORE any
+ * length cap so a cut cannot sever a closing tag.
+ */
+export function stripPrivateBlocks(text: string): { text: string; blocks: number } {
+	if (!text.includes("<")) return { text, blocks: 0 };
+	const tokens: Array<{ idx: number; end: number; close: boolean; name: string }> = [];
+	for (const m of text.matchAll(PRIVATE_TAG_RE)) {
+		tokens.push({ idx: m.index ?? 0, end: (m.index ?? 0) + m[0].length, close: m[1] === "/", name: m[2].toLowerCase() });
+	}
+	let out = "";
+	let pos = 0;
+	let blocks = 0;
+	let i = 0;
+	while (i < tokens.length) {
+		const t = tokens[i];
+		if (t.close) {
+			i += 1;
+			continue;
+		}
+		let depth = 1;
+		let j = i + 1;
+		for (; j < tokens.length; j++) {
+			if (tokens[j].name !== t.name) continue;
+			depth += tokens[j].close ? -1 : 1;
+			if (depth === 0) break;
+		}
+		if (j < tokens.length) {
+			out += text.slice(pos, t.idx);
+			pos = tokens[j].end;
+			blocks += 1;
+			i = j + 1;
+		} else if (t.name === "private") {
+			return { text: out + text.slice(pos, t.idx), blocks: blocks + 1 };
+		} else {
+			i += 1;
+		}
+	}
+	return { text: out + text.slice(pos), blocks };
+}
+
+const SECRET_VALUE = String.raw`(?:\\?"[^"\n]*\\?"|'[^'\n]*'|\S+)`;
+const KEY_SEP = String.raw`["']?\s*[:=]\s*`;
+const BUILTIN_REDACTIONS: Array<{ name: string; re: RegExp }> = [
+	{ name: "oc-key", re: /\boc_sk_[A-Za-z0-9]+/g },
+	{ name: "sk-key", re: /\bsk-[A-Za-z0-9_-]{16,}/g },
+	{ name: "github-token", re: /\bgh[pousr]_[A-Za-z0-9]{20,}/g },
+	{ name: "meta-token", re: /\bEAA[A-Za-z0-9]{20,}/g },
+	{ name: "bearer", re: /\bBearer\s+[A-Za-z0-9._~+/=-]{16,}/gi },
+	{ name: "jwt", re: /\beyJ[\w-]+\.[\w-]+\.[\w-]+/g },
+	{ name: "hatch-session", re: new RegExp(String.raw`\bhatch_(?:sess|native_auth_device|gw|vml)${KEY_SEP}${SECRET_VALUE}`, "gi") },
+	{ name: "antifan-secret", re: new RegExp(String.raw`\bANTIFAN_SECRET_[A-Z0-9_]+${KEY_SEP}${SECRET_VALUE}`, "g") },
+	{ name: "assignment", re: new RegExp(String.raw`(?:password|passwd|secret|api[_-]?key|token)${KEY_SEP}${SECRET_VALUE}`, "gi") },
+];
+
+function redactionPatterns(): Array<{ name: string; re: RegExp }> {
+	const extra: Array<{ name: string; re: RegExp }> = [];
+	const raw = process.env.ANTIFAN_CORE_REDACT_PATTERNS;
+	if (raw) {
+		raw.split(",").forEach((src, n) => {
+			const s = src.trim();
+			if (!s) return;
+			try {
+				extra.push({ name: `custom${n + 1}`, re: new RegExp(s, "g") });
+			} catch {
+				/* an invalid custom pattern is ignored, never fatal */
+			}
+		});
+	}
+	return [...BUILTIN_REDACTIONS, ...extra];
+}
+
+export function sanitizeText(text: string): string {
+	let out = stripPrivateBlocks(text).text;
+	if ((process.env.ANTIFAN_CORE_REDACT ?? "").trim().toLowerCase() === "off") return out;
+	for (const { name, re } of redactionPatterns()) out = out.replace(re, `[REDACTED:${name}]`);
+	return out;
+}
+
+/** Deep, non-mutating sanitize of every string inside a JSON-like value. */
+export function deepSanitize<T>(value: T): T {
+	if (typeof value === "string") return sanitizeText(value) as unknown as T;
+	if (Array.isArray(value)) return value.map((v) => deepSanitize(v)) as unknown as T;
+	if (value && typeof value === "object") {
+		const out: Record<string, unknown> = {};
+		for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[k] = deepSanitize(v);
+		return out as T;
+	}
+	return value;
+}
+
+function shortenStrings<T>(value: T, max: number): T {
+	if (typeof value === "string") return (value.length > max ? `${value.slice(0, max)}…` : value) as unknown as T;
+	if (Array.isArray(value)) return value.map((v) => shortenStrings(v, max)) as unknown as T;
+	if (value && typeof value === "object") {
+		const out: Record<string, unknown> = {};
+		for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[k] = shortenStrings(v, max);
+		return out as T;
+	}
+	return value;
+}
+
+// ---------------------------------------------------------------------------
+// Budget-fitting pack renderer: degrade by whole items so the JSON body stays
+// valid and health/conflicts survive; never slice a string.
+// ---------------------------------------------------------------------------
+
+export interface PackRender {
+	text: string;
+	/** claimIds actually rendered into the message, in order. */
+	claimIds: string[];
+	chars: number;
+	reductions: string[];
+	overBudget: boolean;
+}
+
+interface FitConfig {
+	claimLimit: number;
+	slimClaims: boolean;
+	statementMax: number;
+	shortStrings: boolean;
+	pendingTop: boolean;
+	unknowns: number;
+	conflicts: number;
+}
+
+export function renderPack(
+	pack: CorePack,
+	taskHash: string,
+	projectRoot: string,
+	injected: Array<Record<string, unknown>>,
+	limit = MAX_PACK_CHARS,
+): PackRender {
+	const baseClaims = injected.slice(0, MAX_CLAIMS_IN_MESSAGE);
+	const header = `[AntiFan Core context pack ${pack.packId} — permissionScope=${pack.permissionScope}]\n`;
 	// Diagnostics banner: read-side hygiene surfacing. Silent when the store is
 	// healthy — a green banner on every turn is the alert-fatigue failure mode.
+	let banner = "";
 	const diag = pack.diagnostics;
 	if (diag && !diag.healthy) {
 		const parts: string[] = [];
@@ -1075,13 +1220,165 @@ function renderPackContent(pack: CorePack, taskHash: string, projectRoot: string
 			const ids = diag.pendingTop.map((c) => c.candidateId).join(", ");
 			parts.push(`${diag.pendingCount} PENDING candidate(s) awaiting adjudication${ids ? ` (oldest: ${ids})` : ""} — promote/reject needs explicit human authority via core.adjudicate`);
 		}
-		text += `[Core Health: ${parts.join(" | ")}]\n`;
+		banner = `[Core Health: ${parts.join(" | ")}]\n`;
 	}
-	text += JSON.stringify(body, null, 1);
-	if (text.length > MAX_PACK_CHARS) {
-		text = `${text.slice(0, MAX_PACK_CHARS)}\n…[truncated at ${MAX_PACK_CHARS} chars]`;
+	const render = (cfg: FitConfig): { text: string; claimIds: string[] } => {
+		const claims = baseClaims.slice(0, cfg.claimLimit).map((c) => {
+			const statement = typeof c.statement === "string" ? sanitizeText(c.statement).slice(0, cfg.statementMax) : c.statement;
+			if (cfg.slimClaims) {
+				return { claimId: c.claimId, kind: c.kind, statement, contextPlatform: c.contextPlatform ?? null };
+			}
+			const score = finiteNumber(c.score);
+			return {
+				claimId: c.claimId,
+				kind: c.kind,
+				statement,
+				confidence: c.confidence,
+				score: score === null ? null : roundScore(score),
+				coverage: finiteNumber(c.coverage),
+				contextPlatform: c.contextPlatform ?? null,
+			};
+		});
+		let diagnostics: unknown = pack.diagnostics ?? null;
+		if (pack.diagnostics && !cfg.pendingTop) diagnostics = { ...pack.diagnostics, pendingTop: [] };
+		// Sanitize BEFORE shortening so a cut cannot sever a <private> pair or shrink a secret below its match length.
+		let unknowns: unknown = deepSanitize(pack.unknowns.slice(0, cfg.unknowns));
+		let conflicts: unknown = deepSanitize(pack.conflicts.slice(0, cfg.conflicts));
+		if (cfg.shortStrings) {
+			diagnostics = shortenStrings(deepSanitize(diagnostics), 160);
+			unknowns = shortenStrings(unknowns, 160);
+			conflicts = shortenStrings(conflicts, 160);
+		}
+		const body = {
+			source: "antifan-core-bridge",
+			packId: pack.packId,
+			taskHash,
+			projectRoot,
+			coreRelease: pack.release?.releaseId ?? null,
+			permissionScope: pack.permissionScope,
+			generatedAt: pack.generatedAt,
+			claimCount: claims.length,
+			conflictCount: pack.conflicts.length,
+			unknowns,
+			diagnostics,
+			claims,
+			conflicts,
+		};
+		return {
+			text: header + sanitizeText(banner) + JSON.stringify(deepSanitize(body), null, 1),
+			claimIds: claims.map((c) => String(c.claimId)),
+		};
+	};
+	const cfg: FitConfig = {
+		claimLimit: baseClaims.length,
+		slimClaims: false,
+		statementMax: MAX_STATEMENT_CHARS,
+		shortStrings: false,
+		pendingTop: true,
+		unknowns: Number.POSITIVE_INFINITY,
+		conflicts: 10,
+	};
+	const reductions: string[] = [];
+	let cur = render(cfg);
+	const steps: Array<[string, () => void]> = [
+		["slim-claims", () => { cfg.slimClaims = true; }],
+		["short-statements", () => { cfg.statementMax = 200; }],
+		["short-strings", () => { cfg.shortStrings = true; }],
+		["drop-pending-top", () => { cfg.pendingTop = false; }],
+		["unknowns-5", () => { cfg.unknowns = 5; }],
+		["conflicts-3", () => { cfg.conflicts = 3; }],
+	];
+	for (const [label, apply] of steps) {
+		if (cur.text.length <= limit) break;
+		apply();
+		reductions.push(label);
+		cur = render(cfg);
 	}
-	return text;
+	if (cur.text.length > limit && cfg.claimLimit > 3) {
+		// Whole claims only: the largest count that fits, found by bisection.
+		let lo = 3;
+		let hi = cfg.claimLimit;
+		while (lo < hi) {
+			const mid = Math.ceil((lo + hi) / 2);
+			if (render({ ...cfg, claimLimit: mid }).text.length <= limit) lo = mid;
+			else hi = mid - 1;
+		}
+		cfg.claimLimit = lo;
+		reductions.push(`claims-${lo}`);
+		cur = render(cfg);
+	}
+	for (const [label, apply] of [
+		["conflicts-0", () => { cfg.conflicts = 0; }],
+		["unknowns-0", () => { cfg.unknowns = 0; }],
+		["claims-1", () => { cfg.claimLimit = Math.min(1, cfg.claimLimit); }],
+	] as Array<[string, () => void]>) {
+		if (cur.text.length <= limit) break;
+		apply();
+		reductions.push(label);
+		cur = render(cfg);
+	}
+	return { text: cur.text, claimIds: cur.claimIds, chars: cur.text.length, reductions, overBudget: cur.text.length > limit };
+}
+
+// ---------------------------------------------------------------------------
+// Episodic capture spool (CM-07): tool_result appends one sanitized JSONL line
+// (sub-millisecond, no spawn). A single detached drain process compresses it.
+// ---------------------------------------------------------------------------
+
+const SPOOL_MAX_EVENTS_PER_SESSION = 200;
+const SPOOL_SKIP_TOOLS = new Set([
+	"listmcpresourcestool",
+	"slashcommand",
+	"skill",
+	"todowrite",
+	"todo_write",
+	"askuserquestion",
+	"ask",
+	"ls",
+	"glob",
+	"find",
+	"list",
+]);
+
+function spoolEnabled(): boolean {
+	if ((process.env.ANTIFAN_CORE_EPISODES ?? "").trim().toLowerCase() === "off") return false;
+	return (process.env.ANTIFAN_CORE_OBSERVER_URL ?? "").trim().length > 0;
+}
+
+function projectExcluded(projectRoot: string): boolean {
+	const raw = process.env.ANTIFAN_CORE_EXCLUDED_PROJECTS;
+	if (!raw) return false;
+	const norm = (p: string) => path.resolve(p.trim()).toLowerCase();
+	const me = norm(projectRoot);
+	return raw.split(",").some((p) => p.trim().length > 0 && norm(p) === me);
+}
+
+function textFromContent(content: unknown): string {
+	if (typeof content === "string") return content;
+	if (Array.isArray(content)) {
+		return content
+			.map((p) => (p && typeof p === "object" && typeof (p as Record<string, unknown>).text === "string" ? ((p as Record<string, unknown>).text as string) : ""))
+			.join("\n");
+	}
+	return "";
+}
+
+/** Head 60% / tail 30% with an explicit elision marker, applied after sanitizing. */
+function headTail(text: string, max: number): string {
+	if (text.length <= max) return text;
+	const head = Math.floor(max * 0.6);
+	const tail = Math.floor(max * 0.3);
+	return `${text.slice(0, head)}\n<elided chars=${text.length - head - tail}/>\n${text.slice(text.length - tail)}`;
+}
+
+function filesFromInput(input: Record<string, unknown>): string[] {
+	const out: string[] = [];
+	for (const k of ["path", "file_path", "filePath", "file", "paths"]) {
+		const v = input[k];
+		if (typeof v === "string") out.push(v);
+		else if (Array.isArray(v)) for (const x of v) if (typeof x === "string") out.push(x);
+	}
+	return out.slice(0, 20);
 }
 
 // ---------------------------------------------------------------------------
@@ -1159,6 +1456,11 @@ export default function antifanCoreBridgeHook(pi: BridgeAPI): void {
 		antiDirect: false,
 		antiDirectTrigger: null,
 		directMode: "unset",
+		spoolEvents: 0,
+		spoolSeen: new Set<string>(),
+		spoolDrained: 0,
+		spoolDirReady: false,
+		fallbackSessionId: `s${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
 	};
 
 	const log = (level: "info" | "warn" | "error", message: string) => {
@@ -1192,6 +1494,64 @@ export default function antifanCoreBridgeHook(pi: BridgeAPI): void {
 			} catch {
 				/* file channel is best-effort */
 			}
+		}
+	};
+
+	/**
+	 * Fire-and-forget CLI call: the JSON goes on stdin, the child is detached and
+	 * unref'd, nothing is awaited. A spawn failure is swallowed — this is
+	 * bookkeeping, never part of the turn.
+	 */
+	const spawnDetachedCli = (cliPath: string | null, cwd: string | null, command: string, payload: unknown) => {
+		try {
+			if (!cliPath) return;
+			const child = spawn(resolveNodeRuntime(), [cliPath, command, "-"], {
+				cwd: cwd ?? process.cwd(),
+				detached: true,
+				windowsHide: true,
+				stdio: ["pipe", "ignore", "ignore"],
+			});
+			child.on("error", () => {
+				/* bookkeeping only */
+			});
+			child.stdin?.on("error", () => {
+				/* the CLI may exit before reading stdin */
+			});
+			child.stdin?.end(JSON.stringify(payload));
+			child.unref();
+		} catch {
+			/* bookkeeping only */
+		}
+	};
+
+	const spoolPathFor = (root: string, ctx: BridgeContext | undefined): string => {
+		const id = String(ctx?.sessionManager?.getSessionId?.() ?? state.fallbackSessionId).replace(/[^A-Za-z0-9._-]/g, "_");
+		return path.join(root, ".canary", "core-bridge", "spool", `${id}.jsonl`);
+	};
+
+	/** One detached drain per settled run / shutdown; it holds a lock so runs never overlap. */
+	const launchDrain = (ctx: BridgeContext | undefined) => {
+		try {
+			const root = state.projectRoot;
+			if (!root || !spoolEnabled() || state.spoolEvents === 0 || state.spoolDrained === state.spoolEvents) return;
+			const cliPath = resolveCliPath(root);
+			const drain = path.join(root, "scripts", "core-spool-drain.mjs");
+			if (!cliPath || !fs.existsSync(drain)) return;
+			const spoolDir = path.dirname(spoolPathFor(root, ctx));
+			const child = spawn(resolveNodeRuntime(), [drain, "--spool-dir", spoolDir, "--cli", cliPath, "--project", root], {
+				cwd: root,
+				detached: true,
+				windowsHide: true,
+				stdio: "ignore",
+			});
+			child.on("error", () => {
+				/* the next settled run retries */
+			});
+			child.unref();
+			state.spoolDrained = state.spoolEvents;
+			recordEvent("BRIDGE_SPOOL_DRAIN", { events: state.spoolEvents });
+		} catch {
+			/* drain is best-effort */
 		}
 	};
 
@@ -1294,6 +1654,11 @@ export default function antifanCoreBridgeHook(pi: BridgeAPI): void {
 		state.antiDirect = false;
 		state.antiDirectTrigger = null;
 		state.directMode = "unset";
+		state.spoolEvents = 0;
+		state.spoolSeen = new Set<string>();
+		state.spoolDrained = 0;
+		state.spoolDirReady = false;
+		state.fallbackSessionId = `s${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 	});
 
 	// -- before_agent_start: seed exactly one pack message ---------------------
@@ -1491,20 +1856,41 @@ export default function antifanCoreBridgeHook(pi: BridgeAPI): void {
 			}
 			state.packId = pack.packId;
 			state.coreRelease = pack.release?.releaseId ?? null;
+			// Spawned Leader workers attribute their outcome to this pack through the per-call export in tool_call.
+			const rendered = renderPack(pack, taskHash ?? "", state.projectRoot, filtered.kept);
 			recordEvent("BRIDGE_CONTEXT_SEEDED", {
 				packId: pack.packId,
 				coreRelease: state.coreRelease,
-				claimCount: Math.min(filtered.kept.length, MAX_CLAIMS_IN_MESSAGE),
+				claimCount: rendered.claimIds.length,
+				claimIds: rendered.claimIds,
+				packChars: rendered.chars,
 				candidateCount: filtered.candidateCount,
 				topScore: filtered.topScore,
 				topCandidateScore: filtered.topCandidateScore,
 				kinds: filtered.kinds,
 				dropped: filtered.dropped,
 			});
+			if (rendered.reductions.length > 0) {
+				recordEvent("BRIDGE_PACK_FITTED", {
+					packId: pack.packId,
+					reductions: rendered.reductions,
+					chars: rendered.chars,
+					overBudget: rendered.overBudget,
+				});
+			}
+			// Injection ledger: tell Core what was actually rendered, off the hot path.
+			if (rendered.claimIds.length > 0 && (process.env.ANTIFAN_CORE_INJECT_ACK ?? "").trim().toLowerCase() !== "off") {
+				spawnDetachedCli(cliPath, state.projectRoot, "inject-ack", {
+					packId: pack.packId,
+					sessionId: ctx?.sessionManager?.getSessionId?.() ?? state.fallbackSessionId,
+					projectRoot: state.projectRoot,
+					claimIds: rendered.claimIds,
+				});
+			}
 			return {
 				message: {
 					customType: BRIDGE_MESSAGE_TYPE,
-					content: renderPackContent(pack, taskHash ?? "", state.projectRoot, filtered.kept),
+					content: rendered.text,
 					display: true,
 					details: {
 						kind: "core-context-pack",
@@ -1513,7 +1899,7 @@ export default function antifanCoreBridgeHook(pi: BridgeAPI): void {
 						projectRoot: state.projectRoot,
 						coreRelease: state.coreRelease,
 						permissionScope: pack.permissionScope ?? "eligible-content-only",
-						claimCount: Math.min(filtered.kept.length, MAX_CLAIMS_IN_MESSAGE),
+						claimCount: rendered.claimIds.length,
 						conflictCount: pack.conflicts.length,
 						generatedAt: pack.generatedAt,
 					},
@@ -1623,6 +2009,12 @@ export default function antifanCoreBridgeHook(pi: BridgeAPI): void {
 			const toolName = stringField(event, "toolName") ?? stringField(event, "name") ?? "";
 			const input = inputField(event);
 
+			// Per-session attribution: a Leader command run by THIS session's persistent shell exports
+			// THIS session's pack id for its children. process.env would be shared by every in-process session.
+			if (state.packId && toolName === "bash" && typeof input.command === "string" && /leader-job/.test(input.command) && /^[\w-]+$/.test(state.packId) && !input.command.includes("ANTIFAN_CORE_PACK_ID")) {
+				input.command = `export ANTIFAN_CORE_PACK_ID=${state.packId}; ${input.command}`;
+			}
+
 			// Anti-direct policy check
 			if (state.antiDirect || process.env.ANTIFAN_ANTI_DIRECT === "1") {
 				if (isAntiDirectForbiddenTool(toolName, input)) {
@@ -1672,7 +2064,7 @@ export default function antifanCoreBridgeHook(pi: BridgeAPI): void {
 		}
 	});
 
-	pi.on("agent_end", (event: unknown) => {
+	pi.on("agent_end", (event: unknown, ctx: BridgeContext) => {
 		try {
 			// Modern Pi/OMP emit agent_end mid-run and mark the non-terminal ones
 			// with willContinue; only the settling event is a completion.
@@ -1684,12 +2076,56 @@ export default function antifanCoreBridgeHook(pi: BridgeAPI): void {
 			if (key !== null && key === state.lastAgentEndKey) return;
 			state.lastAgentEndKey = key;
 			recordEvent("BRIDGE_AGENT_END", { turnsCompleted: state.turnsCompleted });
+			launchDrain(ctx);
 		} catch {
 			/* telemetry only */
 		}
 	});
 
-	pi.on("session_shutdown", () => {
+	// -- tool_result: episodic capture. Synchronous, appends ONE sanitized line
+	// to the session spool; never awaits, never spawns, never throws.
+	pi.on("tool_result", (event: unknown, ctx: BridgeContext) => {
+		try {
+			if (!spoolEnabled() || state.antiDirect || process.env.ANTIFAN_ANTI_DIRECT === "1") return;
+			state.projectRoot = state.projectRoot ?? resolveProjectRoot(ctx?.cwd);
+			const root = state.projectRoot;
+			if (!root || projectExcluded(root)) return;
+			if (state.spoolEvents >= SPOOL_MAX_EVENTS_PER_SESSION) return;
+			const name = stringField(event, "toolName") ?? stringField(event, "name") ?? "";
+			const lower = name.trim().toLowerCase();
+			if (!lower || SPOOL_SKIP_TOOLS.has(lower) || canonicalCoreName(name) !== null || lower.startsWith("core.") || lower.includes("antifan_browser_core_")) return;
+			const rawOut = textFromContent((event as Record<string, unknown>).content);
+			if (rawOut.trim().length === 0) return;
+			if (lower === "read" && rawOut.length < 1500) return;
+			const input = inputField(event);
+			const inputKey = createHash("sha1").update(`${lower}|${JSON.stringify(input)}`).digest("hex");
+			if (state.spoolSeen.has(inputKey)) return;
+			state.spoolSeen.add(inputKey);
+			// Strip private blocks and secrets BEFORE capping so a cut cannot sever a tag.
+			const out = headTail(sanitizeText(rawOut), 3000);
+			const inputText = headTail(sanitizeText(JSON.stringify(input)), 4000);
+			const spool = spoolPathFor(root, ctx);
+			if (!state.spoolDirReady) {
+				fs.mkdirSync(path.dirname(spool), { recursive: true });
+				state.spoolDirReady = true;
+			}
+			const line = {
+				t: Date.now(),
+				tool: name,
+				input: inputText,
+				out,
+				err: (event as Record<string, unknown>).isError === true,
+				id: stringField(event, "toolCallId") ?? null,
+				files: filesFromInput(input).map((f) => sanitizeText(f)),
+			};
+			fs.appendFileSync(spool, `${JSON.stringify(line)}\n`, "utf8");
+			state.spoolEvents += 1;
+		} catch {
+			/* telemetry only: capture must never break the session */
+		}
+	});
+
+	pi.on("session_shutdown", (_event: unknown, ctx: BridgeContext) => {
 		try {
 			if (state.shutdownEmitted) return;
 			state.shutdownEmitted = true;
@@ -1700,12 +2136,14 @@ export default function antifanCoreBridgeHook(pi: BridgeAPI): void {
 				// human reviewer can adjudicate without re-querying the store.
 				pendingCandidates: state.pack?.diagnostics?.pendingTop?.map((c) => c.candidateId) ?? [],
 			});
+			launchDrain(ctx);
 			// Release the pack identity: a shutdown session must not pin the pack
 			// for whatever runs next.
 			state.pack = null;
 			state.packId = null;
 			state.coreRelease = null;
 			state.taskHash = null;
+			// The pack id is never published through process.env (global across in-process sessions); see tool_call.
 			delete process.env.ANTIFAN_ANTI_DIRECT;
 			delete process.env.ANTIFAN_ANTI_DIRECT_ORIGIN;
 		} catch {

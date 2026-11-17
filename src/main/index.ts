@@ -53,6 +53,7 @@ import { PROJECT_WINDOWS_SAVED_TABS_VERSION, backupSavedTabsBeforeMigration, mig
 import { createTerminalProjectAdopter } from './project/terminal-project-adopter';
 import { isQuitRequestArgv, singleInstanceLockExitCode } from './browser/single-instance-lock';
 import { describeChildProcessGone, type LiveTabSummary } from './diagnostics/child-process-gone';
+import { ProcessRegistry } from './process/process-registry';
 import { markWindowClosed, markWindowOpen, openWindowLedgerPath, readOpenWindowLedger, retainOpenWindows } from './browser/open-window-ledger';
 import { closeAuxiliaryWindow } from './browser/auxiliary-close';
 import { ProjectWindowManager, type OpenIntent } from './browser/project-window-manager';
@@ -4885,6 +4886,13 @@ async function createWindow(): Promise<void> {
 app.whenReady().then(async () => {
   if (!ownsElectronInstance) return;
   recordBenchmark({ surface: 'startup', name: 'ready' });
+  // Reap helper processes (spawnOwned / core-health) that a crashed predecessor left behind. The terminal daemon-host
+  // and its PTYs are excluded by owner (NEVER_SWEEP_OWNERS): they outlive main on purpose. Runs before any child of
+  // this boot registers, because the marker file is rewritten from the live set on the first registration.
+  await ProcessRegistry.getInstance()
+    .sweepOrphans({ owners: ['core-health', 'spawn-owned'] })
+    .then((report) => recordLifecycleEvent('boot.processSweep', { ...report, errors: report.errors.length }))
+    .catch((err: unknown) => recordLifecycleEvent('boot.processSweep.error', { detail: String(err) }));
   try {
     profileLease = new ProfileOwnership().acquire(persistentUserData);
     // Journal the predecessor's verdict from `priorRecovery`, the snapshot taken
