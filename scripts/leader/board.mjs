@@ -5,6 +5,8 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { reportHeadOf } from "./report-head.mjs";
+
 const JOB_SCHEMA = "leader-job/1";
 const HOUR_MS = 3600 * 1000;
 const MAX_LINES = 40;
@@ -22,29 +24,8 @@ function readRun(runsDir, terminal) {
   return readJson(path.join(runsDir, `${terminal}.json`));
 }
 
-const REPORT_HEAD_BYTES = 512;
-
-/** Line 1 of a report as `STATUS: <word>`: only the word, read from the first bytes, and only when the file is newer than the round's dispatch. */
-function reportStatusOf(round) {
-  if (typeof round?.reportPath !== "string") return null;
-  let fd = null;
-  try {
-    fd = fs.openSync(round.reportPath, "r");
-    if (typeof round.dispatchedAt === "number" && fs.fstatSync(fd).mtimeMs < round.dispatchedAt) return null;
-    const buf = Buffer.alloc(REPORT_HEAD_BYTES);
-    const n = fs.readSync(fd, buf, 0, REPORT_HEAD_BYTES, 0);
-    const first = buf.toString("utf8", 0, n).replace(/^\uFEFF/, "").split(/\r?\n/, 1)[0];
-    return /^STATUS:\s*([A-Za-z_]+)/.exec(first)?.[1] ?? null;
-  } catch {
-    return null;
-  } finally {
-    if (fd !== null) {
-      try {
-        fs.closeSync(fd);
-      } catch {}
-    }
-  }
-}
+/** Line 1 of a report as `STATUS: <word>`: only the word, and only when the file is newer than the round's dispatch. */
+const reportStatusOf = (round) => reportHeadOf(round)?.status ?? null;
 
 /**
  * How far along a job is: its latest round, the worker's run file (silence, last tool) and the first line of the

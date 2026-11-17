@@ -16,6 +16,7 @@ import { defaultSessionsDir, judgeLiveness, pidAlive, sessionActivityAt, START_G
 import { FALLBACK_TICK_MS, nextRunChange } from "./event-wait.mjs";
 import { pendingAskOf } from "./ask-dialog.mjs";
 import { buildBoard, jobProgress } from "./board.mjs";
+import { reportHeadOf } from "./report-head.mjs";
 import { ingestOutcome, listPending } from "./learn.mjs";
 import { wrapUntrusted } from "./untrusted.mjs";
 import { readRegistry } from "./fleet-watch.mjs";
@@ -28,7 +29,7 @@ const HOST = "Taiz";
 const BOOL_FLAGS = new Set(["help", "allow-busy", "allow-low-memory", "allow-low-disk", "allow-no-owner", "force", "all", "allow-outstanding", "without-done", "no-sheet", "keep-workers", "allow-extra-round", "text"]);
 const VERIFY_KINDS = ["sheet", "dashboard", "storefront", "adhoc"];
 const VERIFY_STATUSES = ["PASS", "WARN", "FAIL", "UNREADABLE"];
-const PROBES = { themeId: "themeId.js", overflow: "overflow.js", "element-rect": "element-rect.js", "dashboard-issue": "dashboard-issue.js" };
+const PROBES = { themeId: "themeId.js", overflow: "overflow.js", "element-rect": "element-rect.js", "dashboard-issue": "dashboard-issue.js", "trello-card": "trello-card.js", "telegram-otp": "telegram-otp.js" };
 
 export const EXIT = { OK: 0, CHECK_FAILED: 1, USAGE: 2, TIMEOUT: 3, REFUSED: 4, NEEDS_INPUT: 5, WORKER_DEAD: 6, UNDELIVERED: 7 };
 
@@ -97,7 +98,7 @@ Commands
        Diff the live sheet against snapshot-before.csv, keyed by task text, against the report's claims.
   record --job DIR --round N --kind dashboard|storefront|sheet|adhoc --status PASS|WARN|FAIL|UNREADABLE [--note T]...
        Store the Leader's own measurement; state=verified once all required kinds pass.
-  probe --name themeId|overflow|element-rect|dashboard-issue [--selector CSS] [--id ID] [--limit N]
+  probe --name themeId|overflow|element-rect|dashboard-issue|trello-card|telegram-otp [--selector CSS] [--id ID] [--limit N] [--after EPOCH_MS] [--copy-secret [N]]
        Print the read-only expression to pass to anti.browser.evaluate.
   verify-adhoc --job DIR [--round N]
        Run the read-only commands an ad-hoc report lists in its "verify" array ({cmd, expect}), one PASS/FAIL/REFUSED line per
@@ -919,6 +920,14 @@ async function cmdWait(flags) {
         changed = true;
         emit({ cmd: "wait", event: "round-settled", job: job.job, round: r.n, worker: r.worker.terminal, runState: run.state, runSeq: run.runSeq, settledAt: r.settledAt });
       }
+      const early = verdict.kind === "pending" && r.kind !== "review" ? reportHeadOf(r) : null;
+      if (early && early.status.toUpperCase() === "NEEDS_INPUT" && r.earlyNeedsMtime !== early.mtimeMs) {
+        // The worker rewrote line 1 of its report while still running: wake the Leader once per rewrite (job.state stays dispatched).
+        r.earlyNeedsMtime = early.mtimeMs;
+        saveJob(dir, job);
+        emit({ cmd: "wait", event: "needs-input", job: job.job, round: r.n, worker: r.worker.terminal, lastTool: run?.lastTool ?? null, reason: "report line 1 is STATUS: NEEDS_INPUT (worker still running)", ask: null, early: true });
+        return EXIT.NEEDS_INPUT;
+      }
     }
     if (changed) {
       const allSettled = job.rounds.every((r) => r.settledAt || r.deadAt);
@@ -1260,6 +1269,8 @@ function cmdProbe(flags) {
   if (one(flags, "selector") !== undefined) sets.push(`window.__PROBE_SELECTOR=${JSON.stringify(one(flags, "selector"))};`);
   if (one(flags, "id") !== undefined) sets.push(`window.__PROBE_ID=${JSON.stringify(String(one(flags, "id")))};`);
   if (one(flags, "limit") !== undefined) sets.push(`window.__PROBE_LIMIT=${Number(one(flags, "limit"))};`);
+  if (name === "telegram-otp" && Number.isFinite(Number(one(flags, "after")))) sets.push(`window.__PROBE_AFTER=${Number(one(flags, "after"))};`);
+  if (name === "trello-card" && one(flags, "copy-secret") !== undefined) sets.push(`window.__PROBE_COPY_SECRET=${one(flags, "copy-secret") === true ? 1 : Math.max(1, Number(one(flags, "copy-secret")) || 1)};`);
   if (name === "element-rect" && one(flags, "selector") === undefined) throw new CliError(EXIT.USAGE, "element-rect needs --selector");
   if (name === "dashboard-issue" && one(flags, "id") === undefined) throw new CliError(EXIT.USAGE, "dashboard-issue needs --id (stable issue id)");
   emit({ cmd: "probe", ok: true, name, expression: `(async()=>{${sets.join("")}return await (${expr});})()` });
