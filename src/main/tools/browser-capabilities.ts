@@ -41,6 +41,7 @@ import { DEFAULT_QA_PROFILE } from '../qa/qa-thresholds';
 import { assertThemeWorkspaceRoot } from '../qa/workspace-markers';
 import { registerQaProbeCapabilities } from './qa-probe-capabilities';
 import { registerSheetCapabilities } from './sheet-capabilities';
+import { registerPerfCapabilities } from './perf-capabilities';
 import { recordFallbackTelemetry, FallbackTelemetryPayload } from '../telemetry/fallback-recorder';
 import { IssueRegister, VerificationVerdict } from '../session/issue-register';
 import { VerificationEvaluator, deriveFailureSignature, resolvePreviousLifecycle } from '../verification/verification-evaluator';
@@ -3628,6 +3629,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
   if (cockpit) registerCockpitCapabilities(catalogue, cockpit, browser);
   registerQaProbeCapabilities(catalogue, browser, getWorkspaceRoot);
   registerSheetCapabilities(catalogue, browser);
+  registerPerfCapabilities(catalogue, browser, getWorkspaceRoot);
 
   catalogue.register({
     name: 'theme.assert_cart',

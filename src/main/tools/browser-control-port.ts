@@ -484,6 +484,8 @@ export interface BrowserHostPort {
   inspectStyles?(params: { selector?: string; ref?: string; properties?: string[]; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<Record<string, unknown>>;
   inspectRegion?(params: { x?: number; y?: number; width?: number; height?: number; selector?: string; ref?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<Record<string, unknown>>;
   inspectFont?(params: { selector?: string; ref?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<Record<string, unknown>>;
+  /** Tab URL plus the tab's partition cookies, for running Lighthouse under that tab's session. */
+  getLighthouseTabContext?(tabId: string): Promise<{ url: string; cookies: Array<{ name: string; value: string; domain?: string; path?: string; secure?: boolean; httpOnly?: boolean; session?: boolean; expirationDate?: number; sameSite?: string }> }>;
   getMatchedStylesForNode?(params: { nodeId?: number; selector?: string; ref?: string; tabId?: string; paneId?: 'desktop' | 'mobile' }): Promise<Record<string, unknown> | null>;
   /** Registry descriptor (traversal path + fingerprint) of a snapshot ref on the tab's current document. */
   resolveSemanticRefDescriptor?(tabId: string, paneId: 'desktop' | 'mobile' | undefined, ref: string): { path: unknown[]; fingerprint?: { tag?: string; id?: string } ; id?: string } | null;
@@ -6633,6 +6635,18 @@ export class BrowserControlPort {
     return this.passivePool.execute(tabId, async () => {
       return this.host.inspectFont!({ ...params, tabId, paneId: effectivePane });
     });
+  }
+
+  async getLighthouseTabContext(
+    target: BrowserTarget,
+    explicitTabId?: string
+  ): Promise<{ tabId: string; url: string; cookies: Array<{ name: string; value: string; domain?: string; path?: string; secure?: boolean; httpOnly?: boolean; session?: boolean; expirationDate?: number; sameSite?: string }> }> {
+    const tabId = this.resolveTargetTab(target, explicitTabId);
+    if (!this.host.getLighthouseTabContext) {
+      throw new CapabilityError('CAPABILITY_NOT_FOUND', 'getLighthouseTabContext is not supported by host');
+    }
+    const ctx = await this.host.getLighthouseTabContext(tabId);
+    return { tabId, ...ctx };
   }
 
   async getMatchedStylesForNode(

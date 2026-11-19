@@ -148,7 +148,7 @@ for (const spec of GENERATED_RENDERER_ASSETS) {
 // Copy scripts to .compiled/scripts for standalone deployment
 const scriptsSrcDir = path.join(ROOT, 'scripts');
 const scriptsOutDir = path.join(COMPILED_ROOT, 'scripts');
-const scriptsToCopy = ['antifan-agent.cjs', 'antifan-agent.cmd', 'antifan-omp-mcp.cjs', 'dev-watcher-helpers.mjs'];
+const scriptsToCopy = ['antifan-agent.cjs', 'antifan-agent.cmd', 'antifan-omp-mcp.cjs', 'dev-watcher-helpers.mjs', 'lighthouse-run.mjs'];
 for (const scriptFile of scriptsToCopy) {
   const src = path.join(scriptsSrcDir, scriptFile);
   const dst = path.join(scriptsOutDir, scriptFile);

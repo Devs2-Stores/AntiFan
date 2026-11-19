@@ -229,6 +229,13 @@
  "anti.qa.pick_product": {
   "readOnlyHint": true
  },
+ "anti.perf.lighthouse": {
+  "destructiveHint": false,
+  "idempotentHint": true
+ },
+ "anti.perf.lighthouse_result": {
+  "readOnlyHint": true
+ },
  "theme.package_check": {
   "readOnlyHint": true
  },

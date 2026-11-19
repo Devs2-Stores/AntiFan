@@ -4599,6 +4599,7 @@ async function createWindow(): Promise<void> {
       const host = hostForTabOrBootstrap(params.tabId);
       return host.inspectFont(params);
     },
+    getLighthouseTabContext: (tabId) => hostForTabOrBootstrap(tabId).getLighthouseTabContext(tabId),
     getMatchedStylesForNode: (params) => {
       const host = hostForTabOrBootstrap(params.tabId);
       return host.getMatchedStylesForNode(params);
