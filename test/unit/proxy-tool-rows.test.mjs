@@ -20,6 +20,8 @@ const NEW_TOOLS = [
   'anti.qa.page_structure',
   'anti.qa.pick_product',
   'theme.package_check',
+  'anti.perf.lighthouse',
+  'anti.perf.lighthouse_result',
 ];
 
 test('every new probe tool is advertised once and maps to its own bridge capability', () => {

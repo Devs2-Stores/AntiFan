@@ -8,7 +8,6 @@
  * to the target host and are deleted when the child exits; they are never logged or returned.
  */
 import * as fs from 'node:fs';
-import * as os from 'node:os';
 import * as path from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -32,6 +31,8 @@ export interface LighthouseCookie {
   session?: boolean;
   expirationDate?: number;
   sameSite?: string;
+  /** RFC 6265 host-only cookie: matches exactly `domain`, never its subdomains. */
+  hostOnly?: boolean;
 }
 
 export interface LighthouseParams {
@@ -114,7 +115,12 @@ export function normalizeHttpUrl(value: string): string {
   return parsed.href;
 }
 
-/** Cookies a browser would send to `url`: domain match (host-only or dotted) and path prefix; expired ones dropped. */
+/**
+ * Cookies a browser would send to `url`. RFC 6265 scope: a host-only cookie (`hostOnly`, or a domain
+ * without a leading dot) matches the host exactly, a domain cookie (`Domain=.example.com`) also matches
+ * subdomains; path prefix and Secure/expiry are honoured. `Electron.Cookie` always carries `domain`,
+ * so host-only is only distinguishable by the explicit flag.
+ */
 export function cookiesForUrl(cookies: readonly LighthouseCookie[], url: string, nowSeconds = Date.now() / 1000): LighthouseCookie[] {
   const target = new URL(url);
   const host = target.hostname.toLowerCase();
@@ -124,7 +130,8 @@ export function cookiesForUrl(cookies: readonly LighthouseCookie[], url: string,
     if (c.session !== true && typeof c.expirationDate === 'number' && c.expirationDate > 0 && c.expirationDate < nowSeconds) return false;
     const dotted = c.domain.startsWith('.');
     const domain = c.domain.replace(/^\./, '').toLowerCase();
-    const domainOk = host === domain || (dotted && host.endsWith(`.${domain}`)) || (!dotted && host.endsWith(`.${domain}`));
+    const hostOnly = c.hostOnly === true || !dotted;
+    const domainOk = hostOnly ? host === domain : host === domain || host.endsWith(`.${domain}`);
     if (!domainOk) return false;
     if (c.secure && target.protocol !== 'https:') return false;
     const cp = c.path || '/';
@@ -177,7 +184,7 @@ interface LighthouseReport {
 export function summarizeLighthouseReport(raw: unknown, expectRequestContains?: string): LighthouseSummary {
   const lhr = raw as LighthouseReport | null; // parsed report JSON; shape verified just below
   if (!lhr || typeof lhr !== 'object' || !lhr.categories || !lhr.audits) {
-    throw new CapabilityError('RESOURCE_FAILURE', 'anti.perf.lighthouse: report has no categories/audits');
+    throw new CapabilityError('LAUNCH_ERROR', 'anti.perf.lighthouse: report has no categories/audits', { reason: 'LIGHTHOUSE_BAD_REPORT' });
   }
   const scores: Record<string, number | null> = {};
   for (const [id, cat] of Object.entries(lhr.categories)) {
@@ -275,12 +282,37 @@ function retain(jobId: string, record: JobRecord): void {
   }
 }
 
+interface LighthouseCommand { command: string; env: NodeJS.ProcessEnv }
+
+/**
+ * Runtime for the runner: Electron's own Node when the app runs inside Electron (measured: Electron
+ * 43.8.8 ships Node 24.22.1, above Lighthouse's >=22.19 floor), so no system `node` is required on
+ * PATH. `ANTIFAN_NODE_BIN` overrides it (tests, diagnostics).
+ */
+export function lighthouseNodeCommand(baseEnv: NodeJS.ProcessEnv = process.env): LighthouseCommand {
+  const env = { ...baseEnv };
+  const override = env.ANTIFAN_NODE_BIN;
+  if (override) {
+    delete env.ELECTRON_RUN_AS_NODE;
+    return { command: override, env };
+  }
+  if (env.ELECTRON_RUN_AS_NODE) delete env.ELECTRON_RUN_AS_NODE;
+  const isElectron = Boolean(process.versions.electron);
+  if (isElectron) {
+    env.ELECTRON_RUN_AS_NODE = '1';
+    return { command: process.execPath, env };
+  }
+  return { command: 'node', env };
+}
+
+/**
+ * Spawns the runner with the job — cookies included — on stdin, never through argv or a temp file:
+ * a session cookie must not reach the disk (chmod is advisory on Windows).
+ */
 export function startLighthouseJob(input: LighthouseJobInput, lighthouseDir: string, runnerScript: string): string {
   const jobId = `lh-${randomUUID().slice(0, 8)}`;
   const startedAt = Date.now();
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'antifan-lh-'));
-  const jobFile = path.join(tmp, 'job.json');
-  fs.writeFileSync(jobFile, JSON.stringify({
+  const payload = JSON.stringify({
     lighthouseDir,
     url: input.url,
     formFactor: input.formFactor,
@@ -288,54 +320,52 @@ export function startLighthouseJob(input: LighthouseJobInput, lighthouseDir: str
     outPath: input.outPath,
     timeoutMs: input.timeoutMs,
     cookies: input.cookies,
-  }), { mode: 0o600 });
+  });
   const { promise: donePromise, resolve } = Promise.withResolvers<void>();
   const record: JobRecord = { state: { jobId, status: 'running', startedAt }, done: donePromise };
   const fail = (code: string, message: string): void => {
     record.state = { jobId, status: 'failed', startedAt, finishedAt: Date.now(), code, message };
   };
-  ((): void => {
-    const nodeBin = process.env.ANTIFAN_NODE_BIN || 'node';
-    let stdout = '';
-    let settled = false;
-    let killer: NodeJS.Timeout | undefined;
-    const finish = (): void => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(killer);
-      try { fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* temp cleanup is best effort */ }
-      resolve();
-    };
-    let child: ChildProcess;
-    try {
-      const env = { ...process.env };
-      delete env.ELECTRON_RUN_AS_NODE;
-      child = spawn(nodeBin, [runnerScript, jobFile], { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true, env });
-    } catch (err) {
-      fail('LIGHTHOUSE_SPAWN_FAILED', err instanceof Error ? err.message : String(err));
-      finish();
-      return;
-    }
-    killer = setTimeout(() => { try { child.kill(); } catch { /* already gone */ } }, input.timeoutMs + 5_000);
-    child.stdout?.on('data', (chunk: Buffer) => { if (stdout.length < 20_000) stdout += chunk.toString('utf8'); });
-    child.on('error', (err) => { fail('LIGHTHOUSE_SPAWN_FAILED', err.message); finish(); });
-    child.on('close', (code) => {
-      const lastLine = stdout.trim().split(/\r?\n/).filter(Boolean).pop() ?? '';
-      let parsed: { ok?: boolean; code?: string; message?: string } | undefined;
-      try { parsed = JSON.parse(lastLine); } catch { parsed = undefined; }
-      if (parsed?.ok === true) {
-        try {
-          const lhr = JSON.parse(fs.readFileSync(input.outPath, 'utf8'));
-          record.state = { jobId, status: 'done', startedAt, finishedAt: Date.now(), reportPath: input.outPath, summary: summarizeLighthouseReport(lhr, input.expectRequestContains) };
-        } catch (err) {
-          fail('LIGHTHOUSE_BAD_REPORT', err instanceof Error ? err.message : String(err));
-        }
-      } else {
-        fail(parsed?.code || 'LIGHTHOUSE_FAILED', parsed?.message || `Lighthouse child exited with code ${code} and no result`);
+  const { command, env } = lighthouseNodeCommand();
+  let stdout = '';
+  let settled = false;
+  let killer: NodeJS.Timeout | undefined;
+  const finish = (): void => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(killer);
+    resolve();
+  };
+  let child: ChildProcess;
+  try {
+    child = spawn(command, [runnerScript], { stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true, env });
+  } catch (err) {
+    fail('LIGHTHOUSE_SPAWN_FAILED', err instanceof Error ? err.message : String(err));
+    finish();
+    retain(jobId, record);
+    return jobId;
+  }
+  child.stdin?.on('error', () => { /* the child may exit before reading; its close handler reports */ });
+  child.stdin?.end(payload);
+  killer = setTimeout(() => { try { child.kill(); } catch { /* already gone */ } }, input.timeoutMs + 5_000);
+  child.stdout?.on('data', (chunk: Buffer) => { if (stdout.length < 20_000) stdout += chunk.toString('utf8'); });
+  child.on('error', (err) => { fail('LIGHTHOUSE_SPAWN_FAILED', err.message); finish(); });
+  child.on('close', (code) => {
+    const lastLine = stdout.trim().split(/\r?\n/).filter(Boolean).pop() ?? '';
+    let parsed: { ok?: boolean; code?: string; message?: string } | undefined;
+    try { parsed = JSON.parse(lastLine); } catch { parsed = undefined; }
+    if (parsed?.ok === true) {
+      try {
+        const lhr = JSON.parse(fs.readFileSync(input.outPath, 'utf8'));
+        record.state = { jobId, status: 'done', startedAt, finishedAt: Date.now(), reportPath: input.outPath, summary: summarizeLighthouseReport(lhr, input.expectRequestContains) };
+      } catch (err) {
+        fail('LIGHTHOUSE_BAD_REPORT', err instanceof Error ? err.message : String(err));
       }
-      finish();
-    });
-  })();
+    } else {
+      fail(parsed?.code || 'LIGHTHOUSE_FAILED', parsed?.message || `Lighthouse child exited with code ${code} and no result`);
+    }
+    finish();
+  });
   retain(jobId, record);
   return jobId;
 }
@@ -343,7 +373,7 @@ export function startLighthouseJob(input: LighthouseJobInput, lighthouseDir: str
 /** Waits up to waitMs for the job to settle, then returns its current state. */
 export async function getLighthouseJob(jobId: string, waitMs: number): Promise<LighthouseJobState> {
   const record = jobs.get(jobId);
-  if (!record) throw new CapabilityError('SESSION_STALE', `anti.perf.lighthouse: unknown or expired jobId ${jobId}`);
+  if (!record) throw new CapabilityError('INVALID_ARGUMENT', `anti.perf.lighthouse: unknown or expired jobId ${jobId}`, { reason: 'LIGHTHOUSE_JOB_NOT_FOUND' });
   if (record.state.status === 'running' && waitMs > 0) {
     const { promise: timer, resolve: tick } = Promise.withResolvers<void>();
     const handle = setTimeout(tick, waitMs);

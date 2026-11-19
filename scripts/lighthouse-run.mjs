@@ -10,6 +10,12 @@ import { pathToFileURL } from 'node:url';
 
 const emit = (value) => { process.stdout.write(`${JSON.stringify(value)}\n`); };
 
+async function readJob() {
+  const chunks = [];
+  for await (const chunk of process.stdin) chunks.push(chunk);
+  return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+}
+
 function packageDir(nm, name) {
   const nested = path.join(nm, 'lighthouse', 'node_modules', name);
   if (fs.existsSync(path.join(nested, 'package.json'))) return nested;
@@ -27,8 +33,17 @@ function packageEntry(dir) {
 
 const SAME_SITE = { no_restriction: 'None', lax: 'Lax', strict: 'Strict' };
 
+/**
+ * CDP cookie descriptor. A host-only cookie is pinned with `url` (Chrome then keeps it host-scoped);
+ * passing only `domain` would mint a domain-wide cookie that later subresource requests would receive.
+ */
 function toCdpCookie(cookie) {
-  const out = { name: cookie.name, value: cookie.value, domain: cookie.domain, path: cookie.path || '/' };
+  const hostOnly = cookie.hostOnly === true || !String(cookie.domain || '').startsWith('.');
+  const domain = String(cookie.domain || '').replace(/^\./, '');
+  const cookiePath = cookie.path || '/';
+  const out = { name: cookie.name, value: cookie.value };
+  if (hostOnly) out.url = `${cookie.secure ? 'https' : 'http'}://${domain}${cookiePath}`;
+  else { out.domain = cookie.domain; out.path = cookiePath; }
   if (cookie.secure) out.secure = true;
   if (cookie.httpOnly) out.httpOnly = true;
   if (SAME_SITE[cookie.sameSite]) out.sameSite = SAME_SITE[cookie.sameSite];
@@ -45,7 +60,7 @@ async function cleanup() {
 }
 
 async function main() {
-  const job = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+  const job = await readJob();
   const deadline = setTimeout(async () => {
     if (finished) return;
     finished = true;

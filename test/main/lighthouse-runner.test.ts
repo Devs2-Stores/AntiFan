@@ -129,6 +129,15 @@ describe('cookiesForUrl', () => {
     assert.ok(!names.includes('secure_on_http'));
     assert.ok(names.includes('deep_path'));
   });
+  it('never sends a host-only cookie to a subdomain (RFC 6265)', () => {
+    const parentHostOnly = [
+      { name: 'parent_host_only', value: 'a', domain: 'example.com', path: '/' },
+      { name: 'parent_domain', value: 'b', domain: '.example.com', path: '/' },
+      { name: 'flagged', value: 'c', domain: '.example.com', path: '/', hostOnly: true },
+    ];
+    const names = cookiesForUrl(parentHostOnly, 'https://shop.example.com/x', now).map((c) => c.name);
+    assert.deepEqual(names, ['parent_domain']);
+  });
 });
 
 describe('summarizeLighthouseReport', () => {
@@ -165,8 +174,23 @@ describe('resolveLighthouseDir / resolveReportPath', () => {
       fs.mkdirSync(path.join(root, 'out'));
       fs.writeFileSync(path.join(root, 'out', 'a.json'), '{}');
       assert.throws(() => resolveReportPath(root, 'out/a.json', 'mobile'), /already exists/);
+      assert.throws(() => resolveReportPath(root, 'node_modules/x.json', 'mobile'), /protected name/);
+      assert.throws(() => resolveReportPath(root, '.git/x.json', 'mobile'), /protected name/);
+      assert.throws(() => resolveReportPath(root, 'a.json', 'mobile'), /one folder below the root|folder below the root/);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+  it('refuses a workspace folder that is a junction pointing out of the workspace', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lh-junction-'));
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'lh-outside-'));
+    const link = path.join(root, 'linked');
+    try {
+      fs.symlinkSync(outside, link, 'junction');
+      assert.throws(() => resolveReportPath(root, 'linked/x.json', 'mobile'), /Symlink or junction traversal is not permitted|outside the attached workspace/i);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+      fs.rmSync(outside, { recursive: true, force: true });
     }
   });
 });
@@ -177,13 +201,16 @@ describe('startLighthouseJob', () => {
     fs.writeFileSync(file, body);
     return file;
   };
-  it('runs the child, summarises its report and removes the cookie file', async () => {
+  it('hands the job (cookies included) to the child on stdin, never through argv', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lh-job-'));
     try {
+      const seenPath = path.join(dir, 'seen.json').replace(/\\/g, '/');
       const runner = makeRunner(dir, `
         import fs from 'node:fs';
-        const job = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
-        fs.writeFileSync('${path.join(dir, 'seen.txt').replace(/\\/g, '/')}', job.cookies.map((c) => c.name).join(',') + '|' + process.argv[2]);
+        const chunks = [];
+        for await (const c of process.stdin) chunks.push(c);
+        const job = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        fs.writeFileSync('${seenPath}', JSON.stringify({ names: job.cookies.map((c) => c.name), argv: process.argv.slice(2) }));
         fs.writeFileSync(job.outPath, ${JSON.stringify(JSON.stringify(REPORT))});
         console.log(JSON.stringify({ ok: true }));
       `);
@@ -199,10 +226,9 @@ describe('startLighthouseJob', () => {
         assert.equal(state.summary.matchingRequests?.count, 1);
         assert.equal(state.reportPath, outPath);
       }
-      const [names, jobFile] = fs.readFileSync(path.join(dir, 'seen.txt'), 'utf8').split('|');
-      assert.equal(names, 'preview_theme_id');
-      assert.ok(jobFile, 'child recorded the job file path');
-      assert.equal(fs.existsSync(jobFile), false, 'temp job file with cookies is deleted');
+      const seen = JSON.parse(fs.readFileSync(seenPath, 'utf8'));
+      assert.deepEqual(seen.names, ['preview_theme_id']);
+      assert.deepEqual(seen.argv, [], 'no job path or cookie on the command line');
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
@@ -219,6 +245,22 @@ describe('startLighthouseJob', () => {
       if (state.status === 'failed') assert.equal(state.code, 'LIGHTHOUSE_TIMEOUT');
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+  it('still returns a jobId and reports the failure when the runtime cannot be spawned', async () => {
+    const previous = process.env.ANTIFAN_NODE_BIN;
+    process.env.ANTIFAN_NODE_BIN = path.join(os.tmpdir(), 'does-not-exist-node.exe');
+    try {
+      const jobId = startLighthouseJob({
+        url: 'https://shop.example/', formFactor: 'mobile', categories: ['performance'], outPath: path.join(os.tmpdir(), 'nope.json'), timeoutMs: 30_000, cookies: [],
+      }, '/unused', '/unused/runner.mjs');
+      assert.match(jobId, /^lh-[0-9a-f]{8}$/);
+      const state = await getLighthouseJob(jobId, 20_000);
+      assert.equal(state.status, 'failed');
+      if (state.status === 'failed') assert.match(state.code, /LIGHTHOUSE_SPAWN_FAILED|LIGHTHOUSE_FAILED/);
+    } finally {
+      if (previous === undefined) delete process.env.ANTIFAN_NODE_BIN;
+      else process.env.ANTIFAN_NODE_BIN = previous;
     }
   });
 });

@@ -10,7 +10,8 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { CapabilityError, assertWorkspaceContained, type BrowserTarget, type CapabilityRequestContext } from '../../shared/control-plane-contracts';
+import { CapabilityError, assertNoReparseTraversal, assertWorkspaceContained, type BrowserTarget, type CapabilityRequestContext } from '../../shared/control-plane-contracts';
+import { extraRootNameRefusal } from '../qa/diagnostics-filter';
 import type { CapabilityCatalogue } from './capability-catalogue';
 import type { BrowserControlPort } from './browser-control-port';
 import { resolveCallerWorkspaceRoot } from './file-capabilities';
@@ -36,7 +37,12 @@ function publicState(state: LighthouseJobState): Record<string, unknown> {
   return { jobId: state.jobId, status: 'done', durationMs: state.finishedAt - state.startedAt, reportPath: state.reportPath, ...state.summary };
 }
 
-/** Real, workspace-contained, not-yet-existing .json path for the full report. */
+/**
+ * Real, workspace-contained, reparse-free, not-yet-existing .json path for the full report.
+ * `assertWorkspaceContained` alone is lexical for a file that does not exist yet, so a junction such
+ * as `<root>/node_modules -> D:/elsewhere` would pass; the reparse walk and the protected-name rules
+ * below close that, and they match the rules the workspace file port already enforces on writes.
+ */
 export function resolveReportPath(root: string, requested: string | undefined, formFactor: string, now = new Date()): string {
   if (!root) throw new CapabilityError('WORKSPACE_UNBOUND', 'anti.perf.lighthouse: no workspace root to write the report into');
   const stamp = now.toISOString().replace(/[:.]/g, '-');
@@ -47,8 +53,12 @@ export function resolveReportPath(root: string, requested: string | undefined, f
   try {
     assertWorkspaceContained(root, resolved);
   } catch {
-    throw new CapabilityError('INVALID_ARGUMENT', 'anti.perf.lighthouse: outputPath must stay inside the workspace');
+    throw new CapabilityError('OUTSIDE_WORKSPACE', 'anti.perf.lighthouse: outputPath must stay inside the workspace');
   }
+  const refused = extraRootNameRefusal(path.relative(root, resolved).split(/[\\/]+/).filter(Boolean), 'write');
+  if (refused) throw new CapabilityError('INVALID_ARGUMENT', `anti.perf.lighthouse: outputPath refused - ${refused}`);
+  // Throws OUTSIDE_WORKSPACE when any existing folder on the way is a symlink/junction.
+  assertNoReparseTraversal(root, resolved);
   if (fs.existsSync(resolved)) {
     throw new CapabilityError('INVALID_ARGUMENT', 'anti.perf.lighthouse: outputPath already exists; choose a new file name');
   }
@@ -73,7 +83,7 @@ export function registerPerfCapabilities(
         url: { type: 'string', description: 'http(s) URL to audit (default: the tab\'s current URL)' },
         formFactor: { type: 'string', enum: ['mobile', 'desktop'], description: 'Default mobile' },
         categories: { type: 'array', items: { type: 'string', enum: [...LIGHTHOUSE_CATEGORIES] }, description: 'Default ["performance"]' },
-        outputPath: { type: 'string', description: 'New .json file inside the workspace for the full report (default perf-reports/lighthouse-<time>-<formFactor>.json)' },
+        outputPath: { type: 'string', description: 'New .json file, one folder below the workspace root (default perf-reports/lighthouse-<time>-<formFactor>.json); protected names (node_modules, .git, .env*) are refused' },
         expectRequestContains: { type: 'string', description: 'Count requests whose URL contains this text (e.g. "themes/1182261/assets") and report them as matchingRequests' },
         timeoutMs: { type: 'number', description: 'Hard limit of the run, 30000-300000, default 120000' },
         waitMs: { type: 'number', description: `How long this call waits for the result, 0-${LIGHTHOUSE_WAIT_MAX_MS}, default ${LIGHTHOUSE_WAIT_DEFAULT_MS}` },
