@@ -7,21 +7,57 @@
  * and by nothing that decides session ownership: a granted tab is never part of a
  * session's own tab pool.
  *
- * A grant is scoped to one project, expires on its own clock and is dropped when its tab
+ * A grant is scoped to one project (or, by an explicit second user gesture, to every project),
+ * expires on its own clock and is dropped when its tab
  * closes. Expiry and revocation are enforced where the grant is read, so a stale
  * registry entry can never authorise anything.
  */
 
-/** How long a grant lasts when the user does not choose. */
-export const DEFAULT_TAB_SHARE_TTL_MS = 15 * 60_000;
+/**
+ * How long a grant lasts when the user does not choose. A dispatched worker often runs well past
+ * a quarter of an hour, and losing the tab mid-job forces a new gesture, so the default covers a
+ * normal job.
+ */
+export const DEFAULT_TAB_SHARE_TTL_MS = 2 * 60 * 60_000;
 /** The longest a single grant may last, whatever TTL is requested. */
-export const MAX_TAB_SHARE_TTL_MS = 60 * 60_000;
+export const MAX_TAB_SHARE_TTL_MS = 8 * 60 * 60_000;
+
+/**
+ * `TabShareGrant.projectId` of a grant the user handed to the agents of every project (a worker
+ * dispatched from another project cannot otherwise use a user's tab). Never a real project id.
+ */
+export const ALL_PROJECTS_SHARE = '*';
+
+/** A tab's capsule affiliation as measured by the host. */
+export interface TabShareMeasurement {
+  readonly projectId?: string;
+  readonly workspaceId?: string;
+}
+
+/** Whether a grant names every project instead of one. */
+export function isAllProjectsGrant(grant: { projectId: string }): boolean {
+  return grant.projectId === ALL_PROJECTS_SHARE;
+}
+
+/**
+ * An all-projects grant carries the affiliation the tab had when the user shared it. It stays
+ * valid only while the tab measures exactly that, so a tab that was re-pinned to another capsule
+ * since the user's gesture is not handed over.
+ */
+export function sameShareMeasurement(
+  stored: TabShareMeasurement | undefined,
+  current: TabShareMeasurement | undefined,
+): boolean {
+  return stored?.projectId === current?.projectId && stored?.workspaceId === current?.workspaceId;
+}
 
 export interface TabShareGrant {
   readonly tabId: string;
   readonly projectId: string;
   readonly grantedAt: number;
   readonly expiresAt: number;
+  /** Affiliation of the tab at the user's gesture; present only when the tab measured one. */
+  readonly measured?: TabShareMeasurement;
 }
 
 export type TabShareJournal = (event: string, fields: Record<string, unknown>) => void;
@@ -50,23 +86,32 @@ export class TabShareGrants {
 
   /**
    * Record a grant for a tab, replacing any earlier one. The TTL is clamped to
-   * `MAX_TAB_SHARE_TTL_MS`; a missing or non-positive TTL takes the default.
+   * `MAX_TAB_SHARE_TTL_MS`; a missing or non-positive TTL takes the default. `measured` is the
+   * tab's capsule affiliation at the moment the user shared it; an all-projects grant is honoured
+   * only while the tab still measures exactly that.
    */
-  grant(tabId: string, projectId: string, ttlMs: number = DEFAULT_TAB_SHARE_TTL_MS): TabShareGrant {
+  grant(tabId: string, projectId: string, ttlMs: number = DEFAULT_TAB_SHARE_TTL_MS, measured?: TabShareMeasurement): TabShareGrant {
     const tab = typeof tabId === 'string' ? tabId.trim() : '';
     const project = typeof projectId === 'string' ? projectId.trim() : '';
     if (!tab) throw new Error('A tab share grant needs a tab id');
     if (!project) throw new Error('A tab share grant needs a project id');
     const requested = typeof ttlMs === 'number' && Number.isFinite(ttlMs) && ttlMs > 0 ? ttlMs : DEFAULT_TAB_SHARE_TTL_MS;
     const grantedAt = this.now();
+    const snapshot = measured && (measured.projectId !== undefined || measured.workspaceId !== undefined)
+      ? Object.freeze({
+          ...(measured.projectId !== undefined ? { projectId: measured.projectId } : {}),
+          ...(measured.workspaceId !== undefined ? { workspaceId: measured.workspaceId } : {}),
+        })
+      : undefined;
     const grant: TabShareGrant = Object.freeze({
       tabId: tab,
       projectId: project,
       grantedAt,
       expiresAt: grantedAt + Math.min(requested, MAX_TAB_SHARE_TTL_MS),
+      ...(snapshot ? { measured: snapshot } : {}),
     });
     this.grants.set(tab, grant);
-    this.record('tab-share-grant.granted', { tabId: tab, projectId: project, expiresAt: grant.expiresAt });
+    this.record('tab-share-grant.granted', { tabId: tab, projectId: project, expiresAt: grant.expiresAt, ...(snapshot ? { measured: snapshot } : {}) });
     return grant;
   }
 

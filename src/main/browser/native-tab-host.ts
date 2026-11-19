@@ -27,7 +27,7 @@ import { registerLeaderPlacementPort, type LeaderPlacementRequest, type LeaderPl
 import { readLeaderJobsBoard } from '../leader/leader-jobs-board';
 import type { ExecutionBackend } from '../agent/execution-backend';
 import type { ExecutionAttachmentRecord } from '../../shared/control-plane-contracts';
-import { SESSION_TAB_LIMIT, shareTabMenuText } from '../../shared/tab-sharing';
+import { SESSION_TAB_LIMIT, shareTabMenuText, shareTabAllProjectsMenuText } from '../../shared/tab-sharing';
 import { getSecureWebPreferences, sanitizeUrl, isAllowedNavigation, cleanRestoredUrl, isInternalWidgetOrSubframeUrl } from '../security/security-policy';
 import { ELEMENT_PICKER_SCRIPT } from './element-picker';
 import { resolveWorkspaceFromUrl, DEFAULT_WORKSPACE_ROOTS } from './workspace-resolver';
@@ -81,7 +81,7 @@ import { WindowStateManager, WindowState } from './window-state';
 import { BridgeServer } from '../bridge/bridge-server';
 import { ViewportGate } from '../tools/browser-control-port';
 import { describeRelayedFailure } from '../tools/capability-transport';
-import { tabShareGrants, type TabShareGrant } from './tab-share-grants';
+import { tabShareGrants, ALL_PROJECTS_SHARE, type TabShareGrant } from './tab-share-grants';
 import { safeSendWebContents } from './web-contents-guard';
 import { ownerKey, ownerLabel, type ProjectWindowShell, type WindowOwner, type ChromeSurface } from './project-window-shell';
 import { installChromeIpcOnce, type IpcRoute, type IpcEvent } from './ipc-router';
@@ -5989,13 +5989,28 @@ export class NativeTabHost extends EventEmitter {
         const shareState = this.getTabShareMenuState(shareTabId);
         if (shareTabId && shareState.available) {
           menu.append(new MenuItem({ type: 'separator' }));
+          if (shareState.shared) {
+            menu.append(
+              new MenuItem({
+                label: shareTabMenuText(true, true),
+                click: () => { this.revokeTabShare(shareTabId); },
+              })
+            );
+          } else {
+            menu.append(
+              new MenuItem({
+                label: shareTabMenuText(false, true),
+                click: () => { this.shareTabWithAgent(shareTabId); },
+              })
+            );
+          }
+        }
+        if (shareTabId && !shareState.shared && this.canShareTabWithAllProjects(shareTabId)) {
+          if (!shareState.available) menu.append(new MenuItem({ type: 'separator' }));
           menu.append(
             new MenuItem({
-              label: shareTabMenuText(shareState.shared, true),
-              click: () => {
-                if (shareState.shared) this.revokeTabShare(shareTabId);
-                else this.shareTabWithAgent(shareTabId);
-              },
+              label: shareTabAllProjectsMenuText(true),
+              click: () => { this.shareTabWithAllProjects(shareTabId); },
             })
           );
         }
@@ -13173,6 +13188,40 @@ export class NativeTabHost extends EventEmitter {
     const target = this.resolveTabShareProject(tabId);
     if (!target.ok) return target;
     return { ok: true, grant: tabShareGrants.grant(target.tabId, target.projectId, ttlMs) };
+  }
+
+  /**
+   * The all-projects entry serves a user tab that belongs to no project, or whose project is not
+   * the agent's (a worker dispatched from another project). It relaxes only `NO_PROJECT`: an
+   * agent surface, a missing tab and a tab whose evidence names two projects stay refused.
+   */
+  private resolveAllProjectsShareTab(tabId: string | undefined): { ok: true; tabId: string } | { ok: false; reason: string } {
+    if (!tabId) return { ok: false, reason: 'NO_TAB' };
+    const target = this.resolveTabShareProject(tabId);
+    if (target.ok) return { ok: true, tabId: target.tabId };
+    if (target.reason === 'NO_PROJECT') {
+      const resolved = this.resolveTargetTabId(tabId);
+      if (resolved) return { ok: true, tabId: resolved };
+    }
+    return { ok: false, reason: target.reason };
+  }
+
+  public canShareTabWithAllProjects(tabId: string | undefined): boolean {
+    return this.resolveAllProjectsShareTab(tabId).ok;
+  }
+
+  /**
+   * Hand a user tab to the agents of every project. Reached only from the user's context-menu
+   * click in this process, like `shareTabWithAgent`; the grant still expires and dies with the tab.
+   */
+  public shareTabWithAllProjects(tabId: string, ttlMs?: number): { ok: true; grant: TabShareGrant } | { ok: false; reason: string } {
+    const target = this.resolveAllProjectsShareTab(tabId);
+    if (!target.ok) return target;
+    const capsuleId = this.getTabCapsuleId(target.tabId);
+    const capsule = capsuleId ? this.capsuleManager.list().find((c) => c.id === capsuleId) : undefined;
+    // The affiliation the control plane will measure later, frozen at the user's gesture.
+    const measured = capsule ? { projectId: capsule.projectId, workspaceId: capsule.workspaceId } : undefined;
+    return { ok: true, grant: tabShareGrants.grant(target.tabId, ALL_PROJECTS_SHARE, ttlMs, measured) };
   }
 
   /** Withdraw a tab's share grant. Returns whether a live grant was removed. */

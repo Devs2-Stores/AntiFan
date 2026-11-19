@@ -28,6 +28,7 @@ import { AntiFanMcpServer } from '../../src/main/mcp/mcp-server';
 import { AttachmentRegistry } from '../../src/main/run/attachment-registry';
 import { NativeTabHost } from '../../src/main/browser/native-tab-host';
 import {
+  ALL_PROJECTS_SHARE,
   DEFAULT_TAB_SHARE_TTL_MS,
   MAX_TAB_SHARE_TTL_MS,
   TabShareGrants,
@@ -320,6 +321,49 @@ describe('explicit retarget with a share grant', () => {
     assert.strictEqual(fx.catalogue.isTabAllowedForRetarget('tab-agent', 'tab-user', {}), false);
   });
 
+  it('lets a session of any project retarget an unmeasured tab shared with every project, but not a per-project grant of another project', () => {
+    const fx = makeFixture();
+    fx.grants.grant('tab-user', fx.otherProjectId);
+    assert.strictEqual(
+      fx.catalogue.isTabAllowedForRetarget('tab-agent', 'tab-user', fx.scope),
+      false,
+      'a grant for another project does not reach this session',
+    );
+    fx.grants.grant('tab-user', ALL_PROJECTS_SHARE);
+    assert.strictEqual(fx.catalogue.isTabAllowedForRetarget('tab-agent', 'tab-user', fx.scope), true);
+  });
+
+  it('lets a session of project B retarget a tab pinned to project A that the user shared with every project', () => {
+    const fx = makeFixture();
+    const sessionB = { projectId: fx.otherProjectId, workspaceId: fx.otherWorkspaceId };
+    assert.strictEqual(fx.catalogue.isTabAllowedForRetarget('tab-agent', 'tab-same-project', sessionB), false, 'unshared: refused');
+    fx.grants.grant('tab-same-project', fx.projectId);
+    assert.strictEqual(fx.catalogue.isTabAllowedForRetarget('tab-agent', 'tab-same-project', sessionB), false, 'a per-project grant stays inside project A');
+    fx.grants.grant('tab-same-project', ALL_PROJECTS_SHARE, undefined, { projectId: fx.projectId, workspaceId: fx.workspaceId });
+    assert.strictEqual(fx.catalogue.isTabAllowedForRetarget('tab-agent', 'tab-same-project', sessionB), true);
+  });
+
+  it('refuses an all-projects grant when the tab no longer measures what it measured when shared', () => {
+    const fx = makeFixture();
+    // shared while unmeasured, pinned to a capsule now
+    fx.grants.grant('tab-other-project', ALL_PROJECTS_SHARE);
+    assert.strictEqual(fx.catalogue.isTabAllowedForRetarget('tab-agent', 'tab-other-project', fx.scope), false);
+    // shared while pinned to project A, measures project B now
+    fx.grants.grant('tab-other-workspace', ALL_PROJECTS_SHARE, undefined, { projectId: fx.projectId, workspaceId: fx.workspaceId });
+    assert.strictEqual(fx.catalogue.isTabAllowedForRetarget('tab-agent', 'tab-other-workspace', fx.scope), false);
+  });
+
+  it('refuses an all-projects grant once it expires or is revoked, and keeps the session gate closed', () => {
+    const fx = makeFixture();
+    fx.grants.grant('tab-user', ALL_PROJECTS_SHARE, 5 * MINUTE);
+    fx.clock.advance(5 * MINUTE);
+    assert.strictEqual(fx.catalogue.isTabAllowedForRetarget('tab-agent', 'tab-user', fx.scope), false);
+    fx.grants.grant('tab-user', ALL_PROJECTS_SHARE);
+    assert.strictEqual(fx.catalogue.isTabAllowed('tab-agent', 'tab-user'), false, 'the grant feeds retarget only');
+    fx.grants.revoke('tab-user');
+    assert.strictEqual(fx.catalogue.isTabAllowedForRetarget('tab-agent', 'tab-user', fx.scope), false);
+  });
+
   it('never widens the session gate: a granted tab is still foreign to ordinary dispatch', async () => {
     const fx = makeFixture();
     fx.grants.grant('tab-user', fx.projectId);
@@ -550,6 +594,37 @@ describe('browser port explicit rebind with a share grant', () => {
     assert.throws(() => port.rebindTarget({ tabId: 'tab-other-workspace' }, target), refusesWith('TARGET_MISMATCH'));
   });
 
+  it('rebinds an unmeasured user tab shared with every project, until it expires', () => {
+    const fx = makeFixture();
+    const { port, target } = makePort(fx, true);
+    fx.grants.grant('tab-user', ALL_PROJECTS_SHARE, 5 * MINUTE);
+    const result = port.rebindTarget({ tabId: 'tab-user' }, target);
+    assert.strictEqual(result.success, true);
+    assert.strictEqual(result.tabId, 'tab-user');
+    fx.clock.advance(5 * MINUTE);
+    assert.throws(() => port.rebindTarget({ tabId: 'tab-user' }, target), refusesWith('TARGET_MISMATCH'));
+  });
+
+  it('rebinds a capsule-pinned tab of another project once the user shared it with every project', () => {
+    const fx = makeFixture();
+    const { port, target } = makePort(fx, true);
+    fx.grants.grant('tab-other-project', ALL_PROJECTS_SHARE, undefined, { projectId: fx.otherProjectId, workspaceId: fx.otherWorkspaceId });
+    const result = port.rebindTarget({ tabId: 'tab-other-project' }, target);
+    assert.strictEqual(result.success, true);
+    assert.strictEqual(result.tabId, 'tab-other-project');
+  });
+
+  it('refuses an all-projects grant whose tab no longer measures what it measured when shared', () => {
+    const fx = makeFixture();
+    const { port, target } = makePort(fx, true);
+    // shared while it was pinned to the session project, measures another project now
+    fx.grants.grant('tab-other-project', ALL_PROJECTS_SHARE, undefined, { projectId: fx.projectId, workspaceId: fx.workspaceId });
+    assert.throws(() => port.rebindTarget({ tabId: 'tab-other-project' }, target), refusesWith('TARGET_MISMATCH'));
+    // shared while unmeasured, pinned to a capsule now
+    fx.grants.grant('tab-other-workspace', ALL_PROJECTS_SHARE);
+    assert.throws(() => port.rebindTarget({ tabId: 'tab-other-workspace' }, target), refusesWith('TARGET_MISMATCH'));
+  });
+
   it('reads the process-wide registry when the host answers no grant seam', () => {
     const fx = makeFixture();
     const { port, target } = makePort(fx, false);
@@ -584,7 +659,7 @@ describe('what an agent can reach', () => {
 
 describe('NativeTabHost share gesture', () => {
   type TabRow = { state: Record<string, unknown>; projectId?: string };
-  type CapsuleRow = { id: string; projectId?: string };
+  type CapsuleRow = { id: string; projectId?: string; workspaceId?: string };
 
   afterEach(() => {
     for (const grant of tabShareGrants.all()) tabShareGrants.revoke(grant.tabId);
@@ -655,6 +730,56 @@ describe('NativeTabHost share gesture', () => {
     assert.deepStrictEqual(host.getTabShareMenuState('tab-agent'), { available: false, shared: false });
     assert.deepStrictEqual(host.getTabShareMenuState('tab-loose'), { available: false, shared: false });
     assert.deepStrictEqual(host.getTabShareMenuState(undefined), { available: false, shared: false });
+  });
+
+  it('shares a tab with every project, relaxing only the no-project refusal', () => {
+    const capsules = [{ id: 'cap-1', projectId: 'project-b' }];
+    const host = makeHost({
+      tabs: {
+        'tab-loose': userTab(),
+        'tab-boot': userTab('project-00000000-0000-4000-8000-000000000001'),
+        'tab-project': userTab('project-a'),
+        'tab-agent': userTab('project-a', { ephemeral: true }),
+        'tab-ambiguous': userTab('project-a', { capsuleId: 'cap-1' }),
+      },
+      capsules,
+    });
+    assert.strictEqual(host.canShareTabWithAllProjects('tab-loose'), true);
+    assert.strictEqual(host.canShareTabWithAllProjects('tab-boot'), true);
+    assert.strictEqual(host.canShareTabWithAllProjects('tab-agent'), false);
+    assert.strictEqual(host.canShareTabWithAllProjects('tab-ambiguous'), false);
+    assert.strictEqual(host.canShareTabWithAllProjects('tab-missing'), false);
+    assert.strictEqual(host.canShareTabWithAllProjects(undefined), false);
+    assert.deepStrictEqual(host.shareTabWithAllProjects('tab-agent'), { ok: false, reason: 'AGENT_TAB' });
+    assert.deepStrictEqual(host.shareTabWithAllProjects('tab-ambiguous'), { ok: false, reason: 'PROJECT_AMBIGUOUS' });
+    assert.deepStrictEqual(host.shareTabWithAllProjects('tab-missing'), { ok: false, reason: 'NO_TAB' });
+    assert.deepStrictEqual(tabShareGrants.all(), []);
+
+    const loose = host.shareTabWithAllProjects('tab-loose');
+    assert.ok(loose.ok);
+    assert.strictEqual(host.getTabShareGrant('tab-loose')?.projectId, ALL_PROJECTS_SHARE);
+    assert.deepStrictEqual(host.getTabShareMenuState('tab-loose'), { available: true, shared: true });
+
+    assert.ok(host.shareTabWithAllProjects('tab-project').ok);
+    assert.strictEqual(host.getTabShareGrant('tab-project')?.projectId, ALL_PROJECTS_SHARE);
+    assert.ok(host.revokeTabShare('tab-project'));
+    assert.strictEqual(host.getTabShareGrant('tab-project'), undefined);
+  });
+
+  it('freezes the measured capsule affiliation into an all-projects grant at the moment of sharing', () => {
+    const capsules = [{ id: 'cap-pinned', projectId: 'project-a', workspaceId: 'workspace-a' }];
+    const host = makeHost({
+      tabs: {
+        'tab-pinned': userTab(undefined, { capsuleId: 'cap-pinned' }),
+        'tab-loose': userTab(),
+      },
+      capsules,
+    });
+    const pinned = host.shareTabWithAllProjects('tab-pinned');
+    assert.ok(pinned.ok);
+    assert.deepStrictEqual(host.getTabShareGrant('tab-pinned')?.measured, { projectId: 'project-a', workspaceId: 'workspace-a' });
+    assert.ok(host.shareTabWithAllProjects('tab-loose').ok);
+    assert.strictEqual(host.getTabShareGrant('tab-loose')?.measured, undefined);
   });
 
   it('offers sharing for a shareable tab and revokes through the same host', () => {

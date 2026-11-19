@@ -93,7 +93,7 @@ import { VisualQualityScanner, visualQualityEvalTimeoutMs, type VisualQualitySca
 import { runStateMatrix, type StateMatrixOptions, type StateMatrixResult } from '../qa/state-matrix.js';
 import { normalizeCandidateOptions, runLayoutCandidates, type LayoutCandidatesOptions, type LayoutCandidatesResult } from '../qa/layout-candidates.js';
 import { requestedViewportWidth, viewportWidthMismatch } from '../browser/viewport-request.js';
-import { tabShareGrants } from '../browser/tab-share-grants.js';
+import { tabShareGrants, isAllProjectsGrant, sameShareMeasurement } from '../browser/tab-share-grants.js';
 import { DEFAULT_SWEEP_BREAKPOINTS, resolveSweepBreakpoints, viewportsToBreakpoints } from '../browser/sweep-viewports.js';
 import { pickAutoBindCandidate, storefrontHostMatches } from './tab-binding.js';
 import { FULL_PAGE_ARTIFACT_MAX_BYTES } from './artifact-store.js';
@@ -381,7 +381,7 @@ export interface BrowserHostPort {
   /** The capsule and project/workspace a tab was created in, or undefined when no capsule owns it. */
   resolveTabAffiliation?(tabId: string): { projectId?: string; workspaceId?: string; capsuleId?: string } | undefined;
   /** The live, user-issued share grant of a tab, if any; consulted only by explicit rebind. */
-  getTabShareGrant?(tabId: string): { projectId: string; expiresAt: number } | undefined;
+  getTabShareGrant?(tabId: string): { projectId: string; expiresAt: number; measured?: { projectId?: string; workspaceId?: string } } | undefined;
   resolveTabWorkspace?(tabId?: string, tabUrl?: string): string;
   closeTab?(tabId: string, source?: string): boolean;
   switchTab?(tabId: string, opts?: SwitchTabOptions): boolean;
@@ -5478,9 +5478,12 @@ export class BrowserControlPort {
         const sharedByUser = Boolean(
           shareGrant &&
           shareGrant.expiresAt > Date.now() &&
-          target?.projectId && shareGrant.projectId === target.projectId &&
-          (measuredRequested?.projectId === undefined || measuredRequested.projectId === target.projectId) &&
-          (measuredRequested?.workspaceId === undefined || measuredRequested.workspaceId === target.workspaceId)
+          target?.projectId &&
+          (isAllProjectsGrant(shareGrant)
+            ? sameShareMeasurement(shareGrant.measured, measuredRequested)
+            : shareGrant.projectId === target.projectId &&
+              (measuredRequested?.projectId === undefined || measuredRequested.projectId === target.projectId) &&
+              (measuredRequested?.workspaceId === undefined || measuredRequested.workspaceId === target.workspaceId))
         );
         if (!allowed && !sameProjectScope && !sharedByUser) {
           throw new CapabilityError(

@@ -5,7 +5,7 @@
 import { Menu, MenuItem, BrowserWindow, shell, dialog } from 'electron';
 import { ChromeProfileSyncManager } from './chrome-profile-sync';
 import { HaravanUploader } from './haravan-uploader';
-import { shareTabMenuText } from '../../shared/tab-sharing';
+import { shareTabMenuText, shareTabAllProjectsMenuText } from '../../shared/tab-sharing';
 
 export interface TabContextMenuHostDelegate {
   getWindow(): BrowserWindow;
@@ -52,6 +52,9 @@ export interface TabContextMenuHostDelegate {
    */
   getTabShareMenuState?(tabId: string | undefined): { available: boolean; shared: boolean };
   shareTabWithAgent?(tabId: string): unknown;
+  /** Whether the all-projects entry may be offered for a tab, and the click action behind it. */
+  canShareTabWithAllProjects?(tabId: string | undefined): boolean;
+  shareTabWithAllProjects?(tabId: string): unknown;
   revokeTabShare?(tabId: string): unknown;
   onProfileSynced?(): void;
 }
@@ -320,12 +323,23 @@ export class TabContextMenuBuilder {
       );
 
       const shareState = targetTabId ? this.host.getTabShareMenuState?.(targetTabId) : undefined;
-      if (targetTabId && shareState?.available) {
+      const shareAllAvailable = Boolean(targetTabId && !shareState?.shared && this.host.canShareTabWithAllProjects?.(targetTabId));
+      if (targetTabId && (shareState?.available || shareAllAvailable)) {
         menu.append(new MenuItem({ type: 'separator' }));
+      }
+      if (targetTabId && shareState?.available) {
         menu.append(
           new MenuItem({
             label: shareTabMenuText(shareState.shared, true),
             click: () => this.toggleTabShare(targetTabId, shareState.shared),
+          })
+        );
+      }
+      if (targetTabId && shareAllAvailable) {
+        menu.append(
+          new MenuItem({
+            label: shareTabAllProjectsMenuText(true),
+            click: () => this.host.shareTabWithAllProjects?.(targetTabId),
           })
         );
       }
@@ -355,15 +369,21 @@ export class TabContextMenuBuilder {
 
     const shareTabId = this.host.getActiveTabId();
     const shareState = this.host.getTabShareMenuState?.(shareTabId);
-    const shareEntries: Electron.MenuItemConstructorOptions[] = shareState?.available && shareTabId
-      ? [
-          { type: 'separator' },
-          {
-            label: shareTabMenuText(shareState.shared, false),
-            click: () => this.toggleTabShare(shareTabId, shareState.shared),
-          },
-        ]
-      : [];
+    const shareAllAvailable = Boolean(shareTabId && !shareState?.shared && this.host.canShareTabWithAllProjects?.(shareTabId));
+    const shareEntries: Electron.MenuItemConstructorOptions[] = [];
+    if (shareTabId && (shareState?.available || shareAllAvailable)) shareEntries.push({ type: 'separator' });
+    if (shareTabId && shareState?.available) {
+      shareEntries.push({
+        label: shareTabMenuText(shareState.shared, false),
+        click: () => this.toggleTabShare(shareTabId, shareState.shared),
+      });
+    }
+    if (shareTabId && shareAllAvailable) {
+      shareEntries.push({
+        label: shareTabAllProjectsMenuText(false),
+        click: () => this.host.shareTabWithAllProjects?.(shareTabId),
+      });
+    }
 
     const menu = Menu.buildFromTemplate([
       {

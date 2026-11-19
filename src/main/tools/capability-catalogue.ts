@@ -19,7 +19,7 @@ import {
 import { WorkspaceRegistry } from '../project/workspace-registry';
 import { DEVICE_ERROR_REMEDIATION } from '../../shared/device-control-contracts';
 import { assertRequiredArgs } from './required-args';
-import { tabShareGrants, type TabShareGrant } from '../browser/tab-share-grants';
+import { tabShareGrants, isAllProjectsGrant, sameShareMeasurement, type TabShareGrant } from '../browser/tab-share-grants';
 import { dialogOpenError, type JsDialogDescription } from '../browser/js-dialog-tracker';
 import { SHARE_TAB_GUIDANCE } from '../../shared/tab-sharing';
 import { AttachmentTabLedger } from './attachment-tab-ledger';
@@ -358,9 +358,17 @@ export class CapabilityCatalogue {
     const grant = resolveGrant(requestedTabId);
     if (!grant || grant.tabId !== requestedTabId) return false;
     if (!(grant.expiresAt > Date.now())) return false;
-    if (grant.projectId !== authorityScope.projectId) return false;
-    if (measured?.projectId !== undefined && measured.projectId !== authorityScope.projectId) return false;
-    if (measured?.workspaceId !== undefined && measured.workspaceId !== authorityScope.workspaceId) return false;
+    // An all-projects grant is the user's explicit hand-over to every project's agents (a worker
+    // dispatched from another project). Such a tab is usually pinned to a capsule, so the
+    // session's own project cannot be the yardstick; the tab must instead still measure exactly
+    // what it measured when the user shared it. Any other grant keeps the session-scope compare.
+    if (isAllProjectsGrant(grant)) {
+      if (!sameShareMeasurement(grant.measured, measured)) return false;
+    } else {
+      if (grant.projectId !== authorityScope.projectId) return false;
+      if (measured?.projectId !== undefined && measured.projectId !== authorityScope.projectId) return false;
+      if (measured?.workspaceId !== undefined && measured.workspaceId !== authorityScope.workspaceId) return false;
+    }
     try {
       (this.options.noteTabShareGrantUse ?? ((used: TabShareGrant) => tabShareGrants.noteUse(used)))(grant);
     } catch {
