@@ -90,7 +90,7 @@ describe('parseLighthouseParams', () => {
     const p = parseLighthouseParams({});
     assert.equal(p.formFactor, 'mobile');
     assert.deepEqual(p.categories, ['performance']);
-    assert.equal(p.timeoutMs, 120_000);
+    assert.equal(p.timeoutMs, 180_000);
     assert.equal(p.waitMs, 20_000);
   });
   it('rejects non-http urls, bad enums and out-of-range numbers', () => {

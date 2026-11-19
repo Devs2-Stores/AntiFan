@@ -85,7 +85,7 @@ export function registerPerfCapabilities(
         categories: { type: 'array', items: { type: 'string', enum: [...LIGHTHOUSE_CATEGORIES] }, description: 'Default ["performance"]' },
         outputPath: { type: 'string', description: 'New .json file, one folder below the workspace root (default perf-reports/lighthouse-<time>-<formFactor>.json); protected names (node_modules, .git, .env*) are refused' },
         expectRequestContains: { type: 'string', description: 'Count requests whose URL contains this text (e.g. "themes/1182261/assets") and report them as matchingRequests' },
-        timeoutMs: { type: 'number', description: 'Hard limit of the run, 30000-300000, default 120000' },
+        timeoutMs: { type: 'number', description: 'Hard limit of the run, 30000-300000, default 180000' },
         waitMs: { type: 'number', description: `How long this call waits for the result, 0-${LIGHTHOUSE_WAIT_MAX_MS}, default ${LIGHTHOUSE_WAIT_DEFAULT_MS}` },
       },
     },

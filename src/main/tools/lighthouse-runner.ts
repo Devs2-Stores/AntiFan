@@ -15,7 +15,7 @@ import { CapabilityError } from '../../shared/control-plane-contracts';
 
 export type LighthouseFormFactor = 'mobile' | 'desktop';
 export const LIGHTHOUSE_CATEGORIES = ['performance', 'accessibility', 'best-practices', 'seo'] as const;
-export const LIGHTHOUSE_TIMEOUT_DEFAULT_MS = 120_000;
+export const LIGHTHOUSE_TIMEOUT_DEFAULT_MS = 180_000;
 export const LIGHTHOUSE_TIMEOUT_MAX_MS = 300_000;
 export const LIGHTHOUSE_WAIT_DEFAULT_MS = 20_000;
 export const LIGHTHOUSE_WAIT_MAX_MS = 25_000;
