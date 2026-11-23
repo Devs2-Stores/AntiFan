@@ -2086,7 +2086,9 @@ async function runLifecycle() {
       if (managerHost) managerHost.setAutomationTabId(undefined);
       await closeWindowAndWait('unassigned');
 
-      await waitFor(function () { return !entryFor(BETA) && authority.hostForOwner(keyOf(BETA)) === null ? true : false; }, 'the window of ' + BETA.name + ' (sleeping terminals only) to close with the Terminal Manager', 8000);
+      // waitFor's default 30 s instead of 8 s: measured 2026-11-23, the close lands inside 8 s on
+      // an idle machine and misses it (2 runs of 2) while six agent sessions load the CPU.
+      await waitFor(function () { return !entryFor(BETA) && authority.hostForOwner(keyOf(BETA)) === null ? true : false; }, 'the window of ' + BETA.name + ' (sleeping terminals only) to close with the Terminal Manager', 30000);
       await settleInactivity();
       observations.inactivityManagerClose = {
         before: keysBefore,
