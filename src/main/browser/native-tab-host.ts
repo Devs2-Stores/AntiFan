@@ -8269,6 +8269,19 @@ export class NativeTabHost extends EventEmitter {
     }
   }
 
+  /**
+   * Current URL and the tab's own-partition cookies (HttpOnly included) for `anti.perf.lighthouse`.
+   * Values stay in Main: the caller scopes them to the target host and hands them to a child
+   * process through a 0600 temp file; they are never returned to an agent.
+   */
+  public async getLighthouseTabContext(tabId: string): Promise<{ url: string; cookies: Electron.Cookie[] }> {
+    const tab = this.tabs.get(tabId);
+    if (!tab) throw new Error(`TAB_NOT_FOUND: ${tabId}`);
+    const partition = tab.state.partition || 'persist:default';
+    const cookies = await this.getPartitionSession(partition).cookies.get({});
+    return { url: this.getTabUrl(tabId), cookies };
+  }
+
   public getSharedProfilePartition(userAgentMode: BrowserSessionUserAgentMode = 'clean', ephemeral = false, profileId?: string): string {
     // Explicit profileId (when given) wins — the caller decides which profile's
     // cookies a hydration targets, without depending on prior mutable state.
