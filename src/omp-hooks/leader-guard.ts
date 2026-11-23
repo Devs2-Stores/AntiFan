@@ -207,9 +207,9 @@ function nextStep(job: OpenJob): string {
     return `worker died -> inspect its repo (git log/status, report file), then ${CLI} dispatch --job ${job.dir} --worker <NEW terminal> --prompt <resume prompt>; never re-wait the dead worker`;
   }
   if (job.state === "settled") {
-    return `worker settled -> ${CLI} validate-report --job ${job.dir} --round ${job.lastRound}, then ${CLI} verify-sheet --job ${job.dir} --round ${job.lastRound} (a job with a sheet), then QA the storefront yourself from the report's handover.checks (AntiFan, mobile + desktop) and ${CLI} record --job ${job.dir} --round ${job.lastRound} --kind storefront`;
+    return `worker settled -> ${CLI} validate-report --job ${job.dir} --round ${job.lastRound}, then ${CLI} verify-sheet --job ${job.dir} --round ${job.lastRound} (a job with a sheet), then QA the result yourself (a theme job: the report's handover.checks with AntiFan, mobile + desktop, then ${CLI} record --job ${job.dir} --round ${job.lastRound} --kind storefront; a sheet-only job: the sheet and dashboard row)`;
   }
-  return `report received -> ${CLI} verify-sheet --job ${job.dir} --round ${job.lastRound} (a job with a sheet), then QA the storefront yourself from the report's handover.checks (AntiFan, mobile + desktop) and ${CLI} record --job ${job.dir} --round ${job.lastRound} --kind storefront; the job is verified only after YOUR storefront record`;
+  return `report received -> ${CLI} verify-sheet --job ${job.dir} --round ${job.lastRound} (a job with a sheet), then QA the result yourself (a theme job: the report's handover.checks with AntiFan, mobile + desktop, then ${CLI} record --job ${job.dir} --round ${job.lastRound} --kind storefront; a sheet-only job: the sheet and dashboard row); the job is verified only after YOUR records`;
 }
 
 export function buildStopReason(open: OpenJob[]): string {

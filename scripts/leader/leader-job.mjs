@@ -1198,7 +1198,9 @@ function cmdValidateReport(flags) {
     state: job.state,
     ...(needsInput ? { onlyUser: needsInput.onlyUser, reasons: needsInput.reasons } : {}),
     ...(valid && round.kind === "review" ? { review: json.review } : {}),
-    ...(valid && job.leaderQa === 1 && round.kind !== "review" && round.kind !== "close" && status === "DONE" ? { next: "Leader QA: measure handover.checks yourself (AntiFan, mobile + desktop), then record --kind storefront (the worker's report alone never verifies)" } : {}),
+    ...(valid && job.leaderQa === 1 && round.kind !== "review" && round.kind !== "close" && status === "DONE"
+      ? { next: job.profile === "sheet-only" ? "Leader QA: no theme here; re-read the sheet (verify-sheet) and the dashboard row yourself, then record --kind sheet|dashboard (the worker's report alone never verifies)" : "Leader QA: measure handover.checks yourself (AntiFan, mobile + desktop), then record --kind storefront (the worker's report alone never verifies)" }
+      : {}),
   });
   return valid ? EXIT.OK : EXIT.CHECK_FAILED;
 }

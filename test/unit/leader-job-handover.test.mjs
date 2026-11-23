@@ -138,6 +138,8 @@ describe("Leader-QA ledger", () => {
     writeReport(j, 1, { dashboard: QUIET });
     const v = cli(w, ["validate-report", "--job", j.dir]);
     assert.equal(v.code, 0, v.stderr);
+    assert.doesNotMatch(v.last.next, /storefront/);
+    assert.match(v.last.next, /sheet/);
     assert.deepEqual(j.job().rounds[0].report.required, ["dashboard"]);
     // a handover a sheet-only worker volunteers is accepted but never demands a storefront record
     writeReport(j, 1, { dashboard: QUIET, handover: { checks: [], risks: [] }, storefront: { measurements: [{ probe: "smoke", url: "u", viewport: "375x812", selector: ".x", value: "ok" }] } });
