@@ -280,3 +280,67 @@ test("replaying real 02/11 JSONL toolResult rows (01a19a67 MCP not connected + T
     assert.equal(hook.call("mcp__playwright_browser_snapshot", {}), undefined);
   }
 });
+
+// ---------------------------------------------------------------------------
+// the refusal names the AntiFan call for the target the Playwright call addresses
+// ---------------------------------------------------------------------------
+
+const WORKSPACE_ENVS = ["THEME_WORKSPACE_ROOT", "ANTIFAN_WORKSPACE_ROOT", "WORKSPACE_ROOT"];
+const WORKSPACE_AT_LOAD = Object.fromEntries(WORKSPACE_ENVS.map((name) => [name, process.env[name]]));
+afterEach(() => {
+  for (const name of WORKSPACE_ENVS) {
+    if (WORKSPACE_AT_LOAD[name] === undefined) delete process.env[name];
+    else process.env[name] = WORKSPACE_AT_LOAD[name];
+  }
+});
+
+test("a refused file: target names anti.browser.navigate inside the workspace and an HTTP server outside it", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "playwright-ws-"));
+  const insideFile = path.join(workspace, "comp", "index.html");
+  const outsideFile = path.join(os.tmpdir(), "playwright-outside", "index.html");
+  fs.mkdirSync(path.dirname(insideFile), { recursive: true });
+  fs.writeFileSync(insideFile, "<html></html>");
+  const insideUrl = pathToFileURL(insideFile).href;
+  const outsideUrl = pathToFileURL(outsideFile).href;
+  const hook = makeHook();
+
+  process.env.ANTIFAN_WORKSPACE_ROOT = workspace;
+  for (const [toolName, input] of [
+    ["mcp__playwright_browser_navigate", { url: insideUrl }],
+    ["write", { path: "xd://mcp__playwright_browser_navigate", content: JSON.stringify({ url: insideUrl }) }],
+  ]) {
+    const refusal = hook.call(toolName, input);
+    assert.equal(refusal?.block, true, "a file: target is still refused");
+    assert.match(refusal.reason, /^REFUSED_PLAYWRIGHT_ANTIFAN_FIRST: /);
+    assert.ok(refusal.reason.includes(insideUrl), `the same file: URL is named: ${refusal.reason}`);
+    assert.match(refusal.reason, /anti\.browser\.navigate \{url: "file:/);
+    assert.ok(!refusal.reason.includes("http://127.0.0.1:"), "a file in the workspace needs no server");
+  }
+
+  delete process.env.ANTIFAN_WORKSPACE_ROOT;
+  const outside = hook.call("mcp__playwright_browser_navigate", { url: outsideUrl });
+  assert.equal(outside?.block, true, "a file: target outside the workspace is still refused");
+  assert.ok(outside.reason.includes(outsideUrl));
+  assert.match(outside.reason, /http:\/\/127\.0\.0\.1:<port>/, "it says to serve the folder over HTTP");
+  assert.ok(outside.reason.includes("no workspace root is set"), "it says why the file cannot be opened directly");
+  assert.match(outside.reason, /with anti\.browser\.navigate\. /, "the served URL goes through the AntiFan call");
+});
+
+test("a refused loopback target names anti.browser.navigate with that URL, and stays refused", () => {
+  const hook = makeHook();
+  for (const url of ["http://127.0.0.1:8791/", "http://localhost:8765/preview.html", "http://[::1]:9000/"]) {
+    const refusal = hook.call("mcp__playwright_browser_navigate", { url });
+    assert.equal(refusal?.block, true, `${url} is still refused`);
+    assert.ok(refusal.reason.includes(`anti.browser.navigate {url: "${url}"}`), `names the call for ${url}: ${refusal.reason}`);
+    assert.match(refusal.reason, /loopback/);
+  }
+  // The real-world spelling: the URL travels inside the `write xd://` content.
+  const viaDevice = hook.call("write", { path: "xd://mcp__playwright_browser_navigate", content: '{"url":"http://127.0.0.1:8810/"}' });
+  assert.equal(viaDevice?.block, true);
+  assert.ok(viaDevice.reason.includes('anti.browser.navigate {url: "http://127.0.0.1:8810/"}'));
+  // A refactor loop over a public page names no loopback route and keeps the plain text.
+  const publicPage = hook.call("mcp__playwright_browser_navigate", { url: "https://shop.example/?themeid=1" });
+  assert.equal(publicPage?.block, true);
+  assert.ok(!publicPage.reason.includes("loopback"));
+  assert.ok(!publicPage.reason.includes("The target"));
+});

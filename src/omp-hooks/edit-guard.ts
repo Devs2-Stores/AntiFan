@@ -12,7 +12,10 @@
  * second writer of that file, so the first write per agent run first refreshes it
  * with `hrv theme fetch <themeId> --only config/settings_data.json` (theme id from
  * `.haravan-cli_local.json`). A failed fetch refuses the write; a workspace with no
- * bound shop has no remote copy and writes without one.
+ * bound shop has no remote copy and writes without one. That fetch, and the
+ * `hrv theme info -j` behind a push, each run under `themeCliDeadlineMs()`: a probe the
+ * host kills at its 30 s hook limit would leave the call unguarded, so it is cut first
+ * and the call ends in the refusal the branch already gives.
  *
  * In a Leader's worker terminal (its id is under `workers` in the Manager's
  * `leader-terminals.json`), a shell call that would change a theme on the shop is
@@ -70,8 +73,28 @@ export const LOG_DIR_PARTS = [".antifan", "edit-guard"];
 const MIRROR_DIR_PARTS = ["runtime", "edit-mode"];
 const LOG_ROTATE_BYTES = 2 * 1024 * 1024;
 const SETTINGS_DATA_RE = /(^|[/\\])config[/\\]settings_data\.json$/i;
-const SETTINGS_DATA_FETCH_TIMEOUT_MS = 90_000;
-const THEME_INFO_TIMEOUT_MS = 30_000;
+
+/**
+ * Deadline of every theme CLI probe the guard runs inside a hook call: the one-file
+ * `hrv theme fetch <themeId> --only config/settings_data.json` before a settings_data write, and the
+ * `hrv theme info -j` (or `shopify theme list`) that proves a push targets the bound theme. The host
+ * kills a hook call that runs past 30 s, which drops the guard and lets the call through unguarded, so
+ * a probe is cut well before that and the call ends in the refusal the branch already returns: the
+ * write is refused without its pre-write fetch, the push is refused as unverified. No probe may run
+ * longer than the cap, whatever the seam says.
+ */
+export const CLI_DEADLINE_ENV = "ANTIFAN_HOOK_CLI_DEADLINE_MS";
+const CLI_DEADLINE_MS = 15_000;
+const CLI_DEADLINE_FLOOR_MS = 1_000;
+const CLI_DEADLINE_CEIL_MS = 20_000;
+
+/** The probe deadline, or the seam's value clamped to [floor, ceiling]. */
+export function themeCliDeadlineMs(env: Record<string, string | undefined> = process.env): number {
+  const raw = Math.round(Number((env[CLI_DEADLINE_ENV] ?? "").trim()));
+  if (!Number.isFinite(raw) || raw <= 0) return CLI_DEADLINE_MS;
+  return Math.min(CLI_DEADLINE_CEIL_MS, Math.max(CLI_DEADLINE_FLOOR_MS, raw));
+}
+
 /** Audit code of a worker push/dev the guard let through after `hrv theme info` reported the bound theme id. */
 const THEME_DRAFT_VERIFIED = "THEME_SYNC_DRAFT_VERIFIED";
 /** The Manager's Leader registry under the config dir (`src/main/leader/leader-registry.ts`). */
@@ -342,7 +365,7 @@ async function runSettingsDataFetch(themeRoot: string, themeId: string): Promise
   if (!/^\d+$/.test(themeId)) {
     return { ok: false, detail: `theme_id '${themeId}' in .haravan-cli_local.json is not numeric` };
   }
-  const run = await runHrv(themeRoot, `theme fetch ${themeId} --only config/settings_data.json`, SETTINGS_DATA_FETCH_TIMEOUT_MS);
+  const run = await runHrv(themeRoot, `theme fetch ${themeId} --only config/settings_data.json`, themeCliDeadlineMs());
   if (run.output === null) return { ok: false, detail: run.failure };
   if (/Tải về thành công 1 file\./.test(run.output)) return { ok: true, detail: "Tải về thành công 1 file." };
   return { ok: false, detail: `${lastOutputLine(run.output)} (exit ${run.exitCode ?? "null"})` };
@@ -419,7 +442,7 @@ async function gateThemeCommand(session: GuardSession, input: Record<string, unk
   const dataRoot = process.env.ANTIFAN_DATA_ROOT?.trim();
   const approval =
     terminalId && dataRoot ? { dir: approvalsDirOf(dataRoot), worker: terminalId, leader: lookup.leaderId, via: "hook:bash" } : undefined;
-  const outcome = await gateThemeLine({ text, cwd, timeoutMs: THEME_INFO_TIMEOUT_MS, ...(approval ? { approval } : {}) });
+  const outcome = await gateThemeLine({ text, cwd, timeoutMs: themeCliDeadlineMs(), ...(approval ? { approval } : {}) });
   if (outcome.decision === "pass") return null;
   if (outcome.decision === "block") {
     appendRows(session, [rowFor(session, "bash", outcome.command.slice(0, AUDIT_COMMAND_MAX), "block", outcome.code)]);

@@ -1,8 +1,10 @@
 /**
- * Replay corpus of the refusals the 2026-11-12..17 OMP chat audit measured (P0-1, P0-2): every `fp`
- * entry was refused although it runs no theme command and writes no theme file, and must now pass;
- * every `tp` entry carries a real theme-CLI use, a theme write or a budgeted investigation and must
- * stay refused. The entries are in test/fixtures/theme-policy/audit-261117-corpus.json.
+ * Replay corpus of the refusals the 2026-11-12..17 OMP chat audit measured (P0-1, P0-2), plus the
+ * four theme-push-policy false positives the 2026-11-15..23 audit found after the 17/11 fix: every
+ * `fp` entry was refused although it runs no theme command and writes no theme file, and must now
+ * pass; every `tp` entry carries a real theme-CLI use, a theme write or a budgeted investigation and
+ * must stay refused, including the inline-program spawner forms next to the new `fp` rows. The
+ * entries are in test/fixtures/theme-policy/audit-261117-corpus.json.
  */
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
@@ -100,4 +102,35 @@ test("a refusal says what to do instead", () => {
   assert.match(edit.reason, /Instead: have a worker make the change/);
   const cli = guard.planLeaderToolCall({ toolName: "bash", input: { command: "hrv theme push --only a.liquid" }, cwd: plainDir }, { LEADER_JOBS_ROOT: jobsRoot });
   assert.match(cli.reason, /Instead: have a worker run it/);
+});
+
+test("an inline program is data only while no statement of it can start a process", () => {
+  const report = `node -e "\nconst fs=require('fs');const r={pushed:[]};r.pushed.push('theme 1001: hrv theme push --only a.liquid');fs.writeFileSync('r.md',JSON.stringify(r));\n"`;
+  assert.equal(policy.classifyThemeLine(report).decision, "none");
+  // Every way the program text reaches a process keeps the quoted CLI visible and the line refused.
+  for (const text of [
+    `node -e "require('child_process').execSync('hrv theme push')"`,
+    `node -e "const {execFileSync}=require('child_process');execFileSync('hrv',['theme','push'])"`,
+    `node -e "const m='child_'+'process';require(m).execSync('hrv theme push')"`,
+    `node -e "eval('hrv theme push')"`,
+    `node -e "require('fs').writeFileSync('probe.mjs','hrv theme push')"`,
+    `bun -e "require('child_process').execSync('hrv theme push')"`,
+  ]) {
+    assert.equal(policy.classifyThemeLine(text).code, "REFUSED_THEME_COMPLEX", text);
+  }
+});
+
+test("an eval cell hands the CLI over only from a statement that starts a process", () => {
+  const store = [
+    "import subprocess",
+    "r = {'pushed': [], 'evidence': []}",
+    'r["pushed"].append("theme 1001: hrv theme push --only a.liquid")',
+    'r["evidence"].insert(0, "hrv theme fetch --only a.scss")',
+    'r["notChecked"] = ["hrv theme dev not used (live theme)"]',
+    "print(r)",
+  ].join("\n");
+  assert.equal(policy.planEvalThemeCode(store).decision, "allow");
+  // The same text handed to a process - or a record field handed on - is refused.
+  assert.equal(policy.planEvalThemeCode(`${store}\nsubprocess.run(['hrv', 'theme', 'push'])`).decision, "block");
+  assert.equal(policy.planEvalThemeCode("import os\nos.system('hrv theme publish 1')").decision, "block");
 });

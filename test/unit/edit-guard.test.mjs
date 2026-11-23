@@ -35,7 +35,7 @@ const load = (name) => import(pathToFileURL(path.join(TEMP, `${name}.mts`)).href
 const mode = await load("edit-mode");
 const paths = await load("theme-paths");
 const policy = await load("edit-guard-policy");
-const { default: editGuardHook } = await load("edit-guard");
+const { default: editGuardHook, CLI_DEADLINE_ENV, themeCliDeadlineMs } = await load("edit-guard");
 
 const {
   deriveEditMode,
@@ -923,6 +923,51 @@ test("settings_data.json write is refused when the scoped fetch fails, and retri
     ctx,
   );
   assert.deepEqual(other, [], "only settings_data.json is gated on the fetch");
+});
+
+test("a CLI probe runs under the guard's own deadline, clamped inside the host's hook budget", async () => {
+  assert.equal(themeCliDeadlineMs({}), 15_000, "the production deadline leaves half the 30 s hook budget");
+  assert.equal(themeCliDeadlineMs({ [CLI_DEADLINE_ENV]: "2000" }), 2_000);
+  assert.equal(themeCliDeadlineMs({ [CLI_DEADLINE_ENV]: "1" }), 1_000, "a tiny value is lifted to the floor");
+  assert.equal(themeCliDeadlineMs({ [CLI_DEADLINE_ENV]: "600000" }), 20_000, "no setting outlasts the hook budget");
+  assert.equal(themeCliDeadlineMs({ [CLI_DEADLINE_ENV]: "abc" }), 15_000);
+
+  const root = makeThemeWorkspace();
+  bindShop(root);
+  const deadlineAtLoad = process.env[CLI_DEADLINE_ENV];
+  const commandAtLoad = process.env[HRV_COMMAND_ENV];
+  // A CLI that never answers: without its own deadline the guard would hang here until the host kills
+  // the hook at 30 s, and the write it was guarding would run unwatched.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "hrv-hang-"));
+  const script = path.join(dir, "hrv.mjs");
+  fs.writeFileSync(script, "setTimeout(() => {}, 20000);\n");
+  process.env[CLI_DEADLINE_ENV] = "1000";
+  process.env[HRV_COMMAND_ENV] = `"${process.execPath}" "${script}"`;
+  try {
+    const hook = makeHook();
+    editGuardHook(hook.pi);
+    const ctx = hook.context(root, "sess-settings-deadline");
+    await hook.emit("session_start", {}, ctx);
+    await hook.emit("before_agent_start", { prompt: "no tag here" }, ctx);
+
+    const started = Date.now();
+    const blocked = await hook.emit("tool_call", SETTINGS_WRITE, ctx);
+    const elapsed = Date.now() - started;
+    assert.equal(blocked.length, 1);
+    assert.equal(blocked[0].block, true, "a fetch that cannot finish still refuses the write");
+    assert.ok(blocked[0].reason.includes("REFUSED_SETTINGS_DATA_FETCH_FAILED"), blocked[0].reason);
+    assert.ok(blocked[0].reason.includes("timed out after 1000 ms"), `the refusal names the guard's deadline: ${blocked[0].reason}`);
+    assert.ok(elapsed < 10_000, `the guard answered at its deadline instead of waiting for the CLI (${elapsed} ms)`);
+    assert.deepEqual(
+      readLog(root, "sess-settings-deadline").map((row) => `${row.decision}:${row.code}`),
+      ["block:REFUSED_SETTINGS_DATA_FETCH_FAILED"],
+    );
+  } finally {
+    if (commandAtLoad === undefined) delete process.env[HRV_COMMAND_ENV];
+    else process.env[HRV_COMMAND_ENV] = commandAtLoad;
+    if (deadlineAtLoad === undefined) delete process.env[CLI_DEADLINE_ENV];
+    else process.env[CLI_DEADLINE_ENV] = deadlineAtLoad;
+  }
 });
 
 test("settings_data.json write in a workspace with no bound shop passes without a fetch", async () => {

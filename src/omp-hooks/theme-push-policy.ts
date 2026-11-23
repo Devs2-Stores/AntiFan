@@ -1340,8 +1340,14 @@ function shellSegments(text: string): ShellSegment[] {
   for (let i = 0; i < text.length; i += 1) {
     const ch = text.charAt(i);
     if (quote !== null) {
-      if (ch === quote) quote = null;
-      current += ch;
+      // Inside double quotes and backticks a backslash escapes the next character, so `\"` does not end the string and a `|` after it is still quoted data.
+      if (ch === "\\" && quote !== "'") {
+        current += ch + text.charAt(i + 1);
+        i += 1;
+      } else {
+        if (ch === quote) quote = null;
+        current += ch;
+      }
     } else if (ch === "\\") {
       current += ch + text.charAt(i + 1);
       i += 1;
@@ -1790,7 +1796,12 @@ const HEREDOC_DATA_CONSUMERS: Record<string, true> = Object.fromEntries(
 const PYTHON_CONSUMERS: Record<string, true> = { python: true, python3: true, py: true };
 /** Modules whose import cannot start a process or load code by name. */
 const PYTHON_SAFE_MODULES = new Set("re json sys io pathlib collections datetime urllib.parse textwrap itertools csv hashlib base64 string math typing functools time".split(" "));
-const PYTHON_DANGER_RE = /__|\bgetattr\b|\bsetattr\b|\bglobals\b|\blocals\b|\bvars\b|\bcompile\b|\bbreakpoint\b|\bimportlib\b|\bexec\s*\(|\beval\s*\(|\bsystem\s*\(|\bpopen\s*\(|\bspawn\w*\s*\(/;
+/**
+ * Python source that can start a process or reach code by a name it computes. A method call on an
+ * attribute (`m.exec(...)`, `pattern.exec(...)`) is not Python's `exec` builtin and starts nothing:
+ * only a bare `exec(` counts, so JS source quoted inside a Python string keeps it inert.
+ */
+const PYTHON_DANGER_RE = /__|\bgetattr\b|\bsetattr\b|\bglobals\b|\blocals\b|\bvars\b|\bcompile\b|\bbreakpoint\b|\bimportlib\b|(?<![.\w])exec\s*\(|\beval\s*\(|\bsystem\s*\(|\bpopen\s*\(|\bspawn\w*\s*\(/;
 const HEREDOC_STICKY_RE = /<<(-?)[ \t]*(?:(["'])([A-Za-z_][\w.-]*)\2|(\\?)([A-Za-z_][\w.-]*))/y;
 /** A construct that runs text outside the reading this module does: `|&`, process substitution `>( )` / `<( )`. */
 const OPAQUE_FLOW_RE = /\|&|[<>]\(/;
@@ -1798,7 +1809,15 @@ const SHELLISH_HEADS: Record<string, true> = Object.fromEntries(
   "bash sh zsh dash ksh source . eval exec cmd powershell pwsh start-process saps call xargs".split(" ").map((name) => [name, true]),
 );
 const SCRIPT_OPERAND_RE = /\.(?:mjs|cjs|js|py|ts)$/i;
+/** A script file named inside a program: one that names it can rewrite it into a command line. */
+const SCRIPT_FILE_RE = /[\w-]\.(?:mjs|cjs|js|ts|py|sh|ps1|bat|cmd)(?![\w])/i;
 const SCRIPT_RUNNERS: Record<string, true> = { node: true, python: true, python3: true, py: true, bun: true, deno: true };
+/** Interpreters whose `-e` / `-p` argument is JS source. */
+const JS_CONSUMERS: Record<string, true> = { node: true, bun: true, deno: true };
+/** Modules an inline JS program may require by literal name: none of them starts a process. */
+const JS_SAFE_MODULES = new Set("fs path os url util events crypto zlib stream buffer string_decoder readline assert querystring timers".split(" "));
+/** Ways an inline JS program reaches code or a module it does not spell: eval, the Function constructor, dynamic import, a native binding. */
+const JS_DYNAMIC_RE = /\beval\s*\(|\bFunction\s*\(|\bimport\b|\bconstructor\b|\bbinding\b|\bmainModule\b|\bdlopen\b|\bglobalThis\b/;
 const CODE_FLAG_RE = /^-(?:c|e|p|-eval|-print)$/;
 /** The Leader's own scripts: a file of this repo that takes the quoted text as an argument, never as a command. */
 const LEADER_SCRIPT_RE = /(?:^|[\\/])scripts[\\/]leader[\\/][\w.-]+\.mjs$/i;
@@ -1819,6 +1838,54 @@ function pythonSourceIsInert(source: string): boolean {
   }
   for (const match of source.matchAll(/\bfrom\s+([\w.]+)\s+import\b/g)) if (!PYTHON_SAFE_MODULES.has(match[1] ?? "")) return false;
   return true;
+}
+
+/**
+ * JS source that cannot start a process and cannot load code it does not spell: no spawner
+ * (`child_process`, `spawn(`, `exec*(`, `Bun.$`, `Deno.run`), no eval / Function / dynamic import /
+ * native binding, and every `require(...)` names a module of the allow-list as a literal.
+ */
+function jsSourceIsInert(source: string): boolean {
+  if (codeCanRun(source) || JS_DYNAMIC_RE.test(source)) return false;
+  const calls = source.match(/\brequire\s*\(/g)?.length ?? 0;
+  const literal = [...source.matchAll(/\brequire\s*\(\s*(["'])([^"'\\]*)\1\s*\)/g)];
+  if (literal.length !== calls) return false;
+  return literal.every((match) => JS_SAFE_MODULES.has((match[2] ?? "").replace(/^node:/, "").split("/")[0] ?? ""));
+}
+
+/**
+ * The text a program receives from one shell-quoted word: the body of `'...'` as typed, or of
+ * `"..."` with the escapes bash applies (`\"`, `\\`, `` \` ``, `\$`, `\<newline>`). Null when the
+ * word is not one quoted string, and null for a double-quoted body the shell still substitutes or
+ * runs (an unescaped `$` or backtick), because then the text the program reads is not the text here.
+ */
+function inlineCodeText(token: string): string | null {
+  const open = token.charAt(0);
+  if ((open !== '"' && open !== "'") || token.length < 2 || token.charAt(token.length - 1) !== open) return null;
+  const body = token.slice(1, -1);
+  if (open === "'") return body;
+  let out = "";
+  for (let i = 0; i < body.length; i += 1) {
+    const ch = body.charAt(i);
+    if (ch === "\\") {
+      const next = body.charAt(i + 1);
+      if (next === "\r" && body.charAt(i + 2) === "\n") {
+        i += 2;
+      } else if (next === "\n") {
+        i += 1;
+      } else if (next === '"' || next === "\\" || next === "`" || next === "$") {
+        out += next;
+        i += 1;
+      } else {
+        out += ch;
+      }
+    } else if (ch === "$" || ch === "`") {
+      return null;
+    } else {
+      out += ch;
+    }
+  }
+  return out;
 }
 
 /** The bare command word that a `<<TAG` feeds (no path, no extension), or "" when it is not one. */
@@ -1862,7 +1929,8 @@ function runsShellOrFile(text: string): boolean {
  * holding prose about `hrv theme push` runs nothing. Fail-closed: only a `<<TAG` outside quotes and
  * comments counts, it must be the only one on its line and have a terminator line; the consumer is a
  * bare word of the data-program table that the line does not redefine; an unquoted delimiter whose
- * body expands a command, a Python body that is not provably inert, a line with `|&` / `>(` / `<(`,
+ * body expands a command, a Python body that is not provably inert or that names the theme-binding
+ * file (which it can rewrite), a line with `|&` / `>(` / `<(`,
  * an opening line that goes on into a pipe or another command, and a line that also runs a shell or a
  * script file leave the text as it is.
  */
@@ -1924,7 +1992,7 @@ export function maskHeredocBodies(text: string): string {
         !redefinesCommand(text, consumer) &&
         !/[|;&`<>$\\]/.test(openingTail) &&
         (quoted || !/\$\(|`/.test(body)) &&
-        (PYTHON_CONSUMERS[consumer] !== true || pythonSourceIsInert(body));
+        (PYTHON_CONSUMERS[consumer] !== true || (pythonSourceIsInert(body) && !BINDING_FILE_RE.test(body)));
       if (masks) {
         out = blankOut(out, bodyStart, bodyEnd);
         i = bodyEnd - 1;
@@ -2010,14 +2078,28 @@ function maskInertSegment(segment: string, variableHeads: Record<string, string>
     if (name === "git" && (gitMayRunConfiguredCommand(rest.map((token) => token.text)) || !gitSubcommandIsInert(rest.map((token) => token.text)))) return segment;
     from = headToken.start + headToken.text.length;
   } else if (SCRIPT_RUNNERS[name] === true) {
-    const script = rest.find((token) => !token.text.startsWith("-") && !CODE_FLAG_RE.test(token.text));
-    if (rest.some((token) => CODE_FLAG_RE.test(token.text))) {
-      // Only Python code that is provably inert is text; node, bun and deno code is never masked.
-      if (PYTHON_CONSUMERS[name] !== true) return segment;
-      from = headToken.start + headToken.text.length;
-      keep = (content) => !pythonSourceIsInert(content);
-    } else if (script !== undefined && LEADER_SCRIPT_RE.test(script.text.replace(/^["']|["']$/g, ""))) {
-      from = script.start + script.text.length;
+    const codeAt = rest.findIndex((token) => CODE_FLAG_RE.test(token.text));
+    if (codeAt >= 0) {
+      if (PYTHON_CONSUMERS[name] === true) {
+        from = headToken.start + headToken.text.length;
+        keep = (content) => !pythonSourceIsInert(content);
+      } else if (JS_CONSUMERS[name] === true) {
+        // An inline JS program that cannot start a process treats its text as data: `node -e` that
+        // reads a report and writes it back names the CLI in a field, it runs nothing. A program that
+        // names a script file is not text-only - it can plant a command line in that file - so its
+        // text stays visible.
+        const inline = rest[codeAt + 1];
+        const code = inline === undefined ? null : inlineCodeText(inline.text);
+        if (inline === undefined || code === null || !jsSourceIsInert(code) || SCRIPT_FILE_RE.test(code)) return segment;
+        return blankOut(segment, inline.start, inline.start + inline.text.length);
+      } else {
+        return segment;
+      }
+    } else {
+      const script = rest.find((token) => !token.text.startsWith("-"));
+      if (script !== undefined && LEADER_SCRIPT_RE.test(script.text.replace(/^["']|["']$/g, ""))) {
+        from = script.start + script.text.length;
+      }
     }
   }
   if (from < 0) return segment;
@@ -2237,10 +2319,16 @@ function shellCommandHit(text: string, depth = 0): boolean {
   );
 }
 
-/** A statement that only prints, logs or stores its string (`print(...)`, `console.log(...)`, `rows.append(...)`) and starts no process. */
+/**
+ * A statement that only prints, logs or stores its string (`print(...)`, `console.log(...)`,
+ * `rows.append(...)`, `rows.insert(0, ...)`, `report['pushed'] = ["..."]`) and starts no process.
+ */
 function isInertSink(statement: string): boolean {
   if (SUBPROCESS_RE.test(statement)) return false;
-  return /^\s*(?:print|console\.\w+)\s*\(/.test(statement) || /^\s*[\w.[\]"']+\.(?:append|push|write|extend|add)\s*\(/.test(statement);
+  if (/^\s*(?:print|console\.\w+)\s*\(/.test(statement)) return true;
+  if (/^\s*[\w.[\]"']+\.(?:append|push|insert|write|extend|add)\s*\(/.test(statement)) return true;
+  // A container literal stored into a named field of a record (`report['pushed'] = ["..."]`) builds data; the statement is not a call.
+  return /^\s*[\w.[\]"']+\[\s*["'][^"'\r\n]*["']\s*\]\s*=\s*[[({]/.test(statement);
 }
 
 /**

@@ -3,6 +3,12 @@
  * `mcp__playwright_*` tool is refused until the same session has seen an AntiFan call fail with a code
  * that section lets an agent fall back on, or the AntiFan MCP report that it is not connected.
  *
+ * The refusal names the AntiFan call for the target the call addresses: `anti.browser.navigate` with
+ * the same `file:` URL for a file inside the session workspace, a folder served over
+ * `http://127.0.0.1:<port>` for a file outside it, and `anti.browser.navigate` with the same URL for a
+ * loopback page. The text never unlocks anything: every Playwright call stays refused until a real
+ * AntiFan failure, whatever it targets.
+ *
  * The session's own tool results are what the hook reads: `tool_result` carries the tool name, the
  * input and the content, so an AntiFan call is recognised whether it is a direct `mcp__antifan_*`
  * tool call, a `write xd://mcp__antifan_*`, or an `eval` cell that calls `tool.mcp__antifan_*`. The
@@ -12,6 +18,9 @@
  * It only applies inside an AntiFan terminal (every one carries `ANTIFAN_TERMINAL_SESSION_ID`): a
  * session with no AntiFan around has nothing to fall back from. A hook failure never blocks a call.
  */
+
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 
 /** Codes AGENTS.md section 3.1 names as a reason to use Playwright, plus NO_RENDER_SURFACE from the 02/11/2026 Reaudit outage. */
 export const FALLBACK_CODES = [
@@ -167,11 +176,79 @@ function antifanEquivalent(surface: string): string {
   return "the matching anti.* tool";
 }
 
-function playwrightRefusal(surface: string): string {
+/** The same order `control-plane-runtime.ts` reads for a session's workspace folder. */
+const WORKSPACE_ROOT_ENVS = ["THEME_WORKSPACE_ROOT", "ANTIFAN_WORKSPACE_ROOT", "WORKSPACE_ROOT"] as const;
+const TARGET_URL_RE = /\b(?:file|https?):\/\/[^\s"'`<>|)\\]+/gi;
+const LOOPBACK_HOST_RE = /^(?:127(?:\.\d{1,3}){3}|localhost|\[::1\])(?::\d{1,5})?$/i;
+
+/** The workspace folder of this session, normalised for comparison; null when none is set. */
+function workspaceRoot(): string | null {
+  for (const name of WORKSPACE_ROOT_ENVS) {
+    const value = (process.env[name] ?? "").trim();
+    if (value.length > 0) return path.resolve(value).replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+  }
+  return null;
+}
+
+function insideRoot(root: string, target: string): boolean {
+  const normal = path.resolve(target).replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+  return normal === root || normal.startsWith(`${root}/`);
+}
+
+/**
+ * The URL a refused Playwright call addresses, as one sentence naming the AntiFan call that opens it:
+ * `anti.browser.navigate` with the same `file:` URL when the file is in the session workspace, a
+ * `http://127.0.0.1:<port>` folder served by the caller when it is outside, and `anti.browser.navigate`
+ * with the same URL for a loopback page. Empty when the call names no such target (a screenshot, a
+ * resize, a plain evaluate), so those refusals keep their text.
+ */
+function targetClause(event: HookEvent): string {
+  let text = callSurface(event);
+  try {
+    text = `${JSON.stringify(recordOf(event.input ?? event.args))}\n${text}`;
+  } catch {
+    /* an input that will not serialise is still read through the surface text */
+  }
+  const targets = [...new Set(text.slice(0, 8000).match(TARGET_URL_RE) ?? [])];
+  let loopback: { url: string } | null = null;
+  for (const target of targets) {
+    let parsed: URL;
+    try {
+      parsed = new URL(target);
+    } catch {
+      continue;
+    }
+    if (parsed.protocol !== "file:") {
+      if (loopback === null && LOOPBACK_HOST_RE.test(parsed.host)) loopback = { url: target };
+      continue;
+    }
+    let local: string;
+    try {
+      local = fileURLToPath(parsed);
+    } catch {
+      continue;
+    }
+    const root = workspaceRoot();
+    if (root !== null && insideRoot(root, local)) {
+      return `The target ${target} is a local file inside the session workspace, so anti.browser.navigate {url: "${target}"} opens it in AntiFan's own Chromium.`;
+    }
+    const folder = path.dirname(local).replace(/\\/g, "/");
+    const name = path.basename(local);
+    const where = root === null ? "no workspace root is set for this session" : `${root} is the session workspace`;
+    return `The target ${target} is a local file outside the session workspace (${where}), which anti.browser.navigate will not open: serve ${folder} over http://127.0.0.1:<port> (for example python -m http.server 8765 run there) and open http://127.0.0.1:<port>/${name} with anti.browser.navigate.`;
+  }
+  return loopback === null
+    ? ""
+    : `The target ${loopback.url} is a loopback address, so anti.browser.navigate {url: "${loopback.url}"} opens the same page in AntiFan's own Chromium.`;
+}
+
+function playwrightRefusal(surface: string, clause: string): string {
   const name = /mcp__playwright_\w+/i.exec(surface)?.[0] ?? "mcp__playwright_*";
   return (
     `${PLAYWRIGHT_GATE_CODES.ANTIFAN_FIRST}: ${name} is the fallback surface (AGENTS.md section 3.1) and this session has not seen AntiFan fail. ` +
-    `Use ${antifanEquivalent(name)} through the antifan-browser MCP first. Playwright is allowed once an AntiFan call fails with ${FALLBACK_CODES.join(", ")}, or the AntiFan MCP reports it is not connected; ` +
+    `Use ${antifanEquivalent(name)} through the antifan-browser MCP first.` +
+    (clause.length > 0 ? ` ${clause}` : "") +
+    ` Playwright is allowed once an AntiFan call fails with ${FALLBACK_CODES.join(", ")}, or the AntiFan MCP reports it is not connected; ` +
     `then record the reason with anti.telemetry.record_fallback.`
   );
 }
@@ -197,7 +274,7 @@ export default function playwrightGate(pi: GatePi): void {
       if (typeof terminal !== "string" || terminal.trim().length === 0) return undefined;
       const surface = callSurface(event);
       if (!PLAYWRIGHT_RE.test(surface) || unlocked.has(sessionIdOf(ctx))) return undefined;
-      return { block: true, reason: playwrightRefusal(surface) };
+      return { block: true, reason: playwrightRefusal(surface, targetClause(event)) };
     } catch {
       return undefined;
     }

@@ -130,8 +130,43 @@ function writeJob(name, { terminal = LEADER, state = "dispatched", rounds = [{ n
 const workerRounds = (...terminals) => terminals.map((worker, index) => ({ n: index + 1, worker: { terminal: worker } }));
 
 /** The Manager keeps a run file for every open terminal and removes it when the terminal closes. */
-const openTerminal = (terminal, state = "idle") =>
-  fs.writeFileSync(path.join(runsDir, `${terminal}.json`), JSON.stringify({ schema: 1, terminalSessionId: terminal, state, runSeq: 1 }));
+const openTerminal = (terminal, state = "idle", cwd) =>
+  fs.writeFileSync(
+    path.join(runsDir, `${terminal}.json`),
+    JSON.stringify({ schema: 1, terminalSessionId: terminal, state, runSeq: 1, ...(cwd === undefined ? {} : { cwd }) }),
+  );
+
+/** A `leader-report/1` file: the status line, prose, and exactly one fenced JSON block. */
+function reportText(body = {}, status = "DONE") {
+  return [`STATUS: ${status}`, "", "```json", JSON.stringify({ schema: "leader-report/1", ...body }), "```", ""].join("\n");
+}
+
+/**
+ * A job of this Leader whose round-1 worker ran in `workerCwd` and wrote `report`. `leaderQa: null`
+ * leaves the marker out (a job started before the Leader-QA model).
+ */
+function writeQaJob({ leaderQa = 1, state = "reported", worker = "terminal-12", workerCwd = themeRoot, report = reportText() } = {}) {
+  const name = "261123-1200-handover";
+  const dir = path.join(jobsRoot, name);
+  fs.mkdirSync(dir, { recursive: true });
+  const reportPath = path.join(dir, "handover.report.md");
+  fs.writeFileSync(
+    path.join(dir, "job.json"),
+    JSON.stringify({
+      schema: "leader-job/1",
+      job: name,
+      leader: { terminal: LEADER, ompSessionId: "s" },
+      subject: { kind: "feedback", issueId: "1", host: "Taiz", shop: "shop.example", sheetId: "S" },
+      profile: "haravan",
+      ...(leaderQa === null ? {} : { leaderQa }),
+      state,
+      rounds: [{ n: 1, kind: "work", worker: { terminal: worker }, reportPath: slash(reportPath) }],
+    }),
+  );
+  if (report !== null) fs.writeFileSync(reportPath, report);
+  openTerminal(worker, "idle", workerCwd);
+  return { dir: slash(dir), reportPath };
+}
 
 function assertRefused(result, code) {
   assert.ok(result, `expected a refusal ${code}, got ${JSON.stringify(result)}`);
@@ -779,6 +814,97 @@ test("exact reads are limited per dispatch window and a dispatch restores both a
   await spendBudget(hook);
   for (let i = 0; i < 8; i += 1) assert.equal(await hook.call("read", { path: small }), undefined, `exact read ${i + 1} after dispatch`);
   assertInvestigateRefused(await hook.call("read", { path: small }));
+});
+
+// --- files a Leader-QA report hands over -------------------------------------------------------
+
+/**
+ * Spends the eight exact single-file reads of the window, so the next filed read is charged: only the
+ * hand-over rule can still make it free. Call after `spendBudget`.
+ */
+async function exhaustExactReads(hook) {
+  const filler = exactFile("filler.txt");
+  for (let i = 0; i < 8; i += 1) assert.equal(await hook.call("read", { path: filler }), undefined, `filler read ${i + 1}`);
+}
+
+test("a leaderQa job's newest report makes read and grep of the handed-over files free", async () => {
+  const hero = path.join(themeRoot, "sections", "hero.liquid");
+  const css = path.join(plainDir, "app.css");
+  fs.writeFileSync(css, "body{}\n");
+  const backup = path.join(themeRoot, "backup", "hero.liquid");
+  fs.mkdirSync(path.dirname(backup), { recursive: true });
+  fs.writeFileSync(backup, "<div></div>\n");
+  writeQaJob({
+    report: reportText({
+      files: ["sections/hero.liquid", slash(css)],
+      handover: {
+        checks: [{ url: "https://shop.example/?themeid=1", viewport: "375x812", selector: ".hero", expect: "visible" }],
+        backup: slash(backup),
+        risks: ["the slider still crops at 320"],
+      },
+    }),
+  });
+  const hook = makeHook();
+  await spendBudget(hook);
+  for (const target of [hero, `${slash(hero)}:1-10`, `${slash(hero)}:2-3:raw`, slash(css), slash(backup)]) {
+    assert.equal(await hook.call("read", { path: target }), undefined, `the report handed over ${target}`);
+  }
+  assert.equal(await hook.call("grep", { pattern: "div", path: hero }), undefined, "grep of a handed-over file");
+  assert.equal(await hook.call("grep", { pattern: "div", path: `${slash(hero)};${slash(css)}` }), undefined, "grep of several handed-over files");
+  assertInvestigateRefused(await hook.call(...investigations()[4]), "the free reads spent nothing");
+
+  // Only the listed files, only as files: everything else still spends and is blocked.
+  await exhaustExactReads(hook);
+  assert.equal(await hook.call("read", { path: hero }), undefined, "the hand-over is free even past the exact-read allowance");
+  const other = path.join(themeRoot, "assets", "other.css");
+  fs.writeFileSync(other, "x{}\n");
+  assertInvestigateRefused(await hook.call("read", { path: other }), "a file the report does not name");
+  assertInvestigateRefused(await hook.call("read", { path: path.join(themeRoot, "sections") }), "a directory never qualifies");
+  assertInvestigateRefused(await hook.call("read", { path: `${slash(themeRoot)}/sections/*.liquid` }), "a glob never qualifies");
+  assertInvestigateRefused(await hook.call("grep", { pattern: "x", path: themeRoot }), "grep over the whole workspace");
+  assertInvestigateRefused(await hook.call("bash", { command: `cat ${slash(hero)}` }), "a shell read is not a read tool");
+});
+
+test("the same handed-over path is charged for a job without leaderQa", async () => {
+  const hero = path.join(themeRoot, "sections", "hero.liquid");
+  writeQaJob({ leaderQa: null, report: reportText({ files: ["sections/hero.liquid"] }) });
+  const hook = makeHook();
+  await spendBudget(hook);
+  await exhaustExactReads(hook);
+  assertInvestigateRefused(await hook.call("read", { path: hero }));
+  assertInvestigateRefused(await hook.call("grep", { pattern: "div", path: hero }));
+});
+
+test("a report whose files the tool does not name, or a path outside the job's workspace, is charged", async () => {
+  const hero = path.join(themeRoot, "sections", "hero.liquid");
+  const outside = path.join(tempDir("leader-elsewhere-"), "hero.liquid");
+  fs.writeFileSync(outside, "<div></div>\n");
+  writeQaJob({ report: reportText({ files: ["sections/hero.liquid"] }) });
+  const hook = makeHook();
+  await spendBudget(hook);
+  await exhaustExactReads(hook);
+  assertInvestigateRefused(await hook.call("read", { path: outside }), "another folder's file of the same name");
+  const sameFile = makeHook();
+  await spendBudget(sameFile);
+  await exhaustExactReads(sameFile);
+  assert.equal(await sameFile.call("read", { path: hero }), undefined, "the same file under the worker's folder is free");
+});
+
+test("a missing or unparsable newest report hands over nothing", async () => {
+  const hero = path.join(themeRoot, "sections", "hero.liquid");
+  for (const report of [
+    null,
+    "STATUS: DONE\n\nno fenced block here\n",
+    "STATUS: DONE\n\n```json\n{\"files\":[\"sections/hero.liquid\"]\n```\n",
+    ["STATUS: DONE", "", "```json", "{}", "```", "", "```json", "{}", "```", ""].join("\n"),
+    "no status line\n\n```json\n{\"files\":[\"sections/hero.liquid\"]}\n```\n",
+  ]) {
+    writeQaJob({ report });
+    const hook = makeHook();
+    await spendBudget(hook);
+    await exhaustExactReads(hook);
+    assertInvestigateRefused(await hook.call("read", { path: hero }), `report ${JSON.stringify(report)} hands over nothing`);
+  }
 });
 
 const SHELL_PANE = { written: true, woke: false, writtenAt: 1 };

@@ -42,7 +42,12 @@
  *   and dashboard (`anti.browser.evaluate|navigate|tabs.*|wait|set_viewport`, `anti.inspect.*`, `anti.screenshot.*`,
  *   `anti.qa.*`, `anti.visual.compare`) are never counted, whatever the job state, and neither is reading a
  *   screenshot image: only the tools that read local files and shell/eval file reads are budgeted, so reading
- *   theme or app source stays blocked exactly as before.
+ *   theme or app source stays blocked exactly as before. One exception follows from the same model: when an open
+ *   job of this Leader carries `leaderQa` and its newest report lists the files the worker changed (`files[]`,
+ *   `handover.backup`, the paths inside `handover.checks`), a `read`/`grep` of exactly those existing files is
+ *   free - that report is what the Leader was told to review. A directory, a glob, a URL, an unlisted path, an
+ *   unreadable or unparsable report, or a job without `leaderQa` counts as before. The refusal also points at
+ *   `E:/Work/scratch/leader/`, where the Leader's own scratch files are free to read.
  *   Only a session with a UI is budgeted: a subagent the Leader spawns (no UI, same env) is not,
  *   though the write boundary above still applies to it.
  *
@@ -162,6 +167,15 @@ export interface OpenJob {
   dir: string;
   state: string;
   lastRound: number;
+  /**
+   * The job was started under the Leader-QA model (`job.leaderQa`): the worker only edits and hands
+   * over, the Leader reviews the result itself, so the files a report lists are the Leader's to read.
+   */
+  leaderQa: boolean;
+  /** The report file of every round, oldest first; the newest one on disk is the current hand-over. */
+  reportPaths: string[];
+  /** The worker terminal of the newest round, whose run file names the directory the job works in. */
+  workerTerminal: string | null;
 }
 
 /**
@@ -182,14 +196,28 @@ export function findOpenJobs(terminalId: string, env: Env = process.env): OpenJo
       const job = JSON.parse(fs.readFileSync(path.join(root, name, JOB_FILE), "utf8")) as {
         leader?: { terminal?: unknown };
         state?: unknown;
-        rounds?: Array<{ n?: unknown }>;
+        leaderQa?: unknown;
+        rounds?: Array<{ n?: unknown; reportPath?: unknown; worker?: { terminal?: unknown } }>;
       };
       if (job?.leader?.terminal !== terminalId) continue;
       const state = job.state;
       if (typeof state !== "string" || OPEN_JOB_STATES[state] !== true) continue;
       const rounds = Array.isArray(job.rounds) ? job.rounds : [];
       const lastN = rounds.length > 0 ? Number(rounds[rounds.length - 1]?.n) : NaN;
-      open.push({ dir: path.join(root, name).replace(/\\/g, "/"), state, lastRound: Number.isFinite(lastN) && lastN > 0 ? lastN : 1 });
+      const lastRound = Number.isFinite(lastN) && lastN > 0 ? lastN : 1;
+      const reportPaths = rounds
+        .map((round) => round?.reportPath)
+        .filter((file): file is string => typeof file === "string" && file.trim().length > 0)
+        .map((file) => file.trim());
+      const lastWorker = rounds[rounds.length - 1]?.worker?.terminal;
+      open.push({
+        dir: path.join(root, name).replace(/\\/g, "/"),
+        state,
+        lastRound,
+        leaderQa: job.leaderQa === 1 || job.leaderQa === true,
+        reportPaths,
+        workerTerminal: typeof lastWorker === "string" && TERMINAL_ID_RE.test(lastWorker) ? lastWorker : null,
+      });
     } catch {
       /* unreadable or corrupt job.json: fail open */
     }
@@ -1000,10 +1028,164 @@ export function isExactFileRead(
   }
 }
 
+/** A report's first line, as `scripts/leader/report.mjs` requires it. */
+const REPORT_STATUS_RE = /^STATUS:\s*(?:DONE|PENDING|NEEDS_INPUT|FAILED)\s*$/;
+/** The single ```json fence of a report (the validator rejects zero and several). */
+const REPORT_JSON_RE = /^[ \t]{0,3}```json[ \t]*\r?\n([\s\S]*?)\r?\n[ \t]{0,3}```[ \t]*$/gm;
+
+/** The `leader-report/1` object of a report file, or null when the file is not one. */
+function reportObject(text: string): Record<string, unknown> | null {
+  const src = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+  if (!REPORT_STATUS_RE.test(src.split(/\r?\n/, 1)[0] ?? "")) return null;
+  const blocks = [...src.matchAll(REPORT_JSON_RE)];
+  if (blocks.length !== 1) return null;
+  try {
+    const parsed: unknown = JSON.parse(blocks[0]?.[1] ?? "");
+    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A path as this guard compares it: absolute, one separator, case folded (the filesystem ignores case). */
+function pathKey(target: string): string {
+  return path.resolve(target).replace(/\\/g, "/").toLowerCase();
+}
+
+/** `E:/x/a.md:12-40:raw` -> `E:/x/a.md`: the read tool's line and raw selectors are not part of the name. */
+function withoutReadSelector(target: string): string {
+  let text = target.trim().replace(/^["'`]+|["'`]+$/g, "");
+  for (let next = text.replace(/:(?:raw|[\d,+-]+)$/i, ""); next !== text; next = text.replace(/:(?:raw|[\d,+-]+)$/i, "")) text = next;
+  return text;
+}
+
+/** True when a report string reads as a local path: a drive letter, UNC, `~`, a separator, or a bare file name with an extension. */
+function looksLikePath(text: string): boolean {
+  return (
+    /^[A-Za-z]:[\\/]/.test(text) ||
+    /^\\\\/.test(text) ||
+    /^~[\\/]/.test(text) ||
+    /[\\/]/.test(text) ||
+    /^[^\\/:*?"<>|\s]+\.[A-Za-z0-9]{1,8}$/.test(text)
+  );
+}
+
+/**
+ * The files a report hands over: `files[]`, `handover.backup` and every local path named inside a
+ * `handover.checks` entry. An absolute path stands as written; a relative one (a theme path such as
+ * `assets/slider.css`) is resolved against the directory the job's worker ran in, so it matches the
+ * file the worker actually edited and never another shop's copy of the same name.
+ */
+function handoverPaths(report: Record<string, unknown>, workspace: string | null): string[] {
+  const out: string[] = [];
+  const add = (value: unknown): void => {
+    if (typeof value !== "string") return;
+    const text = withoutReadSelector(value);
+    if (text.length === 0 || ANY_URI_RE.test(text) || /[*?[{]/.test(text) || !looksLikePath(text)) return;
+    const expanded = expandHome(text);
+    if (path.isAbsolute(expanded)) out.push(pathKey(expanded));
+    else if (workspace !== null) out.push(pathKey(path.resolve(workspace, expanded)));
+  };
+  if (Array.isArray(report.files)) for (const file of report.files) add(file);
+  const handover = record(report.handover);
+  add(handover.backup);
+  if (Array.isArray(handover.checks)) {
+    for (const check of handover.checks) {
+      for (const value of Object.values(record(check))) add(value);
+    }
+  }
+  return out;
+}
+
+/** The newest report file among `reportPaths` that exists, parsed; null when there is none or it does not parse. */
+function newestReportObject(reportPaths: string[]): Record<string, unknown> | null {
+  let newest: { path: string; mtimeMs: number } | null = null;
+  for (const file of reportPaths) {
+    try {
+      const stat = fs.statSync(file);
+      if (!stat.isFile()) continue;
+      if (newest === null || stat.mtimeMs > newest.mtimeMs) newest = { path: file, mtimeMs: stat.mtimeMs };
+    } catch {
+      /* a round whose report is not on disk yet */
+    }
+  }
+  if (newest === null) return null;
+  try {
+    return reportObject(fs.readFileSync(newest.path, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+/** The directory the job's newest worker ran in, from its OMP run file; null once that terminal is gone. */
+function jobWorkspace(workerTerminal: string | null, env: Env): string | null {
+  if (workerTerminal === null) return null;
+  try {
+    const run = JSON.parse(fs.readFileSync(path.join(leaderRunsDir(env), `${workerTerminal}.json`), "utf8")) as { cwd?: unknown } | null;
+    const cwd = typeof run?.cwd === "string" ? run.cwd.trim() : "";
+    return cwd.length > 0 ? path.resolve(expandHome(cwd)) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The files the open `leaderQa` jobs of this Leader handed over in their newest report (user,
+ * 23/11/2026: "Leader mới là người review/QA lại", so the Leader reading what a worker named is
+ * the review, not an investigation). Empty when there is no such job, no report on disk, the newest
+ * report does not parse, or a relative name has no workspace to resolve against: every one of those
+ * fails closed to the budget.
+ */
+export function handedOverFiles(terminalId: string, env: Env = process.env): Set<string> {
+  const out = new Set<string>();
+  for (const job of findOpenJobs(terminalId, env)) {
+    if (!job.leaderQa) continue;
+    const report = newestReportObject(job.reportPaths);
+    if (report === null) continue;
+    for (const key of handoverPaths(report, jobWorkspace(job.workerTerminal, env))) out.add(key);
+  }
+  return out;
+}
+
+/**
+ * True when a `read` or `grep` looks at exactly the files a `leaderQa` report handed over: every
+ * target is a literal local path (no glob, URL, internal URI or past OMP session) that resolves to
+ * one of them and exists as a regular file. A directory, a glob or a missing file is not a hand-over.
+ */
+export function isHandedOverRead(
+  params: { toolName: string; input: Record<string, unknown>; cwd: string },
+  env: Env = process.env,
+): boolean {
+  try {
+    const { tool, input } = resolveCall(params.toolName, record(params.input));
+    if (tool !== "read" && tool !== "grep") return false;
+    const targets = investigateTargets(tool, input, params.cwd);
+    if (targets.length === 0) return false;
+    const terminalId = env.ANTIFAN_TERMINAL_SESSION_ID?.trim();
+    if (!terminalId) return false;
+    const files = handedOverFiles(terminalId, env);
+    if (files.size === 0) return false;
+    return targets.every((target) => {
+      const text = withoutReadSelector(target);
+      if (text.length === 0 || ANY_URI_RE.test(text) || /[*?[{]/.test(text)) return false;
+      const abs = path.resolve(params.cwd, expandHome(text));
+      if (SESSIONS_PATH_RE.test(abs)) return false;
+      if (!files.has(pathKey(abs))) return false;
+      try {
+        return fs.statSync(abs).isFile();
+      } catch {
+        return false;
+      }
+    });
+  } catch {
+    return false;
+  }
+}
+
 function investigateRefusal(label: string, limit: number): LeaderRefusal {
   return {
     code: LEADER_GUARD_CODES.INVESTIGATE,
-    reason: `${LEADER_GUARD_CODES.INVESTIGATE}: ${INVESTIGATE_HAND_OFF} (${limit} lệnh điều tra đã dùng từ lần giao việc gần nhất - terminal.create một pane mới, hoặc terminal.write written:true có input/text kết thúc bằng xuống dòng hay message, từ ${LEADER_DISPATCH_MIN_CHARS} ký tự, vào pane đang chạy agent (hoặc dòng omp ... "@<file prompt>"); phím bấm, chữ ngắn, chữ chưa Enter hay chữ gõ vào shell trần không tính; đọc đúng một file cục bộ ≤ 2 MiB (không phải phiên cũ) miễn phí tối đa ${LEADER_EXACT_READ_LIMIT} lần mỗi lượt; lệnh bị chặn: ${label})`,
+    reason: `${LEADER_GUARD_CODES.INVESTIGATE}: ${INVESTIGATE_HAND_OFF} (${limit} lệnh điều tra đã dùng từ lần giao việc gần nhất - terminal.create một pane mới, hoặc terminal.write written:true có input/text kết thúc bằng xuống dòng hay message, từ ${LEADER_DISPATCH_MIN_CHARS} ký tự, vào pane đang chạy agent (hoặc dòng omp ... "@<file prompt>"); phím bấm, chữ ngắn, chữ chưa Enter hay chữ gõ vào shell trần không tính; đọc đúng một file cục bộ ≤ 2 MiB (không phải phiên cũ) miễn phí tối đa ${LEADER_EXACT_READ_LIMIT} lần mỗi lượt; file tạm của Leader đặt dưới ${LEADER_READ_ALLOW_ROOTS[0]}/ - đọc ở đó miễn phí; với job có job.leaderQa, read/grep đúng các file report bàn giao (files[], handover.backup, handover.checks) cũng miễn phí; lệnh bị chặn: ${label})`,
   };
 }
 
@@ -1132,7 +1314,11 @@ export default function leaderGuardHook(pi: GuardPi): void {
       // session that reports a UI is the Leader's own; an unclassifiable context fails open.
       const ownSession = record(ctx).hasUI === true;
       const label = ownSession ? investigationLabel(params) : null;
-      const refusal = planLeaderToolCall(params) ?? (label === null ? null : budget.spend(label, isExactFileRead(params)));
+      // A `leaderQa` report hands the Leader exactly the files it must review: reading those back is
+      // the review itself, so it spends nothing. Any other read keeps its budget.
+      const refusal =
+        planLeaderToolCall(params) ??
+        (label === null ? null : isHandedOverRead(params) ? null : budget.spend(label, isExactFileRead(params)));
       if (refusal === null) return undefined;
       warnSafely(pi, refusal.reason);
       return { block: true, reason: refusal.reason };
