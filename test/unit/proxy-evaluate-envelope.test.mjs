@@ -54,6 +54,14 @@ test('flags the bridge adds around a value travel beside it, not inside it', () 
     proxy.wrapEvaluateResult({ value: 'cut', truncated: true, truncatedReasons: ['depth'], surface: { probeTimedOut: true } }),
     { ok: true, value: 'cut', valueType: 'string', truncated: true, truncatedReasons: ['depth'], surface: { probeTimedOut: true } },
   );
+  // A clamped caller timeout is a fact about the evaluation too.
+  const clamp = { clamped: true, requestedTimeoutMs: 60000, timeoutMs: 29000, message: 'timeoutMs 60000 was clamped' };
+  assert.deepEqual(
+    proxy.wrapEvaluateResult({ value: { href: 'x' }, surface: { probeTimedOut: true }, ...clamp }),
+    { ok: true, value: { href: 'x' }, valueType: 'object', surface: { probeTimedOut: true }, ...clamp },
+  );
+  const pageClamp = { value: 1, clamped: 'no' };
+  assert.deepEqual(proxy.wrapEvaluateResult(pageClamp), { ok: true, value: pageClamp, valueType: 'object' });
   // Page data of the same family but another shape is not touched.
   const pageObject = { value: 1, surface: 'flat', extra: true };
   assert.deepEqual(proxy.wrapEvaluateResult(pageObject), { ok: true, value: pageObject, valueType: 'object' });

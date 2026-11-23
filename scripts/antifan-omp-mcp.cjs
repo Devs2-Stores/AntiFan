@@ -4256,13 +4256,15 @@ function evaluateValueType(value) {
   return type === 'string' || type === 'number' || type === 'boolean' ? type : 'object';
 }
 
-// The bridge reports two things about an evaluation next to the page's own value: the in-page
-// serializer cut it (`truncated`, `truncatedReasons`) or the tab never answered its render-surface
-// probe (`surface.probeTimedOut`); and a script that moved the page has no value at all
+// The bridge reports three things about an evaluation next to the page's own value: the in-page
+// serializer cut it (`truncated`, `truncatedReasons`), the tab never answered its render-surface
+// probe (`surface.probeTimedOut`), or the caller's `timeoutMs` was clamped to the ceiling (`clamped`,
+// `requestedTimeoutMs`, `timeoutMs`, `message`); and a script that moved the page has no value at all
 // (`navigated`, `newUrl`, `scriptMayHaveRun`). Wrapped whole they would sit inside `value`, mixed with
 // whatever object the script returned. They are recognised by their exact key set and value types, so
 // a page object that only resembles them stays page data.
-const BRIDGE_EVAL_FLAG_KEYS = new Set(['value', 'truncated', 'truncatedReasons', 'surface']);
+const BRIDGE_EVAL_CLAMP_KEYS = ['clamped', 'requestedTimeoutMs', 'timeoutMs', 'message'];
+const BRIDGE_EVAL_FLAG_KEYS = new Set(['value', 'truncated', 'truncatedReasons', 'surface', ...BRIDGE_EVAL_CLAMP_KEYS]);
 const NAVIGATED_EVAL_KEYS = new Set(['navigated', 'newUrl', 'scriptMayHaveRun']);
 
 function isPlainRecord(data) {
@@ -4281,7 +4283,9 @@ function isBridgeEvalFlags(data) {
   if (!keys.every((key) => BRIDGE_EVAL_FLAG_KEYS.has(key))) return false;
   const hasSurface = 'surface' in data;
   const hasTruncated = 'truncated' in data || 'truncatedReasons' in data;
-  if (!hasSurface && !hasTruncated) return false;
+  const hasClamp = BRIDGE_EVAL_CLAMP_KEYS.some((key) => key in data);
+  if (!hasSurface && !hasTruncated && !hasClamp) return false;
+  if (hasClamp && !(data.clamped === true && Number.isFinite(data.requestedTimeoutMs) && Number.isFinite(data.timeoutMs) && typeof data.message === 'string')) return false;
   if (hasSurface) {
     const surface = data.surface;
     if (!isPlainRecord(surface) || Object.keys(surface).length !== 1 || surface.probeTimedOut !== true) return false;
