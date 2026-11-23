@@ -7283,6 +7283,8 @@ export class BrowserControlPort {
       clear?: boolean;
       deltaY?: number;
       settleMs?: number;
+      /** Caller-chosen attribution window from the action marker; unset derives it from the settle. */
+      attributionWindowMs?: number;
       tabId?: string;
       paneId?: 'desktop' | 'mobile';
       motionSpec?: {
@@ -7889,7 +7891,15 @@ export class BrowserControlPort {
       } else {
         const pageActionStart = rawMotion.actionStartT;
         const pageStop = rawMotion.stopT ?? pageActionStart;
-        const policyWindowMs = Math.min(Math.max((params as any).attributionWindowMs || params.settleMs || 1000, 100), 5000);
+        // The window counts from the action marker, but the settle wait only starts once the
+        // dispatch (cursor travel + trusted input) has returned. A window of settleMs alone
+        // therefore ends before the settle does whenever the dispatch outlasts it, and every
+        // mutation the action caused is dropped as out of bounds (measured 2026-11-23: settleMs
+        // 180, observed span 390-490 ms under load, 5 of 5 drawer mutations dropped). A window
+        // derived from settleMs covers the span that was observed; an explicit one is kept.
+        const explicitWindowMs = params.attributionWindowMs;
+        const observedSpanMs = Math.max(0, pageStop - pageActionStart);
+        const policyWindowMs = Math.min(Math.max(explicitWindowMs || Math.max(params.settleMs || 1000, observedSpanMs), 100), 5000);
         const actionBoundary: ActionBoundary = {
           armedAt: rawMotion.armT ?? pageActionStart,
           actionStartedAt: pageActionStart,

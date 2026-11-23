@@ -455,6 +455,67 @@ describe('Verification Core - Sparse Interaction Delta & Mutation Attribution', 
     assert.strictEqual(evidence.attribution.records.length, 1);
   });
 
+  it('12b. Keeps mutations observed during the settle when the dispatch outlasts settleMs', async () => {
+    const mockHost = {
+      hasTab: () => true,
+      getTabList: () => [{ id: 'tab-test' }],
+      agentHover: async () => true,
+      evalJs: async (script: string) => {
+        if (script.includes('window.__antifanMarkAction ?')) {
+          return 0;
+        }
+        if (script.includes('window.__stopAntifanMotion ?')) {
+          // The dispatch took ~250 ms, so the page mutated 250 ms after the marker and the
+          // 180 ms settle ended at 430 ms.
+          return {
+            samples: [],
+            mutations: [{ t: 250, tPage: 250, type: 'attributes', targetId: 'site-drawer', attributeName: 'class' }],
+            actionStartT: 0,
+            markerConfirmed: true,
+            armT: 0,
+            stopT: 430,
+            durationMs: 430,
+          };
+        }
+        if (script.includes('__antifanMotionSamples')) {
+          return { armed: true, mutationObserver: true, motionObserver: true };
+        }
+        return {};
+      },
+    };
+
+    const port = new BrowserControlPort(mockHost as any);
+    const target = {
+      tabId: 'tab-test',
+      projectId: 'p1',
+      workspaceId: 'w1',
+      runtimeId: 'r1',
+      browserEpoch: 1,
+      documentGeneration: 1,
+    };
+
+    const res = await port.traceInteraction(target as any, 'r1', 'a1', {
+      action: 'hover',
+      selector: 'button',
+      settleMs: 180,
+    });
+
+    const attribution = (res.evidence as any).attribution;
+    assert.strictEqual(attribution.outOfBoundsCount, 0);
+    assert.deepStrictEqual(attribution.records.map((r: any) => r.observation.timestampOffsetMs), [250]);
+    assert.strictEqual(attribution.actionBoundary.attributionWindowMs, 430);
+
+    // An explicit window is a caller's decision and still drops what falls outside it.
+    const explicit = await port.traceInteraction(target as any, 'r1', 'a1', {
+      action: 'hover',
+      selector: 'button',
+      settleMs: 180,
+      attributionWindowMs: 200,
+    });
+    assert.strictEqual((explicit.evidence as any).attribution.outOfBoundsCount, 1);
+    assert.deepStrictEqual((explicit.evidence as any).attribution.records, []);
+  });
+
   it('13. Filters out internal __antifan_ overlay/style childList records while preserving mixed and user records via shared helper', () => {
     const { shouldSkipAntifanInternalMutationRecord } = require('../../src/main/browser/scripts/advanced-inspection-scripts');
 

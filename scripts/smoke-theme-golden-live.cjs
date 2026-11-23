@@ -753,6 +753,10 @@ async function run() {
     assert.equal(drawerNavigation.target.documentGeneration, tabHost.getDocumentGeneration(tabId));
 
 
+    // The page's debounced dom-mutation report may bump the revision at any moment, so the
+    // claim's target is bounded by a read on each side instead of compared with one read
+    // (measured 2026-11-23: `8 !== 9` when a bump landed between the claim and the read).
+    const drawerRevisionAtClaim = tabHost.getMutationRevision(tabId);
     const drawerClaim = parseTextResult(await tool('anti.verification.record_claim', {
       claim: 'Hamburger control opens the navigation drawer from a trusted Chromium gesture without layout overflow',
       category: 'INTERACTION',
@@ -763,7 +767,10 @@ async function run() {
     assert.equal(drawerClaim.verdict, 'UNVERIFIED');
     assert.equal(drawerClaim.interactionBaseline.hasActive, false);
     const drawerRevisionBefore = tabHost.getMutationRevision(tabId);
-    assert.equal(drawerClaim.targetMutationRevision, drawerRevisionBefore + 1);
+    assert.ok(
+      drawerClaim.targetMutationRevision >= drawerRevisionAtClaim + 1 && drawerClaim.targetMutationRevision <= drawerRevisionBefore + 1,
+      `claim target revision ${drawerClaim.targetMutationRevision} must be one past a revision between ${drawerRevisionAtClaim} and ${drawerRevisionBefore}`,
+    );
 
     const drawerTrace = parseTextResult(await tool('anti.trace.interaction', {
       action: 'click',
@@ -796,7 +803,11 @@ async function run() {
     assert.equal(drawerTrace.evidence.delta.target.aria.status, 'changed');
     assert.equal(drawerTrace.evidence.delta.document.bodyClasses.status, 'changed');
     assert.ok(drawerTrace.evidence.delta.overlayCandidateDelta.added.some((item) => item.id === 'site-drawer'));
-    assert.ok(drawerTrace.evidence.attribution.records.some((item) => item.classification.scope === 'RELATED'));
+    assert.ok(drawerTrace.evidence.attribution.records.some((item) => item.classification.scope === 'RELATED'), JSON.stringify({
+      actionBoundary: drawerTrace.evidence.attribution.actionBoundary,
+      outOfBoundsCount: drawerTrace.evidence.attribution.outOfBoundsCount,
+      records: drawerTrace.evidence.attribution.records.map((item) => [item.observation.timestampOffsetMs, item.classification.scope, item.observation.targetId || item.observation.targetTag]),
+    }));
 
     const drawerLiveState = await tabHost.getTabWebContents(tabId).executeJavaScript(`(() => {
       const toggle = document.querySelector('#menu-toggle');
