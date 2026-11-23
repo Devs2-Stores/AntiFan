@@ -1473,7 +1473,7 @@ for (const [label, command, expectedCode] of [
   ["a flag before push", "shopify theme --store demo-shop push --theme 123456789 --only a.liquid --nodelete", "REFUSED_THEME_REMOTE_OP"],
   ["a stray argument", `${SHOPIFY_PUSH} extra.liquid`, "REFUSED_THEME_PUSH_SCOPE"],
   ["a cd before it", `cd ../other && ${SHOPIFY_PUSH}`, "REFUSED_THEME_PUSH_UNVERIFIED"],
-  ["a publish chained after it", `${SHOPIFY_PUSH} && shopify theme publish 123456789`, "REFUSED_THEME_REMOTE_OP"],
+  ["a publish chained after it", `${SHOPIFY_PUSH} && shopify theme publish 123456789`, "REFUSED_THEME_COMPLEX"],
   ["a Sapo push with the same flags", "sapo theme push --theme 123456789 --store demo-shop --only a.liquid --nodelete", "REFUSED_THEME_REMOTE_OP"],
 ]) {
   test(`a worker's shopify theme push with ${label} is refused`, async () => {
@@ -1537,7 +1537,18 @@ test("theme reads in a worker and every theme command outside a worker pass with
   const stub = installInfoStub({ role: "main" });
   try {
     await asTerminal(true, async () => {
-      assert.equal(await runBash(root, "sess-read", "hrv theme info -j && hrv theme fetch --only config/settings_data.json"), null);
+      assert.equal(await runBash(root, "sess-read", "hrv theme info -j"), null, "a plain one-line read passes");
+      assert.equal(await runBash(root, "sess-read", "hrv theme fetch --only config/settings_data.json"), null, "a plain one-line fetch passes");
+      for (const line of [
+        "hrv theme info -j && hrv theme fetch --only config/settings_data.json",
+        "hrv theme info -j && hrv theme list",
+        "hrv theme info -j 2>&1 | head -3",
+        "hrv theme list > themes.txt",
+      ]) {
+        const chained = await runBash(root, "sess-read", line);
+        assert.equal(chained?.block, true, `${line} must be refused`);
+        assert.ok(chained.reason.startsWith("REFUSED_THEME_COMPLEX:"), chained.reason);
+      }
     });
     await asTerminal(false, async () => {
       assert.equal(await runBash(root, "sess-user", "hrv theme push"), null, "the user's own sessions are not gated");
@@ -1716,7 +1727,8 @@ test("plain theme commands a worker may run, and lines that only look close, are
       for (const command of ["git commit -F msg.txt", "ls", "rg hrv sections", "cat sections/hrv.liquid theme.json"]) {
         assert.equal(await runBash(root, `sess-plain-${command.length}`, command), null, command);
       }
-      assert.equal(await runBash(root, "sess-plain-cd-info", "cd x && hrv theme info"), null, "a read after cd is still readable");
+      const afterCdInfo = await runBash(root, "sess-plain-cd-info", "cd x && hrv theme info");
+      assert.ok(afterCdInfo?.reason.startsWith("REFUSED_THEME_COMPLEX:"), "a theme command chained after cd is not one plain line");
       assert.equal(stub.recorded().length, 2, "none of those reached the CLI");
       const afterCd = await runBash(root, "sess-plain-cd-push", "cd x && hrv theme push --only a.liquid");
       assert.ok(afterCd?.reason.startsWith("REFUSED_THEME_PUSH_UNVERIFIED:"), afterCd?.reason);
@@ -3452,12 +3464,12 @@ const readCorpus = (name) => JSON.parse(fs.readFileSync(path.join(POLICY_FIXTURE
 /** A shell line as an eval cell holds it: the text of a process-starting string. */
 const wrapAsCell = (line) => `import os\nos.system(r"""\n${line}\n""")`;
 
-/** The first refusal a line meets when it is classified and its commands are planned; `pass` when it names no theme CLI. */
+/** The first refusal a line meets when it is classified and its commands are planned as a worker's; `pass` when it names no theme CLI. */
 function lineVerdict(text, opts = {}) {
   const plan = themePolicy.classifyThemeLine(text, opts);
   if (plan.decision === "none") return "pass";
   if (plan.decision === "block") return plan.code;
-  return plan.commands.map((cmd) => themePolicy.planThemeCommand(cmd, "1001507144")).find((one) => one.decision === "block")?.code ?? "allow";
+  return plan.commands.map((cmd) => themePolicy.planWorkerThemeCommand(cmd, "1001507144")).find((one) => one.decision === "block")?.code ?? "allow";
 }
 
 /** Judges one corpus entry at the doors the hooks use; returns a list of failures. */

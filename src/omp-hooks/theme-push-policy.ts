@@ -156,7 +156,8 @@ export function parseThemeCommands(command: string, opts: { auth?: boolean } = {
   if (typeof command !== "string" || command.length === 0) return [];
   const found: ThemeCommand[] = [];
   const segments = parserSegments(command);
-  const chained = segments.filter((segment) => segment.trim().length > 0).length > 1;
+  // `;`, `&&`, `||`, `|`, `&`, a line break (the split above, which also cuts `2>&1`) or a redirect into / out of a file (`> out`, `>/dev/null`, `< in`).
+  const chained = segments.filter((segment) => segment.trim().length > 0).length > 1 || /[<>]/.test(segments.join(" "));
   let dirChanged = false;
   for (const segment of segments) {
     const tokens = segment.split(/\s+/).filter(Boolean);
@@ -291,6 +292,26 @@ function planHrvAuthCommand(cmd: ThemeCommand): ThemeCommandPlan {
 }
 
 /**
+ * A Leader worker's reading of one command: `planThemeCommand`, and then E:/Work/AGENTS.md §8 -
+ * every theme command a worker may run is ONE plain command alone on its line. One that would be
+ * allowed or sent on to a probe (`info`, `list`, `fetch`, `pull`, `export`, a scoped
+ * `shopify theme push`, `shopify theme dev`, ...) but shares its line with another command or a
+ * redirect (`;`, `&&`, `||`, `|`, `&`, a line break, `> out`, `>/dev/null`, `2>&1`) is refused as
+ * COMPLEX. A command `planThemeCommand` already refuses keeps its own code. The Leader's own guard
+ * keeps using `planThemeCommand`: it only asks whether a command writes, and chains reads freely.
+ */
+export function planWorkerThemeCommand(cmd: ThemeCommand, boundThemeId: string | null): ThemeCommandPlan {
+  const plan = planThemeCommand(cmd, boundThemeId);
+  if (plan.decision === "block" || !cmd.chained) return plan;
+  if (cmd.flags.some((flag) => flag === "--help" || flag === "-h")) return plan;
+  return {
+    decision: "block",
+    code: THEME_PUSH_CODES.COMPLEX,
+    reason: `${THEME_PUSH_CODES.COMPLEX}: '${cmd.text}' shares its line with another command or a redirect (;, &&, ||, |, &, line break, or a redirect such as >out, >/dev/null, 2>&1). A theme command must be one plain command alone on its line (E:/Work/AGENTS.md §8), run with the bash tool's cwd set to the theme folder and no output filter; read its output as it comes. ${ASK}`,
+  };
+}
+
+/**
  * One command against the worker's bound theme id (`null` when the workspace has
  * no `.haravan-cli_local.json`).
  */
@@ -364,7 +385,7 @@ export function planThemeCommand(cmd: ThemeCommand, boundThemeId: string | null)
       reason: `${THEME_PUSH_CODES.PUSH_UNVERIFIED}: '${cmd.text}' may not run in the folder that was checked: a cd, pushd, Set-Location or script ran before it in this line or earlier in this terminal, so the theme it targets cannot be verified. Run it alone from a new terminal whose folder is the theme folder.`,
     };
   }
-  if (action === "push" && cmd.chained) {
+  if ((action === "push" || action === "dev") && cmd.chained) {
     return {
       decision: "block",
       code: THEME_PUSH_CODES.COMPLEX,

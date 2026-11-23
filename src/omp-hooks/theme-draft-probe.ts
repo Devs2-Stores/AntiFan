@@ -16,7 +16,7 @@ import {
   parseSapoThemeInfo,
   parseShopifyThemeList,
   parseThemeInfo,
-  planThemeCommand,
+  planWorkerThemeCommand,
   sapoBoundVerdict,
   shopifyDraftVerdict,
   THEME_PUSH_CODES,
@@ -229,7 +229,7 @@ export async function gateThemeLine(o: {
   const verified: string[] = [];
   const approved: PushApprovalUse[] = [];
   for (const cmd of line.commands) {
-    const plan = planThemeCommand(cmd, cmd.cli === "sapo" ? sapoBoundThemeId : boundThemeId);
+    const plan = planWorkerThemeCommand(cmd, cmd.cli === "sapo" ? sapoBoundThemeId : boundThemeId);
     let verdict: { decision: "allow" } | { decision: "block"; code: string; reason: string };
     if (plan.decision === "verify-draft" && bindingRoot !== null) {
       const run = await runHrv(bindingRoot, "theme info -j", o.timeoutMs);

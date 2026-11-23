@@ -136,6 +136,104 @@
       "note": "real push chained before node -e"
     },
     {
+      "id": "chain-fetch-devnull-then-echo",
+      "kind": "line",
+      "text": "hrv theme fetch 1001507718 --only templates/page.membership-detail.liquid >/dev/null 2>&1; echo skip",
+      "expect": "REFUSED_THEME_COMPLEX",
+      "note": "real worker line (job levents-365): fetch with redirect and a second command slipped past the hook"
+    },
+    {
+      "id": "chain-fetch-stderr-merge",
+      "kind": "line",
+      "text": "hrv theme fetch 1001507718 --only templates/page.membership-detail.liquid 2>&1",
+      "expect": "REFUSED_THEME_COMPLEX",
+      "note": "fetch with a 2>&1 redirect"
+    },
+    {
+      "id": "chain-fetch-redirect-file",
+      "kind": "line",
+      "text": "hrv theme fetch 1001507718 --only templates/page.membership-detail.liquid > out.txt",
+      "expect": "REFUSED_THEME_COMPLEX",
+      "note": "fetch with its output redirected to a file"
+    },
+    {
+      "id": "chain-fetch-pipe-tail",
+      "kind": "line",
+      "text": "hrv theme fetch 1001507718 --only templates/page.membership-detail.liquid | tail -3",
+      "expect": "REFUSED_THEME_COMPLEX",
+      "note": "fetch piped into a filter"
+    },
+    {
+      "id": "chain-fetch-and-echo",
+      "kind": "line",
+      "text": "hrv theme fetch 1001507718 --only templates/page.membership-detail.liquid && echo ok",
+      "expect": "REFUSED_THEME_COMPLEX",
+      "note": "fetch followed by a second command with &&"
+    },
+    {
+      "id": "chain-fetch-or-echo",
+      "kind": "line",
+      "text": "hrv theme fetch 1001507718 --only templates/page.membership-detail.liquid || echo fail",
+      "expect": "REFUSED_THEME_COMPLEX",
+      "note": "fetch followed by a second command with ||"
+    },
+    {
+      "id": "chain-fetch-background",
+      "kind": "line",
+      "text": "hrv theme fetch 1001507718 --only templates/page.membership-detail.liquid & echo bg",
+      "expect": "REFUSED_THEME_COMPLEX",
+      "note": "fetch sent to the background"
+    },
+    {
+      "id": "chain-echo-then-fetch",
+      "kind": "line",
+      "text": "echo a; hrv theme fetch 1001507718 --only templates/page.membership-detail.liquid",
+      "expect": "REFUSED_THEME_COMPLEX",
+      "note": "a command before the fetch"
+    },
+    {
+      "id": "chain-fetch-two-lines",
+      "kind": "line",
+      "text": "hrv theme fetch 1001507718 --only templates/page.membership-detail.liquid\necho two",
+      "expect": "REFUSED_THEME_COMPLEX",
+      "note": "fetch with a second command on the next line"
+    },
+    {
+      "id": "chain-push-redirect-file",
+      "kind": "line",
+      "text": "hrv theme push --only templates/page.membership-detail.liquid --nodelete > out.txt",
+      "expect": "REFUSED_THEME_COMPLEX",
+      "note": "push with its output redirected to a file (no second segment, so only the redirect makes it chained)"
+    },
+    {
+      "id": "chain-info-pipe-head",
+      "kind": "line",
+      "text": "hrv theme info --json 2>&1 | head -3",
+      "expect": "REFUSED_THEME_COMPLEX",
+      "note": "AGENTS §8: hrv theme info --json is one plain line too; an output filter or a redirect makes it chained"
+    },
+    {
+      "id": "chain-list-then-echo",
+      "kind": "line",
+      "text": "hrv theme list; echo done",
+      "expect": "REFUSED_THEME_COMPLEX",
+      "note": "a read action followed by a second command"
+    },
+    {
+      "id": "chain-shopify-push-then-echo",
+      "kind": "line",
+      "text": "shopify theme push --theme 123456789 --store x.myshopify.com --only templates/a.json --nodelete && echo done",
+      "expect": "REFUSED_THEME_COMPLEX",
+      "note": "a fully scoped shopify push (the plan would go on to a probe) chained with another command"
+    },
+    {
+      "id": "chain-shopify-dev-redirect",
+      "kind": "line",
+      "text": "shopify theme dev --store x.myshopify.com > dev.log",
+      "expect": "REFUSED_THEME_COMPLEX",
+      "note": "shopify theme dev with its output redirected"
+    },
+    {
       "id": "cell-sqlite-prose-names-cli",
       "kind": "cell",
       "text": "import json, sqlite3\nc = sqlite3.connect(\"file:C:/work/app/data/journal.sqlite?mode=ro\", uri=True)\nunits = {r[0]: r[1] for r in c.execute(\"select id, units from plan where cls='x'\")}\nt1 = 'Note: \"Refund per Pancake\" is the amount Pancake recorded. \"Refund per Haravan\" is the amount Haravan recorded. The two differ on 224 orders.'\nprint(len(units), t1)",
