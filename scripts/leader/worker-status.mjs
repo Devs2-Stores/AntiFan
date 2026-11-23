@@ -55,58 +55,6 @@ function readTail(file, bytes) {
   return buf.toString("utf8");
 }
 
-function readHead(file, bytes) {
-  const size = fs.statSync(file).size;
-  const length = Math.min(size, bytes);
-  const buf = Buffer.alloc(length);
-  const fd = fs.openSync(file, "r");
-  try {
-    fs.readSync(fd, buf, 0, length, 0);
-  } finally {
-    fs.closeSync(fd);
-  }
-  return buf.toString("utf8");
-}
-
-/**
- * The model the worker's OMP session last switched to, from a transcript block: the newest `model_change`
- * row (`"model":"9router/cc/claude-haiku-5-5"`), else the newest `model_usage` row. The run file carries no
- * model of its own. Null when the block holds neither (a cut line, or a session that never recorded one).
- */
-export function latestModel(text) {
-  let changed = null;
-  let used = null;
-  for (const line of text.split("\n")) {
-    if (!line.includes('"model"')) continue;
-    let ev;
-    try {
-      ev = JSON.parse(line);
-    } catch {
-      continue;
-    }
-    if (typeof ev?.model !== "string") continue;
-    if (ev.type === "model_change") changed = ev.model;
-    else if (ev.type === "model_usage") used = ev.model;
-  }
-  return changed ?? used;
-}
-
-/**
- * What a Leader must know about the worker's model beyond its state: a model on the `9router/cc/` route
- * names every MCP tool with an `_ide` suffix, and the runtime answers "Tool not found" for each call, so the
- * worker fails every tool it needs while its run file looks healthy.
- */
-export function modelWarnings(model) {
-  if (typeof model !== "string" || !model.includes(IDE_TOOL_SUFFIX_ROUTE)) return [];
-  return [
-    {
-      code: "IDE_TOOL_SUFFIX_MODEL",
-      model,
-      note: `${model} names tools with an _ide suffix and every call fails as "Tool not found": run the worker on a model outside ${IDE_TOOL_SUFFIX_ROUTE}`,
-    },
-  ];
-}
-
 export function parseArgs(argv) {
   const out = {
     terminal: null,
