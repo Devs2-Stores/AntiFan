@@ -3,8 +3,9 @@
   Restart the live AntiFan desktop app through a clean quit.
 
 .DESCRIPTION
-  1. Refuses a stale build: when any src\**\*.ts is newer than .compiled\src\main\index.js the
-     script prints BUILD_STALE and stops, unless -AllowStale is passed.
+  1. Refuses a stale build: when any src\**\*.ts is newer than the last compile (the newer of
+     .compiled\src\main\index.js and .compiled\.tsbuildinfo) the script prints BUILD_STALE and
+     stops, unless -AllowStale is passed.
   2. Finds the one running main process (the owner of the bridge listener).
      It also stops (ENGAGE_SESSION_ACTIVE) while a ttb-dash Page engagement session holds the shared
      Facebook login (identity.lock held or identity.json present in -EngageDir), even with -Force,
@@ -45,9 +46,13 @@ $quitFlag = '--antifan-quit-request'
 $idx = Join-Path $repo '.compiled\src\main\index.js'
 if (-not (Test-Path $idx)) { Write-Output 'BUILD_MISSING: run npm run compile'; exit 1 }
 $builtAt = (Get-Item $idx).LastWriteTimeUtc
+# An incremental compile rewrites only the outputs that changed, so index.js keeps its old stamp
+# when another module was edited; the build info is rewritten by every compile that had work.
+$buildInfo = Join-Path $repo '.compiled\.tsbuildinfo'
+if ((Test-Path $buildInfo) -and (Get-Item $buildInfo).LastWriteTimeUtc -gt $builtAt) { $builtAt = (Get-Item $buildInfo).LastWriteTimeUtc }
 $newest = Get-ChildItem -Path (Join-Path $repo 'src') -Recurse -File -Filter '*.ts' |
   Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
-Write-Output ("compiled index.js: {0:yyyy-MM-dd HH:mm:ss}Z" -f $builtAt)
+Write-Output ("last compile:      {0:yyyy-MM-dd HH:mm:ss}Z" -f $builtAt)
 Write-Output ("newest source:     {0:yyyy-MM-dd HH:mm:ss}Z ({1})" -f $newest.LastWriteTimeUtc, $newest.FullName.Substring($repo.Length + 1))
 if ($newest.LastWriteTimeUtc -gt $builtAt) {
   if (-not $AllowStale) { Write-Output 'BUILD_STALE: run npm run compile, or pass -AllowStale'; exit 1 }
