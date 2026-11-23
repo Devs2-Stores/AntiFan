@@ -157,6 +157,18 @@ export function isLocalFileNavigationUrl(url: unknown): boolean {
   return typeof url === 'string' && /^file:/i.test(url.trim());
 }
 
+/**
+ * True when a tab creation was asked for a document on disk rather than a web page: a `file:`
+ * URL, or the absolute Windows path form the host's own preview shortcut also accepts. Both are
+ * local documents, so a capability-issued creation must route them through the workspace
+ * admission instead of letting the host turn either one into a capsule preview.
+ */
+export function isLocalDocumentTarget(url: unknown): url is string {
+  if (typeof url !== 'string') return false;
+  const trimmed = url.trim();
+  return /^file:/i.test(trimmed) || /^[a-zA-Z]:[/\\]/.test(trimmed);
+}
+
 /** When `navigate` returns: at the first committed navigation, at DOMContentLoaded, or at the load event (default). */
 export type NavigationWaitUntil = 'commit' | 'domcontentloaded' | 'load';
 /** How far the loaded document had progressed when `navigate` answered. */
@@ -2034,6 +2046,8 @@ export interface CheckedEvalResult {
 const NAVIGATE_TIMEOUT_CEILING_MS = 60_000;
 /** Bound for the one evaluation that reads a timed-out navigation's live document. */
 const DOCUMENT_STATE_PROBE_BOUND_MS = 1_500;
+/** How long a tab created for a local file may take to leave its own blank document. */
+const LOCAL_FILE_TAB_SETTLE_BOUND_MS = 5_000;
 
 /**
  * Whether two URLs name the same document. The fragment is ignored (it does not fetch a new
@@ -2642,6 +2656,35 @@ type GateInventoryOutcome =
   | { ok: true; inventory: PageInventoryResult }
   | { ok: false; failure: UnmeasuredInventory };
 
+/**
+ * What one navigation measured, before it is bound to the caller's authority record. A caller
+ * that has just minted a tab holds its id and nothing else (an agent whose bound tab was closed
+ * opens a replacement), so the measurement is reported apart from the target it is stamped on.
+ */
+interface NavigationTabOutcome {
+  navigated: boolean;
+  loadState?: NavigationLoadState;
+  documentGeneration?: number;
+  committedUrl?: string;
+  redirectChain?: string[];
+  timedOut?: boolean;
+  readyState?: string;
+  dialog?: JsDialogDescription;
+}
+
+/** Arguments of one tab creation, shared by the plain and the local-document path. */
+export interface OpenTabOptions {
+  url?: string;
+  activate?: boolean;
+  ephemeral?: boolean;
+  cookieJar?: string;
+  userFacing?: boolean;
+  devicePresetId?: string;
+  mobile?: boolean;
+  projectId?: string;
+  bind?: boolean;
+}
+
 export class BrowserControlPort {
   public readonly passivePool = new PassiveExecutionPool();
   public readonly waitRegistry = new WaitRegistry();
@@ -3127,6 +3170,37 @@ export class BrowserControlPort {
 
   async navigate(target: BrowserTarget, url: string, explicitTabId?: string, options?: { timeoutMs?: number; waitUntil?: NavigationWaitUntil; softTimeout?: boolean; localFileRoot?: string }): Promise<{ navigated: boolean; target: BrowserTarget; loadState?: NavigationLoadState; committedUrl?: string; redirectChain?: string[]; dialog?: JsDialogDescription; timedOut?: boolean; readyState?: string }> {
     const tabId = this.resolveTargetTab(target, explicitTabId, 'read');
+    const outcome = await this.navigateTab(tabId, url, options);
+    // A `beforeunload` prompt holds the navigation until it is answered; the caller gets the prompt.
+    if (outcome.dialog) return { navigated: false, target, dialog: outcome.dialog };
+    // The returned target IS the authority contract callers feed into the next call and into
+    // target assertions, so it must describe the SETTLED tab. Only `documentGeneration` used to
+    // be re-stamped after the load completed, which left `url` as whatever the authority record
+    // was bound with — a fossil the navigation had just invalidated. Re-read the settled URL
+    // from the tab this call actually navigated (the same authorized tabId, never an ambient
+    // target). When the live read is unavailable, omit `url` rather than assert a value this
+    // call cannot stand behind.
+    const settledTarget: BrowserTarget = { ...target, tabId, documentGeneration: outcome.documentGeneration ?? target.documentGeneration };
+    if (outcome.committedUrl) settledTarget.url = outcome.committedUrl;
+    else delete settledTarget.url;
+    return {
+      navigated: outcome.navigated,
+      target: settledTarget,
+      loadState: outcome.loadState,
+      ...(outcome.committedUrl ? { committedUrl: outcome.committedUrl } : {}),
+      ...(outcome.redirectChain ? { redirectChain: outcome.redirectChain } : {}),
+      ...(outcome.timedOut ? { timedOut: true as const } : {}),
+      ...(outcome.readyState ? { readyState: outcome.readyState } : {}),
+    };
+  }
+
+  /**
+   * The navigation itself, addressed to a tab id the caller already resolved. It answers what the
+   * tab measured and nothing about the caller's authority record, because a caller that has just
+   * created a tab holds only its id (an agent replacing a closed bound tab); `navigate` stamps the
+   * caller's target around this outcome, and a create path reports the tab and its settled URL.
+   */
+  private async navigateTab(tabId: string, url: string, options?: { timeoutMs?: number; waitUntil?: NavigationWaitUntil; softTimeout?: boolean; localFileRoot?: string }): Promise<NavigationTabOutcome> {
     const navigationUrl = typeof url === 'string' ? url.trim() : '';
     // about:blank is the clean-slate reset with no origin. A `file:` document is admitted only
     // when it is an existing regular file inside the session's workspace; javascript:, data:
@@ -3166,7 +3240,7 @@ export class BrowserControlPort {
       : this.host.navigate(tabId, resolvedNavigationUrl));
     const settled = await this.untilJsDialog(tabId, undefined, navigation);
     // A `beforeunload` prompt holds the navigation until it is answered; the caller gets the prompt.
-    if ('dialog' in settled) return { navigated: false, target, dialog: settled.dialog };
+    if ('dialog' in settled) return { navigated: false, dialog: settled.dialog };
     const navigated = settled.value;
     if (!navigated) {
       const failure = typeof this.host.getLastNavigationFailure === 'function'
@@ -3189,7 +3263,7 @@ export class BrowserControlPort {
       // navigation: agent-facing callers get the state the tab reached so a usable page is not
       // thrown away, while internal callers (no `softTimeout`) keep the typed refusal.
       if (options?.softTimeout && (failureCause === 'NAVIGATION_TIMEOUT' || failureCause === 'NAVIGATION_START_TIMEOUT')) {
-        const soft = await this.softNavigationOutcome(tabId, resolvedNavigationUrl, urlBefore, target);
+        const soft = await this.softNavigationOutcome(tabId, resolvedNavigationUrl, urlBefore, 1);
         if (soft) return soft;
       }
       const details = failureCause === 'TARGET_STALE'
@@ -3199,25 +3273,18 @@ export class BrowserControlPort {
     }
     const docGen = typeof this.host.getSemanticDocumentGeneration === 'function'
       ? this.host.getSemanticDocumentGeneration(tabId)
-      : (this.host.getDocumentGeneration ? this.host.getDocumentGeneration(tabId) : (target.documentGeneration || 1));
-    // The returned target IS the authority contract callers feed into the next call and into
-    // target assertions, so it must describe the SETTLED tab. Only `documentGeneration` used to
-    // be re-stamped after the load completed, which left `url` as whatever the authority record
-    // was bound with — a fossil the navigation had just invalidated. Re-read the settled URL
-    // from the tab this call actually navigated (the same authorized tabId, never an ambient
-    // target). When the live read is unavailable, omit `url` rather than assert a value this
-    // call cannot stand behind.
+      : (this.host.getDocumentGeneration ? this.host.getDocumentGeneration(tabId) : 1);
+    // Re-read the settled URL from the tab this call actually navigated (the same authorized
+    // tabId, never an ambient target). When the live read is unavailable, report no URL rather
+    // than assert a value this call cannot stand behind.
     const settledUrl = await this.getLiveTabUrl(tabId).catch(() => '');
     // The site served a verification page instead of the requested document: say so, once.
     const challenge = this.refuseAntiBot(settledUrl, tabId, resolvedNavigationUrl);
     if (challenge) throw challenge;
-    const settledTarget: BrowserTarget = { ...target, tabId, documentGeneration: docGen };
-    if (settledUrl) settledTarget.url = settledUrl;
-    else delete settledTarget.url;
     const redirectChain = this.getTabRedirectChain(tabId);
     return {
       navigated: true,
-      target: settledTarget,
+      documentGeneration: docGen,
       loadState: NAVIGATION_WAIT_UNTIL_LOAD_STATE[waitUntil ?? 'load'],
       ...(settledUrl ? { committedUrl: settledUrl } : {}),
       ...(redirectChain.length > 1 ? { redirectChain } : {}),
@@ -3294,8 +3361,8 @@ export class BrowserControlPort {
     tabId: string,
     requestedUrl: string,
     urlBefore: string | undefined,
-    target: BrowserTarget
-  ): Promise<{ navigated: true; target: BrowserTarget; loadState: 'timeout'; timedOut: true; readyState: string; committedUrl: string; redirectChain?: string[] } | undefined> {
+    fallbackDocumentGeneration: number
+  ): Promise<NavigationTabOutcome | undefined> {
     const state = await this.readDocumentState(tabId);
     if (!state || state.errorPage) return undefined;
     if (state.readyState !== 'interactive' && state.readyState !== 'complete') return undefined;
@@ -3305,11 +3372,10 @@ export class BrowserControlPort {
     if (urlBefore && sameDocumentUrl(state.url, urlBefore) && !sameDocumentUrl(state.url, requestedUrl) && !(tail && sameDocumentUrl(state.url, tail))) return undefined;
     const docGen = typeof this.host.getSemanticDocumentGeneration === 'function'
       ? this.host.getSemanticDocumentGeneration(tabId)
-      : (this.host.getDocumentGeneration ? this.host.getDocumentGeneration(tabId) : (target.documentGeneration || 1));
-    const settledTarget: BrowserTarget = { ...target, tabId, documentGeneration: docGen, url: state.url };
+      : (this.host.getDocumentGeneration ? this.host.getDocumentGeneration(tabId) : fallbackDocumentGeneration);
     return {
       navigated: true,
-      target: settledTarget,
+      documentGeneration: docGen,
       loadState: 'timeout',
       timedOut: true,
       readyState: state.readyState,
@@ -5450,7 +5516,7 @@ export class BrowserControlPort {
     return { capsuleId: affiliation.capsuleId, projectId: affiliation.projectId };
   }
 
-  openTab(options: { url?: string; activate?: boolean; ephemeral?: boolean; cookieJar?: string; userFacing?: boolean; devicePresetId?: string; mobile?: boolean; projectId?: string; bind?: boolean } = {}, context?: { target?: BrowserTarget; authenticatedProjectId?: string }): { tabId: string } {
+  openTab(options: OpenTabOptions = {}, context?: { target?: BrowserTarget; authenticatedProjectId?: string }): { tabId: string } {
     if (!this.host.createTab) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'createTab is not supported by host');
     const boundTabId = context?.target?.tabId;
     // The projectId selector is validated before any allocation: it may only
@@ -5592,6 +5658,51 @@ export class BrowserControlPort {
       }
     }
     return { tabId };
+  }
+
+  /**
+   * Opens a tab for an agent caller whose URL names a local document. The tab is created blank
+   * and the document is then reached through the navigation path, so the workspace admission
+   * (`admitLocalFileNavigation`: an existing regular file, no reparse traversal, inside the
+   * caller's root) guards tab creation exactly as it guards a navigation, with the same refusal
+   * text and loopback serve hint. The host's capsule-preview shortcut stays what it is — the
+   * app's own UI affordance — because the blank creation never names a file to it.
+   *
+   * A refusal closes the tab this call just created: the caller asked for a document the session
+   * may not reach, so leaving an empty agent tab behind would be a leak, not a partial success.
+   */
+  async openTabWithLocalFile(
+    options: OpenTabOptions & { url: string },
+    context?: { target?: BrowserTarget; authenticatedProjectId?: string },
+    localFileRoot?: string
+  ): Promise<{ tabId: string; url?: string; navigated: boolean; dialog?: JsDialogDescription }> {
+    const opened = this.openTab({ ...options, url: 'about:blank' }, context);
+    let outcome: NavigationTabOutcome;
+    try {
+      outcome = await this.navigateTab(opened.tabId, options.url, { localFileRoot, softTimeout: true });
+    } catch (error) {
+      try { this.host.closeTab?.(opened.tabId, 'agent-open-refused'); } catch {}
+      throw error;
+    }
+    if (outcome.dialog) return { tabId: opened.tabId, navigated: false, dialog: outcome.dialog };
+    if (!outcome.navigated) return { tabId: opened.tabId, navigated: false, ...(outcome.committedUrl ? { url: outcome.committedUrl } : {}) };
+    // A tab created a moment ago is still finishing its own blank document, and the host's load
+    // waiter can answer for that one (measured on the live app: `navigated:true, url:about:blank`
+    // while the file committed milliseconds later). The row names the file only once the page
+    // itself reports it; a tab that never leaves the blank document did not navigate.
+    let settledUrl = outcome.committedUrl;
+    const settleDeadline = Date.now() + LOCAL_FILE_TAB_SETTLE_BOUND_MS;
+    while (!isLocalFileNavigationUrl(settledUrl) && Date.now() < settleDeadline) {
+      const state = await this.readDocumentState(opened.tabId);
+      if (state && !state.errorPage && state.readyState !== 'loading' && isLocalFileNavigationUrl(state.url)) {
+        settledUrl = state.url;
+        break;
+      }
+      const pause = Promise.withResolvers<void>();
+      setTimeout(pause.resolve, 50);
+      await pause.promise;
+    }
+    return { tabId: opened.tabId, navigated: isLocalFileNavigationUrl(settledUrl), ...(settledUrl ? { url: settledUrl } : {}) };
   }
 
   setAutomationTarget(tabId: string, context?: { creatorTabId?: string }): { success: boolean; tabId: string } {

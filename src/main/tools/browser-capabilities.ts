@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { BrowserTarget, CapabilityRequestContext, AuthenticatedCapabilityContext, CapabilityError, CapabilityEffectPolicyInput, CapabilityRisk, ReceiptBinding, digestText, assertNoReparseTraversal, assertWorkspaceContained } from '../../shared/control-plane-contracts';
 import { parseCookieJarParam } from '../browser/cookie-jar';
 import { BrowserControlPort, BrowserWaitCondition, BrowserWaitParams, buildRefLookupExpression, ResponsiveBreakpointOption, VISUAL_COMPARE_EXECUTION_BUDGET_MS, VISUAL_COMPARE_CANCELLATION_ACK_MS, FULL_PAGE_CAPTURE_EXECUTION_BUDGET_MS, FULL_PAGE_CAPTURE_CANCELLATION_ACK_MS, VIEWPORT_CAPTURE_EXECUTION_BUDGET_MS, VIEWPORT_CAPTURE_CANCELLATION_ACK_MS, REFERENCE_CAPTURE_EXECUTION_BUDGET_MS, REFERENCE_CAPTURE_CANCELLATION_ACK_MS, BROWSER_WAIT_INVOCATION_BUDGET_MS, BROWSER_WAIT_MAX_TIMEOUT_MS, BROWSER_EVAL_INVOCATION_BUDGET_MS, BROWSER_EVAL_MAX_TIMEOUT_MS } from './browser-control-port';
-import { LIST_TAB_FIELDS, isLocalFileNavigationUrl, type BrowserWaitResult, type CheckedEvalResult } from './browser-control-port';
+import { LIST_TAB_FIELDS, isLocalFileNavigationUrl, isLocalDocumentTarget, type BrowserWaitResult, type CheckedEvalResult } from './browser-control-port';
 import { CapabilityCatalogue } from './capability-catalogue';
 import { resolveCallerWorkspaceRoot } from './file-capabilities';
 import { PlatformDetector } from '../qa/scanners/platform-detector';
@@ -1125,7 +1125,7 @@ function navigateInputSchema(): Record<string, unknown> {
   return {
     type: 'object',
     properties: {
-      url: { type: 'string', description: 'http(s) URL, or about:blank to reset the tab to an empty document; every other about: page, file:, data: and javascript: is refused' },
+      url: { type: 'string', description: 'http(s) URL, about:blank to reset the tab to an empty document, or a file: URL naming an existing file inside the workspace root (a file outside the root must be served over http://127.0.0.1); every other about: page, data: and javascript: is refused' },
       tabId: { type: 'string' },
       timeoutMs: { type: 'number', description: 'Navigation budget in milliseconds (default 20000, capped at 60000)' },
       waitUntil: { type: 'string', enum: [...NAVIGATE_WAIT_UNTIL_VALUES], description: 'When navigate returns: commit (the response committed), domcontentloaded, or load (default). Use commit or domcontentloaded for a page whose load event never fires; the result carries loadState and committedUrl, plus redirectChain (requested URL, each server redirect, committed URL) when the server redirected' },
@@ -1578,9 +1578,23 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     const cookieJar = parseCookieJarParam(params.cookieJar, params.ephemeral);
     await browser.ensureHostForNewTab({ target: context?.browserTarget, authenticatedProjectId: context?.projectId, url: params.url });
     const { bind: _bind, cookieJar: _cookieJar, ...openParams } = params;
+    const openContext = { target: context?.browserTarget, authenticatedProjectId: context?.projectId, ...(bind === false ? { bind } : {}) };
+    const requestedUrl = params.url;
+    if (isLocalDocumentTarget(requestedUrl)) {
+      // A local document is never named to the host's creation path: that path is the capsule
+      // preview the app's own UI uses, and it answers no workspace gate. The tab is created blank
+      // and the document is loaded through the same admission a navigation uses, so a file outside
+      // the root is refused with the loopback serve hint and the blank tab it created is closed.
+      const localFileRoot = resolveCallerWorkspaceRoot(catalogue, context, getWorkspaceRoot);
+      return browser.openTabWithLocalFile(
+        { ...openParams, url: requestedUrl, ...(cookieJar ? { cookieJar } : {}) },
+        openContext,
+        localFileRoot
+      );
+    }
     return browser.openTab(
       { ...openParams, ...(cookieJar ? { cookieJar } : {}) },
-      { target: context?.browserTarget, authenticatedProjectId: context?.projectId, ...(bind === false ? { bind } : {}) },
+      openContext,
     );
   };
 
@@ -1707,7 +1721,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     inputSchema: {
       type: 'object',
       properties: {
-        url: { type: 'string' },
+        url: { type: 'string', description: 'http(s) URL to load in the new tab, or a file: URL naming an existing file inside the workspace root (a file outside the root is refused with the http://127.0.0.1 serve hint and the new tab is closed); default about:blank' },
         activate: { type: 'boolean' },
         anchorTabId: { type: 'string', description: 'Live same-project tab selecting the window for creation' },
         ephemeral: { type: 'boolean' },
@@ -3958,7 +3972,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     inputSchema: {
       type: 'object',
       properties: {
-        url: { type: 'string' },
+        url: { type: 'string', description: 'http(s) URL to load in the new tab, or a file: URL naming an existing file inside the workspace root (a file outside the root is refused with the http://127.0.0.1 serve hint and the new tab is closed); default about:blank' },
         activate: { type: 'boolean' },
         anchorTabId: { type: 'string', description: 'Live same-project tab selecting the window for creation' },
         ephemeral: { type: 'boolean' },

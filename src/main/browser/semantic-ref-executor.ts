@@ -1094,7 +1094,7 @@ export function buildIsolatedExecutorScript(request: IsolatedExecutorRequest): s
             } catch {}
             return {
               ok: false,
-              error: 'Target obscured by ' + describeNode(obstruction.receiver.node) + ' at every sampled point on ' + describeNode(targetElement) + '; refusing to dispatch input through a covering element',
+              error: 'Target obscured by ' + describeNode(obstruction.receiver.node) + ' at every sampled point on ' + describeNode(targetElement) + '; refusing to dispatch input through a covering element. Repeating the same call fails the same way: address the control itself (locator {role, name} or a snapshot @ref) instead of a text node inside it, or close the covering layer first',
               code: 'TARGET_OBSCURED',
               metadata: {
                 target: describeNode(targetElement),
