@@ -29,6 +29,7 @@ import {
   scanRenderFailures,
   validateThemeSchemas,
   checkSettingsBinding,
+  checkSettingsData,
   checkF1genzSettingsSchema,
   checkAssetReferences,
   checkHaravanLiquidContracts,
@@ -908,6 +909,43 @@ test('checkHaravanLiquidContracts places a duplicate header at its own line, not
     );
     assert.ok(failure, 'the duplicate header is reported');
     assert.equal(failure.line, 4);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('checkSettingsData names a value saved under a settings.-prefixed key and lists undeclared keys as orphans', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'theme-checks-data-'));
+  try {
+    fs.mkdirSync(path.join(dir, 'config'), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, 'config', 'settings_schema.json'),
+      JSON.stringify([{ name: 'Home', settings: [
+        { type: 'text', id: 'tab_tea_label', label: 'Tea', default: 'Tea Drink' },
+        { type: 'text', id: 'tab_beer_label', label: 'Beer' },
+      ] }]),
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(dir, 'config', 'settings_data.json'),
+      ['{', '  "current": {', '    "tab_beer_label": "Beer",', '    "settings.tab_beer_label": "Ale",',
+        '    "settings.tab_tea_label": "beer",', '    "settings.gone": "x",', '    "retired_banner": "y"', '  },', '  "presets": {}', '}'].join('\n'),
+      'utf8',
+    );
+    const result = checkSettingsData(dir);
+    assert.deepEqual(result.prefixed, [
+      { key: 'settings.tab_beer_label', id: 'tab_beer_label', unprefixedStored: true },
+      { key: 'settings.tab_tea_label', id: 'tab_tea_label', unprefixedStored: false },
+    ]);
+    assert.deepEqual(result.orphans, ['retired_banner', 'settings.gone']);
+    assert.deepEqual(result.warnings.map((w) => [w.rule, w.id, w.file, w.line]), [
+      ['SETTINGS_DATA_KEY_PREFIXED', 'tab_beer_label', 'config/settings_data.json', 4],
+      ['SETTINGS_DATA_KEY_PREFIXED', 'tab_tea_label', 'config/settings_data.json', 5],
+    ]);
+    assert.match(result.warnings[1].message, /renders the default instead of the saved value/);
+
+    fs.rmSync(path.join(dir, 'config', 'settings_schema.json'));
+    assert.deepEqual(checkSettingsData(dir), { prefixed: [], orphans: [], warnings: [] }, 'nothing declared: nothing to compare');
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

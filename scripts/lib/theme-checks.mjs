@@ -1004,6 +1004,53 @@ export function checkSettingsBinding(themeDir) {
   return { ok: failures.length === 0, undeclared, dead, failures };
 }
 
+const SETTINGS_DATA_RELATIVE_PATH = 'config/settings_data.json';
+const SETTINGS_DATA_KEY_PREFIX = 'settings.';
+
+/**
+ * Keys of `config/settings_data.json` (`current`) against the ids the theme declares.
+ * A value saved under `settings.<id>` while `<id>` is the declared id is never read:
+ * Liquid's `settings.<id>` looks up the key `<id>`, so the template renders its default
+ * and the saved value is invisible. Keys no declaration covers are returned as orphans.
+ * The file is shop data that accumulates keys across theme versions, so both lists are
+ * warnings to hand over and never fail a theme.
+ */
+export function checkSettingsData(themeDir) {
+  const result = { prefixed: [], orphans: [], warnings: [] };
+  const source = readFileIfPresent(path.join(themeDir, 'config', 'settings_data.json'));
+  if (source === null) return result;
+  const parsed = parseJsonDocument(source);
+  if (!parsed.ok || !isPlainObject(parsed.value) || !isPlainObject(parsed.value.current)) return result;
+  const declared = collectDeclaredSettingIds(themeDir);
+  // With no declaration to compare against, every key would be an orphan and none a finding.
+  if (declared.size === 0) return result;
+
+  const current = parsed.value.current;
+  for (const key of Object.keys(current).sort(compareStrings)) {
+    if (declared.has(key)) continue;
+    const id = key.startsWith(SETTINGS_DATA_KEY_PREFIX) ? key.slice(SETTINGS_DATA_KEY_PREFIX.length) : '';
+    if (!id || !declared.has(id)) {
+      result.orphans.push(key);
+      continue;
+    }
+    const unprefixedStored = Object.prototype.hasOwnProperty.call(current, id);
+    result.prefixed.push({ key, id, unprefixedStored });
+    const keyIndex = source.indexOf(JSON.stringify(key));
+    const detail = unprefixedStored
+      ? `${SETTINGS_DATA_RELATIVE_PATH} stores both '${id}' and '${key}'; the theme reads settings.${id}, so the value under '${key}' is never rendered`
+      : `${SETTINGS_DATA_RELATIVE_PATH} stores '${key}' but not '${id}'; the theme reads settings.${id}, so it renders the default instead of the saved value`;
+    result.warnings.push({
+      rule: 'SETTINGS_DATA_KEY_PREFIXED',
+      id,
+      file: SETTINGS_DATA_RELATIVE_PATH,
+      line: keyIndex < 0 ? 1 : source.slice(0, keyIndex).split('\n').length,
+      message: detail,
+      detail,
+    });
+  }
+  return result;
+}
+
 const F1GENZ_CONTENT_SETTING_TYPES = new Set([
   'text', 'textarea', 'image_picker', 'link_list', 'collection', 'blog', 'page',
 ]);

@@ -665,6 +665,7 @@ export function registerThemeTransactionCapabilities(
         checkHaravanLiquidContracts,
         validateThemeSchemas,
         checkSettingsBinding,
+        checkSettingsData,
         checkAssetReferences,
         checkF1genzSettingsSchema,
       } = themeChecksModule;
@@ -685,6 +686,12 @@ export function registerThemeTransactionCapabilities(
         : null;
       const settingsBinding = checkSettingsBinding(root);
       const assets = checkAssetReferences(root);
+      // settings_data.json is shop data: its key anomalies are handed over as warnings, never refusals.
+      const settingsData: {
+        prefixed: Array<{ key: string; id: string; unprefixedStored: boolean }>;
+        orphans: string[];
+        warnings: Array<{ rule: string; id: string; file: string; line: number; message: string; detail: string }>;
+      } | null = typeof checkSettingsData === 'function' ? checkSettingsData(root) : null;
       const f1genzSchema =
         isHaravan && hasSettingsSchema && typeof checkF1genzSettingsSchema === 'function'
           ? checkF1genzSettingsSchema(root)
@@ -734,7 +741,7 @@ export function registerThemeTransactionCapabilities(
       // Haravan reads every schema setting through the theme, so an unread one is dead. Other
       // platforms read some settings themselves (Shopify checkout_*), so there it is a warning.
       const deadSettingFailures = isHaravan ? deadSettingFindings : [];
-      const warnings = isHaravan ? [] : deadSettingFindings;
+      const warnings = [...(isHaravan ? [] : deadSettingFindings), ...(settingsData?.warnings || [])];
       const failures = [
         ...(haravanContracts?.failures || []),
         ...schemaFailures,
@@ -816,6 +823,15 @@ export function registerThemeTransactionCapabilities(
         refusals,
         settingsBinding,
         assets,
+        ...(settingsData
+          ? {
+              settingsData: {
+                prefixed: settingsData.prefixed,
+                orphanCount: settingsData.orphans.length,
+                orphans: settingsData.orphans.slice(0, 50),
+              },
+            }
+          : {}),
         haravanContracts,
         ...(schemaValidation ? { schemaValidation } : {}),
         ...(f1genzSchema ? { f1genzSchema } : {}),
