@@ -11,7 +11,9 @@
 //     "sheet":{"cells":[{"keyText":"<task text>","col":"<header>","expect":"<cell text>","occurrence":1}],
 //              "skipped":[{"keyText":"...","reason":"..."}]},
 //     "dashboard":{"commentsAdded":1,"commentsRemoved":0,"removedTexts":["..."],"commentText":"...","stageBefore":"Feedback","stageAfter":"Feedback"},
-//     "storefront":{"measurements":[{"probe","url","viewport","selector","value"}]},
+//     "storefront":{"measurements":[{"probe","url","viewport","selector","value"}]},      // worker smoke numbers only; the Leader's own QA is what verifies
+//     "handover":{"checks":[{"url":"...?themeid=...","viewport":"375x812","selector":"...","expect":"..."}],"backup":"<path>","risks":["..."]},
+//         // REQUIRED on a DONE work/followup report of a job started under the Leader-QA model (job.leaderQa); older jobs only get a warning
 //     "verify":[{"cmd":"rg -n foo E:/Work/x.txt","expect":"foo"}],  // optional, ad-hoc only use: read-only commands for leader-job verify-adhoc
 //     "notChecked":["..."],                                  // REQUIRED when DONE
 //     "needsInput":{"question":"...","options":["a","b"]}    // REQUIRED when NEEDS_INPUT (2-3 options)
@@ -52,6 +54,59 @@ export function parseReport(text) {
     }
   }
   return { status, json, errors };
+}
+
+const HANDOVER_VIEWPORT_RE = /^\d{2,4}x\d{2,4}$/;
+
+/**
+ * The worker's handover to the Leader's own QA (user, 23/11/2026: "Worker chỉ sửa và bàn giao, Leader mới là người
+ * review/QA lại"): what to measure, where the backup is, what could still be wrong. Work/followup rounds of a feedback
+ * job started under the Leader-QA model (`job.leaderQa`) must carry it on DONE, make no dashboard write and leave the
+ * Stage alone; jobs started before it get warnings instead of refusals, so their reports stay valid.
+ */
+function validateHandover(j, status, job, ctx, errors) {
+  const workRound = (ctx.kind === "work" || ctx.kind === "followup") && job.subject?.kind !== "adhoc";
+  // A sheet-only job has no theme and no storefront to QA: it hands over nothing, but it still writes nothing on the dashboard.
+  const themeJob = job.profile !== "sheet-only";
+  const strict = workRound && job.leaderQa === 1;
+  const warn = (m) => ctx.warnings?.push(m);
+  const h = j.handover;
+  if (h !== undefined) {
+    if (!isObj(h)) {
+      errors.push("handover must be an object {checks, backup, risks}");
+    } else {
+      if (!Array.isArray(h.checks)) errors.push("handover.checks must be an array of {url, viewport, selector, expect}");
+      else
+        h.checks.forEach((c, i) => {
+          const at = `handover.checks[${i}]`;
+          if (!isObj(c) || !isNonEmptyStr(c.url) || !isNonEmptyStr(c.selector) || !isNonEmptyStr(c.expect)) errors.push(`${at} must be {url, viewport, selector, expect} with non-empty url, selector and expect strings`);
+          else if (!isStr(c.viewport) || !c.viewport.split("|").every((v) => HANDOVER_VIEWPORT_RE.test(v.trim()))) errors.push(`${at}.viewport must be WIDTHxHEIGHT (several joined by "|"), e.g. 375x812|1440x900`);
+        });
+      if (h.backup !== undefined && !isStr(h.backup)) errors.push("handover.backup must be a string (path of the pre-change backup)");
+      if (h.risks !== undefined && !isStrArray(h.risks)) errors.push("handover.risks must be an array of strings");
+      const shipped = (Array.isArray(j.files) && j.files.length > 0) || (Array.isArray(j.pushed) && j.pushed.length > 0);
+      if (status === "DONE" && shipped && Array.isArray(h.checks) && h.checks.length === 0) {
+        const m = "handover.checks is empty although the report lists files or pushes: the Leader has nothing to QA";
+        if (strict) errors.push(m);
+        else warn(m);
+      }
+    }
+  } else if (workRound && themeJob && status === "DONE") {
+    const m = "DONE work report carries no handover {checks, backup, risks}: the Leader QAs from handover.checks";
+    if (strict) errors.push(m);
+    else warn(`${m} (job started before the Leader-QA model: accepted)`);
+  }
+  if (!strict) return; // a job started under the old header may still comment and set Pending itself
+  const d = j.dashboard;
+  if (isObj(d)) {
+    if ((d.commentsAdded ?? 0) > 0 || (d.commentsRemoved ?? 0) > 0) {
+      errors.push("a work/followup round makes no dashboard comment (the Leader QAs first; the close round posts the note)");
+    }
+    if (isStr(d.stageBefore) && isStr(d.stageAfter) && d.stageBefore !== d.stageAfter) {
+      errors.push(`a work/followup round never changes the Stage (stageBefore ${JSON.stringify(d.stageBefore)}, stageAfter ${JSON.stringify(d.stageAfter)}): only the close round does`);
+    }
+  }
+  if (status === "PENDING") warn("PENDING is not used in the Leader-QA model: report NEEDS_INPUT with a question and 2-3 options instead of asking the customer");
 }
 
 /**
@@ -170,6 +225,7 @@ export function validateReportObject(parsed, job, round, ctx = {}) {
   const status = parsed.status ?? j.status;
   if (status === "DONE" && !Array.isArray(j.notChecked)) errors.push("DONE report must carry a notChecked array (what was NOT verified)");
   if (j.notChecked !== undefined && !isStrArray(j.notChecked)) errors.push("notChecked must be an array of strings");
+  validateHandover(j, status, job, ctx, errors);
   if (status === "NEEDS_INPUT") {
     const n = j.needsInput;
     if (!isObj(n)) errors.push("NEEDS_INPUT report must carry needsInput {question, options}");
@@ -277,10 +333,11 @@ export function classifyNeedsInput(question, options = []) {
  */
 export function validateReportText(text, job, round, ctx = {}) {
   const parsed = parseReport(text);
-  const errors = [...parsed.errors, ...validateReportObject(parsed, job, round, ctx)];
+  const warnings = [];
+  const errors = [...parsed.errors, ...validateReportObject(parsed, job, round, { ...ctx, warnings })];
   const n = parsed.json?.needsInput;
   const needsInput = parsed.status === "NEEDS_INPUT" && isObj(n) && isStr(n.question) ? { ...n, ...classifyNeedsInput(n.question, n.options) } : null;
-  return { status: parsed.status, json: parsed.json, errors, needsInput };
+  return { status: parsed.status, json: parsed.json, errors, warnings, needsInput };
 }
 
 export const REVIEW_VERDICTS = ["PASS", "CONCERNS", "FAIL"];

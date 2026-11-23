@@ -47,11 +47,22 @@ function world() {
   return { root, jobs, runs, env };
 }
 
-/** Run the CLI; returns exit code, parsed stdout JSON lines, stderr. */
+/**
+ * Run the CLI; returns exit code, parsed stdout JSON lines, stderr. `init` marks the job `leaderQa` (worker hands over, Leader
+ * QAs); this suite drives the ledger with the report shape of a job started before 23/11/2026, so the marker is dropped after
+ * init unless the call passes envOverride `{ KEEP_LEADER_QA: "1" }`. leader-job-handover.test.mjs covers the new model.
+ */
 function cli(w, args, envOverride = {}) {
   const r = spawnSync(process.execPath, [CLI, ...args], { encoding: "utf8", env: { ...w.env, ...envOverride } });
   const lines = r.stdout.split("\n").filter((l) => l.startsWith("{")).map((l) => JSON.parse(l));
-  return { code: r.status, lines, last: lines.at(-1), stderr: r.stderr, stdout: r.stdout };
+  const last = lines.at(-1);
+  if (args[0] === "init" && r.status === 0 && last?.jobDir && !envOverride.KEEP_LEADER_QA) {
+    const file = path.join(last.jobDir, "job.json");
+    const job = JSON.parse(fs.readFileSync(file, "utf8"));
+    delete job.leaderQa;
+    fs.writeFileSync(file, JSON.stringify(job, null, 2));
+  }
+  return { code: r.status, lines, last, stderr: r.stderr, stdout: r.stdout };
 }
 
 const writeRun = (w, terminal, patch) =>

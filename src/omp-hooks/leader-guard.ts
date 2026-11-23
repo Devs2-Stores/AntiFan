@@ -38,6 +38,11 @@
  *   dispatch window; past that it counts. What a Leader does for a
  *   living never counts: `terminal.*`, `core.*`, todo, task, wait, ask, `leader-job.mjs`,
  *   `wait-workers.mjs`, read-only evaluate, anything in its job folder, merging a worker's branch.
+ *   The Leader is the QA of a worker's report (user, 23/11/2026): its read-only AntiFan checks of the storefront
+ *   and dashboard (`anti.browser.evaluate|navigate|tabs.*|wait|set_viewport`, `anti.inspect.*`, `anti.screenshot.*`,
+ *   `anti.qa.*`, `anti.visual.compare`) are never counted, whatever the job state, and neither is reading a
+ *   screenshot image: only the tools that read local files and shell/eval file reads are budgeted, so reading
+ *   theme or app source stays blocked exactly as before.
  *   Only a session with a UI is budgeted: a subagent the Leader spawns (no UI, same env) is not,
  *   though the write boundary above still applies to it.
  *
@@ -202,9 +207,9 @@ function nextStep(job: OpenJob): string {
     return `worker died -> inspect its repo (git log/status, report file), then ${CLI} dispatch --job ${job.dir} --worker <NEW terminal> --prompt <resume prompt>; never re-wait the dead worker`;
   }
   if (job.state === "settled") {
-    return `worker settled -> ${CLI} validate-report --job ${job.dir} --round ${job.lastRound}, then ${CLI} verify-sheet --job ${job.dir} --round ${job.lastRound}, then verify the storefront yourself`;
+    return `worker settled -> ${CLI} validate-report --job ${job.dir} --round ${job.lastRound}, then ${CLI} verify-sheet --job ${job.dir} --round ${job.lastRound} (a job with a sheet), then QA the storefront yourself from the report's handover.checks (AntiFan, mobile + desktop) and ${CLI} record --job ${job.dir} --round ${job.lastRound} --kind storefront`;
   }
-  return `report received -> ${CLI} verify-sheet --job ${job.dir} --round ${job.lastRound} and verify the storefront; the job ends as verified or needs_input`;
+  return `report received -> ${CLI} verify-sheet --job ${job.dir} --round ${job.lastRound} (a job with a sheet), then QA the storefront yourself from the report's handover.checks (AntiFan, mobile + desktop) and ${CLI} record --job ${job.dir} --round ${job.lastRound} --kind storefront; the job is verified only after YOUR storefront record`;
 }
 
 export function buildStopReason(open: OpenJob[]): string {
@@ -929,6 +934,17 @@ function evalInvestigation(code: string, cwd: string, env: Env): string | null {
 }
 
 /**
+ * A literal local path to an image (a screenshot the Leader's own QA captured), selectors allowed. Looking at a
+ * rendered capture is not looking into the work's source, so it never spends the investigation budget (user,
+ * 23/11/2026: "Leader mới là người review/QA lại"). Past OMP sessions and URLs are not covered.
+ */
+const SCREENSHOT_FILE_RE = /\.(?:png|jpe?g|webp|gif)(?::(?:raw|[\d,+-]+))*$/i;
+function isScreenshotRead(target: string): boolean {
+  const t = target.trim();
+  return SCREENSHOT_FILE_RE.test(t) && !ANY_URI_RE.test(t) && !/[*?[{]/.test(t) && !SESSIONS_PATH_RE.test(t);
+}
+
+/**
  * What a call investigates, or null when it is not investigating: a native read-class tool (or its
  * `write xd://` spelling) on a path outside `LEADER_READ_ALLOW_ROOTS`, a shell or eval line that looks
  * into files or history, or a web search. Pure over the call plus the filesystem-free path rules.
@@ -941,6 +957,7 @@ export function investigationLabel(
   if (tool === "web_search") return "web_search";
   if (INVESTIGATE_PATH_TOOLS[tool] === true) {
     for (const target of investigateTargets(tool, input, params.cwd)) {
+      if (tool === "read" && isScreenshotRead(target)) continue;
       if (!readFree(target, params.cwd, env)) return `${tool} ${target}`.slice(0, 160);
     }
     return null;

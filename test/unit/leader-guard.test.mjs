@@ -1024,6 +1024,46 @@ test("classification: what counts as an investigation call and what does not", (
   for (const [tool, input] of free) assert.equal(label(tool, input), null, `${tool} ${JSON.stringify(input)} must not count`);
 });
 
+test("Leader QA: read-only AntiFan storefront checks and screenshot reads never use the budget; source reads still do", async () => {
+  const hook = makeHook();
+  const qaTools = [
+    "anti_browser_evaluate",
+    "anti_browser_navigate",
+    "anti_browser_tabs_create",
+    "anti_browser_tabs_activate",
+    "anti_browser_tabs_list",
+    "anti_browser_wait",
+    "anti_browser_set_viewport",
+    "anti_inspect_dom",
+    "anti_inspect_layout",
+    "anti_inspect_styles",
+    "anti_inspect_snapshot",
+    "anti_inspect_responsive_matrix",
+    "anti_screenshot_viewport",
+    "anti_screenshot_full_page",
+    "anti_qa_visual_quality",
+    "anti_qa_page_structure",
+    "anti_visual_compare",
+  ];
+  for (let round = 0; round < 3; round += 1) {
+    for (const name of qaTools) {
+      const input = { expression: "document.title", url: "https://shop.example/?themeid=1", selector: ".x", sessionId: "terminal-12" };
+      assert.equal(await hook.call(`mcp__antifan_browser_${name}`, input), undefined, `${name} must not count`);
+      assert.equal(await hook.call("write", { path: `xd://mcp__antifan_browser_${name}`, content: JSON.stringify(input) }), undefined, `xd ${name} must not count`);
+    }
+  }
+  for (const shot of ["E:/Work/scratch/leader/x/shot.png", path.join(themeRoot, "shot-375.jpg"), `${slash(path.join(plainDir, "m.webp"))}:raw`]) {
+    for (let i = 0; i < 12; i += 1) assert.equal(await hook.call("read", { path: shot }), undefined, `reading ${shot} must not count`);
+  }
+  // The QA calls spent nothing: the theme source is still budgeted and blocked on the fifth call.
+  await spendBudget(hook);
+  assertInvestigateRefused(await hook.call(...investigations()[4]));
+  assert.ok(investigationLabel({ toolName: "read", input: { path: path.join(themeRoot, "sections", "hero.liquid") }, cwd: plainDir }), "theme source still counts");
+  const sessions = path.join(os.homedir(), ".omp", "agent", "sessions", "proj", "shot.png");
+  assert.ok(investigationLabel({ toolName: "read", input: { path: sessions }, cwd: plainDir }), "a past-session image still counts");
+  assert.ok(investigationLabel({ toolName: "read", input: { path: "https://example.com/a.png" }, cwd: plainDir }), "an image URL still counts");
+});
+
 test("a call refused for another reason keeps its own code, spends nothing, and wins over an empty budget", async () => {
   const hook = makeHook();
   const hero = path.join(themeRoot, "sections", "hero.liquid");

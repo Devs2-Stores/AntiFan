@@ -42,17 +42,23 @@ export const writeRun = (w, terminal, patch) =>
     JSON.stringify({ schema: 1, terminalSessionId: terminal, ompSessionId: "omp-old", state: "idle", runSeq: 0, lastEventAt: 1, updatedAt: Date.now(), ...patch }),
   );
 
-/** A job without a sheet (required verification: dashboard only). */
-export function initJob(w, slug = "job", issueId = "1") {
-  const r = cli(w, ["init", "--slug", slug, "--issue-id", issueId, "--shop", "s.example", "--no-sheet"]);
+/**
+ * A job without a sheet (required verification: dashboard only). `init` now marks every job `leaderQa` (the worker hands
+ * over, the Leader QAs); these suites exercise the ledger with the report shape of a job started before 23/11/2026, so the
+ * marker is dropped unless `opts.leaderQa` is true. leader-job-handover.test.mjs covers the new model.
+ */
+export function initJob(w, slug = "job", issueId = "1", opts = {}) {
+  const r = cli(w, ["init", "--slug", slug, "--issue-id", issueId, "--shop", "s.example", "--no-sheet", ...(opts.profile ? ["--profile", opts.profile] : [])]);
   if (r.code !== 0) throw new Error(`init failed: ${r.stderr}`);
   const dir = r.last.jobDir;
-  return { dir, job: () => JSON.parse(fs.readFileSync(path.join(dir, "job.json"), "utf8")), patch: (fn) => {
+  const patch = (fn) => {
     const file = path.join(dir, "job.json");
     const job = JSON.parse(fs.readFileSync(file, "utf8"));
     fn(job);
     fs.writeFileSync(file, JSON.stringify(job, null, 2));
-  } };
+  };
+  if (!opts.leaderQa) patch((job) => delete job.leaderQa);
+  return { dir, job: () => JSON.parse(fs.readFileSync(path.join(dir, "job.json"), "utf8")), patch };
 }
 
 /** Dispatch a round with a hand-made prompt that names the report path and the guard values. */

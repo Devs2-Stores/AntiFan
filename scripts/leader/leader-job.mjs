@@ -154,7 +154,11 @@ Commands
   verify-sheet --job DIR [--round N] [--current-file CSV]
        Diff the live sheet against snapshot-before.csv, keyed by task text, against the report's claims.
   record --job DIR --round N --kind dashboard|storefront|sheet|adhoc --status PASS|WARN|FAIL|UNREADABLE [--note T]...
-       Store the Leader's own measurement; state=verified once all required kinds pass.
+       Store the Leader's own measurement; state=verified once all required kinds pass. Leader-QA model (user, 23/11/2026:
+       "Worker chỉ sửa và bàn giao, Leader mới là người review/QA lại"): a feedback job's DONE work/followup report must carry
+       handover {checks, backup, risks}; the worker's smoke numbers never verify, so the job reaches verified only after YOU
+       measured handover.checks (AntiFan, mobile + desktop) and recorded --kind storefront PASS|WARN. FAIL: followup round with your numbers.
+       Jobs started before this model (no job.leaderQa) keep working: a missing handover is only a validate-report warning.
   probe --name themeId|overflow|element-rect|dashboard-issue|trello-card|telegram-otp [--selector CSS] [--id ID] [--limit N] [--after EPOCH_MS] [--copy-secret [N]]
        Print the read-only expression to pass to anti.browser.evaluate.
   verify-adhoc --job DIR [--round N]
@@ -648,6 +652,7 @@ async function cmdInit(flags) {
     scope: { keys: keys ? keys.split("|").map(normKey).filter(Boolean) : null },
     snapshotBefore: "snapshot-before.csv",
     profile,
+    leaderQa: 1,
     state: "open",
     rounds: [],
   };
@@ -1080,7 +1085,10 @@ function requiredKindsFor(round, json, job) {
   // a report that carries only a summary would reach "verified" without anyone having looked at anything.
   const req = job?.subject?.noSheet ? ["dashboard"] : ["sheet"];
   if (json?.dashboard && !req.includes("dashboard")) req.push("dashboard");
-  if (json?.storefront || (Array.isArray(json?.files) && json.files.length)) req.push("storefront");
+  // The worker only hands over (handover.checks) and posts smoke numbers; the Leader's own storefront QA is required for any shipped change.
+  // A sheet-only job started under the Leader-QA model has no theme: the storefront/handover blocks never ask for a storefront record there (a files/pushed claim still does).
+  const themeless = job?.profile === "sheet-only" && job?.leaderQa === 1;
+  if ((!themeless && (json?.storefront || json?.handover)) || (Array.isArray(json?.files) && json.files.length) || (Array.isArray(json?.pushed) && json.pushed.length)) req.push("storefront");
   return req;
 }
 
@@ -1140,6 +1148,7 @@ function cmdValidateReport(flags) {
   let status = null;
   let json = null;
   let needsInput = null;
+  const warnings = [];
   if (text !== null) {
     const approval = job.approval ?? {};
     const v = validateReportText(text, job, round.n, { kind: round.kind, caps: round.caps, closeToken: approval.closeToken, tokenUsedAt: approval.tokenUsedAt, tokenUsedRound: approval.tokenUsedRound });
@@ -1147,6 +1156,7 @@ function cmdValidateReport(flags) {
     status = v.status;
     json = v.json;
     errors.push(...v.errors);
+    warnings.push(...v.warnings);
     if ((job.subject.noSheet || job.subject.kind === "adhoc") && Array.isArray(json?.sheet?.cells) && json.sheet.cells.length) {
       errors.push(job.subject.kind === "adhoc" ? "report claims sheet cells but this job is ad-hoc (no sheet)" : "report claims sheet cells but this job has no sheet (init --no-sheet)");
     }
@@ -1156,6 +1166,7 @@ function cmdValidateReport(flags) {
     status,
     valid,
     errors,
+    ...(warnings.length ? { warnings } : {}),
     checkedAt: Date.now(),
     ...(valid && round.kind !== "review" ? { required: requiredKindsFor(round, json, job) } : {}),
     ...(valid && round.kind === "review" ? { review: json.review } : {}),
@@ -1173,6 +1184,7 @@ function cmdValidateReport(flags) {
   if (round.kind === "review" && round.n === job.rounds.length) job.state = stateWithoutReview(job, round);
   saveJob(dir, job);
   for (const e of errors) process.stderr.write(`report round ${round.n}: ${e}\n`);
+  for (const w of warnings) process.stderr.write(`report round ${round.n} warning: ${w}\n`);
   emit({
     cmd: "validate-report",
     ok: valid,
@@ -1182,9 +1194,11 @@ function cmdValidateReport(flags) {
     status,
     valid,
     errors,
+    ...(warnings.length ? { warnings } : {}),
     state: job.state,
     ...(needsInput ? { onlyUser: needsInput.onlyUser, reasons: needsInput.reasons } : {}),
     ...(valid && round.kind === "review" ? { review: json.review } : {}),
+    ...(valid && job.leaderQa === 1 && round.kind !== "review" && round.kind !== "close" && status === "DONE" ? { next: "Leader QA: measure handover.checks yourself (AntiFan, mobile + desktop), then record --kind storefront (the worker's report alone never verifies)" } : {}),
   });
   return valid ? EXIT.OK : EXIT.CHECK_FAILED;
 }
@@ -1498,7 +1512,8 @@ function blockingText(job) {
       if (job.subject?.kind === "adhoc") {
         for (const m of adhocMissing(lastWork)) if (!miss.includes(m)) miss.push(m === "adhoc" ? "adhoc (record --kind adhoc after checking the outcome yourself)" : m);
       }
-      return `independent verification pending: ${miss.join(", ") || "none"}`;
+      const qaHint = job.leaderQa === 1 && miss.includes("storefront") ? " - storefront is YOUR QA: measure the report's handover.checks with AntiFan (mobile + desktop), then record --kind storefront --status PASS|WARN|FAIL" : "";
+      return `independent verification pending: ${miss.join(", ") || "none"}${qaHint}`;
     }
     case "worker_dead":
       return `worker ${last?.worker.terminal} died in round ${last?.n} (${last?.deadWhy ?? "no reason recorded"}): inspect its repo and dispatch a new round to a fresh worker`;
