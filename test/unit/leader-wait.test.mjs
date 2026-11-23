@@ -199,15 +199,26 @@ test("an OMP session that ended before it took the follow-up is dead, with the r
   assert.match(JSON.parse(stdout.trim()).why, /OMP session ended .*went to the shell/);
 });
 
-test("an idle OMP that stopped heartbeating is dead, not idle", { timeout: 60_000 }, async () => {
+test("an idle OMP that stopped heartbeating keeps its pid's word: undelivered, not dead", { timeout: 60_000 }, async () => {
   const runs = freshDir();
   const terminal = "terminal-frozen";
   const writtenAt = Date.now();
   writeRun(runs, terminal, { state: "idle", runSeq: 1, pid: process.pid, lastEventAt: writtenAt - 1_000, updatedAt: writtenAt - 120_000 });
-  const { exited } = startWaiter(["--w", `${terminal},${writtenAt},2`, "--runs-dir", runs, "--poll-ms", "100"]);
+  const { exited } = startWaiter(["--w", `${terminal},${writtenAt},2`, "--runs-dir", runs, "--poll-ms", "100", "--undelivered-sec", "0.5"]);
+  const { code, stdout } = await exited;
+  assert.equal(code, 7, stdout);
+  assert.match(JSON.parse(stdout.trim()).why, /never took the prompt/);
+});
+
+test("a frozen idle OMP is still dead once the silence limit passes", { timeout: 60_000 }, async () => {
+  const runs = freshDir();
+  const terminal = "terminal-frozen-silent";
+  const writtenAt = Date.now();
+  writeRun(runs, terminal, { state: "idle", runSeq: 1, pid: process.pid, lastEventAt: writtenAt - 1_000, updatedAt: writtenAt - 120_000 });
+  const { exited } = startWaiter(["--w", `${terminal},${writtenAt},2`, "--runs-dir", runs, "--sessions-dir", freshDir(), "--stale-min", "0.05", "--poll-ms", "100"]);
   const { code, stdout } = await exited;
   assert.equal(code, 4, stdout);
-  assert.match(JSON.parse(stdout.trim()).why, /heartbeat stale/);
+  assert.match(JSON.parse(stdout.trim()).why, /no event or session file write/);
 });
 
 test("nextRunChange resolves on a change in the directory, long before its tick", { timeout: 20_000 }, async () => {

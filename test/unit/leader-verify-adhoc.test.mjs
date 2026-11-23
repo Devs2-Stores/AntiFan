@@ -240,4 +240,27 @@ describe("junctions out of E:/Work", () => {
       fs.rmSync(outside, { recursive: true, force: true });
     }
   });
+
+  test("a file symlink that points outside E:/Work is refused, a plain file next to it passes", (t) => {
+    fs.mkdirSync("E:/Work/scratch", { recursive: true });
+    const dir = fs.mkdtempSync("E:/Work/scratch/verify-symlink-");
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "verify-outside-"));
+    const fw = (p) => p.replace(/\\/g, "/");
+    try {
+      fs.writeFileSync(path.join(outside, "x.txt"), "hello\n");
+      fs.writeFileSync(path.join(dir, "plain.txt"), "hello\n");
+      try {
+        fs.symlinkSync(path.join(outside, "x.txt"), path.join(dir, "file-link.txt"), "file");
+      } catch (e) {
+        if (e.code === "EPERM") return t.skip("file symlinks need privilege on this machine");
+        throw e;
+      }
+      const bad = checkVerifyCommand(`rg -n -e hello "${fw(dir)}/file-link.txt"`);
+      assert.match(bad.refused ?? "", /must be under E:\/Work/);
+      assert.ok(checkVerifyCommand(`rg -n -e hello "${fw(dir)}/plain.txt"`).argv);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  });
 });

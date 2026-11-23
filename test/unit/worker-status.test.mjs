@@ -75,13 +75,29 @@ describe("status liveness", () => {
     assert.equal(out.dead, false);
   });
 
-  test("an idle run that stopped heartbeating is ended even though its pid exists", () => {
+  test("an idle run whose pid exists but stopped heartbeating stays idle and alive: the pid is checked first", () => {
     const opts = fixture({ state: "idle", runSeq: 1, lastEventAt: NOW - MIN, updatedAt: NOW - 2 * MIN, pid: process.pid, ompSessionId: OMP_ID, cwd: "E:\\Work" });
     const { out } = status(opts, NOW);
-    assert.equal(out.state, "ended");
-    assert.equal(out.dead, true);
-    assert.match(out.why, /heartbeat stale/);
+    assert.equal(out.state, "idle");
+    assert.equal(out.ompAlive, true);
+    assert.equal(out.dead, false);
     assert.equal(out.heartbeatAgeSec, 120);
+  });
+
+  test("the false dead of 23/11 reads pending: idle, a 45 s old heartbeat and a live pid", () => {
+    const dispatchedAt = 1_795_407_477_686;
+    const verdictAt = 1_795_407_516_148;
+    const opts = {
+      ...fixture({ state: "idle", runSeq: 1, lastEventAt: 1_795_407_352_231, updatedAt: verdictAt - 45_400, pid: process.pid, ompSessionId: OMP_ID, cwd: "E:\\Work" }),
+      since: dispatchedAt,
+      minRunSeq: 2,
+    };
+    const { code, out } = status(opts, verdictAt);
+    assert.equal(code, 0);
+    assert.equal(out.dead, false);
+    assert.equal(out.why, null);
+    assert.equal(out.delivery, "pending");
+    assert.equal(out.deliveryWhy, null);
   });
 
   test("a settled run with a live pid and a fresh heartbeat is idle, alive and not dead", () => {
@@ -135,5 +151,99 @@ describe("status delivery check (--since / --min-run-seq)", () => {
 
   test("no delivery field without --since", () => {
     assert.equal("delivery" in status(fixture(wheel({ updatedAt: SINCE })), SINCE + 1_000).out, false);
+  });
+});
+
+/** A Leader registry that records `terminal` as assigned to a Leader at `assignedAt`. */
+function registryDir(assignedAt, terminal = "terminal-t") {
+  const dir = fs.mkdtempSync(path.join(TEMP, "config-"));
+  const workers = { [terminal]: { leaderId: "terminal-1", title: "worker", assignedAt } };
+  fs.writeFileSync(path.join(dir, "leader-terminals.json"), JSON.stringify({ schema: 1, leaders: ["terminal-1"], workers }));
+  return dir;
+}
+
+/** Options for status() over an empty run directory, so the run file is absent. */
+function noRunFile(patch = {}) {
+  return {
+    terminal: "terminal-t",
+    runsDir: fs.mkdtempSync(path.join(TEMP, "empty-runs-")),
+    sessionsDir: fs.mkdtempSync(path.join(TEMP, "no-sessions-")),
+    configDir: null,
+    tools: 5,
+    ...patch,
+  };
+}
+
+describe("status before the run file exists", () => {
+  test("a worker the Leader assigned seconds ago answers starting with exit 0, not NO_RUN_FILE", () => {
+    const { code, out } = status(noRunFile({ configDir: registryDir(NOW - 7_000) }), NOW);
+    assert.equal(code, 0);
+    assert.equal(out.ok, true);
+    assert.equal(out.state, "starting");
+    assert.equal(out.terminal, "terminal-t");
+    assert.equal(out.assignedAt, NOW - 7_000);
+    assert.equal(out.ageSec, 7);
+  });
+
+  test("the starting answer expires after 90 s: the reason is NO_RUN_FILE again", () => {
+    const inside = status(noRunFile({ configDir: registryDir(NOW - 89_000) }), NOW);
+    assert.equal(inside.code, 0);
+    assert.equal(inside.out.state, "starting");
+    const stale = status(noRunFile({ configDir: registryDir(NOW - 91_000) }), NOW);
+    assert.equal(stale.code, 4);
+    assert.equal(stale.out.reason, "NO_RUN_FILE");
+    assert.equal("state" in stale.out, false);
+  });
+
+  test("a terminal no registry names keeps NO_RUN_FILE inside the window", () => {
+    const { code, out } = status(noRunFile({ configDir: registryDir(NOW - 5_000, "terminal-other") }), NOW);
+    assert.equal(code, 4);
+    assert.equal(out.reason, "NO_RUN_FILE");
+  });
+
+  test("a run file that exists but cannot be parsed is never starting", () => {
+    const runsDir = fs.mkdtempSync(path.join(TEMP, "corrupt-runs-"));
+    fs.writeFileSync(path.join(runsDir, "terminal-t.json"), "{ not json");
+    const { code, out } = status(noRunFile({ runsDir, configDir: registryDir(NOW - 5_000) }), NOW);
+    assert.equal(code, 4);
+    assert.equal(out.reason, "NO_RUN_FILE");
+  });
+});
+
+describe("status model warnings", () => {
+  const modelLine = (model) => JSON.stringify({ type: "model_change", timestamp: "2026-11-20T07:22:56.205Z", model });
+  const running = () => ({ state: "running", runSeq: 1, lastEventAt: NOW - MIN, pid: process.pid, ompSessionId: OMP_ID, cwd: "E:\\Work\\customizes\\Levents" });
+
+  /** A sessions dir holding one transcript for `OMP_ID`, body given line by line. */
+  function sessionsWith(lines) {
+    const dir = fs.mkdtempSync(path.join(TEMP, "sessions-"));
+    const base = path.join(dir, "--E--Work-customizes-Levents--");
+    fs.mkdirSync(base, { recursive: true });
+    fs.writeFileSync(path.join(base, `2026-11-20T07-22-54-460Z_${OMP_ID}.jsonl`), `${lines.join("\n")}\n`);
+    return dir;
+  }
+
+  test("a 9router/cc model warns that its tool names carry an _ide suffix", () => {
+    const opts = { ...fixture(running()), sessionsDir: sessionsWith([modelLine("9router/cc/claude-haiku-5-5")]) };
+    const { out } = status(opts, NOW);
+    assert.equal(out.model, "9router/cc/claude-haiku-5-5");
+    assert.equal(out.warnings.length, 1);
+    assert.equal(out.warnings[0].code, "IDE_TOOL_SUFFIX_MODEL");
+    assert.match(out.warnings[0].note, /_ide suffix/);
+  });
+
+  test("a model outside that route carries no warnings", () => {
+    const opts = { ...fixture(running()), sessionsDir: sessionsWith([modelLine("anthropic/claude-sonnet-5-5")]) };
+    const { out } = status(opts, NOW);
+    assert.equal(out.model, "anthropic/claude-sonnet-5-5");
+    assert.equal("warnings" in out, false);
+  });
+
+  test("the newest model_change of a long transcript wins over the session header", () => {
+    const filler = JSON.stringify({ type: "pad", text: "x".repeat(1_100_000) });
+    const opts = { ...fixture(running()), sessionsDir: sessionsWith([modelLine("anthropic/claude-sonnet-5-5"), filler, modelLine("9router/cc/claude-haiku-5-5")]) };
+    const { out } = status(opts, NOW);
+    assert.equal(out.model, "9router/cc/claude-haiku-5-5");
+    assert.equal(out.warnings[0].code, "IDE_TOOL_SUFFIX_MODEL");
   });
 });

@@ -25,4 +25,4 @@ Làm đúng các bước sau:
    }
    ```
    - `review.verdict` BẮT BUỘC: `PASS` (không có vấn đề), `CONCERNS` (làm được nhưng có điểm cần Leader cân nhắc; liệt kê hết), hoặc `FAIL` (sai yêu cầu, hồi quy hoặc ngoài phạm vi; liệt kê hết). `findings` là mảng chuỗi, mỗi phát hiện nêu file/số đo/viewport cụ thể. Không có `files`, `pushed`, `sheet` hay thay đổi `dashboard` vì vòng này không ghi gì; `notChecked` liệt kê những gì bạn không đọc hoặc đo được.
-   - Verdict của bạn chỉ là ý kiến để Leader cân nhắc: Leader quyết định và không tự chấp nhận. Sau khi ghi report thì kết thúc lượt. Không dùng tool ask.
+   - Verdict của bạn chỉ là ý kiến để Leader cân nhắc: Leader quyết định và không tự chấp nhận. Sau khi ghi report thì kết thúc lượt. Không dùng tool ask. Trước khi kết thúc, tự kiểm report: `node E:/Work/apps/AntiFan/scripts/leader/leader-job.mjs lint-report --file {{REPORT_PATH}} --job {{JOB_DIR}} --kind review` (exit 0 hợp lệ; exit 1 thì sửa hết lỗi rồi kiểm lại); KHÔNG chạy `validate-report` (worker luôn nhận "not settled yet").

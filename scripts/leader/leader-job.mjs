@@ -27,7 +27,7 @@ const DEFAULT_JOBS_ROOT = "E:/Work/scratch/leader";
 const DEFAULT_DATA_ROOT = "E:/Work/.antifan-data";
 const JOB_SCHEMA = "leader-job/1";
 const HOST = "Taiz";
-const BOOL_FLAGS = new Set(["help", "allow-busy", "allow-low-memory", "allow-low-disk", "allow-no-owner", "force", "all", "allow-outstanding", "without-done", "no-sheet", "keep-workers", "allow-extra-round", "text"]);
+const BOOL_FLAGS = new Set(["help", "allow-busy", "allow-low-memory", "allow-low-disk", "allow-no-owner", "force", "all", "allow-outstanding", "without-done", "no-sheet", "keep-workers", "allow-extra-round", "skip-token-probe"]);
 const VERIFY_KINDS = ["sheet", "dashboard", "storefront", "adhoc"];
 const VERIFY_STATUSES = ["PASS", "WARN", "FAIL", "UNREADABLE"];
 const PROBES = { themeId: "themeId.js", overflow: "overflow.js", "element-rect": "element-rect.js", "dashboard-issue": "dashboard-issue.js", "trello-card": "trello-card.js", "telegram-otp": "telegram-otp.js" };
@@ -109,7 +109,8 @@ Commands
        or the marker is gone). --customer-file holds customer-written text (dashboard message, devNote, comments): it
        is fenced by untrusted.mjs and placed before the task text, so the Leader never assembles a prompt by hand.
   dispatch --job DIR --worker TERMINAL [--prompt FILE] [--kind work|followup|close|review]
-       [--mode auto|fresh|followup] [--allow-busy] [--allow-low-memory] [--allow-low-disk] [--allow-no-owner] [--allow-extra-round --reason "<text>"]
+       [--mode auto|fresh|followup] [--cwd DIR] [--skip-token-probe]
+       [--allow-busy] [--allow-low-memory] [--allow-low-disk] [--allow-no-owner] [--allow-extra-round --reason "<text>"]
        [--cap name=NUMBER]... [--forbid "<action>"]...
        Without --prompt a work/followup round uses the round's own prompt file (<slug>.prompt.md that init wrote, later
        <slug>.rN.prompt.md) and is refused when that file does not exist; close and review write their template there.
@@ -137,6 +138,11 @@ Commands
        --kind review starts a read-only reviewer over the earlier rounds' reports (template review-followup.md); its
        report carries review {verdict PASS|CONCERNS|FAIL, findings[]} and never changes the verification of the work round.
        A close round's prompt carries APPROVAL_TOKEN (from approve); the worker must echo it as "closeToken" in its report.
+       --cwd DIR is the worker's project folder; the first dispatch stores it as job.cwd. For a non-adhoc job whose folder
+       holds .haravan-cli_local.json (a bound theme), dispatch runs scripts/leader/hrv-token-probe.mjs there (8 s deadline)
+       BEFORE the round is recorded: an expired/unrefreshable hrv token refuses the dispatch (exit 4) and tells you the
+       owner must run 'hrv login' for that shop, instead of a worker spending the whole round on it. A probe that cannot
+       run (no CLI helper, no binding, timeout) only warns; --skip-token-probe skips the probe.
   wait-any [--leader TERMINAL] [--timeout-min N] [--stale-min 90] [--undelivered-sec 90]
        Watch ALL dispatched jobs of the Leader at once and return when the FIRST one settles, dies or needs the
        user (event "first": job, jobDir, exit). Handle that job now (validate, verify, ask the user, close), then
@@ -146,11 +152,30 @@ Commands
        worker is dead: run file gone (not counted in the first 3 minutes), OMP pid gone, OMP session ended before
        it took the input, an idle run that stopped heartbeating, or neither a run-file event nor a write to its OMP
        session transcript (OMP_SESSIONS_DIR, default ~/.omp/agent/sessions) for --stale-min minutes. A dead round
-       is marked, state=worker_dead; dispatch a new round to a fresh worker. A worker whose OMP is alive and idle but
+       is marked, state=worker_dead; dispatch a new round to a fresh worker. A dead close round returns the job to
+       user-approved (the approval stands and its token stays unspent), so the close can be dispatched again. A worker
+       whose OMP is alive and idle but
        started no run within --undelivered-sec seconds of the dispatch never took the prompt: event worker-undelivered,
        exit 7, round marked like a dead one (state=worker_dead, deadWhy starts "undelivered:"); recycle the worker.
   validate-report --job DIR [--round N]
-       Check the round's report file; state=reported (needs_input for a NEEDS_INPUT report).
+       Check the round's report file; state=reported (needs_input for a NEEDS_INPUT report). A round the ledger marked
+       worker-dead whose report file exists and passes every check is accepted (the worker was alive after all): the round
+       settles, the job moves on normally, and the output says recoveredFromDead. Marks the close token spent only on a
+       valid DONE close report.
+  lint-report --file REPORT [--kind work|followup|close|review] [--job DIR]
+       The format and schema checks of validate-report on one report file, with no round state needed and no job state
+       written: first line STATUS, exactly one fenced json block that parses as leader-report/1, field shapes
+       (evidence/pushed/review.findings arrays of strings, verify[].expect, needsInput.options), and the handover rules
+       when --job names a leaderQa job. Exit 0 valid, 1 every error listed, 2 the file cannot be read. A worker self-checks
+       its report with this: validate-report always answers "not settled yet" while the worker still runs.
+  answer --job DIR --text "<answer>" [--choice "<option>"]
+       Record the user's answer to a NEEDS_INPUT round (state needs_input) and reopen that round: the answer lands in the
+       ledger (job.answers, round.answer), state goes back to dispatched so wait watches the worker's next turn, and the
+       command prints the one-line message to send to the worker pane (terminal.write {message}). --choice must be one of
+       the report's needsInput.options, quoted verbatim. The command writes no terminal itself.
+  next --job DIR   One JSON line: job state, what blocks it and the exact command(s) valid now (the same board as
+       status/needs-me). Use it instead of trying commands until one is accepted: every exit 2/4 refusal of record,
+       approve, close, dispatch, validate-report and fill-task also prints a "next:" line with the same hint.
   verify-sheet --job DIR [--round N] [--current-file CSV]
        Diff the live sheet against snapshot-before.csv, keyed by task text, against the report's claims.
   record --job DIR --round N --kind dashboard|storefront|sheet|adhoc --status PASS|WARN|FAIL|UNREADABLE [--note T]...
@@ -180,6 +205,9 @@ Commands
        A worker whose OMP has ended gets --settle-ms (default 5000) for its run file to go away (close-worker.mjs now waits
        for that file too and says run-file-lingering when it stays). --without-done also closes a verified job whose
        latest report is PENDING (a final state that never gets a close round), once the user agreed to leave it Pending.
+       An ad-hoc job reaches closed from state verified (record --kind adhoc PASS|WARN first). One left in worker_dead has
+       no valid round to check: dispatch a new round to a fresh worker, or, once the user says the work stops,
+       close --job DIR --force (explicit, never silently).
   approve-push --worker TERMINAL --theme ID --cwd DIR --files "a b c" --quote "<the user's words>" [--ttl-min N] [--job DIR]
   approve-push --worker TERMINAL --theme ID --cwd DIR --files "a b c" --quote-file FILE [--ttl-min N] [--job DIR]
        Legacy: records a one-use approval (30 minutes at most) for a push to a LIVE theme. Since 2026-11-03 no push needs
@@ -226,7 +254,10 @@ export function parseArgv(argv) {
       const name = eq < 0 ? a.slice(2) : a.slice(2, eq);
       let v = eq < 0 ? undefined : a.slice(eq + 1);
       if (BOOL_FLAGS.has(name)) v = v === undefined ? true : v !== "false";
-      else if (v === undefined) {
+      else if (name === "text" && v === undefined && (argv[i + 1] === undefined || argv[i + 1].startsWith("-"))) {
+        // `needs-me --text` is a switch; `answer --text "<text>"` and `answer --text="<text>"` carry the text.
+        v = true;
+      } else if (v === undefined) {
         v = argv[++i];
         if (v === undefined) throw new CliError(EXIT.USAGE, `--${name} needs a value`);
       }
@@ -454,8 +485,9 @@ function applyProfile(tpl, profile, hasSheet = true) {
 const NO_SHEET_STUB_CSV = "Stage,Mô tả,Dev note kết quả\n";
 const GID_FIRST_TAB = "tab đầu tiên (không chỉ định gid)";
 
-function jobVars(job, n, reportPath, kind = "work") {
-  const vars = { JOB: job.job, KEY: job.slug, ROUND: n, REPORT_PATH: reportPath };
+function jobVars(job, n, reportPath, kind = "work", dir = null) {
+  const vars = { JOB: job.job, KEY: job.slug, ROUND: n, REPORT_PATH: reportPath, KIND: kind };
+  if (dir !== null) vars.JOB_DIR = fwd(dir);
   if (job.subject.kind === "adhoc") {
     vars.TITLE = job.subject.title;
   } else {
@@ -490,8 +522,29 @@ function stateWithoutReview(job, round) {
   if (job.rounds.some((r) => r.kind !== "review" && !r.settledAt && !r.deadAt)) return "dispatched";
   return typeof round.stateBefore === "string" && round.stateBefore !== "dispatched" ? round.stateBefore : "settled";
 }
-/** State after every round settled: "settled", unless the last round to end was a review, which leaves the job as it was. */
-const settledState = (job) => (job.rounds.at(-1)?.kind === "review" ? stateWithoutReview(job, job.rounds.at(-1)) : "settled");
+
+/**
+ * Where the job goes when a round ends without an accepted report (dead, undelivered). A review never moves the
+ * job; a close round returns to the approval it was dispatched from, so the same approval can start the close
+ * again on a fresh worker (a dead round never spends the close token); anything else is a dead worker.
+ */
+function stateAfterFailure(job, round) {
+  if (round.kind === "review") return stateWithoutReview(job, round);
+  if (round.kind === "close") return job.approvedAt ? "user-approved" : "verified";
+  return "worker_dead";
+}
+
+/**
+ * State after every round settled: "settled", unless the last round to end was a review (the job stays where it was)
+ * or a close (the job stays approved until a close report is accepted, so the close can run again).
+ */
+function settledState(job) {
+  const last = job.rounds.at(-1);
+  if (!last) return "settled";
+  if (last.kind === "review") return stateWithoutReview(job, last);
+  if (last.kind === "close") return job.approvedAt ? "user-approved" : "settled";
+  return "settled";
+}
 
 const reportPathFor = (dir, job, n) => fwd(path.join(dir, n === 1 ? `${job.slug}.report.md` : `${job.slug}.r${n}.report.md`));
 const promptPathFor = (dir, job, n) => fwd(path.join(dir, n === 1 ? `${job.slug}.prompt.md` : `${job.slug}.r${n}.prompt.md`));
@@ -583,7 +636,7 @@ function cmdInitAdhoc(flags, slug) {
   };
   const reportPath = reportPathFor(dir, job, 1);
   const promptPath = promptPathFor(dir, job, 1);
-  fs.writeFileSync(promptPath, `${render(readTemplate("worker-header-adhoc.md"), jobVars(job, 1, reportPath))}\n# Việc\n{{TASK}}\n`);
+  fs.writeFileSync(promptPath, `${render(readTemplate("worker-header-adhoc.md"), jobVars(job, 1, reportPath, "work", dir))}\n# Việc\n{{TASK}}\n`);
   saveJob(dir, job);
   emit({ cmd: "init", ok: true, jobDir: fwd(dir), job: name, state: job.state, kind: "adhoc", title, promptPath, nextReportPath: reportPath, note: "replace the {{TASK}} line in the prompt, then run dispatch" });
   return EXIT.OK;
@@ -658,7 +711,7 @@ async function cmdInit(flags) {
   };
   const reportPath = reportPathFor(dir, job, 1);
   const promptPath = promptPathFor(dir, job, 1);
-  const skeleton = `${render(applyProfile(readTemplate("worker-header.md"), profile, !noSheet), jobVars(job, 1, reportPath))}\n# Việc\n{{TASK}}\n`;
+  const skeleton = `${render(applyProfile(readTemplate("worker-header.md"), profile, !noSheet), jobVars(job, 1, reportPath, "work", dir))}\n# Việc\n{{TASK}}\n`;
   fs.writeFileSync(promptPath, skeleton);
   saveJob(dir, job);
   emit({
@@ -726,6 +779,38 @@ function checkWorkerOwner(registry, worker, allowNoOwner) {
   );
 }
 
+/**
+ * Say why `hrv theme info` would fail in a theme folder, before a worker round is spent on it. Runs
+ * scripts/leader/hrv-token-probe.mjs (read-only, one JSON line, never the token) with a short deadline:
+ *   ok        the theme was read: the session works
+ *   fatal     the read failed (expired/unrefreshable token, wrong org, network): a worker cannot fix it
+ *   not fatal no binding or no CLI helper, timeout, unreadable output: nothing was proven either way
+ * `fatal` is what refuses a work dispatch; everything else only warns.
+ */
+const TOKEN_PROBE_TIMEOUT_MS = 8_000;
+function runTokenProbe(cwd) {
+  const script = process.env.LEADER_TOKEN_PROBE || path.join(HERE, "hrv-token-probe.mjs");
+  const r = spawnSync(process.execPath, [script], { cwd, timeout: TOKEN_PROBE_TIMEOUT_MS, encoding: "utf8", windowsHide: true, env: process.env });
+  if (r?.error) {
+    const why = r.error.code === "ETIMEDOUT" ? `probe timeout after ${TOKEN_PROBE_TIMEOUT_MS} ms` : `probe cannot run (${r.error.message})`;
+    return { ok: false, fatal: false, themeId: null, orgId: null, error: why };
+  }
+  const last = String(r?.stdout ?? "").trim().split(/\r?\n/).filter(Boolean).at(-1) ?? "";
+  let parsed = null;
+  try {
+    parsed = JSON.parse(last);
+  } catch {}
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return { ok: false, fatal: false, themeId: null, orgId: null, error: `probe printed no readable JSON (exit ${r?.status ?? "?"})` };
+  }
+  const themeId = parsed.themeId == null ? null : String(parsed.themeId);
+  const orgId = parsed.orgId == null ? null : String(parsed.orgId);
+  if (r.status === 0 && parsed.ok === true) return { ok: true, fatal: false, themeId, orgId, ...(typeof parsed.role === "string" ? { role: parsed.role } : {}) };
+  const error = typeof parsed.error === "string" ? parsed.error : `probe exit ${r?.status ?? "?"}`;
+  // exit 1 is the CLI's own read failing; exit 2 is "no binding / no CLI helper", which proves nothing about the token.
+  return { ok: false, fatal: r.status === 1, themeId, orgId, error };
+}
+
 async function cmdDispatch(flags) {
   const { dir, job } = loadJob(flags);
   if (job.state === "closed") throw new CliError(EXIT.REFUSED, "job is closed");
@@ -737,7 +822,9 @@ async function cmdDispatch(flags) {
     throw new CliError(EXIT.REFUSED, `an ad-hoc job has no ${kind} round (no dashboard Stage to close, no issue to review): verify with record --kind adhoc, then close`);
   }
   if (kind === "close" && !(job.state === "user-approved" && job.approvedAt)) {
-    throw new CliError(EXIT.REFUSED, `close round needs state user-approved (run approve after the user's yes); state is ${job.state}`);
+    throw new CliError(EXIT.REFUSED, `close round needs state user-approved (run approve after the user's yes); state is ${job.state}`, {
+      next: `node ${fwd(path.join(HERE, "leader-job.mjs"))} approve --job ${fwd(dir)}   (only after the user's explicit yes), then dispatch --kind close again`,
+    });
   }
   if (kind === "review" && !job.rounds.some((r) => r.kind !== "review")) throw new CliError(EXIT.REFUSED, "nothing to review: dispatch a work round first");
   let extraRoundReason = null;
@@ -782,7 +869,7 @@ async function cmdDispatch(flags) {
   } catch (e) {
     throw new CliError(EXIT.USAGE, `cannot read prompt ${promptPath}: ${e.message}`);
   }
-  let rendered = render(text, jobVars(job, n, reportPath, kind));
+  let rendered = render(text, jobVars(job, n, reportPath, kind, dir));
   if (kind === "followup" && !rendered.includes(PREFILL_HEADING)) {
     const extra = followupPrefill(job, n);
     if (extra) rendered = `${rendered.replace(/\s*$/, "")}\n${extra}`;
@@ -805,9 +892,42 @@ async function cmdDispatch(flags) {
   const run = readRun(runsDir, worker);
   if (run?.unreadable) throw new CliError(EXIT.USAGE, `run file of ${worker} exists but is unreadable`);
   if (run && (run.state === "running" || run.state === "waiting_user") && !one(flags, "allow-busy")) {
-    throw new CliError(EXIT.REFUSED, `worker ${worker} is ${run.state} (runSeq ${run.runSeq}); wait for idle or pass --allow-busy`, { worker, runState: run.state });
+    throw new CliError(EXIT.REFUSED, `worker ${worker} is ${run.state} (runSeq ${run.runSeq}); wait for idle or pass --allow-busy`, {
+      worker,
+      runState: run.state,
+      next: `wait for worker ${worker} to go idle (node ${fwd(path.join(HERE, "worker-status.mjs"))} --terminal ${worker}), then dispatch again; --allow-busy only if two turns on one pane are intended`,
+    });
   }
   const ownerCheck = checkWorkerOwner(readLeaderRegistry(), worker, one(flags, "allow-no-owner") === true);
+  // The worker's project folder: --cwd on the first dispatch, remembered on the job for later rounds. A folder bound to
+  // a Haravan theme gets its hrv session probed first, because an expired token fails every theme command a worker would
+  // try and can only be fixed by the owner's own `hrv login`.
+  const cwdFlag = one(flags, "cwd");
+  let themeCwd = typeof job.cwd === "string" && job.cwd ? path.resolve(job.cwd) : null;
+  if (cwdFlag !== undefined) {
+    themeCwd = path.resolve(String(cwdFlag));
+    let isDir = false;
+    try {
+      isDir = fs.statSync(themeCwd).isDirectory();
+    } catch {}
+    if (!isDir) throw new CliError(EXIT.USAGE, `--cwd ${fwd(themeCwd)} is not a directory: pass the worker's project folder (a Haravan theme folder holds .haravan-cli_local.json)`);
+    job.cwd = fwd(themeCwd);
+  }
+  let tokenProbe = null;
+  if (themeCwd && job.subject.kind !== "adhoc" && one(flags, "skip-token-probe") !== true && fs.existsSync(path.join(themeCwd, ".haravan-cli_local.json"))) {
+    tokenProbe = runTokenProbe(themeCwd);
+    if (tokenProbe.fatal && (kind === "work" || kind === "followup")) {
+      const retry = `node ${fwd(path.join(HERE, "leader-job.mjs"))} dispatch --job ${fwd(dir)} --worker ${worker}${kind === "work" ? "" : ` --kind ${kind}`}`;
+      throw new CliError(
+        EXIT.REFUSED,
+        `hrv token is not usable in ${fwd(themeCwd)} (theme ${tokenProbe.themeId ?? "?"}, org ${tokenProbe.orgId ?? "?"}): ${tokenProbe.error}. The owner must run \`hrv login\` for that org in that folder (it needs their own credentials), then dispatch again; a worker cannot refresh it and would spend its whole round discovering that`,
+        { themeId: tokenProbe.themeId, orgId: tokenProbe.orgId, probeError: tokenProbe.error, next: `the owner runs \`hrv login\` for org ${tokenProbe.orgId ?? "?"} in ${fwd(themeCwd)}; then: ${retry}` },
+      );
+    }
+    if (tokenProbe.ok === false) {
+      process.stderr.write(`warning: hrv token probe in ${fwd(themeCwd)} could not answer (${tokenProbe.error}); dispatch continues, verify the hrv session before the worker edits\n`);
+    }
+  }
   let mode = one(flags, "mode") || "auto";
   if (!["auto", "fresh", "followup"].includes(mode)) throw new CliError(EXIT.USAGE, "--mode must be auto, fresh or followup");
   if (mode === "auto") mode = run && run.ompSessionId && run.state !== "ended" ? "followup" : "fresh";
@@ -818,7 +938,7 @@ async function cmdDispatch(flags) {
     throw new CliError(
       EXIT.REFUSED,
       `memory is short: Windows commit headroom is ${gb(commit.headroomBytes)}, under the ${gb(commit.floorBytes)} floor, and a fresh worker starts another omp.exe. Close idle workers (terminal.close) or let running ones finish, then dispatch again; pass --allow-low-memory only on the user's say-so`,
-      { headroomBytes: commit.headroomBytes, floorBytes: commit.floorBytes, alarmed: commit.alarmed === true },
+      { headroomBytes: commit.headroomBytes, floorBytes: commit.floorBytes, alarmed: commit.alarmed === true, next: "close idle workers (close-worker.mjs <TERMINAL>), then dispatch again; --allow-low-memory only on the user's say-so" },
     );
   }
   const disk = readDiskPressure(diskFileOf(flags));
@@ -834,7 +954,7 @@ async function cmdDispatch(flags) {
     throw new CliError(
       EXIT.REFUSED,
       `disk is short: ${why}, and a worker writes transcripts, caches and build output there. Free space (delete scratch, empty the Recycle Bin) or let running workers finish, then dispatch again; pass --allow-low-disk only on the user's say-so`,
-      { volume: diskShort.path, freeBytes: diskShort.freeBytes, floorBytes: diskShort.floorBytes, alarmed: latched },
+      { volume: diskShort.path, freeBytes: diskShort.freeBytes, floorBytes: diskShort.floorBytes, alarmed: latched, next: "free space (delete scratch, empty the Recycle Bin), then dispatch again; --allow-low-disk only on the user's say-so" },
     );
   }
   if (mode === "fresh" && job.subject.kind !== "adhoc") {
@@ -891,6 +1011,8 @@ async function cmdDispatch(flags) {
     ...(caps ? { caps } : {}),
     preRunSeq: round.preRunSeq,
     ...(commit ? { commitHeadroomBytes: commit.headroomBytes, commitFloorBytes: commit.floorBytes } : {}),
+    ...(job.cwd ? { cwd: job.cwd } : {}),
+    ...(tokenProbe ? { tokenProbe } : {}),
     ...(replaced.length || mode === "followup"
       ? {
           ...(replaced.length ? { closeNow: replaced.filter((w) => w.runState !== "running").map((w) => w.terminal), replacedStillRunning: replaced.filter((w) => w.runState === "running").map((w) => w.terminal) } : {}),
@@ -976,18 +1098,18 @@ async function cmdWait(flags) {
       if (verdict.kind === "dead") {
         r.deadAt = Date.now();
         r.deadWhy = verdict.why;
-        job.state = r.kind === "review" ? stateWithoutReview(job, r) : "worker_dead";
+        job.state = stateAfterFailure(job, r);
         saveJob(dir, job);
-        emit({ cmd: "wait", event: "worker-dead", job: job.job, round: r.n, worker: r.worker.terminal, why: verdict.why, runState: run?.state ?? null, lastTool: run?.lastTool ?? null, state: job.state });
+        emit({ cmd: "wait", event: "worker-dead", job: job.job, round: r.n, kind: r.kind, worker: r.worker.terminal, why: verdict.why, runState: run?.state ?? null, lastTool: run?.lastTool ?? null, state: job.state });
         return EXIT.WORKER_DEAD;
       }
       if (verdict.kind === "undelivered") {
         r.deadAt = Date.now();
         r.deadWhy = `undelivered: ${verdict.why}`;
         r.undelivered = true;
-        job.state = r.kind === "review" ? stateWithoutReview(job, r) : "worker_dead";
+        job.state = stateAfterFailure(job, r);
         saveJob(dir, job);
-        emit({ cmd: "wait", event: "worker-undelivered", job: job.job, round: r.n, worker: r.worker.terminal, why: verdict.why, runState: run?.state ?? null, runSeq: run?.runSeq ?? null, state: job.state });
+        emit({ cmd: "wait", event: "worker-undelivered", job: job.job, round: r.n, kind: r.kind, worker: r.worker.terminal, why: verdict.why, runState: run?.state ?? null, runSeq: run?.runSeq ?? null, state: job.state });
         return EXIT.UNDELIVERED;
       }
       if (verdict.kind === "settled") {
@@ -1123,9 +1245,80 @@ export function unsettledRoundError(round, dir, run) {
   return `round ${round.n} is not settled yet (${state}); run: node scripts/leader/leader-job.mjs wait --job ${dir}`;
 }
 
+const REPORT_KINDS = ["work", "followup", "close", "review"];
+
+/**
+ * The format and schema checks of validate-report on one report file: no round state needed (a worker writes its report
+ * while it still runs, when validate-report can only answer "not settled yet") and no job state written. With --job the
+ * report is checked against that job's round, guard values, caps and handover rules; without it only the report's own
+ * shape is checked.
+ */
+function cmdLintReport(flags) {
+  const file = path.resolve(req(flags, "file"));
+  const kindFlag = one(flags, "kind");
+  if (kindFlag !== undefined && !REPORT_KINDS.includes(kindFlag)) throw new CliError(EXIT.USAGE, `--kind must be one of ${REPORT_KINDS.join(", ")}`);
+  let text;
+  try {
+    text = fs.readFileSync(file, "utf8");
+  } catch (e) {
+    throw new CliError(EXIT.USAGE, `cannot read report ${fwd(file)}: ${e.code === "ENOENT" ? "missing" : e.message}`);
+  }
+  const extraWarnings = [];
+  let job = null;
+  let round = 1;
+  let kind = kindFlag ?? "work";
+  let ctx = { kind };
+  if (one(flags, "job") !== undefined) {
+    const loaded = loadJob(flags);
+    job = loaded.job;
+    const record = pickRound(job, flags);
+    round = record.n;
+    kind = kindFlag ?? record.kind;
+    const approval = job.approval ?? {};
+    ctx = { kind, caps: record.caps, closeToken: approval.closeToken, tokenUsedAt: approval.tokenUsedAt, tokenUsedRound: approval.tokenUsedRound };
+    if (kind !== record.kind) extraWarnings.push(`--kind ${kind} differs from round ${record.n} kind ${record.kind}`);
+  } else {
+    const parsed = parseReport(text);
+    const j = parsed.json !== null && typeof parsed.json === "object" && !Array.isArray(parsed.json) ? parsed.json : null;
+    const guard = j?.guard !== null && typeof j?.guard === "object" && !Array.isArray(j.guard) ? j.guard : null;
+    // The report itself says whether it belongs to a feedback issue (it carries a guard or a sheet block).
+    const subject = guard !== null || j?.sheet !== undefined
+      ? { kind: "feedback", issueId: String(guard?.issueId ?? ""), host: String(guard?.host ?? ""), shop: String(guard?.shop ?? ""), sheetId: String(guard?.sheetId ?? "") }
+      : { kind: "adhoc", title: "?" };
+    job = { job: typeof j?.job === "string" ? j.job : "", ...(typeof j?.key === "string" ? { slug: j.key } : {}), subject };
+    round = Number.isInteger(j?.round) ? j.round : 1;
+    // A close report's only job-dependent check is its close token: without --job there is nothing to compare it with.
+    if (kind === "close") {
+      extraWarnings.push("close token not checked: pass --job DIR to check a close report against its job");
+      ctx = { kind: "work" };
+    }
+  }
+  const v = validateReportText(text, job, round, ctx);
+  const errors = v.errors;
+  const warnings = [...extraWarnings, ...v.warnings];
+  const valid = errors.length === 0;
+  for (const e of errors) process.stderr.write(`report lint: ${e}\n`);
+  for (const w of warnings) process.stderr.write(`report lint warning: ${w}\n`);
+  emit({
+    cmd: "lint-report",
+    ok: valid,
+    file: fwd(file),
+    job: job.job || null,
+    round,
+    kind,
+    status: v.status,
+    valid,
+    errors,
+    ...(warnings.length ? { warnings } : {}),
+    ...(one(flags, "job") === undefined ? { note: "no --job: the guard values, caps, close token and handover rules that depend on the job were not checked" } : {}),
+  });
+  return valid ? EXIT.OK : EXIT.CHECK_FAILED;
+}
+
 function cmdValidateReport(flags) {
   const { dir, job } = loadJob(flags);
-  reconcileSettled(dir, job, runsDirOf(flags));
+  const runsDir = runsDirOf(flags);
+  reconcileSettled(dir, job, runsDir);
   const round = pickRound(job, flags);
   const errors = [];
   let text = null;
@@ -1137,13 +1330,6 @@ function cmdValidateReport(flags) {
     }
   } catch (e) {
     errors.push(e.code === "ENOENT" ? `report file missing: ${round.reportPath}` : `cannot read report: ${e.message}`);
-  }
-  if (!round.settledAt) {
-    errors.push(
-      round.deadAt
-        ? `round ${round.n} has no usable report: its worker died (${round.deadWhy ?? "no reason recorded"}); inspect its repo and dispatch a new round to a fresh worker`
-        : unsettledRoundError(round, dir, readRun(runsDirOf(flags), round.worker.terminal)),
-    );
   }
   let status = null;
   let json = null;
@@ -1159,6 +1345,24 @@ function cmdValidateReport(flags) {
     warnings.push(...v.warnings);
     if ((job.subject.noSheet || job.subject.kind === "adhoc") && Array.isArray(json?.sheet?.cells) && json.sheet.cells.length) {
       errors.push(job.subject.kind === "adhoc" ? "report claims sheet cells but this job is ad-hoc (no sheet)" : "report claims sheet cells but this job has no sheet (init --no-sheet)");
+    }
+  }
+  // A round marked worker-dead whose report file exists and passes every check is the worker having been alive after all
+  // (a heartbeat that moved too slowly): accept the report and settle the round instead of sending the Leader to redo it.
+  let recoveredFromDead = null;
+  if (!round.settledAt) {
+    if (round.deadAt && text !== null && errors.length === 0) {
+      recoveredFromDead = { at: round.deadAt, why: round.deadWhy ?? null };
+      round.deadRecoveredFrom = recoveredFromDead;
+      delete round.deadAt;
+      delete round.deadWhy;
+      delete round.undelivered;
+      round.settledAt = Date.now();
+      round.settleRun = { state: "recovered-report", runSeq: round.settleRun?.runSeq ?? null, lastEventAt: round.settleRun?.lastEventAt ?? null };
+    } else if (round.deadAt) {
+      errors.push(`round ${round.n} has no usable report: its worker died (${round.deadWhy ?? "no reason recorded"}) and the report it left does not pass the checks above; inspect its repo and dispatch a new round to a fresh worker`);
+    } else {
+      errors.push(unsettledRoundError(round, dir, readRun(runsDir, round.worker.terminal)));
     }
   }
   const valid = errors.length === 0;
@@ -1183,8 +1387,17 @@ function cmdValidateReport(flags) {
   // A review round never moves the job, valid report or not.
   if (round.kind === "review" && round.n === job.rounds.length) job.state = stateWithoutReview(job, round);
   saveJob(dir, job);
+  // An invalid report that is still waiting on the job state names the one command that changes it.
+  const nextHint = valid
+    ? job.leaderQa === 1 && round.kind !== "review" && round.kind !== "close" && status === "DONE"
+      ? job.profile === "sheet-only"
+        ? "Leader QA: no theme here; re-read the sheet (verify-sheet) and the dashboard row yourself, then record --kind sheet|dashboard (the worker's report alone never verifies)"
+        : "Leader QA: measure handover.checks yourself (AntiFan, mobile + desktop), then record --kind storefront (the worker's report alone never verifies)"
+      : null
+    : !round.settledAt ? nextCommands(job, dir).join(" ; ") : null;
   for (const e of errors) process.stderr.write(`report round ${round.n}: ${e}\n`);
   for (const w of warnings) process.stderr.write(`report round ${round.n} warning: ${w}\n`);
+  if (nextHint) process.stderr.write(`next: ${nextHint}\n`);
   emit({
     cmd: "validate-report",
     ok: valid,
@@ -1196,11 +1409,10 @@ function cmdValidateReport(flags) {
     errors,
     ...(warnings.length ? { warnings } : {}),
     state: job.state,
+    ...(recoveredFromDead ? { recoveredFromDead } : {}),
     ...(needsInput ? { onlyUser: needsInput.onlyUser, reasons: needsInput.reasons } : {}),
     ...(valid && round.kind === "review" ? { review: json.review } : {}),
-    ...(valid && job.leaderQa === 1 && round.kind !== "review" && round.kind !== "close" && status === "DONE"
-      ? { next: job.profile === "sheet-only" ? "Leader QA: no theme here; re-read the sheet (verify-sheet) and the dashboard row yourself, then record --kind sheet|dashboard (the worker's report alone never verifies)" : "Leader QA: measure handover.checks yourself (AntiFan, mobile + desktop), then record --kind storefront (the worker's report alone never verifies)" }
-      : {}),
+    ...(nextHint ? { next: nextHint } : {}),
   });
   return valid ? EXIT.OK : EXIT.CHECK_FAILED;
 }
@@ -1353,6 +1565,64 @@ function cmdRecord(flags) {
   return status === "PASS" || status === "WARN" ? EXIT.OK : EXIT.CHECK_FAILED;
 }
 
+/**
+ * Record the user's answer to a NEEDS_INPUT round, reopen that round and print the one-line message to send to the
+ * worker pane. A settled round is reopened (not replaced by a follow-up round): it keeps its round number, its caps and
+ * its prompt, so the answer costs no round of the job's budget; wait then watches the worker's next turn on it.
+ */
+function cmdAnswer(flags) {
+  const { dir, job } = loadJob(flags);
+  const rawText = one(flags, "text");
+  if (typeof rawText !== "string" || !rawText.trim()) throw new CliError(EXIT.USAGE, 'answer needs --text "<the answer>" (one line)');
+  const text = rawText.replace(/\s+/g, " ").trim();
+  if (job.state !== "needs_input") throw new CliError(EXIT.REFUSED, `answer needs a NEEDS_INPUT round, state is ${job.state}`);
+  const round = job.rounds.at(-1);
+  const report = round?.report;
+  if (!round || report?.status !== "NEEDS_INPUT") throw new CliError(EXIT.REFUSED, `the latest round is not a NEEDS_INPUT round (status ${report?.status ?? "none"}): nothing to answer`);
+  const options = Array.isArray(report.needsInput?.options) ? report.needsInput.options : [];
+  const rawChoice = one(flags, "choice");
+  const choice = rawChoice === undefined ? null : String(rawChoice).trim();
+  if (choice !== null && !options.includes(choice)) {
+    const listed = options.length ? options.map((o) => JSON.stringify(o)).join(", ") : "the report lists none";
+    throw new CliError(EXIT.REFUSED, `--choice ${JSON.stringify(choice)} is not one of the options the worker listed (${listed}): quote one of them verbatim, or leave --choice out and put the decision in --text`);
+  }
+  const run = readRun(runsDirOf(flags), round.worker.terminal);
+  if (!run || run.unreadable) {
+    throw new CliError(EXIT.REFUSED, `worker ${round.worker.terminal} has no readable run file: start a fresh worker and dispatch --kind followup with the answer as its prompt`);
+  }
+  if (run.state === "running") throw new CliError(EXIT.REFUSED, `worker ${round.worker.terminal} is still running round ${round.n}: wait for it to settle, then answer`);
+  if (run.state === "waiting_user") throw new CliError(EXIT.REFUSED, `worker ${round.worker.terminal} sits in an ask dialog: answer the dialog first (wait-workers.mjs --mine prints the keys), then answer the round`);
+  if (run.state === "ended") throw new CliError(EXIT.REFUSED, `the OMP of worker ${round.worker.terminal} has ended: start a fresh worker and dispatch --kind followup with the answer as its prompt`);
+  const now = Date.now();
+  const question = report.needsInput?.question ?? null;
+  round.answer = { at: now, text, choice, question, options, ...(report.needsInput?.onlyUser ? { onlyUser: true, reasons: report.needsInput.reasons ?? [] } : {}) };
+  job.answers = [...(Array.isArray(job.answers) ? job.answers : []), { round: round.n, at: now, text, choice }];
+  // Reopen the same round: the worker's next turn counts as this round's turn (a new run after the current runSeq).
+  round.preOmpSessionId = run.ompSessionId ?? round.preOmpSessionId;
+  round.preRunSeq = typeof run.runSeq === "number" ? run.runSeq : 0;
+  round.dispatchedAt = now;
+  delete round.settledAt;
+  delete round.settleRun;
+  delete round.report;
+  job.state = "dispatched";
+  saveJob(dir, job);
+  const lead = choice !== null ? `Trả lời của user: ${choice}.${text ? ` ${text}` : ""}` : `Trả lời của user: ${text}`;
+  const message = `${lead} Làm tiếp vòng ${round.n} của job ${job.job}, ghi report vào ${round.reportPath}.`;
+  emit({
+    cmd: "answer",
+    ok: true,
+    job: job.job,
+    round: round.n,
+    worker: round.worker.terminal,
+    state: job.state,
+    choice,
+    message,
+    note: `terminal.write {message} to worker ${round.worker.terminal} now (no trailing control characters), then run wait --job ${fwd(dir)}`,
+    ...(round.answer.onlyUser ? { onlyUser: true, reasons: round.answer.reasons } : {}),
+  });
+  return EXIT.OK;
+}
+
 function cmdProbe(flags) {
   const name = req(flags, "name");
   const file = PROBES[name];
@@ -1396,8 +1666,9 @@ const realUnderWork = (p) => {
   let real;
   try {
     real = fs.realpathSync.native(p);
-  } catch {
-    return true;
+  } catch (e) {
+    // Only a path that does not exist keeps the lexical verdict; one that exists but cannot be resolved is refused.
+    return e?.code === "ENOENT" || e?.code === "ENOTDIR";
   }
   let root;
   try {
@@ -1499,6 +1770,56 @@ function cmdVerifyAdhoc(flags) {
   return ok ? EXIT.OK : EXIT.CHECK_FAILED;
 }
 
+/**
+ * The exact commands that move this job forward now: what every state-based refusal prints on its `next:` line and
+ * what `next --job` lists. Placeholders in angle brackets are values only the Leader knows (a terminal id, the
+ * user's answer).
+ */
+export function nextCommands(job, dir) {
+  const cli = `node ${fwd(path.join(HERE, "leader-job.mjs"))}`;
+  const D = fwd(dir);
+  const last = job.rounds.at(-1);
+  const n = last?.n ?? 1;
+  const adhoc = job.subject?.kind === "adhoc";
+  const record = (round, kinds) => kinds.map((k) => `${cli} record --job ${D} --round ${round} --kind ${k} --status PASS|WARN|FAIL|UNREADABLE`);
+  switch (job.state) {
+    case "open":
+      return [`${cli} dispatch --job ${D} --worker <TERMINAL>`];
+    case "dispatched":
+      return [`${cli} wait --job ${D}`, `${cli} wait-any`];
+    case "settled":
+      return [`${cli} validate-report --job ${D} --round ${n}`];
+    case "reported": {
+      const work = lastWorkRound(job) ?? last;
+      const required = work?.report?.required ?? [];
+      const miss = required.filter((k) => !["PASS", "WARN"].includes(work.verification?.[k]?.status));
+      const out = [];
+      if (!adhoc && required.includes("sheet") && miss.includes("sheet")) out.push(`${cli} verify-sheet --job ${D} --round ${work.n}`);
+      if (adhoc) out.push(`${cli} verify-adhoc --job ${D} --round ${work.n}`);
+      out.push(...record(work.n, adhoc ? ["adhoc"] : miss.length ? miss : ["dashboard"]));
+      return out;
+    }
+    case "needs_input":
+      return [`${cli} answer --job ${D} --text "<the user's answer>" [--choice "<one of needsInput.options>"]`];
+    case "worker_dead": {
+      const kind = last?.kind === "close" && job.approvedAt ? " --kind close" : "";
+      const out = [`${cli} dispatch --job ${D} --worker <fresh TERMINAL>${kind}`];
+      out.push(adhoc ? `${cli} close --job ${D} --force   # only once the user says the work stops` : `${cli} status --job ${D}`);
+      return out;
+    }
+    case "verified":
+      return [`${cli} approve --job ${D}   # only after the user's explicit yes`];
+    case "user-approved": {
+      if (last?.kind === "close" && last.deadAt) return [`${cli} dispatch --job ${D} --worker <fresh TERMINAL> --kind close`];
+      if (last?.kind === "close" && last.settledAt && !last.report?.valid) return [`${cli} validate-report --job ${D} --round ${last.n}`];
+      if (job.closeVerifiedAt) return [`${cli} close --job ${D}`];
+      return [`${cli} dispatch --job ${D} --worker <TERMINAL> --kind close`];
+    }
+    default:
+      return [`${cli} status --job ${D}`];
+  }
+}
+
 function blockingText(job) {
   const last = job.rounds.at(-1);
   switch (job.state) {
@@ -1517,17 +1838,45 @@ function blockingText(job) {
       const qaHint = job.leaderQa === 1 && miss.includes("storefront") ? " - storefront is YOUR QA: measure the report's handover.checks with AntiFan (mobile + desktop), then record --kind storefront --status PASS|WARN|FAIL" : "";
       return `independent verification pending: ${miss.join(", ") || "none"}${qaHint}`;
     }
-    case "worker_dead":
-      return `worker ${last?.worker.terminal} died in round ${last?.n} (${last?.deadWhy ?? "no reason recorded"}): inspect its repo and dispatch a new round to a fresh worker`;
+    case "worker_dead": {
+      const adhoc = job.subject?.kind === "adhoc" ? "; or, once the user says the work stops, close --force" : "";
+      return `worker ${last?.worker.terminal} died in round ${last?.n} (${last?.deadWhy ?? "no reason recorded"}): inspect its repo and dispatch a new round to a fresh worker${adhoc}`;
+    }
     case "needs_input":
-      return "waiting for the user's answer";
+      return `waiting for the user's answer: answer --job DIR --text "<the answer>" [--choice "<one of needsInput.options>"]`;
     case "verified":
       return "verified; waiting for the user's approval";
-    case "user-approved":
+    case "user-approved": {
+      // A close round that ends without an accepted report leaves the job approved on purpose: the same approval can start
+      // the close again (a dead round never spends the close token).
+      if (last?.kind === "close" && last.deadAt) return `close round ${last.n} died (${last.deadWhy ?? "no reason recorded"}): dispatch --kind close again to a fresh worker; the approval stands and its token is unspent`;
+      if (last?.kind === "close" && last.settledAt && !last.report?.valid) return `close round ${last.n} finished: validate-report --round ${last.n}`;
       return job.closeVerifiedAt ? "ready to close" : "dispatch --kind close, wait, validate-report, record dashboard PASS";
+    }
     default:
       return "";
   }
+}
+
+/** `next --job`: the job state, what blocks it and the exact commands valid now (same board as status/needs-me). */
+function cmdNext(flags) {
+  const { dir, job } = loadJob(flags);
+  const runsDir = runsDirOf(flags);
+  reconcileSettled(dir, job, runsDir);
+  const last = job.rounds.at(-1);
+  const needsInput = job.state === "needs_input" && last?.report?.needsInput ? last.report.needsInput : null;
+  emit({
+    cmd: "next",
+    ok: true,
+    job: job.job,
+    jobDir: fwd(dir),
+    state: job.state,
+    blocking: finishedUnsettled(job, runsDir) ?? blockingText(job),
+    next: nextCommands(job, dir),
+    ...(last ? { lastRound: { n: last.n, kind: last.kind, worker: last.worker?.terminal ?? null, reportStatus: last.report?.status ?? null, deadWhy: last.deadWhy ?? null } } : {}),
+    ...(needsInput ? { needsInput } : {}),
+  });
+  return EXIT.OK;
 }
 
 /**
@@ -1590,13 +1939,16 @@ function cmdStatus(flags) {
       leakedWorkers: leaks.map((w) => w.terminal),
     });
   }
+  const pendingLessons = pendingLessonsReading();
   emit({
     cmd: "status",
     ok: true,
     jobs: listed,
     leakedWorkers: leaked,
+    pendingLessons,
     ...(leaked ? { note: "terminal.close {sessionId} each leaked worker: a job is not finished while its worker terminals are open" } : {}),
   });
+  if (pendingLessons.message) process.stderr.write(`${pendingLessons.message}\n`);
   return EXIT.OK;
 }
 
@@ -1605,18 +1957,28 @@ const latestSheet = (job) => [...job.rounds].reverse().find((r) => r.verificatio
 function cmdApprove(flags) {
   const { dir, job } = loadJob(flags);
   const force = one(flags, "force") === true;
+  const cli = `node ${fwd(path.join(HERE, "leader-job.mjs"))}`;
   if (job.state === "closed") throw new CliError(EXIT.REFUSED, "job is closed: a new close token would be meaningless");
   const pendingClose = job.rounds.find((r) => r.kind === "close" && !r.deadAt && !r.report?.valid);
   if (pendingClose) {
-    throw new CliError(EXIT.REFUSED, `close round ${pendingClose.n} is still in flight or unvalidated: approving again would invalidate its token`);
+    throw new CliError(EXIT.REFUSED, `close round ${pendingClose.n} is still in flight or unvalidated: approving again would invalidate its token`, {
+      next: `${cli} validate-report --job ${fwd(dir)} --round ${pendingClose.n}   (then approve again)`,
+    });
   }
   if (!force) {
     if (job.state !== "verified") throw new CliError(EXIT.REFUSED, `approve needs state verified, state is ${job.state}`);
     const last = lastWorkRound(job);
-    if (last?.report?.status !== "DONE") throw new CliError(EXIT.REFUSED, `latest report status is ${last?.report?.status}, only DONE can be approved`);
+    if (last?.report?.status !== "DONE") {
+      throw new CliError(EXIT.REFUSED, `latest report status is ${last?.report?.status}, only DONE can be approved`, {
+        next: `${cli} dispatch --job ${fwd(dir)} --worker <TERMINAL> --kind followup   (to reach DONE; --force only on the user's explicit say-so)`,
+      });
+    }
     const out = latestSheet(job)?.outstandingDevRows ?? [];
     if (out.length && one(flags, "allow-outstanding") !== true) {
-      throw new CliError(EXIT.REFUSED, `${out.length} Dev rows are still outstanding in the sheet (pass --allow-outstanding if the user accepts that)`, { outstandingDevRows: out });
+      throw new CliError(EXIT.REFUSED, `${out.length} Dev rows are still outstanding in the sheet (pass --allow-outstanding if the user accepts that)`, {
+        outstandingDevRows: out,
+        next: `${cli} approve --job ${fwd(dir)} --allow-outstanding   (only once the user accepts the outstanding rows)`,
+      });
     }
   }
   job.state = "user-approved";
@@ -1630,13 +1992,21 @@ function cmdApprove(flags) {
 function cmdClose(flags) {
   const { dir, job } = loadJob(flags);
   const force = one(flags, "force") === true;
+  const cli = `node ${fwd(path.join(HERE, "leader-job.mjs"))}`;
   if (!force) {
     if (job.subject.kind === "adhoc") {
+      if (job.state === "worker_dead") {
+        throw new CliError(EXIT.REFUSED, "an ad-hoc job in worker_dead has no valid round to check: dispatch a new round to a fresh worker, or, once the user says the work stops, run this close again with --force (no outcome check then)");
+      }
       if (!["verified", "user-approved"].includes(job.state)) throw new CliError(EXIT.REFUSED, `an ad-hoc job closes from state verified (record --kind adhoc --status PASS first), state is ${job.state}`);
       // approve --force can reach user-approved without a check; the close still needs the recorded outcome check.
       const lw = lastWorkRound(job);
       const lack = lw?.report?.valid ? adhocMissing(lw) : ["valid report"];
-      if (lack.length) throw new CliError(EXIT.REFUSED, `an ad-hoc job closes only after its outcome check passed: missing ${lack.join(", ")}`);
+      if (lack.length) {
+        throw new CliError(EXIT.REFUSED, `an ad-hoc job closes only after its outcome check passed: missing ${lack.join(", ")}`, {
+          next: `${cli} record --job ${fwd(dir)} --round ${lw?.n ?? job.rounds.length} --kind adhoc --status PASS|WARN   (after checking the stated outcome yourself)`,
+        });
+      }
     } else {
       const pendingFinal = one(flags, "without-done") === true && job.state === "verified" && lastWorkRound(job)?.report?.status === "PENDING";
       if (job.state !== "user-approved" && !pendingFinal) throw new CliError(EXIT.REFUSED, `close needs state user-approved, state is ${job.state}`);
@@ -1658,7 +2028,7 @@ function cmdClose(flags) {
     throw new CliError(
       EXIT.REFUSED,
       `worker terminals of this job are still open: ${live.map((w) => w.terminal).join(", ")}. terminal.close {sessionId, removeMintedProject:true} each, then run close again (--keep-workers leaves them open on purpose)`,
-      { liveWorkers: live },
+      { liveWorkers: live, next: `close each worker first: node ${fwd(path.join(HERE, "close-worker.mjs"))} ${live.map((w) => w.terminal).join(" ")} ; then: node ${fwd(path.join(HERE, "leader-job.mjs"))} close --job ${fwd(dir)}${one(flags, "without-done") === true ? " --without-done" : ""}` },
     );
   }
   if (live.length) job.workersKept = true;
@@ -1688,11 +2058,13 @@ function cmdNeedsMe(flags) {
   const staleHours = staleRaw === undefined ? 24 : Number(staleRaw);
   if (!(staleHours > 0)) throw new CliError(EXIT.USAGE, "--stale-hours must be a number above 0");
   const board = buildBoard({ jobsRoot: jobsRoot(), runsDir: runsDirOf(flags), leader, now: Date.now(), staleHours, includeClosed: one(flags, "all") === true });
+  const pendingLessons = pendingLessonsReading();
   if (one(flags, "text") === true) {
     process.stdout.write(`${board.text}\n`);
+    if (pendingLessons.message) process.stdout.write(`${pendingLessons.message}\n`);
     return EXIT.OK;
   }
-  emit({ cmd: "needs-me", ok: true, rows: board.rows, needsMe: board.needsMe, text: board.text });
+  emit({ cmd: "needs-me", ok: true, rows: board.rows, needsMe: board.needsMe, text: board.text, pendingLessons });
   return EXIT.OK;
 }
 
@@ -1703,6 +2075,33 @@ function cmdLessons() {
   const r = listPending(learnOpts());
   emit({ cmd: "lessons", ok: r?.ok === true, candidates: r?.candidates ?? [], error: r?.error ?? null });
   return r?.ok === true ? EXIT.OK : EXIT.CHECK_FAILED;
+}
+
+const DAY_MS = 24 * 60 * 60_000;
+/** A queue this large, or one waiting this long, is money spent on nothing: the Leader must see it without running `lessons`. */
+const LESSON_ALERT_COUNT = 25;
+const LESSON_ALERT_DAYS = 3;
+
+/**
+ * The WHOLE Core PENDING queue (the same source `lessons` reads), counted for needs-me/status: the pack-time pending
+ * count is per task unit, so a full store never showed up there. Fail-open: an unreadable Core reports a null count,
+ * never a zero.
+ */
+function pendingLessonsReading(now = Date.now()) {
+  const r = listPending(learnOpts());
+  if (r?.ok !== true) return { count: null, oldestDays: null, error: r?.error ?? "unavailable" };
+  const list = Array.isArray(r.candidates) ? r.candidates : [];
+  let oldest = null;
+  for (const c of list) {
+    const at = typeof c?.createdAt === "number" ? c.createdAt : Date.parse(String(c?.createdAt ?? ""));
+    if (Number.isFinite(at) && (oldest === null || at < oldest)) oldest = at;
+  }
+  const oldestDays = oldest === null ? null : Math.max(0, Math.floor((now - oldest) / DAY_MS));
+  const alert = list.length >= LESSON_ALERT_COUNT || (oldestDays !== null && oldestDays >= LESSON_ALERT_DAYS);
+  const message = alert
+    ? `Lessons: ${list.length} PENDING candidate${list.length === 1 ? "" : "s"} in AntiFan Core${oldestDays === null ? "" : `, oldest ${oldestDays} days`} - the owner adjudicates them (leader-job.mjs lessons lists them)`
+    : null;
+  return { count: list.length, oldestDays, ...(message ? { message } : {}) };
 }
 
 // ---------------------------------------------------------------- live theme push approval
@@ -1897,6 +2296,9 @@ const COMMANDS = {
   wait: cmdWait,
   "wait-any": cmdWaitAny,
   "validate-report": cmdValidateReport,
+  "lint-report": cmdLintReport,
+  answer: cmdAnswer,
+  next: cmdNext,
   "verify-sheet": cmdVerifySheet,
   record: cmdRecord,
   probe: cmdProbe,
@@ -1909,11 +2311,43 @@ const COMMANDS = {
   "approve-push": cmdApprovePush,
 };
 
-export async function main(argv) {
-  let cmd = null;
+/** Commands whose state or flag refusals print the exact command that works now (`next:` line and JSON `next` field). */
+const NEXT_HINT_COMMANDS = new Set(["record", "approve", "close", "dispatch", "validate-report", "fill-task"]);
+
+/** The command shape to retype when a flag was wrong, so the option names never have to be guessed. */
+const COMMAND_FORMS = {
+  record: "record --job DIR --round N --kind dashboard|storefront|sheet|adhoc --status PASS|WARN|FAIL|UNREADABLE [--note TEXT]",
+  approve: "approve --job DIR [--allow-outstanding]   # only after the user's explicit yes",
+  close: "close --job DIR [--without-done] [--keep-workers]",
+  dispatch: "dispatch --job DIR --worker TERMINAL [--kind work|followup|close|review] [--prompt FILE] [--cwd DIR] [--skip-token-probe]",
+  "validate-report": "validate-report --job DIR [--round N]",
+  "fill-task": "fill-task --job DIR --task-file FILE [--customer-file FILE] [--label TEXT]",
+};
+
+/**
+ * The `next:` hint of a refusal: the command shape when the problem was a flag, then the commands the job accepts in its
+ * current state. Re-reads job.json so the hint always describes the state on disk.
+ */
+function nextForError(cmd, flags, code) {
+  if (!NEXT_HINT_COMMANDS.has(cmd)) return null;
+  const parts = [];
+  if (code === EXIT.USAGE && COMMAND_FORMS[cmd]) parts.push(COMMAND_FORMS[cmd]);
+  let stateHint = null;
   try {
-    const parsed = parseArgv(argv);
-    cmd = parsed.cmd;
+    if (one(flags, "job") !== undefined) {
+      const { dir, job } = loadJob(flags);
+      stateHint = nextCommands(job, dir).join(" ; ");
+    }
+  } catch {}
+  parts.push(stateHint ?? `node ${fwd(path.join(HERE, "leader-job.mjs"))} status   # lists your jobs, their state and what blocks each`);
+  return parts.join(" ; ");
+}
+
+export async function main(argv) {
+  const parsed = { cmd: null, flags: new Map() };
+  try {
+    Object.assign(parsed, parseArgv(argv));
+    const cmd = parsed.cmd;
     if (parsed.flags.has("help") || !cmd) {
       process.stdout.write(HELP);
       return cmd || parsed.flags.has("help") ? EXIT.OK : EXIT.USAGE;
@@ -1923,8 +2357,11 @@ export async function main(argv) {
     return await fn(parsed.flags);
   } catch (e) {
     const code = e instanceof CliError ? e.code : EXIT.USAGE;
+    const extra = e instanceof CliError ? e.extra : null;
+    const next = extra?.next ?? (code === EXIT.USAGE || code === EXIT.REFUSED ? nextForError(parsed.cmd, parsed.flags, code) : null);
     process.stderr.write(`error: ${e.message}\n`);
-    emit({ cmd, ok: false, code, error: e.message, ...(e instanceof CliError ? e.extra : {}) });
+    if (next) process.stderr.write(`next: ${next}\n`);
+    emit({ cmd: parsed.cmd, ok: false, code, error: e.message, ...extra, ...(next ? { next } : {}) });
     return code;
   }
 }

@@ -232,7 +232,8 @@ export function validateReportObject(parsed, job, round, ctx = {}) {
     else {
       if (!isNonEmptyStr(n.question)) errors.push("needsInput.question must be a non-empty string");
       if (!(Array.isArray(n.options) && n.options.length >= 2 && n.options.length <= 3 && n.options.every(isNonEmptyStr))) {
-        errors.push("needsInput.options must be 2 or 3 non-empty strings");
+        const got = JSON.stringify(n.options === undefined ? null : n.options);
+        errors.push(`needsInput.options must be an array of 2 or 3 non-empty strings (for example ["<option 1>", "<option 2>"]), got ${head(got, 160)}`);
       }
     }
   }

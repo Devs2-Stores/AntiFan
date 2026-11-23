@@ -84,6 +84,32 @@ describe("buildOutcome", () => {
     assert.equal(o.verificationRef, null);
     assert.match(o.outcome, /no valid report/);
   });
+
+  it("carries the job's platform so a promoted lesson is found by that shop type's packs", () => {
+    const base = fixtureJob();
+    const withShop = (shop) => buildOutcome({ ...base, subject: { ...base.subject, shop } });
+    assert.equal(withShop("seahorse-2.myharavan.com").platform, "haravan");
+    assert.equal(withShop("whenever.myshopify.com").platform, "shopify");
+    assert.equal(withShop("atoha.mysapo.vn").platform, "sapo");
+    assert.equal(buildOutcome({ ...base, profile: "haravan" }).platform, "haravan", "a Haravan theme job without a domain marker");
+    assert.equal(withShop("demo-shop").platform, undefined, "nothing says: no platform is invented");
+    assert.equal(buildOutcome({ ...base, subject: { kind: "adhoc", title: "cleanup" } }).platform, "antifan-leader");
+    // The job folder and the files it touched count too.
+    assert.equal(buildOutcome({ ...base, subject: { ...base.subject, shop: "demo-shop" }, cwd: "E:/Work/shopify/x" }).platform, "shopify");
+  });
+
+  it("sends the platform to Core with the outcome", () => {
+    let payload = null;
+    const script = path.join(mk("platform-core"), "ok.cjs");
+    fs.writeFileSync(script, "// stub\n");
+    const spawn = (cmd, args) => {
+      payload = JSON.parse(args[2]);
+      return { status: 0, stdout: JSON.stringify({ caseId: "case-1", candidateId: "cand-1" }), stderr: "" };
+    };
+    const r = ingestOutcome({ ...fixtureJob(), profile: "haravan" }, { coreScript: script, env: { ...process.env, LEADER_LEARN: "on" }, spawn });
+    assert.equal(r.ok, true, r.error);
+    assert.equal(payload.platform, "haravan");
+  });
 });
 
 describe("ingestOutcome / listPending (real Core on a temp db)", () => {

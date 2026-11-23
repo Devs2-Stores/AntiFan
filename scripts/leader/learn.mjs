@@ -30,6 +30,26 @@ function readReportJson(file) {
   }
 }
 
+/** Shop domains that name a platform; the job folder and the files it touched are read too, never invented. */
+const SHOPIFY_HINT = /myshopify\.com|shopify/i;
+const SAPO_HINT = /mysapo\.|bizweb/i;
+const HARAVAN_HINT = /myharavan\.com|haravan/i;
+
+/**
+ * The Core platform of the job, so a lesson promoted from its case is found by the packs of that shop type:
+ * haravan / sapo / shopify for a theme job, antifan-leader for an ad-hoc job (no shop). null when nothing says.
+ */
+export function platformOf(job, rep = null) {
+  if (job?.subject?.kind === "adhoc") return "antifan-leader";
+  const subject = job?.subject ?? {};
+  const hay = [subject.shop, job?.cwd, job?.projectRoot, ...strs(rep?.files), ...strs(rep?.pushed)].filter((v) => typeof v === "string" && v.trim()).join("\n");
+  if (SHOPIFY_HINT.test(hay)) return "shopify";
+  if (SAPO_HINT.test(hay)) return "sapo";
+  if (HARAVAN_HINT.test(hay)) return "haravan";
+  // A feedback theme job is a Haravan job unless a folder or file says otherwise.
+  return job?.profile === "haravan" ? "haravan" : null;
+}
+
 /**
  * Pure summary of a job.json object (reads only the report file of the last valid round).
  * @returns {{task:string, outcome:string, verificationRef:string|null}}
@@ -64,6 +84,8 @@ export function buildOutcome(job, env = process.env) {
   const receiptId = [rep?.receiptId, validRound?.receiptId, job?.receiptId].find((v) => typeof v === "string" && receiptRe.test(v)) ?? null;
   const packIds = [...new Set([...strs(rep?.packIds), ...strs(job?.packIds), ...(typeof env.ANTIFAN_CORE_PACK_ID === "string" ? [env.ANTIFAN_CORE_PACK_ID] : [])].filter((p) => p.trim()))];
   const result = { task, outcome: parts.join(". "), verificationRef: receiptId };
+  const platform = platformOf(job, rep);
+  if (platform) result.platform = platform;
   if (packIds.length) result.packIds = packIds;
   if (typeof rep?.summary === "string" && rep.summary.trim()) result.lesson = clip(rep.summary, 300);
   const projectRoot = [job?.projectRoot, job?.cwd].find((v) => typeof v === "string" && v.trim());

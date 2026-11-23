@@ -5,6 +5,10 @@
 // may not have written it yet), its OMP pid no longer exists, or it has shown no sign of life for staleMs.
 // Signs of life are a run-file event or a write to the OMP session transcript or its subagent
 // transcripts: a worker blocked on a long subagent emits no run-file event but keeps writing those files.
+//
+// A stale heartbeat alone never proves death while the run file names a pid that still exists: the hook
+// writes every RUN_HEARTBEAT_MS but skips a write it may not make (a locked read, a failed rename) and
+// cannot beat from a blocked event loop, so the stamp is a poor clock. The pid is the direct evidence.
 
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -94,9 +98,9 @@ export function sessionActivityAt(sessionsRoot, run) {
  * for the "run file not written yet" start-up case.
  *
  * Dead means nothing will ever settle the turn: the run file is gone, the OMP pid is gone, the OMP session
- * ended (`ended`: OMP exited, so what was typed went to a shell), an idle run stopped heartbeating (frozen
- * or gone), or no sign of life for staleMs. A file that predates the hand-over is judged only once the new
- * OMP wrote it or the grace window has passed.
+ * ended (`ended`: OMP exited, so what was typed went to a shell), an idle run stopped heartbeating and its
+ * pid is unknown, or no sign of life for staleMs. A file that predates the hand-over is judged only once
+ * the new OMP wrote it or the grace window has passed.
  */
 export function judgeLiveness(run, since, probe = {}) {
   const inGrace = Boolean(probe.now && probe.graceMs && probe.now - since < probe.graceMs);
@@ -111,8 +115,10 @@ export function judgeLiveness(run, since, probe = {}) {
   if (run.state === "ended" && judgeable) {
     return { dead: true, why: `OMP session ended (runSeq ${run.runSeq ?? "?"}) before it took the input: the text went to the shell` };
   }
-  if (run.state === "idle" && probe.now && typeof run.updatedAt === "number" && judgeable && probe.now - run.updatedAt > HEARTBEAT_STALE_MS) {
-    return { dead: true, why: `omp heartbeat stale for ${Math.round((probe.now - run.updatedAt) / 1000)} s on an idle run (process frozen or gone)` };
+  // A live pid is checked above and passed: the process exists, so a silent stamp is a hook or write gap,
+  // not a dead run. Keeping the guess for an unknown pid keeps a damaged run file from pinning a round.
+  if (run.state === "idle" && probe.pidAlive !== true && probe.now && typeof run.updatedAt === "number" && judgeable && probe.now - run.updatedAt > HEARTBEAT_STALE_MS) {
+    return { dead: true, why: `omp heartbeat stale for ${Math.round((probe.now - run.updatedAt) / 1000)} s on an idle run with no live pid (process gone)` };
   }
   if (probe.now && probe.staleMs && typeof run.lastEventAt === "number") {
     const quietSince = (extra) => probe.now - Math.max(run.lastEventAt, since, extra ?? 0);
@@ -125,15 +131,16 @@ export function judgeLiveness(run, since, probe = {}) {
 }
 
 /**
- * The run state the Manager shows: a run that has not ended turns `ended` when its OMP pid is gone or an
- * idle run stopped heartbeating. `ompAlive` is true / false / null (pid unknown).
+ * The run state the Manager shows: a run that has not ended turns `ended` when its OMP pid is gone, or when
+ * an idle run stopped heartbeating and names no pid that can be checked. `ompAlive` is true / false / null
+ * (pid unknown).
  */
 export function effectiveRunState(run, probe = {}) {
   if (!run) return { state: null, ompAlive: false, why: "no run file" };
   if (run.state === "ended") return { state: "ended", ompAlive: false, why: "OMP session ended" };
   if (probe.pidAlive === false) return { state: "ended", ompAlive: false, why: `omp pid ${run.pid} no longer exists` };
-  if (run.state === "idle" && probe.now && typeof run.updatedAt === "number" && probe.now - run.updatedAt > HEARTBEAT_STALE_MS) {
-    return { state: "ended", ompAlive: false, why: `omp heartbeat stale for ${Math.round((probe.now - run.updatedAt) / 1000)} s` };
+  if (run.state === "idle" && probe.pidAlive !== true && probe.now && typeof run.updatedAt === "number" && probe.now - run.updatedAt > HEARTBEAT_STALE_MS) {
+    return { state: "ended", ompAlive: false, why: `omp heartbeat stale for ${Math.round((probe.now - run.updatedAt) / 1000)} s and no live pid` };
   }
   return { state: run.state ?? null, ompAlive: probe.pidAlive ?? null, why: null };
 }

@@ -61,12 +61,14 @@ function blockingText(job, last) {
     case "reported":
       return "independent verification pending";
     case "worker_dead":
-      return `worker ${last?.worker?.terminal ?? "?"} died in round ${last?.n ?? "?"}: dispatch a new round to a fresh worker`;
+      return `worker ${last?.worker?.terminal ?? "?"} died in round ${last?.n ?? "?"}: dispatch a new round to a fresh worker${job.subject?.kind === "adhoc" ? " (or close --force once the user says the work stops)" : ""}`;
     case "needs_input":
-      return "waiting for the user's answer";
+      return "waiting for the user's answer: answer --job DIR --text \"<the answer>\" [--choice \"<option>\"]";
     case "verified":
       return "verified; waiting for the user's approval";
     case "user-approved":
+      if (last?.kind === "close" && last.deadAt) return `close round ${last.n} died: dispatch --kind close again to a fresh worker (approval stands)`;
+      if (last?.kind === "close" && last.settledAt && !last.report?.valid) return `close round ${last.n} finished: validate-report`;
       return job.closeVerifiedAt ? "ready to close" : "dispatch the close round";
     case "closed":
       return "closed";

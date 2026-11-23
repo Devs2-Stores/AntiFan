@@ -6,7 +6,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { after, describe, test } from "node:test";
 
-import { judgeLiveness, pidAlive, sessionActivityAt, START_GRACE_MS } from "../../scripts/leader/worker-liveness.mjs";
+import { effectiveRunState, judgeLiveness, pidAlive, sessionActivityAt, START_GRACE_MS } from "../../scripts/leader/worker-liveness.mjs";
 
 const TEMP = fs.mkdtempSync(path.join(os.tmpdir(), "worker-liveness-"));
 after(() => fs.rmSync(TEMP, { recursive: true, force: true }));
@@ -69,6 +69,57 @@ describe("judgeLiveness", () => {
     const probe = { pidAlive: true, now: SINCE + 2000, staleMs: STALE, activityAt: () => (calls++, null) };
     assert.equal(judgeLiveness(run, SINCE, probe).dead, false);
     assert.equal(calls, 0);
+  });
+});
+
+describe("judgeLiveness: a live pid outranks a stale heartbeat", () => {
+  // The recorded verdict of job 261123-1111-levents-351 round 2: a follow-up dispatched at 04:17:57.686Z was
+  // called dead 38 s later because the run file's heartbeat was 45 s old, while the same OMP took the prompt
+  // at 04:18:41 and wrote its report at 04:23 (its transcript of 23/11, L87 and L199).
+  const DISPATCHED_AT = 1_795_407_477_686;
+  const VERDICT_AT = 1_795_407_516_148;
+  const incidentRun = { state: "idle", runSeq: 1, pid: 4242, lastEventAt: 1_795_407_352_231, updatedAt: VERDICT_AT - 45_400 };
+  const incidentProbe = { pidAlive: true, now: VERDICT_AT, staleMs: STALE, graceMs: 0, activityAt: () => null };
+
+  test("the false dead of 23/11 is not dead: the heartbeat was stale, the pid was not", () => {
+    assert.deepEqual(judgeLiveness(incidentRun, DISPATCHED_AT, incidentProbe), { dead: false, why: null });
+  });
+
+  test("the same file with a gone pid is dead at once, naming the pid", () => {
+    const res = judgeLiveness(incidentRun, DISPATCHED_AT, { ...incidentProbe, pidAlive: false });
+    assert.equal(res.dead, true);
+    assert.match(res.why, /pid 4242/);
+  });
+
+  test("an unknown pid keeps the heartbeat guess, so a damaged run file cannot pin a round", () => {
+    const res = judgeLiveness(incidentRun, DISPATCHED_AT, { ...incidentProbe, pidAlive: null });
+    assert.equal(res.dead, true);
+    assert.match(res.why, /heartbeat stale for 45 s on an idle run with no live pid/);
+  });
+
+  test("a live pid does not hide a frozen run forever: the silence limit still decides", () => {
+    const quiet = { ...incidentRun, updatedAt: VERDICT_AT };
+    const res = judgeLiveness(quiet, DISPATCHED_AT, { ...incidentProbe, now: VERDICT_AT + STALE + MIN, staleMs: STALE });
+    assert.equal(res.dead, true);
+    assert.match(res.why, /no event or session file write/);
+  });
+});
+
+describe("effectiveRunState", () => {
+  test("a live OMP whose heartbeat stalled stays idle and alive, not ended", () => {
+    const run = { state: "idle", pid: 4242, updatedAt: SINCE - 120_000 };
+    assert.deepEqual(effectiveRunState(run, { now: SINCE, pidAlive: true }), { state: "idle", ompAlive: true, why: null });
+  });
+
+  test("a gone pid is ended, and an unchecked stale heartbeat is ended too", () => {
+    const run = { state: "idle", pid: 4242, updatedAt: SINCE - 120_000 };
+    const gone = effectiveRunState(run, { now: SINCE, pidAlive: false });
+    assert.equal(gone.state, "ended");
+    assert.equal(gone.ompAlive, false);
+    assert.match(gone.why, /pid 4242/);
+    const unknown = effectiveRunState(run, { now: SINCE, pidAlive: null });
+    assert.equal(unknown.state, "ended");
+    assert.match(unknown.why, /no live pid/);
   });
 });
 
