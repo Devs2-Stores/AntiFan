@@ -206,20 +206,6 @@
       "note": "push with its output redirected to a file (no second segment, so only the redirect makes it chained)"
     },
     {
-      "id": "chain-info-pipe-head",
-      "kind": "line",
-      "text": "hrv theme info --json 2>&1 | head -3",
-      "expect": "REFUSED_THEME_COMPLEX",
-      "note": "AGENTS §8: hrv theme info --json is one plain line too; an output filter or a redirect makes it chained"
-    },
-    {
-      "id": "chain-list-then-echo",
-      "kind": "line",
-      "text": "hrv theme list; echo done",
-      "expect": "REFUSED_THEME_COMPLEX",
-      "note": "a read action followed by a second command"
-    },
-    {
       "id": "chain-shopify-push-then-echo",
       "kind": "line",
       "text": "shopify theme push --theme 123456789 --store x.myshopify.com --only templates/a.json --nodelete && echo done",

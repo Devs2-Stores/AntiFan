@@ -1541,13 +1541,16 @@ test("theme reads in a worker and every theme command outside a worker pass with
       assert.equal(await runBash(root, "sess-read", "hrv theme fetch --only config/settings_data.json"), null, "a plain one-line fetch passes");
       for (const line of [
         "hrv theme info -j && hrv theme fetch --only config/settings_data.json",
-        "hrv theme info -j && hrv theme list",
-        "hrv theme info -j 2>&1 | head -3",
-        "hrv theme list > themes.txt",
+        "hrv theme fetch --only config/settings_data.json 2>&1 | head -3",
+        "hrv theme fetch --only config/settings_data.json > out.txt",
       ]) {
         const chained = await runBash(root, "sess-read", line);
         assert.equal(chained?.block, true, `${line} must be refused`);
         assert.ok(chained.reason.startsWith("REFUSED_THEME_COMPLEX:"), chained.reason);
+      }
+      // Print-only actions keep the 17/11 audit's reading (H-1): their output may be filtered.
+      for (const line of ["hrv theme info -j 2>&1 | head -3", "hrv theme info -j && hrv theme list", "cat .haravan-cli_local.json; echo; hrv theme info --json"]) {
+        assert.equal(await runBash(root, "sess-read", line), null, line);
       }
     });
     await asTerminal(false, async () => {
@@ -1727,8 +1730,7 @@ test("plain theme commands a worker may run, and lines that only look close, are
       for (const command of ["git commit -F msg.txt", "ls", "rg hrv sections", "cat sections/hrv.liquid theme.json"]) {
         assert.equal(await runBash(root, `sess-plain-${command.length}`, command), null, command);
       }
-      const afterCdInfo = await runBash(root, "sess-plain-cd-info", "cd x && hrv theme info");
-      assert.ok(afterCdInfo?.reason.startsWith("REFUSED_THEME_COMPLEX:"), "a theme command chained after cd is not one plain line");
+      assert.equal(await runBash(root, "sess-plain-cd-info", "cd x && hrv theme info"), null, "a read after cd is still readable");
       assert.equal(stub.recorded().length, 2, "none of those reached the CLI");
       const afterCd = await runBash(root, "sess-plain-cd-push", "cd x && hrv theme push --only a.liquid");
       assert.ok(afterCd?.reason.startsWith("REFUSED_THEME_PUSH_UNVERIFIED:"), afterCd?.reason);

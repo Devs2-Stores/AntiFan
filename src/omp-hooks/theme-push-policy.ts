@@ -292,18 +292,28 @@ function planHrvAuthCommand(cmd: ThemeCommand): ThemeCommandPlan {
 }
 
 /**
+ * Actions that only print: nothing on the shop and nothing in the folder changes, so a worker may
+ * filter their output (`hrv theme info --json 2>&1 | head`, `cat .haravan-cli_local.json; echo; hrv theme info`).
+ * The 17/11 audit corpus (H-1, `fp-cat-binding-file-then-theme-info`, `fp-read-binding-file-pipe-head-then-info`)
+ * keeps them readable; everything else a worker may run writes (`fetch`, `pull`, `export`, `push`, `dev`, ...).
+ */
+const PRINT_ONLY_ACTIONS: Record<string, true> = { list: true, info: true, help: true, lint: true, check: true, "": true };
+
+/**
  * A Leader worker's reading of one command: `planThemeCommand`, and then E:/Work/AGENTS.md §8 -
- * every theme command a worker may run is ONE plain command alone on its line. One that would be
- * allowed or sent on to a probe (`info`, `list`, `fetch`, `pull`, `export`, a scoped
- * `shopify theme push`, `shopify theme dev`, ...) but shares its line with another command or a
+ * a theme command that writes (the files in the folder or the shop: `fetch`, `pull`, `export`, `push`,
+ * `dev`, a scoped `shopify theme push`, `shopify theme dev`, ...) is ONE plain command alone on its
+ * line. One that would be allowed or sent on to a probe but shares its line with another command or a
  * redirect (`;`, `&&`, `||`, `|`, `&`, a line break, `> out`, `>/dev/null`, `2>&1`) is refused as
- * COMPLEX. A command `planThemeCommand` already refuses keeps its own code. The Leader's own guard
- * keeps using `planThemeCommand`: it only asks whether a command writes, and chains reads freely.
+ * COMPLEX. Print-only actions (`PRINT_ONLY_ACTIONS`) may still be chained. A command `planThemeCommand`
+ * already refuses keeps its own code. The Leader's own guard keeps using `planThemeCommand`: it only
+ * asks whether a command writes, and chains reads freely.
  */
 export function planWorkerThemeCommand(cmd: ThemeCommand, boundThemeId: string | null): ThemeCommandPlan {
   const plan = planThemeCommand(cmd, boundThemeId);
   if (plan.decision === "block" || !cmd.chained) return plan;
   if (cmd.flags.some((flag) => flag === "--help" || flag === "-h")) return plan;
+  if (PRINT_ONLY_ACTIONS[cmd.action] === true) return plan;
   return {
     decision: "block",
     code: THEME_PUSH_CODES.COMPLEX,
