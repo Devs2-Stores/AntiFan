@@ -104,7 +104,7 @@
       if ((url.charCodeAt(start) === 47 || url.charCodeAt(start) === 92) && (url.charCodeAt(start + 1) === 47 || url.charCodeAt(start + 1) === 92)) {
         start += 2;
       } else {
-        const indexOfProtocol = url.indexOf(":/", start);
+        let indexOfProtocol = url.indexOf(":/", start);
         if (indexOfProtocol !== -1) {
           const special = getSpecialScheme(url, start, indexOfProtocol);
           if (special === 1) {
@@ -133,17 +133,30 @@
                 if (code === 9 || code === 10 || code === 13) {
                   return extractHostname(url.replace(CONTROL_CHARS, ""), urlIsValidHostname, validate);
                 }
+                for (let j = i; j < indexOfProtocol; j += 1) {
+                  const c = url.charCodeAt(j);
+                  if (c === 47 || c === 92 || c === 63 || c === 35) {
+                    indexOfProtocol = -1;
+                    break;
+                  }
+                }
+                if (indexOfProtocol !== -1) {
+                  return null;
+                }
+                break;
+              }
+            }
+            if (indexOfProtocol !== -1) {
+              if (url.charCodeAt(indexOfProtocol + 2) === 47) {
+                isSpecial = false;
+                start = indexOfProtocol + 3;
+              } else {
                 return null;
               }
             }
-            if (url.charCodeAt(indexOfProtocol + 2) === 47) {
-              isSpecial = false;
-              start = indexOfProtocol + 3;
-            } else {
-              return null;
-            }
           }
-        } else if (url.charCodeAt(start) !== 91) {
+        }
+        if (indexOfProtocol === -1 && url.charCodeAt(start) !== 91) {
           let indexOfColon = -1;
           for (let i = start; i < end; i += 1) {
             const code = url.charCodeAt(i);
@@ -474,13 +487,72 @@
     );
   }
 
+  // node_modules/tldts-core/dist/es6/src/lookup/extra-suffixes.js
+  function extraSuffixLookup(hostname, options, isException, out) {
+    const suffix = out.publicSuffix;
+    if (suffix === null) {
+      return;
+    }
+    const none = hostname.length + 1;
+    let exception = none;
+    let exceptionIsIcann = false;
+    let rule = none;
+    let ruleIsIcann = false;
+    const extra = options.extraSuffixes;
+    for (let section = 0; section < 2; section += 1) {
+      const isIcann = section === 0;
+      const rules = isIcann ? options.allowIcannDomains && extra.icann : options.allowPrivateDomains && extra.private;
+      if (!Array.isArray(rules)) {
+        continue;
+      }
+      for (const r of rules) {
+        if (typeof r !== "string") {
+          continue;
+        }
+        const exceptionRule = r.startsWith("!");
+        const wildcard = r.startsWith("*.");
+        const body = exceptionRule ? r.slice(1) : wildcard ? r.slice(2) : r;
+        if (body === "" || exceptionRule && !body.includes(".") || !shareSameDomainSuffix(hostname, body)) {
+          continue;
+        }
+        let start = hostname.length - body.length;
+        if (exceptionRule) {
+          if (start < exception) {
+            exception = start;
+            exceptionIsIcann = isIcann;
+          }
+          continue;
+        }
+        if (wildcard && start > 1 && hostname.charCodeAt(start - 2) !== 46) {
+          start = hostname.lastIndexOf(".", start - 2) + 1;
+        }
+        if (start < rule) {
+          rule = start;
+          ruleIsIcann = isIcann;
+        }
+      }
+    }
+    const suffixStart = hostname.length - suffix.length;
+    const builtin = isException ? hostname.lastIndexOf(".", suffixStart - 2) + 1 : suffixStart;
+    if (exception <= rule && (isException ? exception < builtin : exception <= builtin)) {
+      out.publicSuffix = hostname.slice(hostname.indexOf(".", exception) + 1);
+      out.isIcann = exceptionIsIcann;
+      out.isPrivate = !exceptionIsIcann;
+    } else if (rule < builtin || rule === builtin && !out.isIcann && !out.isPrivate) {
+      out.publicSuffix = hostname.slice(rule);
+      out.isIcann = ruleIsIcann;
+      out.isPrivate = !ruleIsIcann;
+    }
+  }
+
   // node_modules/tldts-core/dist/es6/src/options.js
-  function setDefaultsImpl({ allowIcannDomains = true, allowPrivateDomains = false, detectIp = true, detectSpecialUse = false, extractHostname: extractHostname2 = true, mixedInputs = true, validHosts = null, validateHostname = true }) {
+  function setDefaultsImpl({ allowIcannDomains = true, allowPrivateDomains = false, detectIp = true, detectSpecialUse = false, extraSuffixes = null, extractHostname: extractHostname2 = true, mixedInputs = true, validHosts = null, validateHostname = true }) {
     return {
       allowIcannDomains,
       allowPrivateDomains,
       detectIp,
       detectSpecialUse,
+      extraSuffixes,
       extractHostname: extractHostname2,
       mixedInputs,
       validHosts,
@@ -544,7 +616,11 @@
     }
     let urlIsValid = false;
     if (!options.extractHostname) {
-      result.hostname = url;
+      let end = url.length;
+      while (end > 1 && url.charCodeAt(end - 1) === 46) {
+        end -= 1;
+      }
+      result.hostname = end === url.length ? url : url.slice(0, end);
     } else if (options.mixedInputs) {
       urlIsValid = is_valid_default(url);
       result.hostname = extractHostname(url, urlIsValid, options.validateHostname);
@@ -571,7 +647,10 @@
     if (step === 5 && options.detectSpecialUse) {
       result.isSpecialUse = isSpecialUse(result.hostname);
     }
-    suffixLookup2(result.hostname, options, result);
+    const isException = suffixLookup2(result.hostname, options, result);
+    if (options.extraSuffixes !== null) {
+      extraSuffixLookup(result.hostname, options, isException === true, result);
+    }
     if (step === 2 || result.publicSuffix === null) {
       return result;
     }
@@ -589,7 +668,7 @@
 
   // node_modules/tldts-core/dist/es6/src/lookup/fast-path.js
   function fast_path_default(hostname, options, out) {
-    if (!options.allowPrivateDomains && hostname.length > 3) {
+    if (!options.allowPrivateDomains && options.allowIcannDomains && hostname.length > 3) {
       const last = hostname.length - 1;
       const c3 = hostname.charCodeAt(last);
       const c2 = hostname.charCodeAt(last - 1);

@@ -41,6 +41,7 @@ clones/
 .super-core/
 tmp/
 exports/
+perf-reports/
 .haravan-cli_local.json
 .haravan-cli_remote.json
 .haravan-cli_backup/
