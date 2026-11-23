@@ -20,6 +20,13 @@
      process for up to -ForceExitWaitSeconds (default 20) and reports MAIN_STILL_ALIVE if it stays.
   5. Starts the app the same way run-antifan.vbs does and waits for the bridge listener.
 
+  Before any quit it prints "in-flight MCP calls: <n>", read from the invocation journal the app
+  persists under -DataRoot (control-plane-v2\invocations: every dispatch appends a frame before it
+  runs and a terminal frame when it settles, and startup rewrites the frames a dead process left
+  non-terminal). A count that cannot be read prints "unknown (<reason>)" and never a guess.
+  -WaitInFlightSeconds N (default 0 = report only) waits up to N seconds for the count to reach 0
+  before the quit is sent; -ReportInFlightOnly prints the line and exits without touching the app.
+
   Build first (npm run compile). The app loads .compiled, which npm run compile builds from the
   whole working tree, so the build the app runs is HEAD plus any uncommitted work.
 #>
@@ -31,6 +38,11 @@ param(
   [int]$QuitTimeoutSeconds = 45,
   [int]$StartTimeoutSeconds = 90,
   [int]$ForceExitWaitSeconds = 20,
+  [int]$WaitInFlightSeconds = 0,
+  [switch]$ReportInFlightOnly,
+  # Data root the app persists under; empty resolves ANTIFAN_DATA_ROOT, then E:\Work\.antifan-data,
+  # then %APPDATA%\AntiFan\data, the same order StorageLocations uses.
+  [string]$DataRoot = '',
   [switch]$IgnoreEngageSession,
   # ttb-dash Page engagement (E:\Work\Gác\plans\reports\engage); written with [char] so the path survives a
   # Windows PowerShell 5 read of this file as ANSI
@@ -41,6 +53,57 @@ $repo = Split-Path -Parent $PSScriptRoot
 $electronExe = Join-Path $repo 'node_modules\electron\dist\electron.exe'
 $launcher = Join-Path $repo 'run-antifan.vbs'
 $quitFlag = '--antifan-quit-request'
+
+# Data root the app persists under, resolved the way StorageLocations does: an explicit -DataRoot,
+# then ANTIFAN_DATA_ROOT, then the installer default, then %APPDATA%.
+if (-not $DataRoot) {
+  if ($env:ANTIFAN_DATA_ROOT) { $DataRoot = $env:ANTIFAN_DATA_ROOT }
+  elseif (Test-Path 'E:\Work\.antifan-data') { $DataRoot = 'E:\Work\.antifan-data' }
+  else { $DataRoot = Join-Path $env:APPDATA 'AntiFan\data' }
+}
+
+# Capability calls a quit would cut. The control plane persists one JSON line per dispatch under
+# control-plane-v2\invocations\<attachment>.jsonl before the call runs and one terminal line when
+# it settles; replay at startup rewrites any line a dead process left non-terminal, so a call is in
+# flight exactly while the last line recorded for it is non-terminal. A line that cannot be read
+# makes the answer unknown rather than a smaller number nobody could stand behind.
+function Get-InFlightMcpReport([string]$Root) {
+  $dir = Join-Path $Root 'control-plane-v2\invocations'
+  if (-not (Test-Path $dir)) { return [pscustomobject]@{ Count = $null; Reason = "no invocation journal at $dir" } }
+  $latest = @{}
+  foreach ($file in [System.IO.Directory]::GetFiles($dir, '*.jsonl')) {
+    $name = [System.IO.Path]::GetFileName($file)
+    try { $lines = [System.IO.File]::ReadAllLines($file) } catch { return [pscustomobject]@{ Count = $null; Reason = "cannot read $name" } }
+    foreach ($line in $lines) {
+      if ([string]::IsNullOrWhiteSpace($line)) { continue }
+      $frame = $null
+      try { $frame = $line | ConvertFrom-Json -ErrorAction Stop } catch { $frame = $null }
+      $fields = if ($frame) { $frame.PSObject.Properties.Name } else { @() }
+      if ((-not $frame) -or ($frame.formatVersion -ne 1) -or (-not ($fields -contains 'state')) -or (-not ($fields -contains 'idempotencyKey'))) {
+        return [pscustomobject]@{ Count = $null; Reason = "unreadable invocation frame in $name" }
+      }
+      if (($frame.state -isnot [string]) -or ($frame.idempotencyKey -isnot [string])) {
+        return [pscustomobject]@{ Count = $null; Reason = "unreadable invocation frame in $name" }
+      }
+      $latest[($name + '|' + [string]$frame.idempotencyKey)] = [string]$frame.state
+    }
+  }
+  $count = 0
+  foreach ($state in $latest.Values) { if ($state -eq 'claiming' -or $state -eq 'in_progress') { $count++ } }
+  return [pscustomobject]@{ Count = $count; Reason = $null }
+}
+
+function Write-InFlightMcpLine($Report) {
+  if ($null -eq $Report.Count) { Write-Output ("in-flight MCP calls: unknown (" + $Report.Reason + ")") }
+  else { Write-Output ("in-flight MCP calls: " + $Report.Count) }
+}
+
+if ($ReportInFlightOnly) { Write-InFlightMcpLine (Get-InFlightMcpReport $DataRoot); exit 0 }
+
+# Printed before every exit path that could precede a quit (stale build, missing main process,
+# engaged Facebook session), so the operator always sees what a restart would cut.
+$inFlight = Get-InFlightMcpReport $DataRoot
+Write-InFlightMcpLine $inFlight
 
 # 0. The build the app will load must not be older than the source it was built from.
 $idx = Join-Path $repo '.compiled\src\main\index.js'
@@ -106,7 +169,7 @@ if (-not $IgnoreEngageSession -and (Test-Path $EngageDir)) {
 # The lifecycle journal the running instance writes (one JSON object per line). A refused quit
 # leaves its reasons only there, so the script reads back the rows THIS request produced: same
 # process, written after the request was sent.
-$logPath = if ($env:ANTIFAN_DATA_ROOT) { Join-Path $env:ANTIFAN_DATA_ROOT 'runtime\logs\main.log' } elseif (Test-Path 'E:\Work\.antifan-data\runtime\logs\main.log') { 'E:\Work\.antifan-data\runtime\logs\main.log' } else { Join-Path $env:APPDATA 'AntiFan\data\runtime\logs\main.log' }
+$logPath = Join-Path $DataRoot 'runtime\logs\main.log'
 
 function Get-QuitJournalRow([string]$EventName, [long]$SinceMs, [int]$OwnerPid, [string]$Kind) {
   if (-not (Test-Path $logPath)) { return $null }
@@ -125,6 +188,24 @@ function Write-QuitDiagnostics([int]$OwnerPid, [long]$SinceMs) {
   $refusal = Get-QuitJournalRow 'close-refusal.presented' $SinceMs $OwnerPid 'quit'
   if ($refusal) {
     Write-Output ("close-refusal.presented: surface={0} reasons={1} reasonCount={2}" -f $refusal.surface, (@($refusal.reasons) -join ','), $refusal.reasonCount)
+  }
+}
+
+# A restart cuts every capability call the app is servicing. Wait for the count to reach 0 when
+# asked to; the line is printed again after waiting so the row just before the quit is the count
+# the quit is about to cut. An unreadable count has nothing to wait on and says so.
+if ($WaitInFlightSeconds -gt 0) {
+  if ($null -eq $inFlight.Count) {
+    Write-Output "IN_FLIGHT_UNMEASURED: nothing to wait on; the count could not be read"
+  } else {
+    $inFlightDeadline = (Get-Date).AddSeconds($WaitInFlightSeconds)
+    while ($inFlight.Count -gt 0 -and (Get-Date) -lt $inFlightDeadline) {
+      Start-Sleep -Milliseconds 500
+      $inFlight = Get-InFlightMcpReport $DataRoot
+    }
+    Write-InFlightMcpLine $inFlight
+    if ($null -eq $inFlight.Count) { Write-Output 'IN_FLIGHT_UNMEASURED: the count could not be read while waiting' }
+    elseif ($inFlight.Count -gt 0) { Write-Output ("IN_FLIGHT_PERSISTS: " + $inFlight.Count + " call(s) still in flight after ${WaitInFlightSeconds}s; the quit is sent anyway") }
   }
 }
 
