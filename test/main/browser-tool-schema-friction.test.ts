@@ -175,9 +175,13 @@ describe('browser.wait infers its condition from the target argument', () => {
       assert.strictEqual(forwarded.type, 'network');
     });
 
-    it(`${name} refuses a call that names neither a condition nor a target`, async () => {
+    it(`${name} reads a bare timeoutMs as a sleep and refuses a call that names nothing to wait for`, async () => {
       const h = makeHarness();
-      await assert.rejects(async () => h.run(name, { timeoutMs: 100 }), invalid(/needs a condition/));
+      const result = await h.run(name, { timeoutMs: 100 }) as { conditionInferred?: string };
+      const forwarded = h.last('wait').args[1] as Record<string, unknown>;
+      assert.strictEqual(forwarded.condition, 'timeout');
+      assert.strictEqual(forwarded.timeoutMs, 100);
+      assert.strictEqual(result.conditionInferred, 'timeout');
       await assert.rejects(async () => h.run(name, { tabId: 'tab-1' }), invalid(/needs a condition/));
     });
 
@@ -215,12 +219,13 @@ describe('browser.wait infers its condition from the target argument', () => {
       await assert.rejects(async () => h.run(name, { timeout: 'soon' }), invalid(/needs a condition/));
     });
 
-    it(`${name} passes the presence gate with timeout or ms alone`, () => {
+    it(`${name} passes the presence gate with timeout, ms or timeoutMs alone`, () => {
       const h = makeHarness();
       const schema = h.catalogue.get(name)!.inputSchema as Record<string, unknown>;
       assert.strictEqual(checkRequiredArgs(name, schema, { timeout: 15000 }), undefined);
       assert.strictEqual(checkRequiredArgs(name, schema, { ms: 500 }), undefined);
-      assert.ok(checkRequiredArgs(name, schema, { timeoutMs: 250 }), 'a bare timeoutMs is a bound, not a condition');
+      assert.strictEqual(checkRequiredArgs(name, schema, { timeoutMs: 250 }), undefined);
+      assert.ok(checkRequiredArgs(name, schema, { tabId: 'tab-1' }), 'a tab alone names nothing to wait for');
     });
   }
 
@@ -231,7 +236,7 @@ describe('browser.wait infers its condition from the target argument', () => {
     assert.deepStrictEqual(a.anyOf, b.anyOf);
     assert.deepStrictEqual(
       a.anyOf.map((form) => form.required[0]),
-      ['condition', 'type', 'selector', 'ref', 'urlPattern', 'url', 'minGeneration', 'timeout', 'ms']
+      ['condition', 'type', 'selector', 'ref', 'urlPattern', 'url', 'minGeneration', 'timeout', 'ms', 'timeoutMs']
     );
   });
 });

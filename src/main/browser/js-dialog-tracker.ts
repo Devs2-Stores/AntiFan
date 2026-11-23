@@ -13,6 +13,13 @@ import { CapabilityError } from '../../shared/control-plane-contracts';
  *
  * The events only arrive when the Page domain was enabled BEFORE the dialog appeared: enabling it
  * afterwards hangs, and `Page.handleJavaScriptDialog` then reports "No dialog is showing".
+ *
+ * The record mirrors the page and outlives the debugger session that reported it: a detach ends the
+ * session, never the page's dialog, and re-enabling Page under a dialog hangs instead of reporting
+ * it, so for the rest of that dialog no event can restore what a detach dropped. A record is
+ * therefore cleared only by an answer that proves the page moved on (a `Closed` event, a committed
+ * main-frame navigation, a gone renderer, a destroyed WebContents, or `Page.handleJavaScriptDialog`
+ * answering "No dialog is showing"), never by losing the session.
  */
 
 export type JsDialogType = 'alert' | 'confirm' | 'prompt' | 'beforeunload';
@@ -50,11 +57,20 @@ export function describeJsDialog(dialog: OpenJsDialog | JsDialogDescription): Js
 }
 
 /** Result of answering a dialog: what was answered, and whether the native box left on screen was closed. */
-export interface JsDialogAnswer {
+export interface JsDialogAnswered {
   tabId: string;
+  /** A dialog was answered on the page. */
+  open: true;
   paneId: 'desktop' | 'mobile';
   action: 'accept' | 'dismiss';
-  dialog: JsDialogDescription;
+  /**
+   * The dialog as the page reported it. Absent for one the Page domain never saw open (it appeared
+   * before enabling, or the record was lost): the answer carries no description instead of an
+   * invented one.
+   */
+  dialog?: JsDialogDescription;
+  /** The page answered a dialog no record knew; see `dialog`. */
+  untracked?: true;
   /** The page reported `Page.javascriptDialogClosed` within 1s of the answer. */
   closedEventSeen: boolean;
   /**
@@ -68,6 +84,23 @@ export interface JsDialogAnswer {
     | { closed: false; reason: 'UNSUPPORTED_PLATFORM' | 'CLOSE_EVENT_MISSING' | 'NONE_LEFT' | 'AMBIGUOUS' | 'CLOSE_FAILED'; candidates?: number };
 }
 
+/**
+ * The record the tracker held could no longer be answered: the page shows no dialog, so the record
+ * is cleared and every operation on the tab runs again. Reported instead of a refusal — a stale
+ * record that leaves `DIALOG_OPEN` standing is the one state in which the tab can be neither used
+ * nor answered.
+ */
+export interface JsDialogStale {
+  tabId: string;
+  open: false;
+  paneId: 'desktop' | 'mobile';
+  /** The record that was cleared. */
+  dialog: JsDialogDescription;
+  stale: true;
+}
+
+export type JsDialogAnswer = JsDialogAnswered | JsDialogStale;
+
 export function dialogOpenError(dialog: OpenJsDialog | JsDialogDescription, tabId?: string): CapabilityError {
   return new CapabilityError(
     'DIALOG_OPEN',
@@ -75,7 +108,7 @@ export function dialogOpenError(dialog: OpenJsDialog | JsDialogDescription, tabI
     {
       ...(tabId ? { tabId } : {}),
       dialog: describeJsDialog(dialog),
-      recovery: "Read it with anti.browser.dialog {action: 'get'}, then answer with anti.browser.dialog {action: 'accept'} or {action: 'dismiss'}.",
+      recovery: "Read it with anti.browser.dialog {action: 'get'}, then answer with anti.browser.dialog {action: 'accept'} or {action: 'dismiss'}. An answer for a dialog the page no longer shows clears the stale record and reports the tab free again.",
     }
   );
 }
@@ -174,6 +207,16 @@ export class JsDialogTracker {
     for (const waiter of [...(waiters ?? [])]) {
       try { waiter(); } catch {}
     }
+  }
+
+  /**
+   * Clears `wcId`'s record only while it still is `dialog`; returns whether it did. An answer that
+   * finds the page free must not wipe a dialog another caller opened and recorded in the meantime.
+   */
+  markClosedIf(wcId: number, dialog: OpenJsDialog): boolean {
+    if (this.open.get(wcId) !== dialog) return false;
+    this.markClosed(wcId);
+    return true;
   }
 
   /** Drops every record of a destroyed WebContents. */

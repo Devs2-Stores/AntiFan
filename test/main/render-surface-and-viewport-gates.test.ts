@@ -280,6 +280,11 @@ describe('Viewport write verification', () => {
       observedWidth: 1200,
       observedHeight: 800,
       cause: 'geometry-mismatch',
+      remedy: {
+        tool: 'anti.browser.set_viewport',
+        args: { tabId: 'tab-b', width: 1200, height: 800 },
+        then: 'retry with the size the tab reports, or capture at the measured size',
+      },
     });
   });
 

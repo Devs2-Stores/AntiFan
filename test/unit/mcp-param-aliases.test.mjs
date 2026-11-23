@@ -7,7 +7,32 @@ import { fileURLToPath } from 'node:url';
 const require = createRequire(import.meta.url);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 // Pure helpers only: `invoke` would dispatch to whatever bridge the ambient environment names.
-const { normalizeParameterAliases, attachAliasApplied } = require(path.join(ROOT, 'scripts', 'antifan-omp-mcp.cjs'));
+const { definitions, normalizeParameterAliases, attachAliasApplied } = require(path.join(ROOT, 'scripts', 'antifan-omp-mcp.cjs'));
+
+test('a wait carrying only timeoutMs is a plain timeout wait, and stays the bound beside a form', () => {
+  // The advertised forms include the bare duration, so the gate lets the call through at all.
+  const row = definitions.find(([name]) => name === 'browser.wait');
+  const forms = row[4].anyOf.map((group) => group.required.join('+'));
+  assert.ok(forms.includes('timeoutMs'), `the wait accepts a bare timeoutMs (forms: ${forms.join(' | ')})`);
+  assert.equal(definitions.find(([name]) => name === 'anti.browser.wait')[4], row[4], 'the alias row shares the wait forms');
+
+  const given = { tabId: 't-1', timeoutMs: 3000 };
+  const { params, aliasApplied } = normalizeParameterAliases('anti.browser.wait', given);
+  assert.deepEqual(params, { tabId: 't-1', timeoutMs: 3000, timeout: 3000 }, 'the duration reaches the capability in the timeout form it infers from');
+  assert.deepEqual(aliasApplied, [{ from: 'timeoutMs=3000', to: 'timeout=3000' }]);
+  assert.deepEqual(given, { tabId: 't-1', timeoutMs: 3000 }, 'the caller object is not mutated');
+
+  // Beside a target or another duration spelling, timeoutMs is only the bound of that wait.
+  for (const other of [{ selector: '#a' }, { condition: 'network' }, { urlPattern: 'x' }, { minGeneration: 3 }, { ref: '@e1' }, { timeout: 500 }]) {
+    const kept = normalizeParameterAliases('browser.wait', { ...other, timeoutMs: 3000 });
+    assert.equal(kept.params.timeout, other.timeout, `${JSON.stringify(other)} keeps timeoutMs as a bound`);
+    assert.deepEqual(kept.aliasApplied, [], JSON.stringify(other));
+  }
+  // A value that is not a finite number is not a duration.
+  for (const timeoutMs of ['3000', null, Number.POSITIVE_INFINITY]) {
+    assert.deepEqual(normalizeParameterAliases('browser.wait', { timeoutMs }).aliasApplied, [], String(timeoutMs));
+  }
+});
 
 test('terminal.write accepts text for input and reports the alias', () => {
   const given = { sessionId: 'terminal-9', text: 'git status\r' };

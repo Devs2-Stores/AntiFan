@@ -929,6 +929,9 @@ describe('Phase 1: Viewport Emulation & CDP Matched Styles Gateway', () => {
             expectedHeight: 844,
             operation: 'setViewport',
             cause: 'window-unmeasurable',
+            // The refusal names the one call that presents the window, so a caller reading
+            // details does not have to translate a prose hint into a request.
+            remedy: { tool: 'anti.browser.tabs.activate', args: { tabId: 'tab-bg', restoreWindow: true }, then: 'retry anti.browser.set_viewport' },
           });
           return true;
         }

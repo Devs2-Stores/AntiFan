@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { BrowserTarget, CapabilityRequestContext, AuthenticatedCapabilityContext, CapabilityError, CapabilityEffectPolicyInput, CapabilityRisk, ReceiptBinding, digestText, assertNoReparseTraversal, assertWorkspaceContained } from '../../shared/control-plane-contracts';
 import { parseCookieJarParam } from '../browser/cookie-jar';
 import { BrowserControlPort, BrowserWaitCondition, BrowserWaitParams, buildRefLookupExpression, ResponsiveBreakpointOption, VISUAL_COMPARE_EXECUTION_BUDGET_MS, VISUAL_COMPARE_CANCELLATION_ACK_MS, FULL_PAGE_CAPTURE_EXECUTION_BUDGET_MS, FULL_PAGE_CAPTURE_CANCELLATION_ACK_MS, VIEWPORT_CAPTURE_EXECUTION_BUDGET_MS, VIEWPORT_CAPTURE_CANCELLATION_ACK_MS, REFERENCE_CAPTURE_EXECUTION_BUDGET_MS, REFERENCE_CAPTURE_CANCELLATION_ACK_MS, BROWSER_WAIT_INVOCATION_BUDGET_MS, BROWSER_WAIT_MAX_TIMEOUT_MS, BROWSER_EVAL_INVOCATION_BUDGET_MS, BROWSER_EVAL_MAX_TIMEOUT_MS } from './browser-control-port';
-import { LIST_TAB_FIELDS, type BrowserWaitResult, type CheckedEvalResult } from './browser-control-port';
+import { LIST_TAB_FIELDS, isLocalFileNavigationUrl, type BrowserWaitResult, type CheckedEvalResult } from './browser-control-port';
 import { CapabilityCatalogue } from './capability-catalogue';
 import { resolveCallerWorkspaceRoot } from './file-capabilities';
 import { PlatformDetector } from '../qa/scanners/platform-detector';
@@ -671,6 +671,8 @@ function agentTypeInputSchema(): Record<string, unknown> {
       clear: { type: 'boolean', description: 'Select the field content and delete it before typing; with clear:true and no text (or text:"") the field is only emptied' },
       trusted: { type: 'boolean' },
       force: { type: 'boolean', description: 'Skip the occlusion and animation-stability gates for a knowingly covered or endlessly animating target' },
+      x: { type: 'number', description: 'Type into the element at this viewport point: a trusted click lands there first and the text goes to the field it focuses. Requires y; cannot be combined with ref/selector/locator' },
+      y: { type: 'number', description: 'Vertical CSS pixel of the point for x' },
       tabId: { type: 'string' },
       paneId: { type: 'string', enum: ['desktop', 'mobile'] },
     },
@@ -1040,6 +1042,9 @@ const WAIT_PRESENCE_FORMS = [
   { required: ['minGeneration'] },
   { required: ['timeout'] },
   { required: ['ms'] },
+  // A bare `timeoutMs` is the plain duration, exactly like its timeout/ms aliases: it is the
+  // spelling most callers reach for and it is what the transport forwards when they do.
+  { required: ['timeoutMs'] },
 ];
 
 /** Spellings of `timeoutMs` agents reach for; the canonical field is `timeoutMs`. */
@@ -1081,12 +1086,15 @@ function resolveWaitParams(raw: WaitParamsWithAliases): ResolvedWait {
     aliasApplied.push({ from: named, to: 'timeoutMs' });
   }
   if (params.condition || params.type) return { params, aliasApplied };
+  // A finite `timeoutMs` with no other target form is the plain duration, the same reading its
+  // timeout/ms aliases get; beside any other form it stays only the bound.
+  const bareDuration = named !== undefined || (typeof params.timeoutMs === 'number' && Number.isFinite(params.timeoutMs));
   const inferred: BrowserWaitCondition | undefined =
     typeof params.selector === 'string' && params.selector ? 'selector'
       : typeof params.ref === 'string' && params.ref ? 'ref'
         : (typeof params.urlPattern === 'string' && params.urlPattern) || (typeof params.url === 'string' && params.url) ? 'url'
           : typeof params.minGeneration === 'number' ? 'generation'
-            : named ? 'timeout'
+            : bareDuration ? 'timeout'
               : undefined;
   if (!inferred) {
     throw new CapabilityError('INVALID_ARGUMENT', 'browser.wait needs a condition (or type), or one of selector, ref, urlPattern/url, minGeneration or timeout/ms to infer it from');
@@ -1137,6 +1145,29 @@ function navigateOptionsOf(capability: string, params: { timeoutMs?: number; wai
     options.waitUntil = params.waitUntil as NavigateWaitUntil;
   }
   return Object.keys(options).length > 0 ? options : undefined;
+}
+
+/**
+ * Options for the agent-facing navigate registrations: the usual timeout/waitUntil, plus the
+ * soft-timeout answer and — only when the URL names a local file — the session workspace root the
+ * port confines that file to. Skipped entirely for other URLs, so a session with no resolvable
+ * workspace keeps navigating web pages exactly as before.
+ */
+function navigateOptionsFor(
+  catalogue: CapabilityCatalogue,
+  context: CapabilityRequestContext,
+  getWorkspaceRoot: (() => string) | undefined,
+  capability: string,
+  params: { url?: string; timeoutMs?: number; waitUntil?: unknown }
+): { timeoutMs?: number; waitUntil?: NavigateWaitUntil; softTimeout: true; localFileRoot?: string } {
+  const options: { timeoutMs?: number; waitUntil?: NavigateWaitUntil; softTimeout: true; localFileRoot?: string } = {
+    ...(navigateOptionsOf(capability, params) ?? {}),
+    softTimeout: true,
+  };
+  if (isLocalFileNavigationUrl(params.url)) {
+    options.localFileRoot = resolveCallerWorkspaceRoot(catalogue, context, getWorkspaceRoot);
+  }
+  return options;
 }
 
 /** Property of every set-viewport registration that removes the scrollbar gutter from the measured width. */
@@ -1325,11 +1356,21 @@ async function evaluateForCaller(
     }
     throw err;
   }
-  if (!checked.truncated && !checked.surface) return checked.value;
+  if (!checked.truncated && !checked.surface && !checked.clampedTimeout) return checked.value;
   return {
     value: checked.value,
     ...(checked.truncated ? { truncated: true, truncatedReasons: checked.truncatedReasons } : {}),
     ...(checked.surface ? { surface: checked.surface } : {}),
+    // Same convention as browser.wait: the call ran with the capability's ceiling and says so,
+    // so a caller that asked for a longer observation never mistakes the clamp for its ask.
+    ...(checked.clampedTimeout
+      ? {
+          clamped: true,
+          requestedTimeoutMs: checked.clampedTimeout.requestedTimeoutMs,
+          timeoutMs: checked.clampedTimeout.appliedTimeoutMs,
+          message: `timeoutMs ${checked.clampedTimeout.requestedTimeoutMs} exceeds this capability's ${checked.clampedTimeout.appliedTimeoutMs}ms ceiling and was clamped; a script that needs longer must finish inside it`,
+        }
+      : {}),
   };
 }
 
@@ -1707,7 +1748,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
     inputSchema: navigateInputSchema(),
     execute: (params: { url: string; tabId?: string; timeoutMs?: number; waitUntil?: string }, context) =>
-      browser.navigate(context.browserTarget as BrowserTarget, params.url, params.tabId, navigateOptionsOf('browser.navigate', params)),
+      browser.navigate(context.browserTarget as BrowserTarget, params.url, params.tabId, navigateOptionsFor(catalogue, context, getWorkspaceRoot, 'browser.navigate', params)),
   });
 
   catalogue.register({
@@ -1717,7 +1758,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
     inputSchema: { type: 'object', properties: { tabId: { type: 'string' } } },
-    execute: (params: { tabId?: string }, context) => browser.reload(context.browserTarget as BrowserTarget, params.tabId),
+    execute: (params: { tabId?: string }, context) => browser.reload(context.browserTarget as BrowserTarget, params.tabId, { softTimeout: true }),
   });
   catalogue.register({
     name: 'browser.reload_zero_network',
@@ -2601,7 +2642,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
     inputSchema: navigateInputSchema(),
     execute: (params: { url: string; tabId?: string; timeoutMs?: number; waitUntil?: string }, context) =>
-      browser.navigate(context.browserTarget as BrowserTarget, params.url, params.tabId, navigateOptionsOf('antifan_navigate', params)),
+      browser.navigate(context.browserTarget as BrowserTarget, params.url, params.tabId, navigateOptionsFor(catalogue, context, getWorkspaceRoot, 'antifan_navigate', params)),
   });
 
   catalogue.register({
@@ -2611,7 +2652,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
     inputSchema: { type: 'object', properties: { tabId: { type: 'string' } } },
-    execute: (params: { tabId?: string }, context) => browser.reload(context.browserTarget as BrowserTarget, params.tabId),
+    execute: (params: { tabId?: string }, context) => browser.reload(context.browserTarget as BrowserTarget, params.tabId, { softTimeout: true }),
   });
 
   catalogue.register({
@@ -3957,7 +3998,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
     inputSchema: navigateInputSchema(),
     execute: (params: { url: string; tabId?: string; timeoutMs?: number; waitUntil?: string }, context) =>
-      browser.navigate(context.browserTarget as BrowserTarget, params.url, params.tabId, navigateOptionsOf('anti.browser.navigate', params)),
+      browser.navigate(context.browserTarget as BrowserTarget, params.url, params.tabId, navigateOptionsFor(catalogue, context, getWorkspaceRoot, 'anti.browser.navigate', params)),
   });
 
   catalogue.register({
@@ -3967,7 +4008,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
     requiresBrowserTarget: true,
     policy: makeBrowserPolicy({ effect: 'idempotent-write', risk: 'write', requiresBrowserTarget: true, lane: 'viewport-gate' }),
     inputSchema: { type: 'object', properties: { tabId: { type: 'string' } } },
-    execute: (params: { tabId?: string }, context) => browser.reload(context.browserTarget as BrowserTarget, params.tabId),
+    execute: (params: { tabId?: string }, context) => browser.reload(context.browserTarget as BrowserTarget, params.tabId, { softTimeout: true }),
   });
 
   catalogue.register({
@@ -4153,7 +4194,7 @@ export function registerBrowserCapabilities(catalogue: CapabilityCatalogue, brow
   });
   catalogue.register({
     name: 'anti.browser.dialog',
-    description: "Read or answer the JavaScript dialog (alert / confirm / beforeunload) the bound tab shows. While one is open every other operation on the tab is refused with DIALOG_OPEN; action 'get' (alias 'read') reads it, 'accept' / 'dismiss' answer it. The native box left on screen is closed only when it is provably this dialog's (result nativeBox says which); a background tab's box is never closed.",
+    description: "Read or answer the JavaScript dialog (alert / confirm / beforeunload) the bound tab shows. While one is open every other operation on the tab is refused with DIALOG_OPEN; action 'get' (alias 'read') reads it, 'accept' / 'dismiss' answer it. Answering a dialog the page no longer holds returns {open:false, stale:true} and frees the tab; NO_DIALOG_OPEN lists the tabs that do hold one in details.openDialogs. The native box left on screen is closed only when it is provably this dialog's (result nativeBox says which); a background tab's box is never closed.",
     risk: 'write',
     requiresBrowserTarget: true,
     // Unbounded, not viewport-gate: the click that opened the dialog may still hold the viewport lock.

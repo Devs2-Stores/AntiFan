@@ -7,7 +7,7 @@
 import { app, BrowserWindow, WebContentsView, Menu, MenuItem, clipboard, Rectangle, ipcMain, shell, dialog, net, session, safeStorage, screen } from 'electron';
 import { spawn } from 'node:child_process';
 import * as path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { recordLifecycleEvent } from '../diagnostics/main-lifecycle-log';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -1563,6 +1563,15 @@ export class NativeTabHost extends EventEmitter {
   private targetOperationOwners = new Map<string, { label: string; startedAt: number }>();
   private lastNavigationFailures = new Map<string, { cause: string; message: string; timedOut: boolean }>();
   private ownedReloadTokens = new Map<string, { token: string; expiresAt: number }>();
+  /**
+   * Local `file:` documents this host was explicitly told to open, by tab. Only the port's
+   * admitted navigation adds an entry — the workspace confinement happens there, where the
+   * session's root is known — and every other navigation of the tab drops it. Renderer
+   * navigations never reach `file:` (the page policy blocks the scheme), so this set is what
+   * lets a wake or a same-URL reload restore an admitted local document without widening
+   * what a page itself may reach.
+   */
+  private admittedLocalFileUrls = new Map<string, string>();
 
   public registerOwnedReload(tabId: string, token?: string): string {
     const effectiveToken = token || `owned-reload-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -9682,6 +9691,7 @@ export class NativeTabHost extends EventEmitter {
     // Guarded like targetOperationOwners above: partially constructed hosts
     // (Object.create without field initializers) may lack this map.
     this.ownedReloadTokens?.delete(tabId);
+    this.admittedLocalFileUrls?.delete(tabId);
     const isAgent = target.state.ephemeral === true;
     if (!isAgent && target.state.url && target.state.url !== 'about:blank') {
       this.recentlyClosedTabs.push({ url: target.state.url, title: target.state.title || 'Tab', ...(target.state.cookieJar ? { cookieJar: target.state.cookieJar } : {}) });
@@ -10701,12 +10711,12 @@ export class NativeTabHost extends EventEmitter {
     tab.state.isLoading = Boolean(tab.state.url && tab.state.url !== 'about:blank');
     if (tab.state.splitMode === true) {
       const mobile = this.recreateMobileView(tabId, tab);
-      if (mobile && tab.state.url && tab.state.url !== 'about:blank' && isAllowedNavigation(tab.state.url)) {
+      if (mobile && tab.state.url && tab.state.url !== 'about:blank' && (isAllowedNavigation(tab.state.url) || this.isAdmittedLocalDocument(tabId, tab.state.url))) {
         mobile.webContents.loadURL(tab.state.url).catch(() => {});
       }
     }
     const url = tab.state.url;
-    if (url && url !== 'about:blank' && isAllowedNavigation(url)) {
+    if (url && url !== 'about:blank' && (isAllowedNavigation(url) || this.isAdmittedLocalDocument(tabId, url))) {
       view.webContents.loadURL(url).catch((err: unknown) => {
         if (err && typeof err === 'object' && ('code' in err || 'errno' in err)) {
           const code = 'code' in err ? String(err.code) : '';
@@ -10928,12 +10938,23 @@ export class NativeTabHost extends EventEmitter {
     }
   }
 
-  public navigate(tabId: string, inputUrl: string): boolean {
+  /**
+   * Loads `inputUrl` in the tab. `admittedLocalFilePath` names a canonical absolute path the
+   * caller already confined to the session's workspace: it is the only way a `file:` document
+   * loads, and it is remembered for the tab so a wake or reload can restore that same document.
+   */
+  public navigate(tabId: string, inputUrl: string, admission?: { admittedLocalFilePath?: string }): boolean {
     const tab = this.tabs.get(tabId);
     if (!tab) return false;
-    const cleanUrl = sanitizeUrl(inputUrl);
-    if (!isAllowedNavigation(cleanUrl)) {
+    const admitted = this.admittedLocalFileUrlFor(inputUrl, admission);
+    const cleanUrl = admitted ?? sanitizeUrl(inputUrl);
+    if (!admitted && !isAllowedNavigation(cleanUrl)) {
       return false;
+    }
+    if (admitted) {
+      this.admittedLocalFileUrls?.set(tabId, admitted);
+    } else {
+      this.admittedLocalFileUrls?.delete(tabId);
     }
     // A hibernated tab rebuilds its views WITHOUT loading: the normal navigate
     // path below loads `cleanUrl` itself, and pre-loading `state.url` (the URL
@@ -10969,6 +10990,35 @@ export class NativeTabHost extends EventEmitter {
     }
     return true;
   }
+
+  /**
+   * The canonical `file:` URL for the path this call admits, or undefined when the call admits
+   * nothing. The URL and the admitted path must name the same document, so a call cannot admit
+   * one file and load another.
+   */
+  private admittedLocalFileUrlFor(inputUrl: string, admission?: { admittedLocalFilePath?: string }): string | undefined {
+    const admittedPath = admission?.admittedLocalFilePath;
+    if (!admittedPath) return undefined;
+    let requested: string;
+    try {
+      requested = fileURLToPath(String(inputUrl || '').trim());
+    } catch {
+      return undefined;
+    }
+    const key = (value: string): string => {
+      const resolved = path.resolve(value).replace(/[\\/]+$/, '');
+      return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+    };
+    if (key(requested) !== key(admittedPath)) return undefined;
+    return pathToFileURL(path.resolve(requested)).href;
+  }
+
+  /** Whether this tab is showing a local document the port admitted into it. */
+  private isAdmittedLocalDocument(tabId: string, url: string | undefined): boolean {
+    if (!url) return false;
+    const admitted = this.admittedLocalFileUrls?.get(tabId);
+    return Boolean(admitted) && admitted === url;
+  }
   /**
    * Navigate and wait. `wait` is the legacy timeout number or `{timeoutMs, waitUntil}`:
    * `commit` settles when the main frame commits the new document, `domcontentloaded` at its
@@ -10979,14 +11029,18 @@ export class NativeTabHost extends EventEmitter {
   public async navigateAndWait(tabId: string, inputUrl: string, wait: number | NavigationWaitOptions = 20000): Promise<boolean> {
     const timeoutMs = typeof wait === 'number' ? wait : (wait.timeoutMs ?? 20000);
     const waitUntil: NavigationWaitUntil = typeof wait === 'number' ? 'load' : (wait.waitUntil ?? 'load');
+    // A local document reaches the tab only through the port's admitted path, which travels on
+    // this options object; every other caller (and every page-initiated navigation) keeps the
+    // http(s)-only policy.
+    const admission = typeof wait === 'number' ? undefined : (wait as NavigationWaitOptions & { admittedLocalFilePath?: string });
     const tab = this.tabs.get(tabId);
     if (!tab) return false;
-    const cleanUrl = sanitizeUrl(inputUrl);
+    const cleanUrl = this.admittedLocalFileUrlFor(inputUrl, admission) ?? sanitizeUrl(inputUrl);
     if (cleanUrl.startsWith('view-source:')) {
       return this.navigate(tabId, inputUrl);
     }
     const currentUrl = (tab.state.url || '').replace(/\/$/, '');
-    const targetUrl = sanitizeUrl(inputUrl).replace(/\/$/, '');
+    const targetUrl = cleanUrl.replace(/\/$/, '');
     const sameUrl = Boolean(currentUrl) && targetUrl === currentUrl;
     if (sameUrl && waitUntil === 'load') {
       return this.reloadAndWait(tabId, timeoutMs);
@@ -11007,7 +11061,7 @@ export class NativeTabHost extends EventEmitter {
 
     this.lastNavigationFailures.delete(tabId);
     const waiter = this.createNavigationLifecycleWaiter(authorityView.webContents, timeoutMs, Math.min(3000, timeoutMs), tabId, cleanUrl, waitUntil);
-    const initiated = sameUrl ? this.reload(tabId) : this.navigate(tabId, inputUrl);
+    const initiated = sameUrl ? this.reload(tabId) : this.navigate(tabId, inputUrl, admission);
     if (!initiated) {
       this.lastNavigationFailures.set(tabId, {
         cause: 'NAVIGATION_BLOCKED',
@@ -11407,6 +11461,22 @@ export class NativeTabHost extends EventEmitter {
 
       startTimer = setTimeout(() => {
         if (!settled && !navStarted) {
+          // A tab that is already loading has started this navigation: under load the
+          // main-process event can arrive after this timer even though Chromium began the
+          // request immediately. Failing here refused navigations that were in flight, so
+          // the loading read restarts the start window instead of writing a start timeout;
+          // the total timer still bounds the whole load.
+          let loading = false;
+          try {
+            loading = !wc.isDestroyed() && typeof wc.isLoading === 'function' && wc.isLoading() === true;
+          } catch {
+            loading = false;
+          }
+          if (loading) {
+            navStarted = true;
+            startTimer = null;
+            return;
+          }
           beginGraceRecheck(() => {
             if (tabId) {
               this.lastNavigationFailures.set(tabId, {
@@ -11622,14 +11692,15 @@ export class NativeTabHost extends EventEmitter {
     return true;
   }
 
-  private applyTabDeviceEmulation(
+  private async applyTabDeviceEmulation(
     tab: NativeTabRecord,
     availableWidth: number,
     availableHeight: number,
     toolbarHeight: number
-  ): void {
-    if (!tab || !tab.view) return;
-    if (tab.view.webContents.isDestroyed()) return;
+  ): Promise<boolean> {
+    if (!tab || !tab.view) return false;
+    if (tab.view.webContents.isDestroyed()) return false;
+    let applied = true;
 
     try {
       // Case A: Split Review Mode (Desktop + Mobile Paired WebContentsViews)
@@ -11657,7 +11728,7 @@ export class NativeTabHost extends EventEmitter {
         const desktopUA = getPresetUserAgent(desktopPreset, this.defaultUserAgent);
         this.setSafeUserAgent(tab.view.webContents, desktopUA || this.defaultUserAgent);
         this.applyCdpTouchEmulation(tab.view.webContents, false);
-        this.applyCdpDeviceEmulationState(tab.view.webContents, desktopPreset, splitLayout.desktop.scale);
+        const desktopApplied = this.applyCdpDeviceEmulationState(tab.view.webContents, desktopPreset, splitLayout.desktop.scale);
         // Emulation scale already handles visual zoom; keep zoomFactor at 1 to prevent double-scaling
         try {
           if (!tab.view.webContents.isDestroyed()) {
@@ -11678,7 +11749,7 @@ export class NativeTabHost extends EventEmitter {
         const mobileUA = getPresetUserAgent(mobilePreset, IPHONE_USER_AGENT);
         this.setSafeUserAgent(tab.mobileView.webContents, mobileUA || IPHONE_USER_AGENT);
         this.applyCdpTouchEmulation(tab.mobileView.webContents, true);
-        this.applyCdpDeviceEmulationState(tab.mobileView.webContents, mobilePreset, splitLayout.mobile.scale);
+        const mobileApplied = this.applyCdpDeviceEmulationState(tab.mobileView.webContents, mobilePreset, splitLayout.mobile.scale);
         try {
           if (!tab.mobileView.webContents.isDestroyed()) {
             tab.mobileView.webContents.insertCSS(MOBILE_OVERLAY_SCROLLBAR_CSS).catch(() => {});
@@ -11698,7 +11769,8 @@ export class NativeTabHost extends EventEmitter {
             height: splitLayout.mobile.height,
           });
         } catch {}
-        return;
+        const results = await Promise.all([desktopApplied, mobileApplied]);
+        return results.every(Boolean);
       }
 
       // Case B: Standard Single-View Preset or Fluid Responsive
@@ -11754,7 +11826,10 @@ export class NativeTabHost extends EventEmitter {
         const ua = getPresetUserAgent(preset, preset.mobile ? IPHONE_USER_AGENT : this.defaultUserAgent);
         this.setSafeUserAgent(tab.view.webContents, ua || this.defaultUserAgent);
         this.applyCdpTouchEmulation(tab.view.webContents, Boolean(preset.mobile));
-        this.applyCdpDeviceEmulationState(tab.view.webContents, preset, renderScale);
+        // The application is queued here but awaited at the end of the branch: every write below
+        // (canvas colour, clipping, zoom, bounds) must land inside the caller's synchronous call,
+        // because resize and layout paths read the view right after this returns.
+        const emulation = this.applyCdpDeviceEmulationState(tab.view.webContents, preset, renderScale);
         if (preset.mobile) {
           try {
             if (!tab.view.webContents.isDestroyed()) {
@@ -11798,11 +11873,12 @@ export class NativeTabHost extends EventEmitter {
             height: boundsH,
           });
         } catch {}
+        applied = await emulation;
       } else {
         this.applyDeviceCornerClipping(tab.view.webContents, 0);
         try { tab.view.setBackgroundColor('#ffffff'); } catch {}
         this.applyCdpTouchEmulation(tab.view.webContents, false);
-        this.applyCdpDeviceEmulationState(tab.view.webContents, null);
+        const emulation = this.applyCdpDeviceEmulationState(tab.view.webContents, null);
         this.setSafeUserAgent(tab.view.webContents, this.defaultUserAgent);
 
         const userZoom = tab.state.zoomFactor || 1.0;
@@ -11819,10 +11895,13 @@ export class NativeTabHost extends EventEmitter {
             height: availableHeight,
           });
         } catch {}
+        applied = await emulation;
       }
     } catch (err) {
       console.error('[native-tab-host] applyTabDeviceEmulation error:', err);
+      return false;
     }
+    return applied;
   }
   /** Tabs mid-sweep: the sweep owns their emulation, so a navigation commit must not put the stored request back. */
   private readonly sweepingEmulationTabs = new Set<string>();
@@ -12104,7 +12183,7 @@ export class NativeTabHost extends EventEmitter {
    *               native call carried.
    */
   /** Per-webContents tail of emulation applications, so they reach CDP in call order. */
-  private emulationChains?: WeakMap<Electron.WebContents, Promise<void>>;
+  private emulationChains?: WeakMap<Electron.WebContents, Promise<boolean>>;
   private emulationInputScales?: WeakMap<Electron.WebContents, number>;
 
   public getInputScale(wc: Electron.WebContents): number {
@@ -12116,16 +12195,20 @@ export class NativeTabHost extends EventEmitter {
    * sends several CDP commands with awaits between them and most callers fire it without waiting,
    * so two of them could interleave: a clear landing between a sweep's user-agent and metrics
    * commands left the sweep's override in place. Applications are queued per webContents.
+   *
+   * Resolves whether the override reached CDP, so a caller that measures the viewport right after
+   * asking for one can tell a pending application from an applied one.
    */
   private applyCdpDeviceEmulationState(
     wc: Electron.WebContents,
     preset?: DevicePreset | null,
     scale = 1
-  ): Promise<void> {
-    if (!wc) return Promise.resolve();
+  ): Promise<boolean> {
+    if (!wc) return Promise.resolve(false);
     const chains = (this.emulationChains ??= new WeakMap());
-    const previous = chains.get(wc) ?? Promise.resolve();
-    const next = previous.catch(() => undefined).then(() => this.applyCdpDeviceEmulationStateNow(wc, preset, scale));
+    const previous = chains.get(wc);
+    const next = (previous ? previous.catch(() => false) : Promise.resolve(true))
+      .then(() => this.applyCdpDeviceEmulationStateNow(wc, preset, scale));
     chains.set(wc, next);
     return next;
   }
@@ -12158,13 +12241,44 @@ export class NativeTabHost extends EventEmitter {
     }
   }
 
+  /**
+   * Waits for the tab's queued emulation application, if any, and reports whether it reached
+   * CDP. A tab with nothing queued has nothing pending, so it answers true.
+   */
+  private async awaitEmulationChain(wc: Electron.WebContents | undefined): Promise<boolean> {
+    if (!wc) return true;
+    const tail = this.emulationChains?.get(wc);
+    if (!tail) return true;
+    try {
+      return await tail;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Refusal for a viewport this host could not hand to the renderer's debugger session. */
+  private viewportEmulationUnavailableError(tabId: string, width: number, height: number): CapabilityError {
+    return new CapabilityError(
+      'VIEWPORT_NOT_APPLIED',
+      `Cannot apply a ${width}x${height} viewport to tab '${tabId}': the device-emulation override did not reach the renderer (its debugger session was unavailable). Retry, or use anti.browser.set_device_preset and measure that size`,
+      {
+        tabId,
+        expectedWidth: width,
+        expectedHeight: height,
+        operation: 'setViewport',
+        cause: 'emulation-unavailable',
+        remedy: { tool: 'anti.browser.set_viewport', args: { tabId, width, height }, then: 'retry; anti.browser.set_device_preset is the alternative when it repeats' },
+      }
+    );
+  }
+
   private async applyCdpDeviceEmulationStateNow(
     wc: Electron.WebContents,
     preset?: DevicePreset | null,
     scale = 1
-  ): Promise<void> {
-    if (!wc || (typeof wc.isDestroyed === 'function' && wc.isDestroyed()) || !wc.debugger) return;
-    if (typeof wc.isCrashed === 'function' && wc.isCrashed()) return;
+  ): Promise<boolean> {
+    if (!wc || (typeof wc.isDestroyed === 'function' && wc.isDestroyed()) || !wc.debugger) return false;
+    if (typeof wc.isCrashed === 'function' && wc.isCrashed()) return false;
 
     // No committed document → no renderer → the metrics override dereferences a
     // missing widget and kills the process. Defer to first load; a clear on a
@@ -12174,14 +12288,14 @@ export class NativeTabHost extends EventEmitter {
       hasDocument = typeof wc.getURL === 'function' && wc.getURL().length > 0;
     } catch {}
     if (!hasDocument) {
-      if (!preset) return;
+      if (!preset) return false;
       // updateLayout can call this several times before first commit; keep one
       // pending deferral per WebContents and let the latest preset win.
       const pending = this.pendingEmulationDeferrals.get(wc);
       if (pending) {
         pending.preset = preset;
         pending.scale = scale;
-        return;
+        return true;
       }
       const deferral = { preset, scale };
       this.pendingEmulationDeferrals.set(wc, deferral);
@@ -12198,7 +12312,9 @@ export class NativeTabHost extends EventEmitter {
           try { wc.removeListener('did-finish-load', onLoaded); } catch {}
         });
       } catch {}
-      return;
+      // Queued for the first load: the override will take effect without further work,
+      // so a caller that measures now must treat the application as pending, not absent.
+      return true;
     }
 
     {
@@ -12208,7 +12324,9 @@ export class NativeTabHost extends EventEmitter {
             wc.debugger.attach('1.3');
           } catch {}
         }
-        if (!wc.debugger.isAttached()) return;
+        // Without a debugger session no emulation command can be sent; saying "applied"
+        // would make the caller's measurement a verdict about the wrong thing.
+        if (!wc.debugger.isAttached()) return false;
 
         const devTools = this.getDevToolsHost();
         if (preset && preset.width && preset.height) {
@@ -12258,8 +12376,10 @@ export class NativeTabHost extends EventEmitter {
         }
       } catch (err) {
         console.warn('[native-tab-host] applyCdpDeviceEmulationState error:', err);
+        return false;
       }
     }
+    return true;
   }
 
   private setSafeUserAgent(wc: Electron.WebContents, targetUA: string): void {
@@ -12447,7 +12567,7 @@ export class NativeTabHost extends EventEmitter {
     }
   }
 
-  public async agentType(params: { selector?: string; ref?: string; text: string; clear?: boolean; trusted?: boolean; force?: boolean; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
+  public async agentType(params: { selector?: string; ref?: string; x?: number; y?: number; text: string; clear?: boolean; trusted?: boolean; force?: boolean; tabId?: string; paneId?: SplitPaneId }): Promise<boolean> {
     const release = this.admitAgentAction('agentType', params.tabId);
     try {
       return await this.getAutomationHost().agentType(params);
@@ -16712,6 +16832,16 @@ export class NativeTabHost extends EventEmitter {
     };
     if (targetId === this.activeTabId) {
       this.updateLayout();
+      // The override is applied by the layout pass asynchronously, so the request is only
+      // answered once that application reached CDP: a caller that measures the viewport
+      // straight after this call must not read the window's raw width off a pending emulation.
+      const emulationApplied = await this.awaitEmulationChain(tab.view?.webContents);
+      this.broadcastState();
+      const applied = await applyForTarget();
+      // Only an explicit refusal counts: a seam that reports nothing (a host double, an overridden
+      // layout hook) has nothing to report against, and the caller's own measurement still decides.
+      if (emulationApplied === false) throw this.viewportEmulationUnavailableError(targetId, w, h);
+      return applied;
     } else {
       // A background tab is emulated outside the visible layout, so the box its document
       // is laid out against has to be measured from the window itself. A window that
@@ -16730,8 +16860,15 @@ export class NativeTabHost extends EventEmitter {
         || contentBounds.width < 1 || contentBounds.height < 1 || availableWidth < 1 || availableHeight < 1) {
         throw new CapabilityError(
           'VIEWPORT_NOT_APPLIED',
-          `Cannot apply a ${w}x${h} viewport to background tab '${targetId}': the window cannot report a usable content box`,
-          { tabId: targetId, expectedWidth: w, expectedHeight: h, operation: 'setViewport', cause: 'window-unmeasurable' }
+          `Cannot apply a ${w}x${h} viewport to background tab '${targetId}': the window cannot report a usable content box. Call anti.browser.tabs.activate {tabId:"${targetId}", restoreWindow:true} to present the window, then retry`,
+          {
+            tabId: targetId,
+            expectedWidth: w,
+            expectedHeight: h,
+            operation: 'setViewport',
+            cause: 'window-unmeasurable',
+            remedy: { tool: 'anti.browser.tabs.activate', args: { tabId: targetId, restoreWindow: true }, then: 'retry anti.browser.set_viewport' },
+          }
         );
       }
       // A view that was never attached has no compositor surface, so an emulation
@@ -16741,16 +16878,21 @@ export class NativeTabHost extends EventEmitter {
       // and any reload the caller asked for inside a temporary in-place attach — below
       // the active tab's view, released when the call returns — so the requested
       // viewport is real without the tab ever becoming the visible one.
-      await this.runWithAttachedTabView(
+      const outcome = await this.runWithAttachedTabView(
         tab.view,
         async () => {
-          this.applyTabDeviceEmulation(tab, availableWidth, availableHeight, toolbarHeight);
-          return await applyForTarget();
+          const emulation = await this.applyTabDeviceEmulation(tab, availableWidth, availableHeight, toolbarHeight);
+          const ready = await applyForTarget();
+          // Only an explicit refusal counts: a seam that reports nothing (a host double, an
+          // overridden layout hook) has nothing to report against, and the caller's own
+          // measurement still decides.
+          return { emulationApplied: emulation !== false, ready };
         },
         false
       );
       this.broadcastState();
-      return true;
+      if (!outcome.emulationApplied) throw this.viewportEmulationUnavailableError(targetId, w, h);
+      return outcome.ready;
     }
     // The toolbar Device Viewport Breakpoint cluster re-renders ONLY from the
     // STATE_UPDATED broadcast; without it an MCP resize is invisible in the UI

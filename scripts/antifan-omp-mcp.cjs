@@ -157,7 +157,7 @@ const definitions = [
   ['anti.artifact.stat', 'Retrieve metadata and size information for an authorized artifact.', { artifactId: { type: 'string' } }, ['artifactId']],
   ['browser.set-viewport', 'Set the bound Chromium tab viewport dimensions and device emulation.', { width: { type: 'number' }, height: { type: 'number' }, mobile: { type: 'boolean' }, deviceScaleFactor: { type: 'number' }, tabId: { type: 'string' }, reload: { type: 'boolean' }, hideScrollbar: { type: 'boolean', description: 'Hide the page scrollbars while the viewport override is applied, so the measured clientWidth equals the requested width (the result reports clientWidth)' } }, ['width', 'height'], [], 'tabId'],
   ['browser.get-viewport', 'Get the bound Chromium tab viewport dimensions, DPR, device preset, and layout surface state without applying overrides.', { tabId: { type: 'string' } }, [], [], 'tabId'],
-  ['browser.wait', 'Deterministic wait for selector, url, navigation, dom-stable, network, actionability, generation, images-settled, timeout, or legacy condition states. The condition is inferred from selector, ref, urlPattern/url or minGeneration when neither condition nor type is given, and from timeout or ms (a plain duration in milliseconds) as condition timeout; an explicit condition or type is never overridden. The result reports conditionInferred and aliasApplied (timeout/ms folded onto timeoutMs). A wait whose deadline elapses unmet answers { satisfied: false, timedOut: true, requestedTimeoutMs, maxTimeoutMs } instead of an error; clamped: true appears only when the request exceeded the cap.', { condition: { type: 'string', enum: ['selector', 'url', 'navigation', 'dom-stable', 'network', 'actionability', 'generation', 'ref', 'document_loaded', 'url_match', 'network_idle', 'dom_stable', 'images-settled', 'timeout'], description: 'Wait condition to evaluate: selector | url | navigation | dom-stable | network | actionability | generation | images-settled | timeout (or legacy aliases)' }, type: { type: 'string', enum: ['selector', 'url', 'navigation', 'dom-stable', 'network', 'actionability', 'generation', 'ref', 'document_loaded', 'url_match', 'network_idle', 'dom_stable', 'images-settled', 'timeout'], description: 'Alias for condition' }, selector: { type: 'string', description: 'CSS selector to wait for' }, ref: { type: 'string', description: 'Semantic reference token (@e1) to wait for' }, urlPattern: { type: 'string', description: 'URL pattern or substring to match' }, url: { type: 'string', description: 'Alias for urlPattern' }, minGeneration: { type: 'number', description: 'Minimum document generation to wait for (generation or navigation condition)' }, state: { type: 'string', enum: ['attached', 'visible', 'actionable', 'detached', 'hidden'] }, timeoutMs: { type: 'number', description: 'Timeout in milliseconds (5000 default, 30000 max — the capability invocation budget; an unmet wait that elapses answers timedOut=true, plus clamped=true with maxTimeoutMs when the request was above the max)' }, timeout: { type: 'number', description: 'Alias for timeoutMs; sent without a condition it means sleeping that many milliseconds (condition timeout)' }, ms: { type: 'number', description: 'Alias for timeoutMs; sent without a condition it means sleeping that many milliseconds (condition timeout)' }, idleWindowMs: { type: 'number', description: 'Debounce idle window in milliseconds (500 default)' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], { anyOf: [{ required: ['condition'] }, { required: ['type'] }, { required: ['selector'] }, { required: ['ref'] }, { required: ['urlPattern'] }, { required: ['url'] }, { required: ['minGeneration'] }, { required: ['timeout'] }, { required: ['ms'] }] }, 'tabId'],
+  ['browser.wait', 'Deterministic wait for selector, url, navigation, dom-stable, network, actionability, generation, images-settled, timeout, or legacy condition states. The condition is inferred from selector, ref, urlPattern/url or minGeneration when neither condition nor type is given, and from timeout, ms or a bare timeoutMs (a plain duration in milliseconds) as condition timeout; an explicit condition or type is never overridden. The result reports conditionInferred and aliasApplied (timeout/ms folded onto timeoutMs). A wait whose deadline elapses unmet answers { satisfied: false, timedOut: true, requestedTimeoutMs, maxTimeoutMs } instead of an error; clamped: true appears only when the request exceeded the cap.', { condition: { type: 'string', enum: ['selector', 'url', 'navigation', 'dom-stable', 'network', 'actionability', 'generation', 'ref', 'document_loaded', 'url_match', 'network_idle', 'dom_stable', 'images-settled', 'timeout'], description: 'Wait condition to evaluate: selector | url | navigation | dom-stable | network | actionability | generation | images-settled | timeout (or legacy aliases)' }, type: { type: 'string', enum: ['selector', 'url', 'navigation', 'dom-stable', 'network', 'actionability', 'generation', 'ref', 'document_loaded', 'url_match', 'network_idle', 'dom_stable', 'images-settled', 'timeout'], description: 'Alias for condition' }, selector: { type: 'string', description: 'CSS selector to wait for' }, ref: { type: 'string', description: 'Semantic reference token (@e1) to wait for' }, urlPattern: { type: 'string', description: 'URL pattern or substring to match' }, url: { type: 'string', description: 'Alias for urlPattern' }, minGeneration: { type: 'number', description: 'Minimum document generation to wait for (generation or navigation condition)' }, state: { type: 'string', enum: ['attached', 'visible', 'actionable', 'detached', 'hidden'] }, timeoutMs: { type: 'number', description: 'Timeout in milliseconds (5000 default, 30000 max); with no target or condition it is the duration to sleep (condition timeout)' }, timeout: { type: 'number', description: 'Alias for timeoutMs; sent without a condition it means sleeping that many milliseconds (condition timeout)' }, ms: { type: 'number', description: 'Alias for timeoutMs; sent without a condition it means sleeping that many milliseconds (condition timeout)' }, idleWindowMs: { type: 'number', description: 'Debounce idle window in milliseconds (500 default)' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], { anyOf: [{ required: ['condition'] }, { required: ['type'] }, { required: ['selector'] }, { required: ['ref'] }, { required: ['urlPattern'] }, { required: ['url'] }, { required: ['minGeneration'] }, { required: ['timeout'] }, { required: ['ms'] }, { required: ['timeoutMs'] }] }, 'tabId'],
   ['file.read', 'Read a file relative to the authoritative workspace root.', { path: { type: 'string' }, maxBytes: { type: 'number' } }, ['path']],
   ['file.write', 'Write a file relative to the authoritative workspace root with boundary enforcement.', { path: { type: 'string' }, content: { type: 'string' } }, ['path', 'content']],
   ['anti.theme.resolve_element', 'Map a live DOM element to bounded, correlated local theme source candidates.', { selector: { type: 'string' }, ref: { type: 'string' }, workspaceRoot: { type: 'string' }, tabId: { type: 'string' }, paneId: { type: 'string', enum: ['desktop', 'mobile'] } }, [], [], 'tabId'],
@@ -3345,11 +3345,25 @@ function normalizeLocator(next, applied) {
     next.locator = kept;
   }
 }
+// A wait carrying only a duration has no condition to bound, so the duration is promoted to the
+// timeout form the capability infers its condition from. Beside a target or a condition the same
+// field stays the bound of that wait and is passed through untouched.
+const WAIT_FORM_FIELDS = ['condition', 'type', 'selector', 'ref', 'urlPattern', 'url', 'minGeneration', 'timeout', 'ms'];
+function normalizeWaitDuration(next, applied) {
+  if (typeof next.timeoutMs !== 'number' || !Number.isFinite(next.timeoutMs)) return;
+  const namesAForm = WAIT_FORM_FIELDS.some((field) => {
+    const value = next[field];
+    return value !== undefined && value !== null && !(typeof value === 'string' && value.trim() === '');
+  });
+  if (namesAForm) return;
+  next.timeout = next.timeoutMs;
+  applied.push({ from: 'timeoutMs=' + next.timeoutMs, to: 'timeout=' + next.timeoutMs });
+}
 const VALUE_NORMALIZERS = (() => {
   const table = {
     'terminal.write': [normalizeTerminalKeys],
     'anti.browser.navigate': [valueSpellingNormalizer('waitUntil', WAIT_UNTIL_SPELLINGS)],
-    'browser.wait': [valueSpellingNormalizer('condition', WAIT_CONDITION_SPELLINGS), valueSpellingNormalizer('type', WAIT_CONDITION_SPELLINGS)],
+    'browser.wait': [valueSpellingNormalizer('condition', WAIT_CONDITION_SPELLINGS), valueSpellingNormalizer('type', WAIT_CONDITION_SPELLINGS), normalizeWaitDuration],
     'anti.inspect.responsive_matrix': [normalizeCustomBreakpoints],
   };
   table['anti.browser.wait'] = table['browser.wait'];
@@ -3380,6 +3394,79 @@ function attachAliasApplied(result, aliasApplied) {
   if (!aliasApplied || aliasApplied.length === 0) return result;
   if (!result || typeof result !== 'object' || Array.isArray(result)) return result;
   return { ...result, aliasApplied };
+}
+// A refusal that names the arguments still leaves a caller guessing the shape of a legal call,
+// so every "requires ..." refusal carries one minimal call built from the row itself — the
+// required list, one of its forms and the declared type of each field — never a hand-written
+// example. The value table supplies only what a type cannot say: which selector, which path,
+// which step, which line of input.
+const EXAMPLE_FIELD_VALUES = Object.freeze({
+  selector: '#main',
+  refOrSelector: '#main',
+  ref: '@e1',
+  url: 'https://example.test/',
+  urlPattern: 'example.test',
+  input: 'echo ok',
+  text: 'hello',
+  message: 'hello',
+  sessionId: '<sessionId>',
+  filePaths: ['C:/path/to/file.txt'],
+  steps: [{ type: 'click', selector: '#main' }],
+  actions: [{ type: 'click', selector: '#main' }],
+  key: 'enter',
+  keys: ['enter'],
+});
+// An example longer than this stops teaching the shape and starts costing the caller tokens on
+// every refusal, so a call that cannot fit is left without one.
+const EXAMPLE_MAX_CHARS = 160;
+const EXAMPLE_ADDRESS_FIELDS = ['refOrSelector', 'ref', 'selector'];
+function exampleValueFor(field, spec) {
+  if (Object.prototype.hasOwnProperty.call(EXAMPLE_FIELD_VALUES, field)) return EXAMPLE_FIELD_VALUES[field];
+  if (spec && Array.isArray(spec.enum) && spec.enum.length > 0) return spec.enum[0];
+  const declared = spec && (Array.isArray(spec.type) ? spec.type[0] : spec.type);
+  if (declared === 'number' || declared === 'integer') return /Ms$/.test(field) ? 3000 : 1;
+  if (declared === 'boolean') return true;
+  if (declared === 'array') return [];
+  if (declared === 'object') {
+    const nested = (spec && spec.properties) || {};
+    const requiredFields = spec && Array.isArray(spec.required) ? spec.required : [];
+    return Object.fromEntries(requiredFields.map((name) => [name, exampleValueFor(name, nested[name])]));
+  }
+  return '...';
+}
+// The fields the example fills: the row's required fields, one legal form (the first whose fields
+// are plain values — an enum's first value only makes sense beside another field), and the tool's
+// own element address when the form names no target.
+function exampleCallFor(row) {
+  const [, , properties, required, forms] = row;
+  const declared = properties || {};
+  const plain = (field) => !Array.isArray(declared[field] && declared[field].enum);
+  const groups = argumentForms(forms).filter((group) => Array.isArray(group.required) && group.required.length > 0 && group.required.every((field) => field in declared));
+  const form = groups.find((group) => group.required.every(plain)) || groups[0] || { required: [] };
+  const fields = [...new Set([...(Array.isArray(required) ? required : []), ...form.required])];
+  if (fields.length === 0) return null;
+  const address = fields.some((field) => EXAMPLE_ADDRESS_FIELDS.includes(field))
+    ? undefined
+    : EXAMPLE_ADDRESS_FIELDS.find((field) => field in declared && plain(field));
+  const render = (names) => JSON.stringify(Object.fromEntries(names.map((field) => [field, exampleValueFor(field, declared[field])])));
+  let example = render(address ? [...fields, address] : fields);
+  if (example.length > EXAMPLE_MAX_CHARS && address) example = render(fields);
+  return example.length <= EXAMPLE_MAX_CHARS ? example : null;
+}
+// A core.* store ignores a field name it does not declare, and the host's own pre-dispatch check
+// can only report the first missing field it sees. A caller that guessed the vocabulary therefore
+// gets the whole accepted set — required fields marked — plus the names the tool does not take.
+const TRANSPORT_ONLY_FIELDS = ['callerRequestId', 'idempotencyKey', 'requestId'];
+function coreAcceptedFieldsNote(method, row, params) {
+  if (!String(method).startsWith('core.')) return '';
+  const declared = row[2] || {};
+  const names = Object.keys(declared);
+  if (names.length === 0) return '';
+  const required = new Set(Array.isArray(row[3]) ? row[3] : []);
+  const supplied = params && typeof params === 'object' && !Array.isArray(params) ? Object.keys(params) : [];
+  const unknown = supplied.filter((field) => !(field in declared) && !TRANSPORT_ONLY_FIELDS.includes(field) && params[field] !== undefined);
+  return 'Accepted fields: ' + names.map((field) => (required.has(field) ? field + ' (required)' : field)).join(', ') + '. ' +
+    (unknown.length > 0 ? 'Not accepted: ' + unknown.join(', ') + '. ' : '');
 }
 async function invoke(method, params = {}, callerRequestId, meta) {
   // terminal.write has no submit flag. Dropping it silently would type the text and send no
@@ -3419,11 +3506,14 @@ async function invokeResolved(method, params = {}, callerRequestId, meta) {
     return typeof value === 'string' && value.trim() === '';
   });
   if (missingRequiredEarly.length > 0) {
+    const example = exampleCallFor(advertisedDef);
     throw new Error(JSON.stringify({
       code: 'INVALID_ARGUMENT',
       message: `Capability '${method}' requires ${missingRequiredEarly.join(', ')}, and this call supplied no usable value for ${missingRequiredEarly.length === 1 ? 'it' : 'them'}. ` +
         'The field is refused rather than defaulted, because a default would act on a target the caller never named. ' +
-        `Supply ${missingRequiredEarly.length === 1 ? 'the field' : 'the fields'} explicitly and retry.`,
+        coreAcceptedFieldsNote(method, advertisedDef, params) +
+        `Supply ${missingRequiredEarly.length === 1 ? 'the field' : 'the fields'} explicitly and retry.` +
+        (example ? ` Example: ${example}` : ''),
       details: { capability: method, missing: missingRequiredEarly },
     }));
   }
@@ -3447,11 +3537,13 @@ async function invokeResolved(method, params = {}, callerRequestId, meta) {
       const forms = declaredOneOf
         .map((group) => (group && Array.isArray(group.required) ? group.required.join(' + ') : ''))
         .filter((form) => form.length > 0);
+      const example = exampleCallFor(advertisedDef);
       throw new Error(JSON.stringify({
         code: 'INVALID_ARGUMENT',
         message: `Capability '${method}' requires one of: ${forms.join(' | ')}. ` +
-          'None of the advertised argument forms was fully supplied, so the call is refused rather than dispatched with an ambiguous payload.',
-        details: { capability: method, oneOf: forms },
+          'None of the advertised argument forms was fully supplied, so the call is refused rather than dispatched with an ambiguous payload.' +
+          (example ? ` Example: ${example}` : ''),
+        details: { capability: method, oneOf: forms, ...(example ? { example } : {}) },
       }));
     }
   }

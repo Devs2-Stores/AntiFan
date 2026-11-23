@@ -2,6 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import * as crypto from 'node:crypto';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { buildTreeWalkerSanitizerScript } from './adapters/tree-walker-sanitizer';
 import {
@@ -10,6 +11,8 @@ import {
   type CapabilityErrorCode,
   ArtifactRef,
   assertExactBrowserTarget,
+  assertNoReparseTraversal,
+  assertWorkspaceContained,
   digestText,
   CapabilityRequestContext,
   AuthenticatedCapabilityContext,
@@ -146,6 +149,14 @@ function isWebUrl(url: string | undefined): boolean {
   return typeof url === 'string' && /^https?:\/\//i.test(url.trim());
 }
 
+/** Where a local file outside the workspace can be reached instead of by `file:`. */
+export const LOCAL_FILE_SERVE_HINT = 'serve it over http://127.0.0.1:<port> and navigate to that URL';
+
+/** True when the argument asks for a local document rather than a web page. */
+export function isLocalFileNavigationUrl(url: unknown): boolean {
+  return typeof url === 'string' && /^file:/i.test(url.trim());
+}
+
 /** When `navigate` returns: at the first committed navigation, at DOMContentLoaded, or at the load event (default). */
 export type NavigationWaitUntil = 'commit' | 'domcontentloaded' | 'load';
 /** How far the loaded document had progressed when `navigate` answered. */
@@ -203,6 +214,26 @@ function normalizeChildFrameSelector(frame: ChildFrameSelector | undefined): Chi
 
 /** Secrets typed into a page may only come from variables an operator named for that purpose. */
 const SECRET_ENV_NAME = /^ANTIFAN_SECRET_[A-Z0-9_]+$/;
+
+/**
+ * The point a pointer-addressed action names. Numeric strings are accepted because transports
+ * that stringify every number deliver "960" for a coordinate, and refusing those costs the call;
+ * anything non-numeric is refused rather than dropped, because a selector-less action without a
+ * usable point would otherwise reach the page with no target at all.
+ */
+function pointArgumentsOf(args: { x?: unknown; y?: unknown }): { x: number; y: number } | undefined {
+  const present = (value: unknown): boolean => value !== undefined && value !== null && String(value).trim() !== '';
+  const hasX = present(args.x);
+  const hasY = present(args.y);
+  if (!hasX && !hasY) return undefined;
+  if (hasX !== hasY) throw new CapabilityError('INVALID_ARGUMENT', 'A coordinate target needs both x and y');
+  const x = Number(args.x);
+  const y = Number(args.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0) {
+    throw new CapabilityError('INVALID_ARGUMENT', `x and y must be non-negative finite CSS pixels, got ${JSON.stringify(args.x)} and ${JSON.stringify(args.y)}`);
+  }
+  return { x, y };
+}
 
 /**
  * Resolves the text to type. `fromEnv` names a process variable read here, in the main process:
@@ -391,8 +422,10 @@ export interface BrowserHostPort {
   /**
    * Navigates and resolves once the requested lifecycle point is reached. A number is the timeout alone
    * (waits for the load); the object form adds `waitUntil` (`commit` | `domcontentloaded` | `load`, default `load`).
+   * `admittedLocalFilePath` marks a `file:` document this port already confined to the session's
+   * workspace; it is the only way the host will load a local document.
    */
-  navigateAndWait?(tabId: string, url: string, wait?: number | { timeoutMs?: number; waitUntil?: NavigationWaitUntil }): Promise<boolean>;
+  navigateAndWait?(tabId: string, url: string, wait?: number | { timeoutMs?: number; waitUntil?: NavigationWaitUntil; admittedLocalFilePath?: string }): Promise<boolean>;
   getLastNavigationFailure?(tabId: string): { cause: string; message: string; timedOut: boolean } | undefined;
   getRedirectChain?(tabId: string): string[];
   getTabUrl?(tabId: string): string;
@@ -1994,9 +2027,30 @@ export interface CheckedEvalResult {
   truncated: boolean;
   truncatedReasons: EvalTruncationReason[];
   surface?: { probeTimedOut: true };
+  /** Present when the caller asked for a budget above the invocation ceiling: the applied one. */
+  clampedTimeout?: { requestedTimeoutMs: number; appliedTimeoutMs: number };
 }
 /** Upper bound a caller may request for a navigation wait, whatever `timeoutMs` it passes. */
 const NAVIGATE_TIMEOUT_CEILING_MS = 60_000;
+/** Bound for the one evaluation that reads a timed-out navigation's live document. */
+const DOCUMENT_STATE_PROBE_BOUND_MS = 1_500;
+
+/**
+ * Whether two URLs name the same document. The fragment is ignored (it does not fetch a new
+ * document), a trailing slash is not, so "still on the old URL" and "committed here" stay
+ * distinguishable.
+ */
+function sameDocumentUrl(left: string, right: string): boolean {
+  const normalize = (value: string): string => {
+    try {
+      const parsed = new URL(value);
+      return `${parsed.protocol}//${parsed.host}${parsed.pathname.replace(/\/$/, '')}${parsed.search}`;
+    } catch {
+      return value.trim().replace(/\/$/, '');
+    }
+  };
+  return normalize(left) === normalize(right);
+}
 const REVERSIBLE_DOM_TXN_GLOBAL = '__antifan_compare_txn__';
 /**
  * Per-document record of the last hydration cascade that ran to completion:
@@ -3071,16 +3125,27 @@ export class BrowserControlPort {
     await this.host.ensureProjectTabHost(projectId, { visible });
   }
 
-  async navigate(target: BrowserTarget, url: string, explicitTabId?: string, options?: { timeoutMs?: number; waitUntil?: NavigationWaitUntil }): Promise<{ navigated: boolean; target: BrowserTarget; loadState?: NavigationLoadState; committedUrl?: string; redirectChain?: string[]; dialog?: JsDialogDescription }> {
+  async navigate(target: BrowserTarget, url: string, explicitTabId?: string, options?: { timeoutMs?: number; waitUntil?: NavigationWaitUntil; softTimeout?: boolean; localFileRoot?: string }): Promise<{ navigated: boolean; target: BrowserTarget; loadState?: NavigationLoadState; committedUrl?: string; redirectChain?: string[]; dialog?: JsDialogDescription; timedOut?: boolean; readyState?: string }> {
     const tabId = this.resolveTargetTab(target, explicitTabId, 'read');
     const navigationUrl = typeof url === 'string' ? url.trim() : '';
-    // about:blank is the only non-http(s) document a session may navigate to (a clean-slate
-    // reset with no origin); file:, javascript:, data: and every other about: page stay refused.
-    if (!navigationUrl || !(navigationUrl === 'about:blank' || /^https?:\/\//i.test(navigationUrl))) {
-      throw new CapabilityError('INVALID_ARGUMENT', 'Navigation requires an http(s) URL or about:blank');
+    // about:blank is the clean-slate reset with no origin. A `file:` document is admitted only
+    // when it is an existing regular file inside the session's workspace; javascript:, data:
+    // and every other about: page stay refused.
+    let admittedLocalFilePath: string | undefined;
+    let resolvedNavigationUrl = navigationUrl;
+    if (isLocalFileNavigationUrl(navigationUrl)) {
+      const admitted = await this.admitLocalFileNavigation(navigationUrl, options?.localFileRoot);
+      admittedLocalFilePath = admitted.path;
+      resolvedNavigationUrl = admitted.fileUrl;
+    } else if (!(navigationUrl === 'about:blank' || /^https?:\/\//i.test(navigationUrl))) {
+      throw new CapabilityError(
+        'INVALID_ARGUMENT',
+        `Navigation requires an http(s) URL or about:blank; a local page must be a file: URL inside the workspace root, and a file outside it must ${LOCAL_FILE_SERVE_HINT}`,
+        { requestedUrl: navigationUrl, accepted: ['http(s)://', 'about:blank', 'file: inside the workspace root'], localFileServeHint: LOCAL_FILE_SERVE_HINT }
+      );
     }
-    // Navigating to a real page is web work: a window that holds the tab off-screen is shown.
-    if (isWebUrl(navigationUrl)) this.host.surfaceTabWindow?.(tabId);
+    // Navigating to a real document is web work: a window that holds the tab off-screen is shown.
+    if (isWebUrl(resolvedNavigationUrl) || admittedLocalFilePath) this.host.surfaceTabWindow?.(tabId);
     const requestedTimeoutMs = options?.timeoutMs;
     const navigationTimeoutMs = typeof requestedTimeoutMs === 'number' && Number.isFinite(requestedTimeoutMs) && requestedTimeoutMs > 0
       ? Math.min(Math.floor(requestedTimeoutMs), NAVIGATE_TIMEOUT_CEILING_MS)
@@ -3089,13 +3154,16 @@ export class BrowserControlPort {
     if (waitUntil !== undefined && !NAVIGATION_WAIT_UNTIL_LOAD_STATE[waitUntil]) {
       throw new CapabilityError('INVALID_ARGUMENT', `waitUntil must be one of ${Object.keys(NAVIGATION_WAIT_UNTIL_LOAD_STATE).join(', ')}, got ${JSON.stringify(waitUntil)}`, { validWaitUntil: Object.keys(NAVIGATION_WAIT_UNTIL_LOAD_STATE) });
     }
-    this.assertAntiBotNotLatched(tabId, navigationUrl, tabId);
+    this.assertAntiBotNotLatched(tabId, resolvedNavigationUrl, tabId);
     const urlBefore = this.safeTabUrl(tabId);
     // The default (`load`) keeps the plain timeout argument: only an explicit earlier `waitUntil` needs the host's lifecycle waiter.
-    const hostWait = waitUntil !== undefined && waitUntil !== 'load' ? { timeoutMs: navigationTimeoutMs, waitUntil } : navigationTimeoutMs;
+    const hostWaitBase = waitUntil !== undefined && waitUntil !== 'load' ? { timeoutMs: navigationTimeoutMs, waitUntil } : navigationTimeoutMs;
+    const hostWait = admittedLocalFilePath
+      ? { ...(typeof hostWaitBase === 'number' ? { timeoutMs: hostWaitBase } : hostWaitBase), admittedLocalFilePath }
+      : hostWaitBase;
     const navigation = Promise.resolve(typeof this.host.navigateAndWait === 'function'
-      ? this.host.navigateAndWait(tabId, navigationUrl, hostWait)
-      : this.host.navigate(tabId, navigationUrl));
+      ? this.host.navigateAndWait(tabId, resolvedNavigationUrl, hostWait)
+      : this.host.navigate(tabId, resolvedNavigationUrl));
     const settled = await this.untilJsDialog(tabId, undefined, navigation);
     // A `beforeunload` prompt holds the navigation until it is answered; the caller gets the prompt.
     if ('dialog' in settled) return { navigated: false, target, dialog: settled.dialog };
@@ -3115,8 +3183,15 @@ export class BrowserControlPort {
       // for a tab that was still alive. TARGET_STALE remains only for the
       // no-record path, where the host could not classify the miss at all.
       const liveUrl = await this.getLiveTabUrl(tabId).catch(() => '');
-      const challenge = this.refuseAntiBot(liveUrl, tabId, navigationUrl);
+      const challenge = this.refuseAntiBot(liveUrl, tabId, resolvedNavigationUrl);
       if (challenge) throw challenge;
+      // A load waiter that timed out on a document that had already committed is not a failed
+      // navigation: agent-facing callers get the state the tab reached so a usable page is not
+      // thrown away, while internal callers (no `softTimeout`) keep the typed refusal.
+      if (options?.softTimeout && (failureCause === 'NAVIGATION_TIMEOUT' || failureCause === 'NAVIGATION_START_TIMEOUT')) {
+        const soft = await this.softNavigationOutcome(tabId, resolvedNavigationUrl, urlBefore, target);
+        if (soft) return soft;
+      }
       const details = failureCause === 'TARGET_STALE'
         ? staleDetails(liveUrl && liveUrl !== urlBefore ? 'navigated-away' : 'tab-gone', { tabId })
         : { ...navigationOutcomeDetails(urlBefore, liveUrl, tabId), ...(failure?.timedOut ? { loadState: 'timeout' as const } : {}), ...(liveUrl && liveUrl !== urlBefore ? { committedUrl: liveUrl } : {}) };
@@ -3134,7 +3209,7 @@ export class BrowserControlPort {
     // call cannot stand behind.
     const settledUrl = await this.getLiveTabUrl(tabId).catch(() => '');
     // The site served a verification page instead of the requested document: say so, once.
-    const challenge = this.refuseAntiBot(settledUrl, tabId, navigationUrl);
+    const challenge = this.refuseAntiBot(settledUrl, tabId, resolvedNavigationUrl);
     if (challenge) throw challenge;
     const settledTarget: BrowserTarget = { ...target, tabId, documentGeneration: docGen };
     if (settledUrl) settledTarget.url = settledUrl;
@@ -3150,10 +3225,133 @@ export class BrowserControlPort {
   }
 
   /**
-   * The tabs this session may close, for a quota refusal: counted (managed) ids plus the strip's rows, each
-   * filtered through the same `isTabAllowed` authority `closeTab` applies, the bound tab itself left out
-   * (closing it ends the session's anchor). Bounded so the refusal stays small.
+   * Confines a `file:` navigation to the session's workspace: the URL must name an existing
+   * regular file, no segment on the way may be a reparse point, and the real path must sit under
+   * the root. The host is handed the canonical path, never a caller-spelled one.
    */
+  private async admitLocalFileNavigation(url: string, root: string | undefined): Promise<{ path: string; fileUrl: string }> {
+    const refuse = (reason: string, details: Record<string, unknown> = {}): CapabilityError =>
+      new CapabilityError(
+        'INVALID_ARGUMENT',
+        `file: navigation is limited to an existing regular file inside the workspace root: ${reason}. A file outside the workspace must ${LOCAL_FILE_SERVE_HINT}`,
+        { requestedUrl: url, ...(root ? { root } : {}), failedCheck: 'localFileNavigation', localFileServeHint: LOCAL_FILE_SERVE_HINT, ...details }
+      );
+    if (!root || !root.trim()) throw refuse('this session has no workspace root to confine it to');
+    let target: string;
+    try {
+      target = fileURLToPath(url.trim());
+    } catch {
+      throw refuse('the URL does not name a local file path');
+    }
+    let isFile = false;
+    try {
+      isFile = (await fs.stat(target)).isFile();
+    } catch {
+      throw refuse(`'${target}' does not exist or is not readable`, { path: target });
+    }
+    if (!isFile) throw refuse(`'${target}' is not a regular file`, { path: target });
+    try {
+      // Both checks run on the caller's spelling, before any canonicalisation: a junction that
+      // resolves back inside the root is still a path a local document must not be loaded through.
+      assertNoReparseTraversal(root, target);
+      assertWorkspaceContained(root, target);
+    } catch (err) {
+      if (err instanceof CapabilityError && err.code === 'OUTSIDE_WORKSPACE') throw refuse(err.message, { path: target, cause: 'OUTSIDE_WORKSPACE' });
+      throw err;
+    }
+    const resolved = path.resolve(target);
+    return { path: resolved, fileUrl: pathToFileURL(resolved).href };
+  }
+
+  /**
+   * The tab's live document facts, read with one bounded evaluation: the URL it is on, how far
+   * its load got, and whether Chromium is showing an error interstitial. Undefined when the tab
+   * cannot answer, so a caller never reads silence as success.
+   */
+  private async readDocumentState(tabId: string): Promise<{ url: string; readyState: string; errorPage: boolean } | undefined> {
+    if (typeof this.host.evalJs !== 'function') return undefined;
+    const raw = await raceWithTimeout(
+      Promise.resolve(this.host.evalJs(
+        '({ url: document.location.href, readyState: document.readyState, errorPage: document.location.protocol === "chrome-error:" })',
+        tabId
+      )).catch(() => null),
+      DOCUMENT_STATE_PROBE_BOUND_MS,
+      () => null
+    );
+    if (!raw || typeof raw !== 'object') return undefined;
+    const record = raw as Record<string, unknown>;
+    if (typeof record.url !== 'string' || !record.url) return undefined;
+    return { url: record.url, readyState: typeof record.readyState === 'string' ? record.readyState : '', errorPage: record.errorPage === true };
+  }
+
+  /**
+   * A navigation whose load waiter timed out but whose document did commit to the requested URL
+   * and is at least `interactive` answered: the page is usable. Anything short of that — no
+   * commit, an error interstitial, a different document — stays undefined so the caller's typed
+   * refusal is what the throw path reports.
+   */
+  private async softNavigationOutcome(
+    tabId: string,
+    requestedUrl: string,
+    urlBefore: string | undefined,
+    target: BrowserTarget
+  ): Promise<{ navigated: true; target: BrowserTarget; loadState: 'timeout'; timedOut: true; readyState: string; committedUrl: string; redirectChain?: string[] } | undefined> {
+    const state = await this.readDocumentState(tabId);
+    if (!state || state.errorPage) return undefined;
+    if (state.readyState !== 'interactive' && state.readyState !== 'complete') return undefined;
+    const chain = this.getTabRedirectChain(tabId);
+    const tail = chain.length > 0 ? chain[chain.length - 1] : '';
+    if (!sameDocumentUrl(state.url, requestedUrl) && !(tail && sameDocumentUrl(state.url, tail))) return undefined;
+    if (urlBefore && sameDocumentUrl(state.url, urlBefore) && !sameDocumentUrl(state.url, requestedUrl) && !(tail && sameDocumentUrl(state.url, tail))) return undefined;
+    const docGen = typeof this.host.getSemanticDocumentGeneration === 'function'
+      ? this.host.getSemanticDocumentGeneration(tabId)
+      : (this.host.getDocumentGeneration ? this.host.getDocumentGeneration(tabId) : (target.documentGeneration || 1));
+    const settledTarget: BrowserTarget = { ...target, tabId, documentGeneration: docGen, url: state.url };
+    return {
+      navigated: true,
+      target: settledTarget,
+      loadState: 'timeout',
+      timedOut: true,
+      readyState: state.readyState,
+      committedUrl: state.url,
+      ...(chain.length > 1 ? { redirectChain: chain } : {}),
+    };
+  }
+
+  /**
+   * The reload counterpart: the host recorded *its own* timeout for this reload (a record from
+   * before the call is not evidence about it) and the same document is at least `interactive`.
+   */
+  private async softReloadOutcome(
+    tabId: string,
+    urlBefore: string | undefined,
+    failureBefore: { cause: string; message: string; timedOut: boolean } | undefined,
+    target: BrowserTarget
+  ): Promise<{ reloaded: true; target: BrowserTarget; urlBefore: string; urlAfter: string; redirected: boolean; timedOut: true; readyState: string } | undefined> {
+    if (!urlBefore) return undefined;
+    const failure = this.host.getLastNavigationFailure?.(tabId);
+    if (!failure || failure === failureBefore || failure.timedOut !== true) return undefined;
+    const state = await this.readDocumentState(tabId);
+    if (!state || state.errorPage) return undefined;
+    if (state.readyState !== 'interactive' && state.readyState !== 'complete') return undefined;
+    const chain = this.getTabRedirectChain(tabId);
+    const tail = chain.length > 0 ? chain[chain.length - 1] : '';
+    if (!sameDocumentUrl(state.url, urlBefore) && !(tail && sameDocumentUrl(state.url, tail))) return undefined;
+    const docGen = typeof this.host.getSemanticDocumentGeneration === 'function'
+      ? this.host.getSemanticDocumentGeneration(tabId)
+      : (this.host.getDocumentGeneration ? this.host.getDocumentGeneration(tabId) : (target.documentGeneration || 1));
+    return {
+      reloaded: true,
+      target: { ...target, tabId, documentGeneration: docGen, url: state.url },
+      urlBefore,
+      urlAfter: state.url,
+      redirected: !sameDocumentUrl(state.url, urlBefore),
+      timedOut: true,
+      readyState: state.readyState,
+    };
+  }
+
+
   private closableTabIds(boundTabId: string, counted?: Iterable<string>): string[] {
     const candidates = new Set<string>(counted ?? []);
     for (const row of this.host.getTabList?.() ?? []) {
@@ -3238,8 +3436,11 @@ export class BrowserControlPort {
     return [];
   }
 
-  async reload(target: BrowserTarget, explicitTabId?: string, options?: { ownedReloadToken?: string; timeoutMs?: number }): Promise<{ reloaded: boolean; target: BrowserTarget; urlBefore?: string; urlAfter?: string; redirected?: boolean }> {
+  async reload(target: BrowserTarget, explicitTabId?: string, options?: { ownedReloadToken?: string; timeoutMs?: number; softTimeout?: boolean }): Promise<{ reloaded: boolean; target: BrowserTarget; urlBefore?: string; urlAfter?: string; redirected?: boolean; timedOut?: boolean; readyState?: string }> {
     const tabId = this.resolveTargetTab(target, explicitTabId, 'read');
+    // Read before the reload so a timeout record left by an earlier navigation is never read as
+    // this reload's own failure.
+    const failureBefore = this.host.getLastNavigationFailure?.(tabId);
     let urlBefore: string | undefined;
     try {
       const tabs = typeof this.host.getTabList === 'function' ? this.host.getTabList() : [];
@@ -3256,7 +3457,15 @@ export class BrowserControlPort {
       : await this.host.reload(tabId, options);
     if (!reloaded) {
       const liveUrl = await this.getLiveTabUrl(tabId).catch(() => '');
-      throw this.refuseAntiBot(liveUrl, tabId, urlBefore) ?? new CapabilityError(
+      const challenge = this.refuseAntiBot(liveUrl, tabId, urlBefore);
+      if (challenge) throw challenge;
+      // A load waiter that timed out on the same document that came back at least interactive is
+      // a usable page, not a failed reload; internal callers keep the typed refusal.
+      if (options?.softTimeout) {
+        const soft = await this.softReloadOutcome(tabId, urlBefore, failureBefore, target);
+        if (soft) return soft;
+      }
+      throw new CapabilityError(
         'TARGET_STALE',
         'Reload failed or timed out before a load-complete document was available',
         staleDetails(liveUrl && urlBefore && liveUrl !== urlBefore ? 'navigated-away' : 'tab-gone', { tabId })
@@ -3645,7 +3854,7 @@ export class BrowserControlPort {
           probeBoundsMs: timedOut ? [RENDER_SURFACE_PROBE_BOUND_MS, RENDER_SURFACE_PROBE_RETRY_BOUND_MS] : [RENDER_SURFACE_PROBE_BOUND_MS],
           probeCause: classifyRenderSurfaceCause(undefined),
           hostWindowHidden,
-          ...(remedy ? { steps: remedy.steps } : {}),
+          ...(remedy ? { steps: remedy.steps, remedy: { tool: 'anti.browser.tabs.activate', args: { tabId, restoreWindow: true }, then: 'retry' } } : {}),
         }
       );
     }
@@ -3674,6 +3883,9 @@ export class BrowserControlPort {
           hostWindowHidden: remedy.hostWindowHidden,
           retryable: remedy.retryable,
           steps: remedy.steps,
+          // The one call that fixes a background or hidden surface, with the arguments it needs:
+          // a caller reading details does not have to translate a step name into a request.
+          remedy: { tool: 'anti.browser.tabs.activate', args: { tabId, ...(remedy.hostWindowHidden ? { restoreWindow: true } : {}) }, then: 'retry' },
           ...(known ? { verifiedGeometry: known } : {}),
           activationCandidates: this.activationCandidates(tabId),
         }
@@ -4494,30 +4706,28 @@ export class BrowserControlPort {
     explicitTabId?: string,
     paneId?: 'desktop' | 'mobile',
     options?: { requireRenderSurface?: boolean; allowDegradedSurface?: boolean; timeoutMs?: number }
-  ): Promise<{ value: unknown; surface?: { probeTimedOut: true } }> {
+  ): Promise<{ value: unknown; surface?: { probeTimedOut: true }; clampedTimeout?: { requestedTimeoutMs: number; appliedTimeoutMs: number } }> {
     if (!expression.trim()) throw new CapabilityError('INVALID_ARGUMENT', 'JavaScript expression is required');
-    // A caller-declared budget must fit under the capability's invocation
-    // budget so the in-page guard — not the platform's execution timeout —
-    // produces the typed answer; an over-budget ask is refused, never clamped.
-    const evalBudgetMs = options?.timeoutMs === undefined
+    // A caller-declared budget must fit under the capability's invocation budget so the in-page
+    // guard — not the platform's execution timeout — produces the typed answer. A larger ask is
+    // clamped to that ceiling and reported as clamped, the same convention browser.wait uses for
+    // its own ceiling; the caller still learns the wait was shorter than it asked for, instead of
+    // losing the whole call over a number it can only guess.
+    const budget = options?.timeoutMs === undefined
       ? undefined
       : (() => {
           if (typeof options.timeoutMs !== 'number' || !Number.isFinite(options.timeoutMs) || options.timeoutMs <= 0) {
             throw new CapabilityError('INVALID_ARGUMENT', `timeoutMs must be a positive finite number of milliseconds, got ${JSON.stringify(options.timeoutMs)}`);
           }
-          // A request above the effective ceiling gets clamped nowhere — it is
-          // refused with the real bound named, so a caller waiting longer than
-          // the invocation budget never mistakes the clamp for an honored ask.
           const effectiveMaxMs = Math.min(BROWSER_EVAL_TIMEOUT_CEILING_MS, BROWSER_EVAL_MAX_TIMEOUT_MS);
-          if (options.timeoutMs > effectiveMaxMs) {
-            throw new CapabilityError(
-              'INVALID_ARGUMENT',
-              `timeoutMs ${Math.round(options.timeoutMs)} exceeds the allowed budget for this capability: the eval invocation is bounded at ${effectiveMaxMs}ms, so the in-page guard cannot be asked to observe longer than that`,
-              { requestedTimeoutMs: Math.round(options.timeoutMs), effectiveMaxTimeoutMs: effectiveMaxMs }
-            );
-          }
-          return Math.round(options.timeoutMs);
+          const requested = Math.round(options.timeoutMs);
+          const applied = Math.min(requested, effectiveMaxMs);
+          return {
+            budgetMs: applied,
+            ...(requested > effectiveMaxMs ? { clampedTimeout: { requestedTimeoutMs: requested, appliedTimeoutMs: applied } } : {}),
+          };
         })();
+    const evalBudgetMs = budget?.budgetMs;
     const tabId = this.resolveTargetTab(target, explicitTabId);
     return this.passivePool.execute(tabId, async () => {
       let surface: { probeTimedOut: true } | undefined;
@@ -4536,7 +4746,11 @@ export class BrowserControlPort {
         }
       }
       const value = await this.host.evalJs(expression, tabId, paneId, false, evalBudgetMs);
-      return surface ? { value, surface } : { value };
+      return {
+        value,
+        ...(surface ? { surface } : {}),
+        ...(budget?.clampedTimeout ? { clampedTimeout: budget.clampedTimeout } : {}),
+      };
     });
   }
 
@@ -4552,9 +4766,15 @@ export class BrowserControlPort {
     paneId?: 'desktop' | 'mobile',
     options?: { requireRenderSurface?: boolean; allowDegradedSurface?: boolean; timeoutMs?: number }
   ): Promise<CheckedEvalResult> {
-    const { value, surface } = await this.evalWithSurface(target, expression, explicitTabId, paneId, options);
+    const { value, surface, clampedTimeout } = await this.evalWithSurface(target, expression, explicitTabId, paneId, options);
     const truncatedReasons = findEvalTruncation(value);
-    return { value, truncated: truncatedReasons.length > 0, truncatedReasons, ...(surface ? { surface } : {}) };
+    return {
+      value,
+      truncated: truncatedReasons.length > 0,
+      truncatedReasons,
+      ...(surface ? { surface } : {}),
+      ...(clampedTimeout ? { clampedTimeout } : {}),
+    };
   }
 
   async evalInFrame(target: BrowserTarget, expression: string, frame: ChildFrameSelector, explicitTabId?: string, paneId?: 'desktop' | 'mobile'): Promise<unknown> {
@@ -5850,18 +6070,46 @@ export class BrowserControlPort {
     }, { tabId, signal });
   }
 
-  async agentType(args: { selector?: string; ref?: string; locator?: Record<string, unknown>; text?: string; secret?: boolean; fromEnv?: string; clear?: boolean; trusted?: boolean; force?: boolean; expectNavigation?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ typed: boolean; verified?: boolean | null; readBack?: string; readBackTruncated?: boolean; hint?: string; dialog?: JsDialogDescription } & ActionOutcomeFields & DocumentGenerationRebase> {
+  async agentType(args: { selector?: string; ref?: string; locator?: Record<string, unknown>; x?: number; y?: number; text?: string; secret?: boolean; fromEnv?: string; clear?: boolean; trusted?: boolean; force?: boolean; expectNavigation?: boolean; tabId?: string; paneId?: 'desktop' | 'mobile' }, target?: BrowserTarget, signal?: AbortSignal): Promise<{ typed: boolean; verified?: boolean | null; readBack?: string; readBackTruncated?: boolean; hint?: string; dialog?: JsDialogDescription } & ActionOutcomeFields & DocumentGenerationRebase> {
     if (!this.host.agentType && !this.host.dispatchAgentAction) throw new CapabilityError('CAPABILITY_NOT_FOUND', 'agentType is not supported by host');
     // Resolved before any admission so a bad or missing secret fails without touching the page.
     const { text, secret } = resolveTypedText(args);
     assertLocatorArguments(args);
+    // Argument shape is decided before a tab is resolved: a call that names no field is a caller
+    // mistake, and it should not need a live tab (or create one) to learn that.
+    const named = [args.ref, args.selector, args.locator].filter((value) => value !== undefined && value !== '').length;
+    const point = pointArgumentsOf(args);
+    if (named === 0 && !point) {
+      throw new CapabilityError(
+        'INVALID_ARGUMENT',
+        'agentType needs the field to type into: pass ref, selector or locator, or x and y to type into the element a click at that point focuses',
+        { validForms: ['ref', 'selector', 'locator', 'x + y'] }
+      );
+    }
+    if (named > 0 && point) {
+      throw new CapabilityError('INVALID_ARGUMENT', 'Pass either ref/selector/locator or x and y, not both', { hasTarget: true, hasPoint: true });
+    }
     const fenced = this.rebaseUnlessSemanticRef(target, args);
     const tabId = this.resolveTargetTab(fenced.target, args.tabId, 'write', args as Record<string, unknown>);
     return this.viewportGate.withLock(async () => {
       this.revalidateTargetInsideLock(fenced.target, tabId);
       // The resolved value travels to the host and nowhere else; the variable name is not forwarded.
       const { fromEnv: _fromEnv, ...forwarded } = args;
-      const hostArgs = { ...forwarded, text, ...(secret ? { secret: true } : {}), tabId };
+      let clicked = false;
+      if (point && named === 0) {
+        // A trusted click at the point is what puts the cursor in the field: typing into an
+        // arbitrary element only works when the page's own focus handling ran first.
+        const clickOutcome = await this.runAgentAction('click', { x: point.x, y: point.y, trusted: true, tabId, ...(args.paneId ? { paneId: args.paneId } : {}) }, tabId);
+        clicked = clickOutcome.success;
+        if (clicked) this.bumpMutationRevision(tabId);
+      }
+      const hostArgs = {
+        ...forwarded,
+        text,
+        ...(point ? { x: point.x, y: point.y, trusted: true } : {}),
+        ...(secret ? { secret: true } : {}),
+        tabId,
+      };
       const outcome = await this.runAgentAction('type', hostArgs, tabId, () => this.host.agentType!(hostArgs));
       if (outcome.success) {
         this.bumpMutationRevision(tabId);
@@ -5869,6 +6117,7 @@ export class BrowserControlPort {
       const dialog = this.host.getOpenJsDialog?.(tabId, args.paneId);
       return this.withRebase({
         typed: outcome.success,
+        ...(clicked ? { clickedAt: { x: point!.x, y: point!.y } } : {}),
         ...typedReadBackFields(outcome.data, secret),
         ...actionOutcomeFields(outcome.data),
         ...(dialog ? { dialog } : {}),
@@ -6397,13 +6646,23 @@ export class BrowserControlPort {
       });
     }
     if (observed && mismatched(observed)) {
-      throw new CapabilityError('VIEWPORT_NOT_APPLIED', `Tab '${effectiveTabId}' measures ${observed.vw}x${observed.vh} after requesting ${options.width}x${options.height}`, {
+      // The measured size is what the page actually laid out at; the nearest device preset is the
+      // size the same request can reach, so the refusal names both instead of only failing.
+      const suggested = this.nearestDevicePreset(observed.vw, observed.vh);
+      throw new CapabilityError('VIEWPORT_NOT_APPLIED', `Tab '${effectiveTabId}' measures ${observed.vw}x${observed.vh} after requesting ${options.width}x${options.height}` + (suggested ? `; anti.browser.set_device_preset {presetId:"${suggested.id}"} applies ${suggested.width}x${suggested.height}` : ''), {
         tabId: effectiveTabId,
         expectedWidth: options.width,
         expectedHeight: options.height,
         observedWidth: observed.vw,
         observedHeight: observed.vh,
+        ...(observed.clientWidth !== undefined ? { clientWidth: observed.clientWidth } : {}),
         cause: observed.vw < 1 || observed.vh < 1 ? 'zero-viewport' : 'geometry-mismatch',
+        ...(suggested
+          ? {
+              suggestedPreset: { id: suggested.id, width: suggested.width, height: suggested.height },
+              remedy: { tool: 'anti.browser.set_device_preset', args: { tabId: effectiveTabId, presetId: suggested.id }, then: 'retry anti.browser.set_viewport when a different size is genuinely required' },
+            }
+          : { remedy: { tool: 'anti.browser.set_viewport', args: { tabId: effectiveTabId, width: observed.vw, height: observed.vh }, then: 'retry with the size the tab reports, or capture at the measured size' } }),
       });
     }
     if (observed) this.verifiedTabGeometry.set(effectiveTabId, { width: options.width, height: options.height, mobile: isMobile });
@@ -6437,6 +6696,24 @@ export class BrowserControlPort {
       zoomApplied,
     };
   }
+  /**
+   * The device preset closest to a measured size, so a refusal can name a size the same tab can
+   * actually reach. Width dominates: a cheaper height-only match is a different breakpoint.
+   */
+  private nearestDevicePreset(width: number, height: number): { id: string; width: number; height: number } | undefined {
+    const presets = (this.host.getDevicePresets?.() ?? []) as Array<Record<string, unknown>>;
+    let best: { id: string; width: number; height: number; score: number } | undefined;
+    for (const preset of presets) {
+      const id = typeof preset.id === 'string' ? preset.id : '';
+      const candidateWidth = typeof preset.width === 'number' ? preset.width : undefined;
+      const candidateHeight = typeof preset.height === 'number' ? preset.height : undefined;
+      if (!id || candidateWidth === undefined || candidateHeight === undefined || candidateWidth < 1 || candidateHeight < 1) continue;
+      const score = Math.abs(candidateWidth - width) * 1000 + Math.abs(candidateHeight - height);
+      if (!best || score < best.score) best = { id, width: candidateWidth, height: candidateHeight, score };
+    }
+    return best ? { id: best.id, width: best.width, height: best.height } : undefined;
+  }
+
   private readHostWindowPresentation(tabId: string): HostWindowPresentation | undefined {
     try {
       return this.host.getHostWindowPresentation?.(tabId);

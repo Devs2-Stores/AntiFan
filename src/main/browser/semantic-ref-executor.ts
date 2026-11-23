@@ -598,6 +598,37 @@ export function buildIsolatedExecutorScript(request: IsolatedExecutorRequest): s
 
       ${FIELD_READBACK_SOURCE}
 
+      // A pointer-addressed typing request names no element: the trusted click the caller
+      // dispatched chose the field. Address what that click focused, else the editable
+      // element under the point, so text lands where a person's click would have put it.
+      function editableNodeAtPoint() {
+        const isEditable = (node) => {
+          if (!node || node.nodeType !== 1) return false;
+          const tag = node.tagName ? node.tagName.toLowerCase() : '';
+          if (tag === 'textarea') return node.disabled !== true;
+          if (tag === 'input') {
+            const type = String(node.type || 'text').toLowerCase();
+            if (type === 'file' || type === 'hidden' || type === 'button' || type === 'submit' || type === 'reset' || type === 'checkbox' || type === 'radio' || type === 'image') return false;
+            return node.disabled !== true && node.readOnly !== true;
+          }
+          return node.isContentEditable === true || Boolean(node.getAttribute && node.getAttribute('contenteditable') === 'true');
+        };
+        let active = document.activeElement || null;
+        for (let depth = 0; active && depth < 8; depth++) {
+          if (active.shadowRoot && active.shadowRoot.activeElement) { active = active.shadowRoot.activeElement; continue; }
+          break;
+        }
+        if (isEditable(active)) return active;
+        if (typeof req.x !== 'number' || typeof req.y !== 'number' || typeof document.elementFromPoint !== 'function') return null;
+        let node = document.elementFromPoint(req.x, req.y);
+        for (let depth = 0; node && depth < 6; depth++) {
+          if (isEditable(node)) return node;
+          const root = node.getRootNode && node.getRootNode();
+          node = node.parentElement || (root && root.host) || null;
+        }
+        return null;
+      }
+
       // 3. Resolve target node with MutationObserver / rAF auto-wait (up to 1500ms for element to become connected AND actionable)
       const needsTarget = Boolean(req.descriptor || req.selector);
       let targetElement = null;
@@ -689,6 +720,21 @@ export function buildIsolatedExecutorScript(request: IsolatedExecutorRequest): s
             ok: false,
             error: req.selector ? 'Element not found for selector: "' + req.selector + '"' : 'Target element detached or not found along traversal path',
             code: 'REF_NOT_FOUND'
+          };
+        }
+      }
+
+      // Typing addressed by a point, and the focus pre-flight a trusted type runs before it,
+      // resolve through the field the click left focused instead of a selector. Nothing
+      // editable under the point means the typed text has no destination, and saying so is
+      // the only useful answer: pressing keys into an unknown element only pretends to work.
+      if (!targetElement && (req.action === 'type' || (req.action === 'focus' && req.forTyping === true)) && typeof req.x === 'number' && typeof req.y === 'number') {
+        targetElement = editableNodeAtPoint();
+        if (!targetElement) {
+          return {
+            ok: false,
+            error: 'Nothing editable has focus at (' + req.x + ', ' + req.y + '): click an input, textarea or contenteditable element first, or name the field with ref, selector or locator',
+            code: 'ELEMENT_NOT_ACTIONABLE'
           };
         }
       }

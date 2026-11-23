@@ -10,7 +10,7 @@ import path from 'node:path';
 import { app, net, clipboard, Rectangle, BrowserWindow } from 'electron';
 import { AntiFanTab, SplitPaneId, AntiFanPickedElement } from '../../shared/contracts';
 import { CapabilityError } from '../../shared/control-plane-contracts';
-import { JsDialogTracker, describeJsDialog, dialogOpenError, type JsDialogAnswer, type OpenJsDialog } from './js-dialog-tracker';
+import { JsDialogTracker, describeJsDialog, dialogOpenError, type JsDialogAnswer, type JsDialogAnswered, type JsDialogDescription, type OpenJsDialog } from './js-dialog-tracker';
 import { hwndOf, listOwnedMessageBoxes, postClose } from './native-dialog-boxes';
 import { FONT_FINDER_SCRIPT, FONT_FINDER_CLEANUP_SCRIPT } from './font-finder';
 import { GPU_LENS_SCRIPT, GPU_LENS_CLEANUP_SCRIPT } from './gpu-lens';
@@ -1405,13 +1405,18 @@ export class TabDevToolsHost {
         this.jsDialogs.handleCdpMessage(wcId, method, params);
         if (method === 'Page.javascriptDialogOpening') this.recordJsDialogBoxContext(wc);
       });
-      // A detach ends the session's Page domain. A dialog showing across it can no longer be
-      // answered over CDP (Page cannot be enabled under it), so it is forgotten, not reported forever.
+      // A detach ends the debugger session, never the page's dialog: the page stays parked in it, and
+      // re-enabling Page under a dialog cannot report it, so forgetting the record here left a parked
+      // tab with nothing able to answer it — every later command waited out its own bound and the
+      // dialog capability reported none. The record is kept and the answer path asks the page itself.
+      // A committed navigation and a gone renderer clear it below.
       dbg.on('detach', () => {
-        this.jsDialogs.markClosed(wcId);
         setImmediate(() => this.armJsDialogs(wc));
       });
       if (typeof wc.on === 'function') {
+        // A committed main-frame document is one the dialog no longer belongs to: a page parked in a
+        // dialog cannot navigate, so this is proof the dialog was answered.
+        wc.on('did-navigate', () => this.jsDialogs.markClosed(wcId));
         wc.on('render-process-gone', () => this.jsDialogs.markClosed(wcId));
         wc.once('destroyed', () => {
           this.jsDialogArmed.delete(wcId);
@@ -1435,14 +1440,38 @@ export class TabDevToolsHost {
     dbg.sendCommand('Page.enable').catch(() => {});
   }
 
-  /** The open JavaScript dialog of a tab: the named pane, else the desktop then the mobile pane. */
+  /**
+   * The WebContents of one tab a dialog can park, the pane the caller asked for first, and each with
+   * the pane it belongs to. `getTabWebContents` answers the tab's current pane views; a pane view the
+   * record still holds while the host no longer answers it for that pane (a split pane switched off
+   * with its page live) is still a WebContents of this tab that a dialog parks, so the record is
+   * consulted as well. Every caller that asks about a dialog resolves its target here, so a refusal
+   * and an answer can never look at different WebContents.
+   */
+  private jsDialogTargets(tabId: string, preferredPane?: SplitPaneId): Array<{ wc: Electron.WebContents; paneId: SplitPaneId }> {
+    const targets: Array<{ wc: Electron.WebContents; paneId: SplitPaneId }> = [];
+    const push = (wc: Electron.WebContents | null | undefined, pane: SplitPaneId): void => {
+      if (!wc || wc.isDestroyed() || targets.some((target) => target.wc === wc)) return;
+      targets.push({ wc, paneId: pane });
+    };
+    const record = this.ctx.getTabRecord(tabId);
+    const first: SplitPaneId = preferredPane ?? (record?.focusedPane === 'mobile' ? 'mobile' : 'desktop');
+    push(this.ctx.getTabWebContents(tabId, first), first);
+    push(this.ctx.getTabWebContents(tabId, first === 'mobile' ? 'desktop' : 'mobile'), first === 'mobile' ? 'desktop' : 'mobile');
+    push(record?.view?.webContents, 'desktop');
+    push(record?.mobileView?.webContents, 'mobile');
+    return targets;
+  }
+
+  /**
+   * The open JavaScript dialog of a tab: the pane the caller named or the focused one first, then the
+   * tab's other WebContents (see {@link jsDialogTargets}). The tracker is the one record both the
+   * refusal paths and the answer path read.
+   */
   public findOpenJsDialog(tabId: string, paneId?: SplitPaneId): { wc: Electron.WebContents; paneId: SplitPaneId; dialog: OpenJsDialog } | undefined {
-    const panes: SplitPaneId[] = paneId ? [paneId] : ['desktop', 'mobile'];
-    for (const pane of panes) {
-      const wc = this.ctx.getTabWebContents(tabId, pane);
-      if (!wc || wc.isDestroyed()) continue;
-      const dialog = this.jsDialogs.get(wc.id);
-      if (dialog) return { wc, paneId: pane, dialog };
+    for (const target of this.jsDialogTargets(tabId, paneId)) {
+      const dialog = this.jsDialogs.get(target.wc.id);
+      if (dialog) return { wc: target.wc, paneId: target.paneId, dialog };
     }
     return undefined;
   }
@@ -1482,11 +1511,37 @@ export class TabDevToolsHost {
    * window. An unowned box (Electron draws one for a tab in no window, and for a second box over a
    * window that already shows one) is checked against the open dialogs of every window. Closing
    * another dialog's box would answer that dialog natively.
+   *
+   * The page, not the record, decides whether a dialog is still there: `Page.handleJavaScriptDialog`
+   * answers one or reports that none is showing. A page that answers "none" holds no dialog, so the
+   * record was stale; it is cleared and the result says the tab is free again, instead of a refusal
+   * that no later answer could ever satisfy.
    */
   public async answerJsDialog(tabId: string, paneId: SplitPaneId | undefined, accept: boolean): Promise<JsDialogAnswer> {
     const open = this.findOpenJsDialog(tabId, paneId);
     if (!open) {
-      throw new CapabilityError('NO_DIALOG_OPEN', `Tab ${tabId} has no open JavaScript dialog to answer.`, { tabId, ...(paneId ? { paneId } : {}) });
+      const unreported = await this.answerUnreportedJsDialog(tabId, paneId, accept);
+      if (unreported) return unreported;
+      // A refusal is raised against the tab a session is bound to, which is not always the tab the
+      // call names; the tabs that really are parked are named so the caller answers one of those
+      // instead of retrying a tab that has nothing. Read from the records, never through
+      // `getTabWebContents`, which wakes a hibernated tab as a side effect of asking.
+      const parked: Array<{ tabId: string; paneId: SplitPaneId; dialog: JsDialogDescription }> = [];
+      for (const [id, record] of this.ctx.getAllTabs()) {
+        if (id === tabId) continue;
+        const panes: Array<[SplitPaneId, Electron.WebContents | undefined]> = [['desktop', record.view?.webContents], ['mobile', record.mobileView?.webContents]];
+        for (const [pane, wc] of panes) {
+          const dialog = wc && !wc.isDestroyed() ? this.jsDialogs.get(wc.id) : undefined;
+          if (!dialog) continue;
+          parked.push({ tabId: id, paneId: pane, dialog: describeJsDialog(dialog) });
+          break;
+        }
+      }
+      throw new CapabilityError(
+        'NO_DIALOG_OPEN',
+        `Tab ${tabId} has no open JavaScript dialog to answer.` + (parked.length > 0 ? ` Open dialogs are on: ${parked.map((entry) => entry.tabId).join(', ')}.` : ''),
+        { tabId, ...(paneId ? { paneId } : {}), ...(parked.length > 0 ? { openDialogs: parked } : {}) }
+      );
     }
     const { wc, dialog } = open;
     const boxContext = this.jsDialogBoxContexts.get(dialog);
@@ -1525,9 +1580,12 @@ export class TabDevToolsHost {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (/No dialog is showing/i.test(msg)) {
-        // Answered natively (or by the page going away) between the read and this call.
-        this.jsDialogs.markClosed(wc.id);
-        throw new CapabilityError('NO_DIALOG_OPEN', `Tab ${tabId} no longer shows the dialog; it was answered elsewhere.`, { tabId, dialog: describeJsDialog(dialog) });
+        // The page holds no dialog: the record outlived it (answered natively, or by the page going
+        // away) and is the only thing keeping the tab refused. Clearing it is what frees the tab.
+        if (!this.jsDialogs.markClosedIf(wc.id, dialog)) {
+          throw new CapabilityError('NO_DIALOG_OPEN', `Tab ${tabId} no longer shows the dialog; it was answered elsewhere.`, { tabId, dialog: describeJsDialog(dialog) });
+        }
+        return { tabId, open: false, paneId: open.paneId, dialog: describeJsDialog(dialog), stale: true };
       }
       throw err;
     } finally {
@@ -1538,7 +1596,7 @@ export class TabDevToolsHost {
     // The CDP answer succeeded, so the page holds its answer whether or not the event arrived.
     if (!closedEventSeen) this.jsDialogs.markClosed(wc.id);
 
-    let nativeBox: JsDialogAnswer['nativeBox'];
+    let nativeBox: JsDialogAnswered['nativeBox'];
     if (!boxContext) {
       nativeBox = { closed: false, reason: 'UNSUPPORTED_PLATFORM' };
     } else if (!closedEventSeen) {
@@ -1557,7 +1615,38 @@ export class TabDevToolsHost {
         nativeBox = { closed: false, reason: 'AMBIGUOUS', candidates: Math.max(stale.length, rivals + 1) };
       }
     }
-    return { tabId, paneId: open.paneId, action: accept ? 'accept' : 'dismiss', dialog: describeJsDialog(dialog), closedEventSeen, nativeBox };
+    return { tabId, open: true, paneId: open.paneId, action: accept ? 'accept' : 'dismiss', dialog: describeJsDialog(dialog), closedEventSeen, nativeBox };
+  }
+
+  /**
+   * Answer a dialog no record knows. A page can hold one the Page domain never saw open (it appeared
+   * before enabling succeeded) or one whose record a lost session never reported, and it parks the
+   * page just the same. `Page.handleJavaScriptDialog` is the only authority on whether a dialog
+   * shows, and asking it answers the dialog — the answer carries no description because the page
+   * never reported one.
+   *
+   * A WebContents whose debugger is not attached is skipped: without a session there is nothing to
+   * ask, and attaching now cannot report a dialog that opened earlier.
+   */
+  private async answerUnreportedJsDialog(tabId: string, paneId: SplitPaneId | undefined, accept: boolean): Promise<JsDialogAnswered | undefined> {
+    for (const target of this.jsDialogTargets(tabId, paneId)) {
+      const dbg = target.wc.debugger;
+      if (this.jsDialogs.get(target.wc.id) || !dbg || typeof dbg.sendCommand !== 'function') continue;
+      if (typeof dbg.isAttached === 'function' && !dbg.isAttached()) continue;
+      const { promise: deadline, reject: expire } = Promise.withResolvers<never>();
+      const deadlineTimer = setTimeout(() => expire(new CapabilityError('EXECUTION_ERROR', 'Page.handleJavaScriptDialog did not answer within 5000ms', { tabId })), 5_000);
+      try {
+        await Promise.race([dbg.sendCommand('Page.handleJavaScriptDialog', { accept }), deadline]);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (/No dialog is showing/i.test(msg)) continue;
+        throw err;
+      } finally {
+        clearTimeout(deadlineTimer);
+      }
+      return { tabId, open: true, paneId: target.paneId, action: accept ? 'accept' : 'dismiss', untracked: true, closedEventSeen: false, nativeBox: { closed: false, reason: 'CLOSE_EVENT_MISSING' } };
+    }
+    return undefined;
   }
 
   /**
@@ -3799,6 +3888,8 @@ export class TabDevToolsHost {
     if (!wc || wc.isDestroyed()) {
       throw new CapabilityError('TARGET_STALE', `Tab ${targetId} has no live web contents in pane ${effectivePane}`, { cause: 'tab-gone', tabId: targetId });
     }
+    const openDialog = this.jsDialogs.get(wc.id);
+    if (openDialog) throw dialogOpenError(openDialog, targetId);
     return this.ctx.withTabAgentWorking(targetId, async () => {
       const script = selector
         ? `(() => {
@@ -4019,6 +4110,8 @@ export class TabDevToolsHost {
     if (!wc || wc.isDestroyed()) {
       throw new CapabilityError('TARGET_STALE', `Tab ${targetId} has no live web contents in pane ${effectivePane}`, { cause: 'tab-gone', tabId: targetId });
     }
+    const openDialog = this.jsDialogs.get(wc.id);
+    if (openDialog) throw dialogOpenError(openDialog, targetId);
     const frame = await resolveChildFrame(wc, frameRef, targetId);
 
     return this.ctx.withTabAgentWorking(targetId, async () => {
@@ -4054,9 +4147,14 @@ ${expression}
       const hardTimer = setTimeout(() => {
         hardReject(new CapabilityError('EVAL_HARD_TIMEOUT', `Frame evaluation on tab ${targetId} exceeded hard ceiling of ${hardBudgetMs}ms`));
       }, hardBudgetMs);
+      // A dialog the framed script opens parks the page the same way a page script's does; the caller
+      // gets the dialog instead of waiting out the hard ceiling for it.
+      const { promise: dialogPromise, reject: dialogReject } = Promise.withResolvers<never>();
+      const stopDialogWatch = this.jsDialogs.onOpened(wc.id, (dialog) => dialogReject(dialogOpenError(dialog, targetId)));
       try {
-        return await Promise.race([execute(), hardWatchdogPromise]);
+        return await Promise.race([execute(), hardWatchdogPromise, dialogPromise]);
       } finally {
+        stopDialogWatch();
         clearTimeout(hardTimer);
       }
     });

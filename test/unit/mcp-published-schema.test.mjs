@@ -146,6 +146,47 @@ test('a call that lacks the field under every name is still refused by the proxy
   await refused('terminal.write', { sessionId: 't-1' }, /requires one of: input \| key \| keys \| message/);
 });
 
+test('a refusal names one legal call, and a core tool names every field it accepts', async () => {
+  const refusal = async (name, args) => {
+    const { params } = proxy.normalizeParameterAliases(name, args);
+    const err = await proxy.invoke(name, params).then(() => null, (e) => e);
+    assert.ok(err, `${name} ${JSON.stringify(args)} is refused`);
+    const body = JSON.parse(String(err.message));
+    assert.equal(body.code, 'INVALID_ARGUMENT');
+    return body;
+  };
+  const exampleOf = (body) => {
+    const match = / Example: (.*)$/.exec(body.message);
+    assert.ok(match, `the refusal carries an example: ${body.message}`);
+    assert.ok(match[1].length <= 160, `the example stays short: ${match[1]}`);
+    return JSON.parse(match[1]);
+  };
+
+  // A wait named only by its tab says which minimal call it does accept.
+  const wait = await refusal('anti.browser.wait', { tabId: 't-1' });
+  assert.match(wait.message, /requires one of: .*timeoutMs/);
+  assert.deepEqual(exampleOf(wait), { selector: '#main' });
+  assert.deepEqual(wait.details.example, '{"selector":"#main"}');
+
+  // The four capabilities whose argument shapes agents guessed at each name a full call.
+  assert.deepEqual(exampleOf(await refusal('anti.agent.file_upload', { filePaths: ['a.txt'] })), { refOrSelector: '#main', filePaths: ['C:/path/to/file.txt'] });
+  assert.deepEqual(exampleOf(await refusal('anti.agent.sequence', {})), { actions: [{ type: 'click', selector: '#main' }] });
+  assert.deepEqual(exampleOf(await refusal('anti.agent.cursor.type', {})), { text: 'hello', ref: '@e1' });
+  assert.deepEqual(exampleOf(await refusal('terminal.write', {})), { sessionId: '<sessionId>', input: 'echo ok' });
+
+  // A core tool told a guessed vocabulary gets the whole accepted set, required names marked,
+  // and the names it does not take.
+  const antiPattern = await refusal('core.record_anti_pattern', { title: 't', symptom: 's' });
+  assert.match(antiPattern.message, /Accepted fields: name \(required\), whatNotToDo, symptoms, evidence, affectedPlatform, replacement\./);
+  assert.match(antiPattern.message, /Not accepted: title, symptom\./);
+  assert.deepEqual(exampleOf(antiPattern), { name: '...' });
+  const pack = await refusal('core.context_pack_v2', {});
+  assert.match(pack.message, /Accepted fields: task \(required\), platform, unitIds, limit, sessionId, includeGlobal, scope\./);
+  assert.doesNotMatch(pack.message, /Not accepted/, 'no field was supplied, so nothing is rejected by name');
+  // The vocabulary note is the core store contract, not a claim about a browser capability.
+  assert.doesNotMatch((await refusal('anti.agent.file_upload', { filePaths: ['a.txt'] })).message, /Accepted fields:/);
+});
+
 test('terminal.write refuses submit before dispatch; an alias never replaces a supplied value', async () => {
   for (const args of [{ sessionId: 't-1', text: 'ls', submit: true }, { terminalId: 't-1', input: 'x', submit: false }]) {
     await assert.rejects(proxy.invoke('terminal.write', args), (err) => {

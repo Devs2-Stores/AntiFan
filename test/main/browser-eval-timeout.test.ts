@@ -44,21 +44,13 @@ describe('Port eval: caller timeoutMs clamp', () => {
     assert.strictEqual(seen.timeout, undefined);
   });
 
-  it('refuses an over-budget timeoutMs with the real bound named, never clamps', async () => {
+  it('clamps an over-budget timeoutMs to the invocation ceiling and reports the clamp', async () => {
     const seen: { timeout?: unknown } = {};
     const port = new BrowserControlPort(makeHost(seen));
-    await assert.rejects(
-      () => port.eval(target, 'return 1', undefined, undefined, { timeoutMs: 999_999 }),
-      (err: unknown) => {
-        assert.ok(err instanceof CapabilityError);
-        assert.strictEqual(err.code, 'INVALID_ARGUMENT');
-        const details = err.details as { requestedTimeoutMs?: number; effectiveMaxTimeoutMs?: number };
-        assert.strictEqual(details?.requestedTimeoutMs, 999_999);
-        assert.strictEqual(details?.effectiveMaxTimeoutMs, 29_000);
-        return true;
-      }
-    );
-    assert.strictEqual(seen.timeout, undefined, 'evalJs must not run when the ask exceeds the invocation budget');
+    const result = await port.evalChecked(target, 'return 1', undefined, undefined, { timeoutMs: 999_999 });
+    assert.strictEqual(seen.timeout, 29_000, 'the page guard runs at the ceiling, not at the caller ask');
+    assert.deepStrictEqual(result.clampedTimeout, { requestedTimeoutMs: 999_999, appliedTimeoutMs: 29_000 });
+    assert.strictEqual(result.value, true);
   });
 
   it('rejects non-positive and non-finite timeoutMs before any eval', async () => {
