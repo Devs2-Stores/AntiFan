@@ -21,13 +21,14 @@ import { ingestOutcome, listPending } from "./learn.mjs";
 import { wrapUntrusted } from "./untrusted.mjs";
 import { readRegistry } from "./fleet-watch.mjs";
 import { crossCheckRound } from "./evidence-xcheck.mjs";
+import { blockWarning, defaultAuthDb, defaultConfigFile, isIdeSuffixRoute, providerBlock, resolveWorkerModel } from "./worker-model.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_JOBS_ROOT = "E:/Work/scratch/leader";
 const DEFAULT_DATA_ROOT = "E:/Work/.antifan-data";
 const JOB_SCHEMA = "leader-job/1";
 const HOST = "Taiz";
-const BOOL_FLAGS = new Set(["help", "allow-busy", "allow-low-memory", "allow-low-disk", "allow-no-owner", "force", "all", "allow-outstanding", "without-done", "no-sheet", "keep-workers", "allow-extra-round", "skip-token-probe"]);
+const BOOL_FLAGS = new Set(["help", "allow-busy", "allow-low-memory", "allow-low-disk", "allow-no-owner", "force", "all", "allow-outstanding", "without-done", "no-sheet", "keep-workers", "allow-extra-round", "skip-token-probe", "allow-ide-suffix-model"]);
 const VERIFY_KINDS = ["sheet", "dashboard", "storefront", "adhoc"];
 const VERIFY_STATUSES = ["PASS", "WARN", "FAIL", "UNREADABLE"];
 const PROBES = { themeId: "themeId.js", overflow: "overflow.js", "element-rect": "element-rect.js", "dashboard-issue": "dashboard-issue.js", "trello-card": "trello-card.js", "telegram-otp": "telegram-otp.js" };
@@ -111,13 +112,23 @@ Commands
   dispatch --job DIR --worker TERMINAL [--prompt FILE] [--kind work|followup|close|review]
        [--mode auto|fresh|followup] [--cwd DIR] [--skip-token-probe]
        [--allow-busy] [--allow-low-memory] [--allow-low-disk] [--allow-no-owner] [--allow-extra-round --reason "<text>"]
-       [--cap name=NUMBER]... [--forbid "<action>"]...
+       [--allow-ide-suffix-model] [--cap name=NUMBER]... [--forbid "<action>"]...
        Without --prompt a work/followup round uses the round's own prompt file (<slug>.prompt.md that init wrote, later
        <slug>.rN.prompt.md) and is refused when that file does not exist; close and review write their template there.
        Stamp dispatchedAt/preRunSeq, append a round, state=dispatched, print {input} for terminal.write. A followup round
        (typed into a pane that already runs the agent CLI) also prints {message}: pass it as terminal.write {message}, not
        {input}. closeNow lists
        worker terminals of earlier rounds that are still open (a replaced worker): terminal.close each right away.
+       Every round records the worker's model (round.worker.model, modelSource: transcript | config | null): a follow-up
+       pane answers from the model_change rows of its own OMP transcript, a fresh pane (no OMP session yet) from
+       modelRoles.default of the OMP config (OMP_CONFIG_FILE, default ~/.omp/agent/config.yml); "unknown" when neither
+       answers, and the round continues. A work/followup round whose model is on the 9router/cc route is refused (exit 4):
+       that route names every MCP tool with an _ide suffix the runtime rejects as "Tool not found", so the round would
+       spend itself on failing calls. Close that worker and open one on another model;
+       --allow-ide-suffix-model overrides for a round that needs no browser tool. A model whose provider has an active
+       credential block in the OMP auth DB (OMP_AUTH_DB, default agent.db beside the config) only WARNS, on stderr and as
+       providerBlock in the output: provider, why and the time it lifts, so several panes are not opened into a quota
+       wall; nothing is claimed when the DB cannot answer.
        A fresh round (a new omp.exe) is refused (exit 4) while AntiFan reports Windows commit headroom under its
        floor; --allow-low-memory overrides that only on the user's say-so. Any dispatch (fresh or followup) is refused
        (exit 4, "disk is short: ...") while AntiFan's disk-pressure.json reports a volume under its floor; --allow-low-disk
@@ -899,6 +910,29 @@ async function cmdDispatch(flags) {
     });
   }
   const ownerCheck = checkWorkerOwner(readLeaderRegistry(), worker, one(flags, "allow-no-owner") === true);
+  // Which model the pane runs decides whether the round can reach the browser tools at all (a 9router/cc model names
+  // every MCP tool with an _ide suffix the runtime rejects) and whether its provider is blocked right now. A fresh pane
+  // has no OMP session yet, so the configured default role is the best evidence there; a follow-up pane answers from
+  // the model_change rows of its own transcript. Close and review rounds may still run on such a model: only a round
+  // doing the work would fail at every tool.
+  const configFile = defaultConfigFile();
+  const workerModel = resolveWorkerModel({ run, sessionsDir: one(flags, "sessions-dir") || defaultSessionsDir(), configFile });
+  if (isIdeSuffixRoute(workerModel.model) && (kind === "work" || kind === "followup") && one(flags, "allow-ide-suffix-model") !== true) {
+    const from = workerModel.source === "transcript" ? `its OMP transcript (${path.basename(workerModel.transcript)})` : `the modelRoles.default of ${fwd(configFile)}`;
+    throw new CliError(
+      EXIT.REFUSED,
+      `worker ${worker} runs ${workerModel.model}, from ${from}: that route names every MCP tool with an _ide suffix the runtime rejects as "Tool not found", so the round would spend itself on failing calls. Close that worker and open a pane on a model outside the 9router/cc route, then dispatch again; --allow-ide-suffix-model only for a round that needs no browser tool`,
+      {
+        model: workerModel.model,
+        modelSource: workerModel.source,
+        next: `node ${fwd(path.join(HERE, "close-worker.mjs"))} ${worker}   then create a pane on another model and run this dispatch again; --allow-ide-suffix-model only for a round that needs no browser tool`,
+      },
+    );
+  }
+  const workerModelBlock = workerModel.model ? providerBlock(defaultAuthDb(configFile), workerModel.model) : null;
+  const block = workerModelBlock ? blockWarning(workerModelBlock) : null;
+  if (block) process.stderr.write(`warning: ${block.note}\n`);
+  if (!workerModel.model) process.stderr.write(`note: model: unknown for worker ${worker} (no OMP transcript and no modelRoles.default in ${fwd(configFile)}); the round continues\n`);
   // The worker's project folder: --cwd on the first dispatch, remembered on the job for later rounds. A folder bound to
   // a Haravan theme gets its hrv session probed first, because an expired token fails every theme command a worker would
   // try and can only be fixed by the owner's own `hrv login`.
@@ -973,7 +1007,7 @@ async function cmdDispatch(flags) {
     n,
     kind,
     mode,
-    worker: { terminal: worker, ompSessionId: preOmp },
+    worker: { terminal: worker, ompSessionId: preOmp, model: workerModel.model, modelSource: workerModel.source },
     preOmpSessionId: preOmp,
     promptPath,
     reportPath,
@@ -999,6 +1033,9 @@ async function cmdDispatch(flags) {
     mode,
     worker,
     ownerCheck,
+    model: workerModel.model ?? "unknown",
+    modelSource: workerModel.source,
+    ...(block ? { providerBlock: block } : {}),
     state: job.state,
     input,
     ...(mode === "followup" ? { message: followupText } : {}),
@@ -2319,7 +2356,7 @@ const COMMAND_FORMS = {
   record: "record --job DIR --round N --kind dashboard|storefront|sheet|adhoc --status PASS|WARN|FAIL|UNREADABLE [--note TEXT]",
   approve: "approve --job DIR [--allow-outstanding]   # only after the user's explicit yes",
   close: "close --job DIR [--without-done] [--keep-workers]",
-  dispatch: "dispatch --job DIR --worker TERMINAL [--kind work|followup|close|review] [--prompt FILE] [--cwd DIR] [--skip-token-probe]",
+  dispatch: "dispatch --job DIR --worker TERMINAL [--kind work|followup|close|review] [--prompt FILE] [--cwd DIR] [--skip-token-probe] [--allow-ide-suffix-model]",
   "validate-report": "validate-report --job DIR [--round N]",
   "fill-task": "fill-task --job DIR --task-file FILE [--customer-file FILE] [--label TEXT]",
 };

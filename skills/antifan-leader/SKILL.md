@@ -59,7 +59,7 @@ The user is **Tài**. On https://feedback.f1genz.dev/ his rows have `host === "T
 | Need | Use |
 |---|---|
 | All terminals and OMP state | `terminal.list {includeBuffer:false}` (`run.state` idle / running / waiting_user / ended) |
-| One worker's progress | `node E:/Work/apps/AntiFan/scripts/leader/worker-status.mjs --terminal <id>` |
+| One worker's progress | `node E:/Work/apps/AntiFan/scripts/leader/worker-status.mjs --terminal <id>` (also `model` + `modelSource`: the pane's model as dispatch sees it; a `9router/cc/*` pane is refused for work/followup rounds) |
 | New worker | `terminal.create {cwd:<absolute project folder>, name}`; check `ownerKey` in the result |
 | Start the task | `LJ dispatch --job DIR --worker T [--cwd <theme folder>]` — `--cwd` makes dispatch probe `hrv` first (a dead token refuses the round with "the owner must run `hrv login`"; `--skip-token-probe` skips) — then send the printed `input` / `message`, unchanged; confirm `runSeq` and `promptHead` with `worker-status.mjs` |
 | Follow-up | only when `run.state` is idle: `terminal.write {message:"<one line>"}`; long text goes in a file |

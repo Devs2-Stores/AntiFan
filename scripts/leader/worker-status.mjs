@@ -6,10 +6,10 @@ import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 import { pendingAskOf } from "./ask-dialog.mjs";
 import { defaultSessionsDir, effectiveRunState, findSessionFile, judgeLiveness, pidAlive, sessionActivityAt, START_GRACE_MS, UNDELIVERED_AFTER_MS, undeliveredWhy } from "./worker-liveness.mjs";
+import { modelWarnings, resolveWorkerModel } from "./worker-model.mjs";
 
 const DEFAULT_RUNS_DIR = "E:/Work/.antifan-data/runtime/runs";
 const TAIL_BYTES = 1_000_000;
-const HEAD_BYTES = 64 * 1024;
 const TOOL_EVENT = "tool_execution_start";
 // Same stale default as leader-job wait and wait-workers (--stale-min 90).
 const STALE_MS = 90 * 60_000;
@@ -20,8 +20,6 @@ const SETTLED_STATES = new Set(["idle", "waiting_user", "ended"]);
  * a terminal whose OMP is between turns. Past this window a missing file is the answer again.
  */
 export const STARTING_WINDOW_MS = 90_000;
-/** Model routes that name MCP tools with an `_ide` suffix, which the runtime rejects as "Tool not found". */
-const IDE_TOOL_SUFFIX_ROUTE = "9router/cc/";
 
 /** The newest `limit` tool calls in transcript `text`, oldest first. The first line of a tail read may be cut. */
 export function recentToolCalls(text, limit) {
@@ -232,8 +230,8 @@ export function status(opts, now = Date.now()) {
   }
   const file = findSessionFile(opts.sessionsDir, run);
   const tail = file ? readTail(file, TAIL_BYTES) : null;
-  // The newest model change lives in the tail of a long transcript; the first one is in its head.
-  const model = tail === null ? null : (latestModel(tail) ?? (fs.statSync(file).size > TAIL_BYTES ? latestModel(readHead(file, HEAD_BYTES)) : null));
+  const resolved = resolveWorkerModel({ run, sessionsDir: opts.sessionsDir, configFile: opts.configFile });
+  const model = resolved.model;
   const warnings = modelWarnings(model);
   const effective = effectiveRunState(run, { now, pidAlive: pidAlive(run.pid) });
   const live = liveness(run, effective, opts.sessionsDir, now);
@@ -253,7 +251,7 @@ export function status(opts, now = Date.now()) {
       lastTool: run.lastTool ?? null,
       promptHead: run.promptHead ?? null,
       transcript: file ? path.basename(file) : null,
-      ...(model ? { model } : {}),
+      ...(model ? { model, modelSource: resolved.source } : {}),
       ...(warnings.length ? { warnings } : {}),
       ...(deliveryOf(run, effective, opts, now) ?? {}),
       ...(effective.state === "waiting_user" ? { ask: pendingAskOf(opts.sessionsDir, run) } : {}),
