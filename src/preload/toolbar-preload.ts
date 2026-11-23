@@ -13,6 +13,7 @@ const CHANNELS = {
   CLOSE_TAB: 'antifan:toolbar:close-tab',
   MOVE_TAB: 'antifan:toolbar:move-tab',
   DUPLICATE_TAB: 'antifan:toolbar:duplicate-tab',
+  EXPORT_TAB_COOKIES: 'antifan:toolbar:export-tab-cookies',
   CLOSE_OTHER_TABS: 'antifan:toolbar:close-other-tabs',
   CLOSE_TABS_TO_RIGHT: 'antifan:toolbar:close-tabs-to-right',
   SET_TAB_TERMINAL_SESSION: 'antifan:toolbar:set-tab-terminal-session',
@@ -74,6 +75,9 @@ const toolbarApi = {
   closeTab: (tabId: string) => ipcRenderer.invoke(CHANNELS.CLOSE_TAB, tabId),
   moveTab: (tabId: string, toIndex: number) => ipcRenderer.invoke(CHANNELS.MOVE_TAB, { tabId, toIndex }),
   duplicateTab: (tabId: string) => ipcRenderer.invoke(CHANNELS.DUPLICATE_TAB, tabId),
+  // Copy the tab's own-partition cookies to the system clipboard. Main writes the
+  // clipboard and answers counts/names only, so values never enter the renderer.
+  exportTabCookies: (tabId: string, domain?: string) => ipcRenderer.invoke(CHANNELS.EXPORT_TAB_COOKIES, { tabId, domain }),
   closeOtherTabs: (tabId: string) => ipcRenderer.invoke(CHANNELS.CLOSE_OTHER_TABS, tabId),
   closeTabsToRight: (tabId: string) => ipcRenderer.invoke(CHANNELS.CLOSE_TABS_TO_RIGHT, tabId),
   setTabTerminalSession: (tabId: string, terminalSessionId: string) => ipcRenderer.invoke(CHANNELS.SET_TAB_TERMINAL_SESSION, { tabId, terminalSessionId }),

@@ -178,7 +178,7 @@ import {
   sanitizeTabForPersistence,
   migratePersistedTab,
 } from './split-review-coordinator';
-import { shouldHibernate, hibernationIdleMsForUrl, HIBERNATE_IDLE_MS, HIBERNATE_SWEEP_INTERVAL_MS, type HibernationContext } from './tab-hibernation';
+import { shouldHibernate, shouldCloseIdleBlankTab, isBlankTabUrl, hibernationIdleMsForUrl, HIBERNATE_IDLE_MS, HIBERNATE_SWEEP_INTERVAL_MS, type HibernationContext } from './tab-hibernation';
 import { shouldPauseIdleMedia, MEDIA_FREEZE_CSS, MEDIA_PAUSE_SCRIPT, MEDIA_RESUME_SCRIPT, MEDIA_IDLE_MS } from './tab-media-idle';
 export interface NativeTabHostResourceStats {
   disposed: boolean;
@@ -1029,10 +1029,6 @@ export interface BookmarkItem {
 }
 
 
-/** A tab with no page: `about:blank`, or no URL at all. */
-function isBlankTabUrl(url: string | undefined): boolean {
-  return !url || url === 'about:blank';
-}
 
 export interface NativeTabRecord {
   /**
@@ -1510,6 +1506,8 @@ export class NativeTabHost extends EventEmitter {
    * the probe/test seam may narrow it via `setHibernationIdleMsForTesting`.
    */
   private hibernationIdleMs: number = HIBERNATE_IDLE_MS;
+  /** Blank-tab close threshold the sweep uses; 0 keeps `BLANK_TAB_CLOSE_IDLE_MS`. Narrowed only by the test seam. */
+  private blankTabCloseIdleMs = 0;
   /** Tabs currently being destroyed by the hibernation sweep; their `destroyed`/`close` listeners must not run `closeTab`. */
   private hibernatingTabIds = new Set<string>();
   /** Tabs whose beforeunload vetoed a sleep probe in this cycle — never re-probed. */
@@ -2771,6 +2769,14 @@ export class NativeTabHost extends EventEmitter {
     channel: TOOLBAR_CHANNELS.DUPLICATE_TAB,
     surface: 'toolbar',
     run: ({ host }, event, args) => { return host.duplicateTab(typeof args[0] === 'string' ? args[0] : ''); },
+  },
+  {
+    channel: TOOLBAR_CHANNELS.EXPORT_TAB_COOKIES,
+    surface: 'toolbar',
+    run: ({ host }, event, args) => {
+      const input = args[0] && typeof args[0] === 'object' ? args[0] as { tabId?: unknown; domain?: unknown } : {};
+      return host.exportTabCookies(input);
+    },
   },
   {
     channel: TOOLBAR_CHANNELS.CLOSE_OTHER_TABS,
@@ -8228,6 +8234,41 @@ export class NativeTabHost extends EventEmitter {
     return session.fromPartition(partition);
   }
 
+  /**
+   * Copy one tab's own-partition cookies for a domain to the system clipboard as
+   * a `name=value; ...` Cookie header — exactly what that tab would send, HttpOnly
+   * included. Reads only the tab's own partition session (never another jar) and
+   * never returns values to the renderer: Main writes the clipboard and answers
+   * counts/names, so a page or toolbar script cannot read the values back.
+   */
+  public async exportTabCookies(input: { tabId?: unknown; domain?: unknown }): Promise<{
+    ok: boolean; error?: string; count?: number; names?: string[]; partition?: string;
+  }> {
+    const tabId = typeof input.tabId === 'string' && input.tabId ? input.tabId : this.activeTabId;
+    const tab = this.tabs.get(tabId);
+    if (!tab) return { ok: false, error: 'TAB_NOT_FOUND' };
+    const partition = tab.state.partition || 'persist:default';
+    const rawDomain = typeof input.domain === 'string' ? input.domain.trim().toLowerCase() : 'facebook.com';
+    const domain = /^[a-z0-9][a-z0-9.-]{0,252}$/.test(rawDomain) ? rawDomain : 'facebook.com';
+    try {
+      const cookies = await this.getPartitionSession(partition).cookies.get({});
+      const nowSeconds = Date.now() / 1000;
+      const usable = cookies.filter((c) => {
+        if (!c.value || !c.domain) return false;
+        if (c.session !== true && typeof c.expirationDate === 'number' && c.expirationDate > 0 && c.expirationDate < nowSeconds) return false;
+        const host = c.domain.replace(/^\./, '').toLowerCase();
+        return host === domain || host.endsWith(`.${domain}`) || domain.endsWith(`.${host}`);
+      });
+      if (!usable.length) return { ok: false, error: 'NO_COOKIES', partition };
+      // Server-like ordering: longer paths first, then name.
+      usable.sort((a, b) => ((b.path || '').length - (a.path || '').length) || a.name.localeCompare(b.name));
+      clipboard.writeText(usable.map((c) => `${c.name}=${c.value}`).join('; '));
+      return { ok: true, count: usable.length, names: usable.map((c) => c.name), partition };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e), partition };
+    }
+  }
+
   public getSharedProfilePartition(userAgentMode: BrowserSessionUserAgentMode = 'clean', ephemeral = false, profileId?: string): string {
     // Explicit profileId (when given) wins — the caller decides which profile's
     // cookies a hydration targets, without depending on prior mutable state.
@@ -10168,6 +10209,11 @@ export class NativeTabHost extends EventEmitter {
     if (typeof idleMs === 'number' && idleMs > 0) this.hibernationIdleMs = idleMs;
   }
 
+  /** Test/probe seam: narrow the blank-tab close threshold below `BLANK_TAB_CLOSE_IDLE_MS`. */
+  public setBlankTabCloseIdleMsForTesting(idleMs: number): void {
+    if (typeof idleMs === 'number' && idleMs > 0) this.blankTabCloseIdleMs = idleMs;
+  }
+
   /**
    * Test/probe seam: force one tab through the hibernation machinery without
    * waiting out the sweep timer. Every exclusion the shipping sweep honors is
@@ -10426,9 +10472,10 @@ export class NativeTabHost extends EventEmitter {
   }
 
   /**
-   * One 60s sweep: for every tab that passes the pure policy, attempt the
-   * unload-aware destroy. A beforeunload veto marks the tab and moves on — the
-   * sweep never blocks waiting for a single tab's answer.
+   * One 60s sweep. A blank tab (no page) unused for `BLANK_TAB_CLOSE_IDLE_MS` is
+   * closed. Every other tab that passes the pure policy gets the unload-aware
+   * destroy; a beforeunload veto marks the tab and moves on — the sweep never
+   * blocks waiting for a single tab's answer.
    */
   private async runHibernationSweep(): Promise<void> {
     if (this.isDisposed) return;
@@ -10440,8 +10487,13 @@ export class NativeTabHost extends EventEmitter {
       cdpBoundTabIds: this.hibernationCdpBoundTabIds(),
       unloadVetoedTabIds: this.unloadVetoedTabIds,
       idleMs: this.hibernationIdleMs,
+      ...(this.blankTabCloseIdleMs ? { blankCloseIdleMs: this.blankTabCloseIdleMs } : {}),
     };
     for (const [id, tab] of [...this.tabs.entries()]) {
+      if (shouldCloseIdleBlankTab({ id, state: tab.state, lastActiveAt: tab.lastActiveAt, agentActivityAt: tab.agentActivityAt }, ctx)) {
+        if (!this.hibernatingTabIds.has(id)) this.closeTab(id, 'idle-blank-sweep');
+        continue;
+      }
       const decision = shouldHibernate({ id, state: tab.state, lastActiveAt: tab.lastActiveAt }, ctx);
       if (!decision.hibernate) continue;
       await this.hibernateTab(id);

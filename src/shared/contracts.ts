@@ -333,6 +333,7 @@ export const TOOLBAR_CHANNELS = {
   CLOSE_TAB: 'antifan:toolbar:close-tab',
   MOVE_TAB: 'antifan:toolbar:move-tab',
   DUPLICATE_TAB: 'antifan:toolbar:duplicate-tab',
+  EXPORT_TAB_COOKIES: 'antifan:toolbar:export-tab-cookies',
   CLOSE_OTHER_TABS: 'antifan:toolbar:close-other-tabs',
   CLOSE_TABS_TO_RIGHT: 'antifan:toolbar:close-tabs-to-right',
   SET_TAB_TERMINAL_SESSION: 'antifan:toolbar:set-tab-terminal-session',

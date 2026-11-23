@@ -5,6 +5,8 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import {
   shouldHibernate,
+  shouldCloseIdleBlankTab,
+  BLANK_TAB_CLOSE_IDLE_MS,
   HIBERNATE_IDLE_MS,
   HIBERNATE_SWEEP_INTERVAL_MS,
   type HibernationContext,
@@ -488,5 +490,65 @@ describe('host hibernate/wake round-trip', () => {
     assert.strictEqual(host.ensureTabAwake('tab-sleep'), true);
     assert.strictEqual(tabs.get('tab-sleep')!.record.state.hibernated, false);
     assert.deepStrictEqual(tabs.get('tab-sleep')!.liveWc().loadCalls, ['https://c.example.com']);
+  });
+});
+
+describe('idle blank tab close', () => {
+  const IDLE = BLANK_TAB_CLOSE_IDLE_MS;
+
+  it('closes a blank tab unused for 30 minutes', () => {
+    assert.strictEqual(BLANK_TAB_CLOSE_IDLE_MS, 30 * 60 * 1000);
+    assert.strictEqual(shouldCloseIdleBlankTab(tab('b', { url: 'about:blank' }, T0 - IDLE), makeCtx()), true);
+    assert.strictEqual(shouldCloseIdleBlankTab(tab('b', { url: '' }, T0 - IDLE - 1), makeCtx()), true);
+  });
+
+  it('keeps a blank tab idle for less than 30 minutes', () => {
+    assert.strictEqual(shouldCloseIdleBlankTab(tab('b', { url: 'about:blank' }, T0 - IDLE + 1), makeCtx()), false);
+  });
+
+  it('never closes a tab that holds a page, however idle', () => {
+    assert.strictEqual(shouldCloseIdleBlankTab(tab('p', { url: 'https://example.test/' }, 0), makeCtx()), false);
+  });
+
+  it('counts a recent agent operation as use', () => {
+    const t = { ...tab('b', { url: 'about:blank' }, T0 - 2 * IDLE), agentActivityAt: T0 - 1000 };
+    assert.strictEqual(shouldCloseIdleBlankTab(t, makeCtx()), false);
+  });
+
+  it('keeps blank tabs that are presented, bound, loading, audible, popups or agent-plane', () => {
+    const old = T0 - 2 * IDLE;
+    const blank = { url: 'about:blank' };
+    assert.strictEqual(shouldCloseIdleBlankTab(tab('tab-active', blank, old), makeCtx()), false);
+    assert.strictEqual(shouldCloseIdleBlankTab(tab('b', blank, old), makeCtx({ automationTabId: 'b' })), false);
+    assert.strictEqual(shouldCloseIdleBlankTab(tab('b', blank, old), makeCtx({ boundTabIds: new Set(['b']) })), false);
+    assert.strictEqual(shouldCloseIdleBlankTab(tab('b', blank, old), makeCtx({ cdpBoundTabIds: new Set(['b']) })), false);
+    assert.strictEqual(shouldCloseIdleBlankTab(tab('b', { ...blank, isLoading: true }, old), makeCtx()), false);
+    assert.strictEqual(shouldCloseIdleBlankTab(tab('b', { ...blank, isAudible: true }, old), makeCtx()), false);
+    assert.strictEqual(shouldCloseIdleBlankTab(tab('b', { ...blank, popupOf: 'opener' }, old), makeCtx()), false);
+    assert.strictEqual(shouldCloseIdleBlankTab(tab('b', { ...blank, ephemeral: true }, old), makeCtx()), false);
+  });
+
+  it('the sweep closes only idle blank background tabs', async () => {
+    const old = Date.now() - 2 * IDLE;
+    const { host, tabs } = createHibernationHost(
+      [
+        { id: 'tab-active', url: 'about:blank', lastActiveAt: old },
+        { id: 'blank-old', url: 'about:blank', lastActiveAt: old },
+        { id: 'blank-fresh', url: 'about:blank', lastActiveAt: Date.now() },
+        { id: 'page-old', url: 'https://page.example.com', lastActiveAt: old },
+      ],
+      'tab-active',
+    );
+    // The media branch is not under test; the presented blank tab is deliberately stale.
+    (host as unknown as Record<string, unknown>).sweepIdleMedia = async () => {};
+    const closed: Array<[string, string | undefined]> = [];
+    (host as unknown as Record<string, unknown>).closeTab = (id: string, source?: string) => {
+      closed.push([id, source]);
+      return true;
+    };
+    const sweep = host['runHibernationSweep' as keyof HostHarness] as () => Promise<void>;
+    await sweep.call(host);
+    assert.deepStrictEqual(closed, [['blank-old', 'idle-blank-sweep']]);
+    assert.strictEqual(tabs.get('page-old')!.record.state.hibernated, true, 'a page tab still sleeps instead of closing');
   });
 });

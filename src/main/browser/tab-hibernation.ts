@@ -20,6 +20,8 @@ export const HIBERNATE_IDLE_MS = 5 * 60 * 1000;
 export const GOOGLE_DOCS_HIBERNATE_IDLE_MS = 20 * 60 * 1000;
 /** How often one host asks the policy about every tab. */
 export const HIBERNATE_SWEEP_INTERVAL_MS = 60 * 1000;
+/** A blank tab (no page) unused this long is closed by the sweep: 30 minutes. */
+export const BLANK_TAB_CLOSE_IDLE_MS = 30 * 60 * 1000;
 
 /**
  * True only for the Google Docs and Sheets editor surfaces under
@@ -70,6 +72,11 @@ export interface HibernationContext {
    * a smaller value — production code never does.
    */
   idleMs?: number;
+  /**
+   * Idle threshold in ms for closing blank tabs. Defaults to
+   * `BLANK_TAB_CLOSE_IDLE_MS`; a test seam may pass a smaller value.
+   */
+  blankCloseIdleMs?: number;
 }
 
 export type HibernationDecision =
@@ -105,18 +112,8 @@ export function shouldHibernate(
   const state = tab.state;
 
   if (state.hibernated === true) return { hibernate: false, reason: 'already-hibernated' };
-  if (tab.id === ctx.activeTabId) return { hibernate: false, reason: 'active-tab' };
-  if (state.isAudible === true) return { hibernate: false, reason: 'audible' };
-  if (state.isLoading === true) return { hibernate: false, reason: 'loading' };
-  if (state.ephemeral === true) return { hibernate: false, reason: 'agent-plane' };
-  // A popup's page is tied to its opener through window.opener; rebuilding the view on wake
-  // would load the URL into a fresh page with no opener, so the sign-in could never complete.
-  if (typeof state.popupOf === 'string' && state.popupOf) return { hibernate: false, reason: 'oauth-popup' };
-  if (ctx.automationTabId && tab.id === ctx.automationTabId) {
-    return { hibernate: false, reason: 'automation-target' };
-  }
-  if (ctx.boundTabIds?.has(tab.id)) return { hibernate: false, reason: 'mcp-bound' };
-  if (ctx.cdpBoundTabIds?.has(tab.id)) return { hibernate: false, reason: 'cdp-bound' };
+  const protectedReason = tabProtectionReason(tab, ctx);
+  if (protectedReason) return { hibernate: false, reason: protectedReason };
   if (ctx.unloadVetoedTabIds?.has(tab.id)) return { hibernate: false, reason: 'unload-veto' };
 
   const now = typeof ctx.now === 'number' ? ctx.now : Date.now();
@@ -126,4 +123,56 @@ export function shouldHibernate(
   if (now - lastActiveAt < idleMs) return { hibernate: false, reason: 'not-idle' };
 
   return { hibernate: true };
+}
+
+/**
+ * Refusals both sleeping and closing a tab honor: the tab is presented, playing,
+ * loading, owned by an agent or an opener, or held by a live automation/MCP/CDP
+ * binding. Undefined when none applies.
+ */
+function tabProtectionReason(
+  tab: { id: string; state: AntiFanTab },
+  ctx: HibernationContext
+): HibernationRefusal | undefined {
+  const state = tab.state;
+  if (tab.id === ctx.activeTabId) return 'active-tab';
+  if (state.isAudible === true) return 'audible';
+  if (state.isLoading === true) return 'loading';
+  if (state.ephemeral === true) return 'agent-plane';
+  // A popup's page is tied to its opener through window.opener; rebuilding the view on wake
+  // would load the URL into a fresh page with no opener, so the sign-in could never complete.
+  if (typeof state.popupOf === 'string' && state.popupOf) return 'oauth-popup';
+  if (ctx.automationTabId && tab.id === ctx.automationTabId) return 'automation-target';
+  if (ctx.boundTabIds?.has(tab.id)) return 'mcp-bound';
+  if (ctx.cdpBoundTabIds?.has(tab.id)) return 'cdp-bound';
+  return undefined;
+}
+
+/** A tab with no page: `about:blank`, or no URL at all. */
+export function isBlankTabUrl(url: string | undefined): boolean {
+  return !url || url === 'about:blank';
+}
+
+/**
+ * Whether `tab` is an empty tab (no page) that has sat unused for
+ * `BLANK_TAB_CLOSE_IDLE_MS` and may be closed outright. Only blank tabs ever
+ * qualify: a tab holding a page is slept by `shouldHibernate`, never closed.
+ * Idle time counts the later of the last user activity and the last agent
+ * operation on the tab. Pure: no I/O, no Electron.
+ */
+export function shouldCloseIdleBlankTab(
+  tab: { id: string; state: AntiFanTab; lastActiveAt?: number; agentActivityAt?: number },
+  ctx: HibernationContext
+): boolean {
+  if (!isBlankTabUrl(tab.state.url)) return false;
+  if (tabProtectionReason(tab, ctx)) return false;
+  const now = typeof ctx.now === 'number' ? ctx.now : Date.now();
+  const idleMs = typeof ctx.blankCloseIdleMs === 'number' && ctx.blankCloseIdleMs > 0
+    ? ctx.blankCloseIdleMs
+    : BLANK_TAB_CLOSE_IDLE_MS;
+  const lastUsedAt = Math.max(
+    typeof tab.lastActiveAt === 'number' ? tab.lastActiveAt : 0,
+    typeof tab.agentActivityAt === 'number' ? tab.agentActivityAt : 0,
+  );
+  return now - lastUsedAt >= idleMs;
 }

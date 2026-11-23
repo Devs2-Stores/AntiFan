@@ -146,6 +146,8 @@ interface AntiFanToolbarApi {
   closeTab: (tabId: string) => Promise<boolean>;
   moveTab: (tabId: string, toIndex: number) => Promise<boolean>;
   duplicateTab: (tabId: string) => Promise<string>;
+  /** Copy a tab's own-partition cookies for a domain to the clipboard; Main answers counts/names only. */
+  exportTabCookies?: (tabId: string, domain?: string) => Promise<{ ok: boolean; error?: string; count?: number; names?: string[]; partition?: string }>;
   closeOtherTabs: (tabId: string) => Promise<void>;
   closeTabsToRight: (tabId: string) => Promise<void>;
   setTabTerminalSession: (tabId: string, terminalSessionId: string) => Promise<boolean>;
@@ -4887,6 +4889,27 @@ if (menuItemCopyTabId) {
           showToolbarToast(`📋 Tab ID (${tabNum}): ${targetTab.id}`);
         });
       }
+    }
+    hideTabContextMenu();
+  });
+}
+
+// Copy this tab's own-partition cookies (Facebook by default) as a Cookie header.
+// Main writes the clipboard and answers counts/names, so values never reach this page.
+const menuItemExportCookie = document.getElementById('menuItemExportCookie');
+if (menuItemExportCookie) {
+  menuItemExportCookie.addEventListener('click', () => {
+    if (contextMenuTargetTabId) {
+      getApi()?.exportTabCookies?.(contextMenuTargetTabId, 'facebook.com').then((result) => {
+        if (result?.ok) {
+          const names = (result.names || []).join(', ');
+          showToolbarToast(`🍪 Đã chép ${result.count} cookie Facebook vào clipboard: ${names}`);
+        } else {
+          showToolbarToast(`🍪 Không có cookie Facebook để chép (${result?.error || 'lỗi'})`);
+        }
+      }).catch(() => {
+        showToolbarToast('🍪 Không chép được cookie (lỗi IPC)');
+      });
     }
     hideTabContextMenu();
   });
