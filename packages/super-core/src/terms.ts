@@ -36,6 +36,13 @@ export const RETRIEVAL_STOPWORDS: ReadonlySet<string> = new Set([
   'roi', 'sao', 'se', 'sau', 'tai', 'thi', 'the', 'theo', 'toi', 'trong', 'tren',
   'truoc', 'tu', 'tuy', 'va', 'vao', 'vay', 've', 'vi', 'voi', 'xem', 'xuong', 'biet',
   'uhm', 'dc', 'đi', 'di',
+  // Vietnamese scaffolding that names no subject. Measured on a real request
+  // ("Đọc toàn bộ chat OMP ... xem Kaizen cho AntiFan/Core/Hook/Leader ..."):
+  // these ten words were 10 of its 15 terms, and claims about a shipping
+  // gateway, a Catbox screenshot, an INTAKE checklist and a model retry cleared
+  // a 3-term coverage floor on `toàn`/`bộ`/`công`/`việc`/`Lưu` alone. Removing
+  // them left the five subject terms and dropped all four claims.
+  'đoc', 'toan', 'bo', 'ngay', 'luu', 'tap', 'trung', 'cong', 'viec', 'thoi',
   // English function words.
   'about', 'after', 'all', 'also', 'am', 'an', 'and', 'any', 'are', 'as', 'at', 'be',
   'because', 'been', 'before', 'being', 'between', 'both', 'but', 'by', 'can', 'could',
@@ -59,6 +66,8 @@ const MARKER_RE = /\[[^\]]*\]/g;
 /** Punctuation FTS5 would treat as syntax, plus the edges of a pasted token. */
 const EDGE_PUNCT_RE = /^[^\p{L}\p{N}_]+|[^\p{L}\p{N}_]+$/gu;
 const LETTER_RE = /\p{L}/u;
+/** Word tokens, the granularity FTS5 indexes and matches at. */
+const WORD_RE = /[\p{L}\p{N}_]+/gu;
 
 /**
  * Most terms one request may contribute. A long prompt (a pasted log, a plan, a
@@ -106,11 +115,23 @@ export function ftsExpression(terms: string[], join: 'AND' | 'OR'): string {
  * tokens and ranks by their rarity, so a claim matching one common token could
  * outrank the claim that matched three; retrieval sorts by this before the
  * composite score.
+ *
+ * A hit is a WHOLE token, extended by the prefix the FTS expression already
+ * performs (`"webcontent"*` reaches `webcontentsview`). Bare substring
+ * containment is not a hit: it let the folded term `bo` land inside `booking`
+ * and `thoi` inside `thời`, so a claim that shared no word with the request
+ * still counted as covered and cleared the relevance floor.
  */
 export function contentCoverage(statement: unknown, terms: string[]): number {
   if (typeof statement !== 'string' || terms.length === 0) return 0;
-  const hay = foldTerm(statement);
+  const hay = foldTerm(statement).match(WORD_RE) ?? [];
   let hit = 0;
-  for (const term of terms) if (hay.includes(foldTerm(term))) hit += 1;
+  for (const term of terms) {
+    // A term can hold several words (`AntiFan/Core/Hook/Leader` is one
+    // whitespace token but four), and the claim covers it only when every word
+    // is present.
+    const parts = foldTerm(term).match(WORD_RE) ?? [];
+    if (parts.length && parts.every((part) => hay.some((token) => token === part || token.startsWith(part)))) hit += 1;
+  }
   return hit;
 }

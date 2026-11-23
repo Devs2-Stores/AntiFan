@@ -184,8 +184,15 @@ interface CorePack {
 		staleClaims: number;
 		agingClaims: number;
 		gapKinds: Array<{ platform: string; kind: string }>;
+		/** PENDING candidates in this pack's scope. */
 		pendingCount: number;
 		pendingTop: Array<{ candidateId: string; statement?: string; caseTask?: string; platform?: string | null }>;
+		pendingOldestDays: number;
+		/** PENDING candidates across the whole store, ignoring the pack's scope. */
+		storePendingCount: number;
+		storePendingOldestDays: number;
+		/** Store-wide pending debt is large and old enough to page someone. */
+		pendingAlert: boolean;
 		healthy: boolean;
 	} | null;
 	generatedAt: string;
@@ -1216,11 +1223,17 @@ export function renderPack(
 		const parts: string[] = [];
 		if (diag.staleClaims > 0) parts.push(`${diag.staleClaims} stale claim(s)`);
 		for (const g of diag.gapKinds) parts.push(`${g.platform}: ${g.kind}`);
-		if (diag.pendingCount > 0) {
+		// The scoped count answers "does this task's domain owe a lesson"; when the
+		// store-wide queue is stuck that count can be zero, and the alert line below
+		// is the only thing that says so.
+		if (!diag.pendingAlert && diag.pendingCount > 0) {
 			const ids = diag.pendingTop.map((c) => c.candidateId).join(", ");
 			parts.push(`${diag.pendingCount} PENDING candidate(s) awaiting adjudication${ids ? ` (oldest: ${ids})` : ""} — promote/reject needs explicit human authority via core.adjudicate`);
 		}
-		banner = `[Core Health: ${parts.join(" | ")}]\n`;
+		banner = parts.length > 0 ? `[Core Health: ${parts.join(" | ")}]\n` : "";
+		if (diag.pendingAlert) {
+			banner += `[Core Lessons: ${diag.storePendingCount} lesson(s) awaiting adjudication store-wide, oldest ${diag.storePendingOldestDays} day(s) — review with: node scripts/leader/leader-job.mjs lessons]\n`;
+		}
 	}
 	const render = (cfg: FitConfig): { text: string; claimIds: string[] } => {
 		const claims = baseClaims.slice(0, cfg.claimLimit).map((c) => {

@@ -1,29 +1,8 @@
 #!/usr/bin/env node
 // antifan-core: CLI access to the local Super Core evidence store.
 // Usage: antifan-core <command> [json-args]
-//   import <reportsDir>     import scout ledgers
-//   query '{"text":"..."}'  anchored claims
-//   pack '{"task":"..."}'   context pack; optional minScore (0..1, default 0) and excludeSourceDirs (["scratch","plans"])
-//   scope '{"path":"E:\\Work\\apps\\AntiFan"}'  units a project root resolves to
-//   recommend '{"task":"..."}'
-//   receipt '{"task":"...","recommendation":"..."}'
-//   outcome '{"task":"...","outcome":"..."}'  case + PENDING candidate + observation
-//   adjudicate '{"candidateId":"...","decision":"PROMOTE","authority":"..."}'
-//   stats
-//   domain <name>
-//   invalidate '{"path":"..."}'
-//   revoke '{"path":"..."}'
-//   snapshot [note]
-//   rollback <releaseId>
-//   health                 aggregated stats+audit+decay+gates+uncertainty+status (Core Health UI)
-//   reuse-metric '{"task":"..."}'  found + injected + outcome-linked reuse for a task
-//   regressions            {replayEngineAvailable, rows} from the regressions table
-//   task-runs              {taskRunsTable, taskRuns, packs, cases}
-//   pack-detail <packId>   pack + its claims + receipts
-//   case-detail <caseId>   case + its candidates
-//   replay <regressionId>  re-execute a recorded regression's checks against live state
-//   candidates '{"status":"PENDING"}'  adjudication queue rows (read-only)
-//   observe '{"source":"...","kind":"...","payload":{}}'  raw observation into the learning loop
+// `antifan-core help` lists every command; COMMANDS below is that list. Keep it
+// in step with the dispatch switch at the bottom of this file.
 
 const path = require('node:path');
 
@@ -32,6 +11,97 @@ const cmd = process.argv[2];
 // `-` as the argument means "read it from stdin": a long prompt cannot travel as
 // argv (Windows caps a command line near 32K, a spawn then fails ENAMETOOLONG).
 const arg = process.argv[3] === '-' ? require('node:fs').readFileSync(0, 'utf8') : process.argv[3];
+
+/** name, then the shortest arg shape an agent needs before calling it. */
+const COMMANDS = [
+  ['help', 'print this list'],
+  ['import', 'import scout ledgers from a reports directory'],
+  ['query', 'anchored claims: {"text","platform","unitIds","limit"}'],
+  ['pack', 'context pack for {"task"}; {"minScore"} floors claim score (0..1)'],
+  ['scope', 'units a project root resolves to: {"path"}'],
+  ['recommend', 'pack plus a recommendation or an explicit abstention: {"task"}'],
+  ['receipt', 'decision receipt: {"task","recommendation"}; {"packId"} binds it to a pack'],
+  ['outcome', 'record a task outcome: case + PENDING lesson + observation'],
+  ['inject-ack', 'record the claim ids a pack actually rendered (only writer of lastSeen)'],
+  ['reinforce', 'reinforce the claims a verified outcome relied on'],
+  ['unknown', 'record an open question: {"domain","question","platform"}'],
+  ['unknown-update', 'compare-and-swap an unknown: {"unknownId","expectedRevision","status"}'],
+  ['adjudicate-batch', 'decide several candidates at once: {"authority","items":[]}'],
+  ['session-summary', 'upsert a session segment: {"sessionId","request","learned","completed"}'],
+  ['search-index', 'compact id/title rows across claims, summaries and kinds'],
+  ['timeline', 'rows around one id: {"anchorId","before","after"}'],
+  ['get-many', 'full bodies for ids from search-index (max 50)'],
+  ['unknowns', 'list unknowns: {"status"}'],
+  ['last-summary', 'newest session summary for {"projectRoot"}'],
+  ['adjudicate', 'one candidate decision; needs {"candidateId","decision","authority"}'],
+  ['stats', 'store counts'],
+  ['domain', 'domain view (units, claims, gaps): domain <name>'],
+  ['invalidate', 'mark claims stale after a source change: {"path"}'],
+  ['revoke', 'revoke claims derived from a restricted source: {"path"}'],
+  ['snapshot', 'release snapshot for rollback; optional note'],
+  ['rollback', 'restore a release snapshot: rollback <releaseId>'],
+  ['exp-node', 'record an experience-graph node'],
+  ['exp-edge', 'record an experience-graph edge'],
+  ['exp-chain', 'traverse the experience graph from a node id'],
+  ['anti-pattern', 'record what not to do: symptoms, evidence, replacement'],
+  ['anti-patterns', 'list anti-patterns: {"platform","status"}'],
+  ['workaround', 'record a workaround with its condition and evidence'],
+  ['workarounds', 'list workarounds: {"platform","stillValid"}'],
+  ['fix-pattern', 'record before/after/why for a repeated fix'],
+  ['fix-patterns', 'list fix patterns'],
+  ['similar', 'find similar claims, cases and lessons for a task'],
+  ['uncertainty', 'classify uncertainty for a claim or a task'],
+  ['decay', 'stale and aging claims: {"staleDays","platform"}'],
+  ['audit', 'corpus audit; read-only unless {"record":true}'],
+  ['gate', 'one phase gate: {"phase","gate"}; read-only unless {"record":true}'],
+  ['resolve-conflict', 'classify or resolve a conflict: {"conflictId","resolution"}'],
+  ['regression', 'record a re-executable regression check'],
+  ['observe', 'raw observation into the learning loop: {"source","kind","payload"}'],
+  ['replay', 're-execute a recorded regression: replay <regressionId>'],
+  ['regressions', 'regression rows plus replay-engine availability'],
+  ['task-runs', 'recent task runs, packs and cases'],
+  ['pack-detail', 'one pack with its claims and receipts: pack-detail <packId>'],
+  ['case-detail', 'one case with its candidates: case-detail <caseId>'],
+  ['candidates', 'adjudication queue rows: {"status":"PENDING"}'],
+  ['health', 'aggregated health: status, reasonCode, stats, audit, gates, decay'],
+  ['reuse-metric', 'pack reuse for a task: found, injected, outcome-linked'],
+  ['principle', 'record a principle; needs a source or derivedFrom anchor'],
+  ['principles', 'list principles'],
+  ['hidden-req', 'record a hidden requirement inferred from a task'],
+  ['hidden-reqs', 'list hidden requirements'],
+  ['commercial', 'record commercial intelligence for a task type'],
+  ['commercial-intel', 'list commercial intelligence'],
+  ['tool', 'record tool intelligence'],
+  ['tool-intel', 'list tool intelligence'],
+  ['archetype', 'record a project archetype'],
+  ['archetypes', 'list archetypes'],
+  ['platform-semantic', 'record a platform semantic fact'],
+  ['platform-semantics', 'list platform semantics'],
+  ['practice-parity', 'record declared vs observed practice parity'],
+  ['practice-parities', 'list practice-parity records'],
+  ['skill-version', 'record a skill version, failure, fix or production event'],
+  ['skill-genealogy', 'skill version history'],
+  ['pack-v2', 'enriched context pack: rules, cases, pitfalls, confidence'],
+  ['receipt-v2', 'enriched decision receipt'],
+];
+
+function printCommands() {
+  const width = Math.max(...COMMANDS.map(([name]) => name.length));
+  console.log('antifan-core: CLI for the local Super Core evidence store');
+  console.log('usage: node scripts/antifan-core.cjs <command> [json-args]');
+  console.log('');
+  for (const [name, summary] of COMMANDS) console.log(`  ${name.padEnd(width)}  ${summary}`);
+}
+
+if (cmd === undefined || cmd === 'help' || cmd === '--help' || cmd === '-h') {
+  printCommands();
+  process.exit(0);
+}
+if (!COMMANDS.some(([name]) => name === cmd)) {
+  console.error(`unknown command: ${cmd}`);
+  printCommands();
+  process.exit(1);
+}
 
 async function main() {
   let core;
@@ -217,8 +287,10 @@ async function main() {
     case 'pack-v2': out = core.contextPackV2(parse(arg)); break;
     case 'receipt-v2': out = core.receiptV2(parse(arg)); break;
     default:
-      console.error('unknown command; see header usage');
-      process.exit(1);
+      // Unreachable while COMMANDS and this switch agree: the startup gate
+      // rejects anything COMMANDS does not list. A command listed but never
+      // dispatched is a defect in this file, not a user error.
+      throw new Error(`command ${cmd} is listed in COMMANDS but not dispatched`);
   }
   console.log(JSON.stringify(out, null, 2));
   core.close();

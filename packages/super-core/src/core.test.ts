@@ -2306,6 +2306,59 @@ test('the pending-debt banner needs both volume and age; a young or small backlo
   core.close();
 });
 
+test('pack diagnostics report the store-wide lesson queue, so a scoped pack cannot hide it', () => {
+  const core = freshCore();
+  for (let i = 0; i < 30; i++) core.ingestOutcome({ task: `theme fix ${i}`, outcome: `outcome number ${i}`, platform: 'haravan' });
+  const scoped = () => core.contextPack({ task: 'audit the omp chat', platform: 'antifan', diagnostics: true }).diagnostics!;
+  assert.equal(scoped().pendingCount, 0, 'the requested platform owns no candidate');
+  assert.equal(scoped().storePendingCount, 30, 'the queue is reported store-wide anyway');
+  assert.equal(scoped().pendingAlert, false, 'many but young');
+  assert.equal(scoped().healthy, true);
+  rawDb(core).prepare("UPDATE candidates SET createdAt = ?").run(new Date(Date.now() - 5 * 86400_000).toISOString());
+  const alert = scoped();
+  assert.equal(alert.pendingCount, 0, 'the scoped numbers are unchanged');
+  assert.equal(alert.storePendingCount, 30);
+  assert.ok(alert.storePendingOldestDays >= 4.9);
+  assert.equal(alert.pendingAlert, true, 'store-wide volume and age raise the alert the scoped count hid');
+  assert.equal(alert.healthy, false, 'and healthy follows');
+  // A pack scoped to the platform that owns the queue still reports its slice,
+  // next to the same store-wide totals.
+  const owning = core.contextPack({ task: 'audit the omp chat', platform: 'haravan', diagnostics: true }).diagnostics!;
+  assert.equal(owning.pendingCount, 30);
+  assert.ok(owning.pendingOldestDays >= 4.9);
+  assert.equal(owning.storePendingCount, 30);
+  assert.equal(owning.pendingAlert, true);
+  core.close();
+});
+
+test('a pack keeps the claim that shares the task subject and drops claims matched only by filler words', () => {
+  const core = freshCore();
+  const task = 'Đọc toàn bộ chat OMP từ ngày 15/11 tới 23/11/2026 xem Kaizen cho AntiFan/Core/Hook/Leader\n'
+    + 'Lưu ý tập trung AntiFan/Core/Hook/Leader, các công việc Haravan/Sapo/Shopify thôi nhé';
+  // The four claims a pack of this task used to receive: a shipping gateway, an
+  // INTAKE checklist, a Catbox screenshot rule and a model-retry rule.
+  const offTopic: Array<[string, string]> = [
+    ['c-gateway', 'principle: Cổng 5 (Red-Team Carrier Isolation): Mã vận đơn và tên ĐVVC lưu an toàn trong note_attributes, tuyệt đối không kích hoạt webhook booking hãng vận chuyển'],
+    ['c-intake', 'Rule cứng: Customizes (customizes/<job>/ — việc chính hằng ngày): đọc INTAKE.md + .workspace-context.json trước; mở đầu trả lời bằng [customize-intake · platform · job]; không kéo _base.'],
+    ['c-catbox', 'Quy tắc an toàn bắt buộc: Nếu report có missing required section, screenshot fail, URL Catbox không hợp lệ, hoặc replacement target không rõ, dừng và báo lỗi.'],
+    ['c-retry', 'Agent Engine (theo DSH patterns): Transient Step Retry: Lỗi mạng nhất thời khi gọi model (fetch failed, ECONNRESET, timeout, 429, 5xx) được retry 1 lần với backoff.'],
+  ];
+  const related = 'RULE: Đọc chat OMP của AntiFan trước khi sửa Core pack; audit Kaizen phải dẫn session:L<n> cho Hook và Leader.';
+  for (const [claimId, statement] of offTopic) addClaim(core, claimId, statement);
+  addClaim(core, 'c-related', related);
+  const terms = buildFtsTerms(task);
+  assert.deepEqual(terms, ['chat', 'OMP', 'Kaizen', 'AntiFan/Core/Hook/Leader', 'Haravan/Sapo/Shopify'], 'filler words are not retrieval terms');
+  for (const [claimId, statement] of offTopic) assert.equal(contentCoverage(statement, terms), 0, `${claimId} shares no word with the task`);
+  assert.ok(contentCoverage(related, terms) >= 3, 'the claim about the task keeps its coverage');
+  const pack = core.contextPack({ task, limit: 20 });
+  assert.deepEqual(pack.claims.map((c) => c.claimId), ['c-related']);
+  // A hit is a whole word extended by the FTS prefix; a mid-word substring is not
+  // one (`bo` inside `booking` used to count as a matched term).
+  assert.equal(contentCoverage('the booking flow', ['book']), 1);
+  assert.equal(contentCoverage('the booking flow', ['king']), 0);
+  core.close();
+});
+
 test('session summaries upsert per (session, segment), redact secrets, and lastSummary returns the newest for a project', () => {
   const core = freshCore();
   const first = core.upsertSessionSummary({ sessionId: 's1', projectRoot: 'E:/Work/apps/A', request: 'port the header', notes: `key sk-${'abcdefghijklmnopqrstuvwx'}` });

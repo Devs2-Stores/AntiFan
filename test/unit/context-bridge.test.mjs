@@ -170,6 +170,27 @@ test('bridge hook is placed inside .omp/hooks/pre/ where discovery scans', () =>
 });
 
 // ---------------------------------------------------------------------------
+// CLI discovery: `help` is the surface an agent reads instead of this file.
+// ---------------------------------------------------------------------------
+
+test('antifan-core help prints every dispatched command and an unknown command prints the same list', () => {
+	const cli = path.join(REPO, 'scripts', 'antifan-core.cjs');
+	const help = spawnSync(process.execPath, [cli, 'help'], { cwd: REPO, encoding: 'utf8' });
+	assert.equal(help.status, 0, help.stderr);
+	for (const name of ['help', 'pack', 'health', 'outcome', 'task-runs', 'pack-v2']) {
+		assert.match(help.stdout, new RegExp(`^ {2}${name} {2,}\\S`, 'm'), `${name} is listed with its arg shape`);
+	}
+	const listed = [...help.stdout.matchAll(/^ {2}([a-z0-9-]+) {2,}/gm)].map((m) => m[1]).filter((name) => name !== 'help');
+	const dispatched = [...fs.readFileSync(cli, 'utf8').matchAll(/case '([a-z0-9-]+)'/g)].map((m) => m[1]);
+	assert.deepEqual(listed.sort(), [...new Set(dispatched)].sort(), 'the published list and the dispatch switch cannot drift');
+
+	const unknown = spawnSync(process.execPath, [cli, 'no-such-command'], { cwd: REPO, encoding: 'utf8' });
+	assert.equal(unknown.status, 1);
+	assert.match(unknown.stderr, /unknown command: no-such-command/);
+	assert.match(unknown.stdout, /^ {2}pack {2,}/m, 'the command list still prints');
+});
+
+// ---------------------------------------------------------------------------
 // R3/R7 — Core available: exactly one pack message with identity + scope
 // ---------------------------------------------------------------------------
 

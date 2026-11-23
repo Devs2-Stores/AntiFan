@@ -87,6 +87,30 @@ test('renderPack keeps the JSON body valid and conflicts/diagnostics alive over 
 	assert.ok(!r.text.includes('[truncated'), 'no mid-JSON slice');
 });
 
+test('renderPack pages on store-wide lesson debt even when the pack scope owes none', () => {
+	const debt = {
+		staleClaims: 0, agingClaims: 0, gapKinds: [], pendingCount: 0, pendingTop: [], pendingOldestDays: 0,
+		storePendingCount: 143, storePendingOldestDays: 12.4, pendingAlert: true, healthy: false,
+	};
+	const alerted = bridge.renderPack(FIXTURE_PACK([claim(1, 40)], { diagnostics: debt }), 'th', REPO, [claim(1, 40)]);
+	assert.match(
+		alerted.text,
+		/\[Core Lessons: 143 lesson\(s\) awaiting adjudication store-wide, oldest 12\.4 day\(s\) — review with: node scripts\/leader\/leader-job\.mjs lessons\]/,
+	);
+	assert.ok(!alerted.text.includes('[Core Health: ]'), 'no empty health line when the queue is the only debt');
+	const body = JSON.parse(alerted.text.slice(alerted.text.indexOf('\n{') + 1));
+	assert.equal(body.diagnostics.storePendingCount, 143, 'store-wide numbers ride the JSON body');
+	assert.equal(body.diagnostics.pendingCount, 0, 'the scoped slice stays scoped');
+
+	// Below the alert thresholds the banner keeps the scoped adjudication line
+	// and stays off the store-wide one.
+	const quiet = { ...debt, pendingCount: 2, pendingTop: [{ candidateId: 'cand-1' }], storePendingCount: 2, storePendingOldestDays: 1, pendingAlert: false };
+	const calm = bridge.renderPack(FIXTURE_PACK([claim(1, 40)], { diagnostics: quiet }), 'th', REPO, [claim(1, 40)]);
+	assert.ok(!calm.text.includes('[Core Lessons:'));
+	assert.match(calm.text, /\[Core Health: 2 PENDING candidate\(s\) awaiting adjudication/);
+	assert.match(calm.text, /core\.adjudicate/);
+});
+
 test('renderPack leaves a small pack untouched', () => {
 	const pack = FIXTURE_PACK([claim(1, 50), claim(2, 50)]);
 	const r = bridge.renderPack(pack, 'th', REPO, pack.claims);
@@ -153,7 +177,7 @@ test('seeded pack reports the rendered claim ids to Core through a detached inje
 	const rec = recordingPackStub(dir, pack);
 	const log = path.join(dir, 'events.jsonl');
 	await withEnv(
-		{ ANTIFAN_CORE_CLI: rec.stub, ANTIFAN_CORE_BRIDGE_LOG: log, ANTIFAN_PROJECT_ROOT: undefined, SUPER_CORE_DB: undefined, ANTIFAN_CORE_MIN_SCORE: '0', ANTIFAN_CORE_MIN_COVERAGE: '0', ANTIFAN_CORE_MIN_INJECT_CLAIMS: '1', ANTIFAN_CORE_INJECT_KINDS: '*' },
+		{ ANTIFAN_CORE_CLI: rec.stub, ANTIFAN_CORE_BRIDGE_LOG: log, ANTIFAN_PROJECT_ROOT: undefined, SUPER_CORE_DB: undefined, ANTIFAN_CORE_PACK_ID: undefined, ANTIFAN_CORE_MIN_SCORE: '0', ANTIFAN_CORE_MIN_COVERAGE: '0', ANTIFAN_CORE_MIN_INJECT_CLAIMS: '1', ANTIFAN_CORE_INJECT_KINDS: '*' },
 		async () => {
 			const h = makePi();
 			bridgeHook(h.pi);

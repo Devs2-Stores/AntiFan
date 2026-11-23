@@ -216,11 +216,20 @@ export interface PackDiagnostics {
   staleClaims: number;
   agingClaims: number;
   gapKinds: Array<{ platform: string; kind: string }>;
+  /** PENDING candidates in the pack's scope: explicit units, else platform, else the whole store. */
   pendingCount: number;
   pendingTop: Array<{ candidateId: string; statement: string; createdAt: string; platform: string | null; caseTask: string | null }>;
   /** Age in days of the oldest PENDING candidate in scope (0 when none). */
   pendingOldestDays: number;
-  /** Pending debt is only alert-worthy at >= ANTIFAN_CORE_PENDING_ALERT_COUNT (25) items AND oldest >= ANTIFAN_CORE_PENDING_ALERT_DAYS (3) days. */
+  /**
+   * PENDING candidates across the whole store, ignoring the pack's scope. The
+   * scoped count answers "does this task's domain owe a lesson"; this one
+   * answers "is the learning loop stuck", which a scoped caller would never see.
+   */
+  storePendingCount: number;
+  /** Age in days of the oldest PENDING candidate anywhere in the store (0 when none). */
+  storePendingOldestDays: number;
+  /** Store-wide debt is alert-worthy at >= ANTIFAN_CORE_PENDING_ALERT_COUNT (25) items AND oldest >= ANTIFAN_CORE_PENDING_ALERT_DAYS (3) days. */
   pendingAlert: boolean;
   /** true when no stale claims, no non-NONE gaps and no alert-worthy pending debt. Gates the bridge banner. */
   healthy: boolean;
@@ -1000,10 +1009,11 @@ export class Core {
     // never mutate and never adjudicate.
     let diagnostics: PackDiagnostics | null = null;
     if (opts.diagnostics) {
-      // Diagnostics describe THIS pack's scope, not the whole store: an
-      // un-actionable foreign-platform gap or decay row must not flip healthy —
-      // that is the permanent red-banner failure mode. Store-wide hygiene is
-      // the job of health()/corpusAudit(), which stay unscoped.
+      // Decay and gaps stay scoped to THIS pack: an un-actionable
+      // foreign-platform gap or stale claim must not flip healthy — that is the
+      // permanent red-banner failure mode. The PENDING queue is the exception:
+      // one human adjudicates it, so its store-wide size is reported next to
+      // the scoped slice and gates `pendingAlert`.
       const diagUnits = opts.unitIds?.length ? opts.unitIds : projectScope?.unitIds;
       const decay = this.decayCounts({ platform: opts.platform, unitIds: diagUnits, includeGlobal: opts.includeGlobal });
       const gaps = this.knowledgeGaps({ platform: opts.platform });
@@ -1033,10 +1043,22 @@ export class Core {
       const oldestRow = this.db.prepare(
         `SELECT MIN(c.createdAt) AS oldest FROM candidates c LEFT JOIN cases cs ON cs.caseId = c.caseId WHERE ${pendingWhere.join(' AND ')}`
       ).get(...pendingArgs as never[]) as { oldest: string | null } | undefined;
-      const oldestMs = oldestRow?.oldest ? Date.parse(oldestRow.oldest) : NaN;
-      const pendingOldestDays = Number.isFinite(oldestMs) ? Math.max(0, Math.round(((Date.now() - oldestMs) / 86400_000) * 10) / 10) : 0;
-      const pendingAlert = pendingTotal >= envNumber('ANTIFAN_CORE_PENDING_ALERT_COUNT', 25)
-        && pendingOldestDays >= envNumber('ANTIFAN_CORE_PENDING_ALERT_DAYS', 3);
+      const ageDays = (iso: string | null | undefined): number => {
+        const ms = iso ? Date.parse(iso) : NaN;
+        return Number.isFinite(ms) ? Math.max(0, Math.round(((Date.now() - ms) / 86400_000) * 10) / 10) : 0;
+      };
+      const pendingOldestDays = ageDays(oldestRow?.oldest);
+      // The scoped count is silent about debt in another platform or project, so a
+      // task-scoped pack can report healthy while the promotion gate stays red.
+      // The alert is driven by the store-wide queue: the only thing adjudication
+      // would have to drain.
+      const storePending = this.db.prepare(
+        "SELECT COUNT(*) AS n, MIN(createdAt) AS oldest FROM candidates WHERE status = 'PENDING'"
+      ).get() as { n: number; oldest: string | null };
+      const storePendingCount = storePending.n;
+      const storePendingOldestDays = ageDays(storePending.oldest);
+      const pendingAlert = storePendingCount >= envNumber('ANTIFAN_CORE_PENDING_ALERT_COUNT', 25)
+        && storePendingOldestDays >= envNumber('ANTIFAN_CORE_PENDING_ALERT_DAYS', 3);
       const gapKinds = (gaps.gaps as PackDiagnostics['gapKinds'])
         .filter((g) => g.kind !== 'NONE');
       diagnostics = {
@@ -1046,6 +1068,8 @@ export class Core {
         pendingCount: pendingTotal,
         pendingTop,
         pendingOldestDays,
+        storePendingCount,
+        storePendingOldestDays,
         pendingAlert,
         // healthy gates the banner: nothing stale, no gaps, no alert-worthy pending debt.
         healthy: decay.staleCount === 0 && gapKinds.length === 0 && !pendingAlert,
