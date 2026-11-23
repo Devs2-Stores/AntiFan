@@ -944,6 +944,16 @@ test('checkSettingsData names a value saved under a settings.-prefixed key and l
     ]);
     assert.match(result.warnings[1].message, /renders the default instead of the saved value/);
 
+    // `current` may name the preset that holds the values instead of holding them.
+    fs.writeFileSync(
+      path.join(dir, 'config', 'settings_data.json'),
+      JSON.stringify({ current: 'Sartor', presets: { Sartor: { 'settings.tab_tea_label': 'beer', old_key: 1 }, Alder: { 'settings.tab_beer_label': 'x' } } }),
+      'utf8',
+    );
+    const preset = checkSettingsData(dir);
+    assert.deepEqual(preset.prefixed, [{ key: 'settings.tab_tea_label', id: 'tab_tea_label', unprefixedStored: false }]);
+    assert.deepEqual(preset.orphans, ['old_key']);
+
     fs.rmSync(path.join(dir, 'config', 'settings_schema.json'));
     assert.deepEqual(checkSettingsData(dir), { prefixed: [], orphans: [], warnings: [] }, 'nothing declared: nothing to compare');
   } finally {

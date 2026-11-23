@@ -18,6 +18,7 @@ import {
   scanRenderFailures,
   validateThemeSchemas,
   checkSettingsBinding,
+  checkSettingsData,
   checkAssetReferences,
   checkHaravanLiquidContracts,
 } from './lib/theme-checks.mjs';
@@ -57,6 +58,8 @@ const schemas = validateThemeSchemas(themeDir, {
   schemaRequired: !(parsed.options.platform === 'haravan' && themeDirHasSettingsHtml && !themeDirHasSettingsSchema),
 });
 const binding = checkSettingsBinding(themeDir);
+// Shop data: key anomalies are reported, never a refusal.
+const settingsData = checkSettingsData(themeDir);
 const assets = checkAssetReferences(themeDir);
 const haravanContracts = parsed.options.platform === 'haravan'
   ? checkHaravanLiquidContracts(themeDir, { platform: 'haravan' })
@@ -80,6 +83,7 @@ const report = {
   ok: refusals.length === 0,
   schemas: { ok: schemas.ok, schemaFiles: schemas.schemaFiles, sectionCount: schemas.sections.length, failures: schemas.failures },
   settingsBinding: { ok: binding.ok, undeclared: binding.undeclared, dead: binding.dead, failures: binding.failures },
+  settingsData: { prefixed: settingsData.prefixed, orphanCount: settingsData.orphans.length, warnings: settingsData.warnings },
   assets: { ok: assets.ok, counts: assets.counts, localMissing: assets.localMissing, remote: assets.remote },
   renders,
   refusals,
@@ -90,6 +94,8 @@ if (outFile) fs.writeFileSync(outFile, JSON.stringify(report, null, 2));
 console.log(`[theme-checks] theme=${report.themeDir}`);
 console.log(`[theme-checks] schema: schemaFiles=${schemas.schemaFiles.length} sections=${schemas.sections.length} failures=${schemas.failures.length}`);
 console.log(`[theme-checks] settings: undeclared=${binding.undeclared.length} dead=${binding.dead.length} failures=${binding.failures.length}`);
+console.log(`[theme-checks] settings-data: prefixedKeys=${settingsData.prefixed.length} orphanKeys=${settingsData.orphans.length}`);
+for (const warning of settingsData.warnings) console.log(`  WARN ${warning.rule} ${warning.message}`);
 console.log(`[theme-checks] assets: localPresent=${assets.counts.localPresent} localMissing=${assets.counts.localMissing} remote=${assets.counts.remote}`);
 if (haravanContracts) {
   console.log(`[theme-checks] haravan-contracts: ok=${haravanContracts.ok} failures=${haravanContracts.failures.length}`);

@@ -1020,12 +1020,17 @@ export function checkSettingsData(themeDir) {
   const source = readFileIfPresent(path.join(themeDir, 'config', 'settings_data.json'));
   if (source === null) return result;
   const parsed = parseJsonDocument(source);
-  if (!parsed.ok || !isPlainObject(parsed.value) || !isPlainObject(parsed.value.current)) return result;
+  if (!parsed.ok || !isPlainObject(parsed.value)) return result;
+  // `current` holds the values, or names the preset that does (`"current": "Sartor"` + `presets.Sartor`).
+  const named = typeof parsed.value.current === 'string' && isPlainObject(parsed.value.presets)
+    ? parsed.value.presets[parsed.value.current]
+    : parsed.value.current;
+  if (!isPlainObject(named)) return result;
   const declared = collectDeclaredSettingIds(themeDir);
   // With no declaration to compare against, every key would be an orphan and none a finding.
   if (declared.size === 0) return result;
 
-  const current = parsed.value.current;
+  const current = named;
   for (const key of Object.keys(current).sort(compareStrings)) {
     if (declared.has(key)) continue;
     const id = key.startsWith(SETTINGS_DATA_KEY_PREFIX) ? key.slice(SETTINGS_DATA_KEY_PREFIX.length) : '';
