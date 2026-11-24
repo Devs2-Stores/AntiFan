@@ -89,7 +89,46 @@ describe("hrv token preflight", () => {
     const again = attempt(w, j, "terminal-7", ["--cwd", theme, "--allow-busy", "--allow-extra-round", "--reason", "retry"], { LEADER_TOKEN_PROBE: FAIL() });
     assert.equal(again.code, 4, again.stderr);
     assert.match(again.stderr, /one login per job|already tried a login/);
+    assert.match(again.last.next, /--skip-token-probe/);
+    assert.match(again.last.next, /owner to sign in/);
     assert.equal(j.job().rounds.length, 1);
+  });
+
+  test("the close round (the one that pushes to live) also gets the LOGIN block on a dead token; status lists the login round", () => {
+    const w = world();
+    const j = initJob(w);
+    const theme = themeFolder(w);
+    j.patch((job) => {
+      job.state = "user-approved";
+      job.approvedAt = Date.now();
+      job.approval = { at: Date.now(), closeToken: "TOK-1", tokenUsedAt: null };
+    });
+    const d = cli(w, ["dispatch", "--job", j.dir, "--worker", "terminal-7", "--kind", "close", "--cwd", theme], { LEADER_TOKEN_PROBE: FAIL() });
+    assert.equal(d.code, 0, d.stderr);
+    assert.equal(d.last.kind, "close");
+    assert.equal(d.last.login.orgId, "9");
+    assert.match(d.last.ownerNotice, /services@f1genz\.com/);
+    assert.match(fs.readFileSync(d.last.promptPath, "utf8"), /^# LOGIN/m);
+    assert.equal(j.job().rounds[0].login.orgId, "9");
+    const status = cli(w, ["status", "--job", j.dir]);
+    assert.equal(status.lines[0].loginRounds[0].round, 1);
+    assert.equal(status.lines[0].loginRounds[0].email, "services@f1genz.com");
+  });
+
+  test("a close round whose binding has no org_id only warns (it was never refused for a dead token)", () => {
+    const w = world();
+    const j = initJob(w);
+    const theme = themeFolder(w);
+    fs.writeFileSync(path.join(theme, ".haravan-cli_local.json"), JSON.stringify({ theme_id: 5 }));
+    j.patch((job) => {
+      job.state = "user-approved";
+      job.approvedAt = Date.now();
+      job.approval = { at: Date.now(), closeToken: "TOK-1", tokenUsedAt: null };
+    });
+    const d = cli(w, ["dispatch", "--job", j.dir, "--worker", "terminal-7", "--kind", "close", "--cwd", theme], { LEADER_TOKEN_PROBE: FAIL() });
+    assert.equal(d.code, 0, d.stderr);
+    assert.equal(d.last.login, undefined);
+    assert.ok(!fs.readFileSync(d.last.promptPath, "utf8").includes("# LOGIN"));
   });
 
   test("G6: the LOGIN block passes the CLI-approval scan, and a follow-up carrying it needs no owner quote", async () => {

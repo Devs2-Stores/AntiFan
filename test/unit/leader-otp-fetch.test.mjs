@@ -12,7 +12,15 @@ import { fileURLToPath } from "node:url";
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const SCRIPT = path.join(REPO, "scripts", "leader", "otp-fetch.mjs");
 const TEMP = fs.mkdtempSync(path.join(os.tmpdir(), "otp-fetch-"));
-after(() => fs.rmSync(TEMP, { recursive: true, force: true }));
+const servers = new Set();
+after(() => {
+  for (const s of servers) {
+    if (!s.listening) continue;
+    s.closeAllConnections?.();
+    s.close();
+  }
+  fs.rmSync(TEMP, { recursive: true, force: true });
+});
 
 const KEY = "k".repeat(40);
 const CODE = "A7Q93Z";
@@ -28,7 +36,8 @@ async function fakeWorker(handler) {
     res.end(JSON.stringify(body));
   });
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
-  return { url: `http://127.0.0.1:${server.address().port}`, seen, close: () => server.close() };
+  servers.add(server);
+  return { url: `http://127.0.0.1:${server.address().port}`, seen, close: () => (server.listening ? server.close() : undefined) };
 }
 
 /** Run the script; resolves {code, stdout, stderr, clip}. `clip` is what the clipboard seam received (null when untouched). */
@@ -122,12 +131,16 @@ describe("otp-fetch", () => {
     noSecrets(r);
   });
 
-  test("an unreadable code (wrong shape) is refused, not copied", async () => {
+  test("an unusable code (wrong shape) is not copied and ends at once with exit 3 (the Worker already deleted it)", async () => {
     const w = await fakeWorker(() => [200, { found: true, otp: "12 34\n56", receivedAt: Date.now() }]);
-    const r = await run(["--since", "1", "--wait", "0"], cfg(w));
+    const r = await run(["--since", "1", "--wait", "30"], cfg(w));
     w.close();
+    assert.equal(r.code, 3);
+    assert.equal(w.seen.length, 1, "no polling after a burned code");
     assert.equal(r.clip, null);
-    assert.equal(JSON.parse(r.stdout.trim()).found, false);
+    const out = JSON.parse(r.stdout.trim());
+    assert.equal(out.found, false);
+    assert.match(out.error, /resend/);
   });
 
   test("config comes from the env file when the env has none, and the env wins when both exist", async () => {

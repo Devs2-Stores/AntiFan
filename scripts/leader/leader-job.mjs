@@ -741,7 +741,7 @@ const READ_ONLY_HEADING = "# CHỈ ĐỌC cho tới khi `hrv theme info --json` 
 
 /** The prompt block a round gets when its token probe was skipped after an earlier probe saw a dead hrv token. */
 function readOnlyBlock(fatal) {
-  return `\n${READ_ONLY_HEADING}\nLần probe trước của job này thấy token hrv không dùng được (theme ${fatal.themeId ?? "?"}, org ${fatal.orgId ?? "?"}: ${fatal.error ?? "không rõ"}) và Leader bỏ qua probe vòng này. Cho tới khi \`hrv theme info --json\` (cwd = thư mục project) trả đúng bound_id: chỉ ĐỌC (đọc file, đo storefront, ghi report). KHÔNG sửa file theme, KHÔNG push, KHÔNG lệnh theme ghi nào. Lệnh hrv tự chạy được: \`hrv theme info --json\` và, chỉ khi một khối \`# LOGIN\` của job này cho phép (tối đa MỘT lần login cho cả job), bốn dòng đăng nhập \`hrv whoiam\`, \`hrv refresh-all\`, \`hrv login --no-open\`, \`hrv select <orgId>\`. Việc cần thêm lệnh hrv khác thì ghi STATUS: NEEDS_INPUT nêu đúng chỗ vướng.\n`;
+  return `\n${READ_ONLY_HEADING}\nLần probe trước của job này thấy token hrv không dùng được (theme ${fatal.themeId ?? "?"}, org ${fatal.orgId ?? "?"}: ${fatal.error ?? "không rõ"}) và Leader bỏ qua probe vòng này. Cho tới khi \`hrv theme info --json\` (cwd = thư mục project) trả đúng bound_id: chỉ ĐỌC (đọc file, đo storefront, ghi report). KHÔNG sửa file theme, KHÔNG push, KHÔNG lệnh theme ghi nào. Lệnh hrv tự chạy được: \`hrv theme info --json\`. Bốn dòng đăng nhập (\`hrv whoiam\`, \`hrv refresh-all\`, \`hrv login --no-open\`, \`hrv select <orgId>\`) không bị cấm ở vòng LOGIN, nhưng chỉ chạy khi một khối \`# LOGIN\` (có đủ quy trình OTP) nằm trong CHÍNH prompt này và job còn lượt login; không có khối đó thì KHÔNG mở login (không có cách lấy mã), ghi STATUS: NEEDS_INPUT. Việc cần thêm lệnh hrv khác cũng ghi NEEDS_INPUT nêu đúng chỗ vướng.\n`;
 }
 
 // ---------------------------------------------------------------- LOGIN round (dead hrv token)
@@ -775,7 +775,7 @@ function loginBlock({ orgId, email, reason, since, themeId }) {
     `1. \`hrv whoiam\` (đọc bảng một lần, không redirect ra file): org ${orgId} có trong danh sách thì làm bước 2, vắng thì nhảy sang bước 3.`,
     `2. \`hrv refresh-all\` (không thêm cờ), rồi \`hrv theme info --json\`: thành công và trả đúng bound_id thì XONG, không login, không OTP; ghi hai kết quả đo vào evidence.`,
     `3. Login (token vẫn chết hoặc org vắng): mở trước một tab AntiFan mới (anti.browser.tabs.create). Chạy \`hrv login --no-open\` bằng tool bash với async:true (CLI chờ tối đa 300 s; không ghi URL nó in ra vào report), mở \`http://localhost:9999/login\` ở tab đó, ở accounts.haravan.com gõ email \`${email}\` rồi Tiếp tục. Trang \`/account/verify-otp\` có sáu ô một ký tự: KHÔNG rời trang đó. Nếu Haravan đòi mật khẩu thì ghi NEEDS_INPUT (tài khoản này không có mật khẩu).`,
-    `4. Lấy OTP, một dòng bằng tool bash: \`node ${otp} --since ${since} --wait 120\`. Nó chờ mã từ otp-inbox (poll 5 s), đưa mã thẳng vào clipboard và chỉ in \`{found,len,ageSec}\`, không bao giờ in mã. \`found:true\`: dán bằng anti.agent.sequence (Ctrl+V vào ô OTP đầu tiên; dán điền hết sáu ô), rồi NGAY \`node ${otp} --clear\` để ghi đè clipboard bằng chuỗi rỗng.`,
+    `4. Lấy OTP, một dòng bằng tool bash: \`node ${otp} --since ${since} --wait 120\` (số \`--since\` đã là mốc dưới Leader tính lúc dispatch: giữ nguyên, đừng thay). Nó chờ mã từ otp-inbox (poll 5 s), đưa mã thẳng vào clipboard và chỉ in \`{found,len,ageSec}\`, không bao giờ in mã. \`found:true\`: dán bằng anti.agent.sequence (Ctrl+V vào ô OTP đầu tiên; dán điền hết sáu ô), rồi NGAY \`node ${otp} --clear\` để ghi đè clipboard bằng chuỗi rỗng.`,
     `5. Dự phòng: \`found:false\` sau 120 s thì đọc OTP bằng Telegram Web đã đăng nhập theo skill haravan-login-via-otp (references/telegram-otp.md: lọc From Haravan, tuổi tối đa 120 s, đường mã trang → clipboard → Ctrl+V → clipboard rỗng). Vẫn không có mã dùng được: gửi lại OTP MỘT lần bằng nút gửi lại của trang rồi lặp bước 4 (cùng \`--since ${since}\`); hết lần gửi lại thì NEEDS_INPUT, không login lần hai.`,
     `6. CLI in "Đăng nhập thành công." thì \`hrv select ${orgId}\` (đúng orgId này), rồi \`hrv theme info --json\` phải trả đúng bound_id; sau đó mới làm việc của job.`,
     `7. Dọn: clipboard rỗng, đóng tab đã mở, dừng tiến trình login. Report ghi trong evidence: có login hay không, số lần gửi lại OTP, nguồn mã (otp-inbox hoặc Telegram), kết quả \`hrv theme info --json\`.`,
@@ -1250,31 +1250,42 @@ async function cmdDispatch(flags) {
   let login = null;
   if (themeCwd && job.subject.kind !== "adhoc" && !skipProbe && fs.existsSync(path.join(themeCwd, ".haravan-cli_local.json"))) {
     tokenProbe = runTokenProbe(themeCwd);
-    if (tokenProbe.fatal && (kind === "work" || kind === "followup")) {
+    if (tokenProbe.fatal && kind !== "review") {
       // Remembered on the job: a later --skip-token-probe must not hide that this token was seen dead.
       job.tokenProbeFatal = { at: Date.now(), themeId: tokenProbe.themeId, orgId: tokenProbe.orgId, error: tokenProbe.error };
       saveJob(dir, job);
       // A dead token is no longer a refusal (owner Tài, 24/11/2026): the round signs in itself. Only what the login needs is checked here.
+      // A close round without a usable binding org only warns (it was never refused for a dead token); work/followup rounds are refused.
       const orgId = bindingOrgId(themeCwd);
       const tried = job.rounds.find((r) => r.login && !r.deadAt);
       const where = `hrv token is not usable in ${fwd(themeCwd)} (theme ${tokenProbe.themeId ?? "?"}, org ${tokenProbe.orgId ?? "?"}): ${tokenProbe.error}`;
-      if (!orgId) {
-        throw new CliError(
-          EXIT.REFUSED,
-          `${where}. The login round cannot name the org: .haravan-cli_local.json in that folder has no numeric org_id. Add the org (node ${fwd(path.join(HERE, "shop-org-resolve.mjs"))} <domain> prints it, hrv-whoiam-find.mjs lists the orgs of the signed-in account), then dispatch again`,
-          { themeId: tokenProbe.themeId, orgId: tokenProbe.orgId, probeError: tokenProbe.error, next: `put org_id into ${fwd(path.join(themeCwd, ".haravan-cli_local.json"))}, then dispatch again` },
-        );
+      if (!orgId && kind === "close") {
+        process.stderr.write(`warning: ${where}; .haravan-cli_local.json has no numeric org_id, so no LOGIN block was attached: the close round will report NEEDS_INPUT\n`);
+      } else {
+        if (!orgId) {
+          throw new CliError(
+            EXIT.REFUSED,
+            `${where}. The login round cannot name the org: .haravan-cli_local.json in that folder has no numeric org_id. Add the org (node ${fwd(path.join(HERE, "shop-org-resolve.mjs"))} <domain> prints it, hrv-whoiam-find.mjs lists the orgs of the signed-in account), then dispatch again`,
+            { themeId: tokenProbe.themeId, orgId: tokenProbe.orgId, probeError: tokenProbe.error, next: `put org_id into ${fwd(path.join(themeCwd, ".haravan-cli_local.json"))}, then dispatch again` },
+          );
+        }
+        if (tried) {
+          throw new CliError(
+            EXIT.REFUSED,
+            `${where}. Round ${tried.n} of this job already tried a login (one login per job, E:/Work/AGENTS.md section 8) and the token is still dead: stop, read that round's report, and ask the owner`,
+            {
+              themeId: tokenProbe.themeId,
+              orgId,
+              probeError: tokenProbe.error,
+              loginRound: tried.n,
+              next: `the job's one login is spent (round ${tried.n}); a real retry needs the owner to sign in first. For a read-only round meanwhile: dispatch again with --skip-token-probe --reason "<why>" (its prompt is READ-ONLY and names no login)`,
+            },
+          );
+        }
+        login = { orgId, email: LOGIN_EMAIL, reason: String(tokenProbe.error ?? "không rõ").replace(/\s+/g, " ").slice(0, 200), since: Date.now() };
+        if (!rendered.includes(LOGIN_HEADING)) rendered = `${rendered.replace(/\s*$/, "")}\n${loginBlock({ ...login, themeId: tokenProbe.themeId })}`;
+        process.stderr.write(`warning: ${where}; LOGIN round: the worker signs in as ${LOGIN_EMAIL} (OTP from otp-inbox) - send the owner the ownerNotice line, no answer is awaited\n`);
       }
-      if (tried) {
-        throw new CliError(
-          EXIT.REFUSED,
-          `${where}. Round ${tried.n} of this job already tried a login (one login per job, E:/Work/AGENTS.md section 8) and the token is still dead: stop, read that round's report, and ask the owner`,
-          { themeId: tokenProbe.themeId, orgId, probeError: tokenProbe.error, loginRound: tried.n, next: `read round ${tried.n}'s report; the login budget of this job is spent, so ask the owner before another attempt` },
-        );
-      }
-      login = { orgId, email: LOGIN_EMAIL, reason: String(tokenProbe.error ?? "không rõ").replace(/\s+/g, " ").slice(0, 200), since: Date.now() };
-      if (!rendered.includes(LOGIN_HEADING)) rendered = `${rendered.replace(/\s*$/, "")}\n${loginBlock({ ...login, themeId: tokenProbe.themeId })}`;
-      process.stderr.write(`warning: ${where}; LOGIN round: the worker signs in as ${LOGIN_EMAIL} (OTP from otp-inbox) - send the owner the ownerNotice line, no answer is awaited\n`);
     }
     if (tokenProbe.ok === true) delete job.tokenProbeFatal;
     if (tokenProbe.ok === false) {
@@ -2399,6 +2410,7 @@ function cmdStatus(flags) {
       nextReportPath: reportPathFor(dir, job, job.rounds.length + 1),
       ...(overridesOf(job).length ? { overrides: overridesOf(job) } : {}),
       ...(job.rounds.some((r) => r.skipTokenProbe) ? { tokenProbeSkips: job.rounds.filter((r) => r.skipTokenProbe).map((r) => ({ round: r.n, ...r.skipTokenProbe })) } : {}),
+      ...(job.rounds.some((r) => r.login) ? { loginRounds: job.rounds.filter((r) => r.login).map((r) => ({ round: r.n, orgId: r.login.orgId, email: r.login.email, since: r.login.since, dead: Boolean(r.deadAt) })) } : {}),
       ...(Array.isArray(job.approvals) && job.approvals.length ? { ownerApprovals: job.approvals.map((a) => ({ round: a.round, via: a.via, commands: a.commands, quote: a.quote })) } : {}),
       outstandingDevRows: latestSheet(job)?.outstandingDevRows?.length ?? null,
       liveWorkers: live,

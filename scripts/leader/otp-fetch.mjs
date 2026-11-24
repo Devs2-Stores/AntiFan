@@ -87,7 +87,7 @@ async function readOnce(cfg, since) {
   }
   if (!body || body.found !== true) return { kind: "none" };
   const otp = typeof body.otp === "string" ? body.otp : "";
-  if (!/^[A-Za-z0-9]{4,12}$/.test(otp)) return { kind: "bad" };
+  if (!/^[A-Za-z0-9]{4,12}$/.test(otp)) return { kind: "burned" }; // found:true but unusable: the Worker already deleted the code
   const receivedAt = Number.isFinite(body.receivedAt) ? Number(body.receivedAt) : null;
   return { kind: "found", otp, receivedAt };
 }
@@ -137,6 +137,10 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
       }
       emit({ found: true, len: last.otp.length, ageSec: last.receivedAt == null ? null : Math.max(0, Math.round((Date.now() - last.receivedAt) / 1000)) });
       return 0;
+    }
+    if (last.kind === "burned") {
+      emit({ found: false, error: "worker returned an unusable code and deleted it: resend the OTP, then run this again" });
+      return 3;
     }
     if (last.kind === "unauthorized") {
       emit({ found: false, error: "unauthorized (401): the read key is wrong or revoked" });
