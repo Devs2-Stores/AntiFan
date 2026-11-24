@@ -15,13 +15,15 @@ import { claimedCells, parseReport, validateReportText } from "./report.mjs";
 import { defaultSessionsDir, judgeLiveness, pidAlive, sessionActivityAt, START_GRACE_MS, UNDELIVERED_AFTER_MS, undeliveredWhy } from "./worker-liveness.mjs";
 import { FALLBACK_TICK_MS, nextRunChange } from "./event-wait.mjs";
 import { pendingAskOf } from "./ask-dialog.mjs";
-import { buildBoard, jobProgress } from "./board.mjs";
+import { buildBoard, jobProgress, overrideSuffix, overridesOf } from "./board.mjs";
 import { reportHeadOf } from "./report-head.mjs";
 import { ingestOutcome, listPending } from "./learn.mjs";
 import { wrapUntrusted } from "./untrusted.mjs";
 import { readRegistry } from "./fleet-watch.mjs";
 import { crossCheckRound } from "./evidence-xcheck.mjs";
 import { blockWarning, defaultAuthDb, defaultConfigFile, isIdeSuffixRoute, providerBlock, resolveWorkerModel } from "./worker-model.mjs";
+import { evidenceRecord, evidenceRefusals, loadEvidence, ownerQuoteProblem, scanCliApprovals } from "./qa-gates.mjs";
+import { index as shopFolderIndex } from "./shop-folder-index.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_JOBS_ROOT = "E:/Work/scratch/leader";
@@ -105,12 +107,14 @@ Commands
        Without --gid the sheet's first tab is exported (plain /export?format=csv). --no-sheet is for an
        issue that has no Google Sheet: a header-only stub snapshot is written, verify-sheet reports N/A
        (never PASS) and the sheet is not a required verification.
+       A feedback init also lists every theme folder on this machine bound to the shop (shopFolders: path, org, theme id, theme
+       name): one shop can have several, one per theme. Pick the folder whose theme id matches the task before dispatch --cwd.
   fill-task --job DIR --task-file FILE [--customer-file FILE] [--label TEXT]
        Put the task text into the round-1 prompt skeleton (replaces its {{TASK}} marker; refused once a round exists
        or the marker is gone). --customer-file holds customer-written text (dashboard message, devNote, comments): it
        is fenced by untrusted.mjs and placed before the task text, so the Leader never assembles a prompt by hand.
   dispatch --job DIR --worker TERMINAL [--prompt FILE] [--kind work|followup|close|review]
-       [--mode auto|fresh|followup] [--cwd DIR] [--skip-token-probe]
+       [--mode auto|fresh|followup] [--cwd DIR] [--skip-token-probe --reason "<why>"] [--owner-quote "<owner's words>"]
        [--allow-busy] [--allow-low-memory] [--allow-low-disk] [--allow-no-owner] [--allow-extra-round --reason "<text>"]
        [--allow-ide-suffix-model] [--cap name=NUMBER]... [--forbid "<action>"]...
        Without --prompt a work/followup round uses the round's own prompt file (<slug>.prompt.md that init wrote, later
@@ -153,7 +157,16 @@ Commands
        holds .haravan-cli_local.json (a bound theme), dispatch runs scripts/leader/hrv-token-probe.mjs there (8 s deadline)
        BEFORE the round is recorded: an expired/unrefreshable hrv token refuses the dispatch (exit 4) and tells you the
        owner must run 'hrv login' for that shop, instead of a worker spending the whole round on it. A probe that cannot
-       run (no CLI helper, no binding, timeout) only warns; --skip-token-probe skips the probe.
+       run (no CLI helper, no binding, timeout) only warns; --skip-token-probe skips the probe but needs --reason "<why>" (stored on
+       the round, printed by status); when an earlier probe of this job saw a dead token, a skipped round's prompt gets a READ-ONLY
+       block until the owner has logged in.
+       A theme bound to a LIVE theme (probe role main) is announced as liveTheme:true (output + stderr): the worker pushes straight to
+       it (owner decision 03/11/2026, unchanged), so your QA comes after the push; the round then needs a pre-change backup manifest,
+       one smoke per push and a rollback statement in its report. With --cwd the output also warns when the shop has several bound
+       theme folders (shopFolders).
+       A followup round whose prompt names a CLI command outside E:/Work/AGENTS.md section 8 (hrv select, hrv theme info|fetch|push,
+       plus hrv whoiam, hrv refresh-all, hrv login --no-open and hrv theme dev) is refused (exit 4) unless --owner-quote "<the
+       owner's own words>" is given; the quote is stored in job.approvals[].
   wait-any [--leader TERMINAL] [--timeout-min N] [--stale-min 90] [--undelivered-sec 90]
        Watch ALL dispatched jobs of the Leader at once and return when the FIRST one settles, dies or needs the
        user (event "first": job, jobDir, exit). Handle that job now (validate, verify, ask the user, close), then
@@ -179,21 +192,31 @@ Commands
        (evidence/pushed/review.findings arrays of strings, verify[].expect, needsInput.options), and the handover rules
        when --job names a leaderQa job. Exit 0 valid, 1 every error listed, 2 the file cannot be read. A worker self-checks
        its report with this: validate-report always answers "not settled yet" while the worker still runs.
-  answer --job DIR --text "<answer>" [--choice "<option>"]
+  answer --job DIR --text "<answer>" [--choice "<option>"] [--owner-quote "<owner's words>"]
        Record the user's answer to a NEEDS_INPUT round (state needs_input) and reopen that round: the answer lands in the
        ledger (job.answers, round.answer), state goes back to dispatched so wait watches the worker's next turn, and the
        command prints the one-line message to send to the worker pane (terminal.write {message}). --choice must be one of
        the report's needsInput.options, quoted verbatim. The command writes no terminal itself.
+       The text is scanned like a followup prompt: naming a CLI command outside AGENTS.md section 8 needs --owner-quote.
   next --job DIR   One JSON line: job state, what blocks it and the exact command(s) valid now (the same board as
        status/needs-me). Use it instead of trying commands until one is accepted: every exit 2/4 refusal of record,
        approve, close, dispatch, validate-report and fill-task also prints a "next:" line with the same hint.
   verify-sheet --job DIR [--round N] [--current-file CSV]
        Diff the live sheet against snapshot-before.csv, keyed by task text, against the report's claims.
   record --job DIR --round N --kind dashboard|storefront|sheet|adhoc --status PASS|WARN|FAIL|UNREADABLE [--note T]...
+         [--evidence FILE]... [--override-reason "<why>"]
        Store the Leader's own measurement; state=verified once all required kinds pass. Leader-QA model (user, 23/11/2026:
        "Worker chỉ sửa và bàn giao, Leader mới là người review/QA lại"): a feedback job's DONE work/followup report must carry
        handover {checks, backup, risks}; the worker's smoke numbers never verify, so the job reaches verified only after YOU
        measured handover.checks (AntiFan, mobile + desktop) and recorded --kind storefront PASS|WARN. FAIL: followup round with your numbers.
+       A status is not self-declared (user, 24/11/2026: "Kaizen toàn bộ các sơ hở"):
+         --kind storefront|dashboard PASS|WARN needs --evidence FILE (repeatable): files you saved from your own measurement, written
+         after the round was dispatched; path and sha256 are stored on the round. A feedback job with a theme whose round listed files
+         or pushed can record storefront PASS only with a theme.qa_validate output whose summary.certification is CERTIFIED*; without
+         the receipt only WARN. A dashboard check needs the output of probe --name dashboard-issue that read the comments (a probe
+         with commentsSource none-found is refused: record UNREADABLE).
+         --kind sheet PASS|WARN is accepted only when the round's latest verify-sheet is PASS|WARN, or with --override-reason "<why>"
+         (stored, printed by needs-me and status).
        Jobs started before this model (no job.leaderQa) keep working: a missing handover is only a validate-report warning.
   probe --name themeId|overflow|element-rect|dashboard-issue|trello-card|telegram-otp [--selector CSS] [--id ID] [--limit N] [--after EPOCH_MS] [--copy-secret [N]]
        Print the read-only expression to pass to anti.browser.evaluate.
@@ -620,6 +643,82 @@ function allocJobDir(slug) {
   return { name, dir };
 }
 
+// ---------------------------------------------------------------- QA-gate helpers (G1-G12 of the 24/11/2026 Kaizen)
+
+/** Theme folders on this machine bound to a shop (by folder name, shop_domain or the same org): a shop can have several, one per theme. */
+function shopFolders(shop) {
+  try {
+    const r = shopFolderIndex(shop);
+    if (r.error) return [];
+    return [...(r.customizes ?? []), ...(r.themes ?? [])]
+      .filter((x) => x.binding?.theme_id)
+      .map((x) => ({ path: x.path, orgId: x.binding.org_id ?? null, themeId: x.binding.theme_id, themeName: x.binding.theme_name ?? null }));
+  } catch {
+    return [];
+  }
+}
+
+const multiBind = (folders) => new Set(folders.map((f) => f.themeId)).size > 1;
+const sameFolder = (a, b) => fwd(path.resolve(a)).toLowerCase().replace(/\/+$/, "") === fwd(path.resolve(b)).toLowerCase().replace(/\/+$/, "");
+
+/** One line naming every bound folder of the shop, and which one a round is about to use: Zesta had two, the Leader saw one and told a worker to create a third. */
+function shopFolderWarning(shop, folders, cwd) {
+  const list = folders.map((f) => `${f.path} (theme ${f.themeId}${f.themeName ? ` "${f.themeName}"` : ""}, org ${f.orgId ?? "?"})`).join("; ");
+  const chosen = cwd ? ` This round's cwd is ${fwd(cwd)}${folders.some((f) => sameFolder(f.path, cwd)) ? "" : ", which is none of them"}.` : "";
+  return `shop ${shop} has ${folders.length} theme folders bound to different themes: ${list}.${chosen} Use the folder whose theme id the task names; never create a new folder for a theme that already has one.`;
+}
+
+const REFERENCE_RE = /ảnh\s*mẫu|hình\s*mẫu|như\s+mẫu|theo\s+mẫu|giống\s+mẫu|sample\s*image/i;
+
+/** Whether the task text (round prompt after the worker header, or the sheet snapshot) points at a sample image the Leader QA must compare against. */
+function referenceNeeded(job, record, dir) {
+  const texts = [];
+  try {
+    const prompt = fs.readFileSync(record.promptPath, "utf8");
+    const at = prompt.indexOf("\n# Việc\n");
+    texts.push(at >= 0 ? prompt.slice(at) : prompt);
+  } catch {}
+  if (job.snapshotBefore && !job.subject?.noSheet) {
+    try {
+      texts.push(fs.readFileSync(path.join(dir, job.snapshotBefore), "utf8"));
+    } catch {}
+  }
+  return texts.some((t) => REFERENCE_RE.test(t));
+}
+
+/** What validateReportText needs to know about the round besides the job: close token, caps, whether the theme is live, its role, whether a sample image is in play. */
+function roundReportCtx(job, record, kind, dir) {
+  const approval = job.approval ?? {};
+  return {
+    kind,
+    caps: record.caps,
+    closeToken: approval.closeToken,
+    tokenUsedAt: approval.tokenUsedAt,
+    tokenUsedRound: approval.tokenUsedRound,
+    liveTheme: typeof record.liveTheme === "boolean" ? record.liveTheme : null,
+    themeRole: typeof record.themeRole === "string" ? record.themeRole : null,
+    referenceNeeded: referenceNeeded(job, record, dir),
+  };
+}
+
+/** The files or pushes a round's report listed (parsed from its report file); false when it lists none or cannot be read. */
+function roundShipped(round) {
+  try {
+    const j = JSON.parse(extractJson(fs.readFileSync(round.reportPath, "utf8")));
+    return (Array.isArray(j.files) && j.files.length > 0) || (Array.isArray(j.pushed) && j.pushed.length > 0);
+  } catch {
+    return false;
+  }
+}
+
+const STATUS_ORDER = ["PASS", "WARN", "FAIL", "UNREADABLE"];
+const READ_ONLY_HEADING = "# CHỈ ĐỌC cho tới khi Leader báo đã login";
+
+/** The prompt block a round gets when its token probe was skipped after an earlier probe saw a dead hrv token. */
+function readOnlyBlock(fatal) {
+  return `\n${READ_ONLY_HEADING}\nLần probe trước của job này thấy token hrv không dùng được (theme ${fatal.themeId ?? "?"}, org ${fatal.orgId ?? "?"}: ${fatal.error ?? "không rõ"}) và Leader bỏ qua probe vòng này. Cho tới khi Leader báo đã login: chỉ ĐỌC (đọc file, đo storefront, ghi report). KHÔNG chạy lệnh hrv nào, KHÔNG sửa file theme, KHÔNG push. Việc cần hrv thì ghi STATUS: NEEDS_INPUT nêu đúng chỗ vướng.\n`;
+}
+
 const ADHOC_REFUSED_FLAGS = ["issue-id", "shop", "sheet", "gid", "no-sheet", "snapshot-file", "cols-work", "cols-owner", "cols-note", "cols-done", "keys", "profile"];
 
 /** init --kind adhoc: a job that is not a feedback issue. It has no issue, shop, sheet or snapshot. */
@@ -693,6 +792,7 @@ async function cmdInit(flags) {
   if (!analysis.ok) throw new CliError(EXIT.USAGE, `snapshot does not match the column headers: ${analysis.error}`);
 
   const { name, dir } = allocJobDir(slug);
+  const folders = shopFolders(shop);
   fs.writeFileSync(path.join(dir, "snapshot-before.csv"), csv);
 
   const leaderRun = readRun(runsDirOf(flags), leaderTerminal);
@@ -720,6 +820,7 @@ async function cmdInit(flags) {
     state: "open",
     rounds: [],
   };
+  if (folders.length) job.shopFolders = folders;
   const reportPath = reportPathFor(dir, job, 1);
   const promptPath = promptPathFor(dir, job, 1);
   const skeleton = `${render(applyProfile(readTemplate("worker-header.md"), profile, !noSheet), jobVars(job, 1, reportPath, "work", dir))}\n# Việc\n{{TASK}}\n`;
@@ -738,6 +839,7 @@ async function cmdInit(flags) {
     outstandingDevRows: outstandingDevRows(analysis).length,
     promptPath,
     nextReportPath: reportPath,
+    ...(folders.length ? { shopFolders: folders, ...(multiBind(folders) ? { shopFolderWarning: shopFolderWarning(shop, folders, null) } : {}) } : {}),
     note: "replace the {{TASK}} line in the prompt, then run dispatch",
   });
   return EXIT.OK;
@@ -898,6 +1000,13 @@ async function cmdDispatch(flags) {
   }
   if (!rendered.includes(reportPath)) throw new CliError(EXIT.REFUSED, `prompt does not tell the worker where to write the report (${reportPath})`);
   if (job.subject.kind === "adhoc" && !rendered.includes(job.job)) throw new CliError(EXIT.REFUSED, `prompt does not name the job (${job.job}): start from the init skeleton`);
+  // A follow-up may name only the commands the owner approved in E:/Work/AGENTS.md section 8: a Leader that approves another
+  // CLI command on its own (`hrv theme list` in answer-1.md of zesta-369) needs the owner's own words on record.
+  let cliApproval = null;
+  if (kind === "followup") {
+    const mentions = scanCliApprovals(rendered);
+    if (mentions.length) cliApproval = requireOwnerQuote(flags, mentions, `the round ${n} prompt ${fwd(promptPath)}`);
+  }
 
   const runsDir = runsDirOf(flags);
   const run = readRun(runsDir, worker);
@@ -947,10 +1056,27 @@ async function cmdDispatch(flags) {
     if (!isDir) throw new CliError(EXIT.USAGE, `--cwd ${fwd(themeCwd)} is not a directory: pass the worker's project folder (a Haravan theme folder holds .haravan-cli_local.json)`);
     job.cwd = fwd(themeCwd);
   }
+  let folderWarning = null;
+  let folderList = [];
+  if (cwdFlag !== undefined && job.subject.kind !== "adhoc") {
+    folderList = shopFolders(job.subject.shop);
+    if (multiBind(folderList)) {
+      folderWarning = shopFolderWarning(job.subject.shop, folderList, themeCwd);
+      process.stderr.write(`warning: ${folderWarning}\n`);
+    }
+  }
+  const skipProbe = one(flags, "skip-token-probe") === true;
+  const skipReason = String(one(flags, "reason") ?? "").trim();
+  if (skipProbe && !skipReason) {
+    throw new CliError(EXIT.USAGE, '--skip-token-probe needs --reason "<why the hrv token check is skipped>": the reason is stored on the round and printed by status');
+  }
   let tokenProbe = null;
-  if (themeCwd && job.subject.kind !== "adhoc" && one(flags, "skip-token-probe") !== true && fs.existsSync(path.join(themeCwd, ".haravan-cli_local.json"))) {
+  if (themeCwd && job.subject.kind !== "adhoc" && !skipProbe && fs.existsSync(path.join(themeCwd, ".haravan-cli_local.json"))) {
     tokenProbe = runTokenProbe(themeCwd);
     if (tokenProbe.fatal && (kind === "work" || kind === "followup")) {
+      // Remembered on the job: a later --skip-token-probe must not hide that this token was seen dead.
+      job.tokenProbeFatal = { at: Date.now(), themeId: tokenProbe.themeId, orgId: tokenProbe.orgId, error: tokenProbe.error };
+      saveJob(dir, job);
       const retry = `node ${fwd(path.join(HERE, "leader-job.mjs"))} dispatch --job ${fwd(dir)} --worker ${worker}${kind === "work" ? "" : ` --kind ${kind}`}`;
       throw new CliError(
         EXIT.REFUSED,
@@ -958,10 +1084,14 @@ async function cmdDispatch(flags) {
         { themeId: tokenProbe.themeId, orgId: tokenProbe.orgId, probeError: tokenProbe.error, next: `the owner runs \`hrv login\` for org ${tokenProbe.orgId ?? "?"} in ${fwd(themeCwd)}; then: ${retry}` },
       );
     }
+    if (tokenProbe.ok === true) delete job.tokenProbeFatal;
     if (tokenProbe.ok === false) {
       process.stderr.write(`warning: hrv token probe in ${fwd(themeCwd)} could not answer (${tokenProbe.error}); dispatch continues, verify the hrv session before the worker edits\n`);
     }
   }
+  // --skip-token-probe after a probe that saw the token dead: the round may only read until the owner has logged in.
+  const priorFatal = skipProbe && (kind === "work" || kind === "followup") && job.tokenProbeFatal ? job.tokenProbeFatal : null;
+  if (priorFatal && !rendered.includes(READ_ONLY_HEADING)) rendered = `${rendered.replace(/\s*$/, "")}\n${readOnlyBlock(priorFatal)}`;
   let mode = one(flags, "mode") || "auto";
   if (!["auto", "fresh", "followup"].includes(mode)) throw new CliError(EXIT.USAGE, "--mode must be auto, fresh or followup");
   if (mode === "auto") mode = run && run.ompSessionId && run.state !== "ended" ? "followup" : "fresh";
@@ -1020,8 +1150,24 @@ async function cmdDispatch(flags) {
   if (kind === "review") round.stateBefore = job.state;
   if (extraRoundReason) round.extraRoundReason = extraRoundReason;
   if (caps) round.caps = caps;
+  if (tokenProbe) {
+    round.tokenProbe = { ok: tokenProbe.ok, fatal: tokenProbe.fatal, themeId: tokenProbe.themeId, orgId: tokenProbe.orgId, ...(tokenProbe.role ? { role: tokenProbe.role } : {}), ...(tokenProbe.error ? { error: tokenProbe.error } : {}) };
+    if (typeof tokenProbe.role === "string") {
+      round.themeRole = tokenProbe.role;
+      round.liveTheme = tokenProbe.role === "main";
+    }
+  }
+  if (typeof round.liveTheme !== "boolean") {
+    // No probe this round (skipped, or no binding): the theme is the one an earlier round measured.
+    const known = [...job.rounds].reverse().find((r) => typeof r.liveTheme === "boolean");
+    if (known) Object.assign(round, { themeRole: known.themeRole, liveTheme: known.liveTheme, roleFromRound: known.n });
+  }
+  if (skipProbe) round.skipTokenProbe = { reason: skipReason, ...(priorFatal ? { afterFatalProbe: true } : {}) };
   const replaced = liveWorkers(job, runsDir, inUseElsewhere(readLeaderJobs(job.leader?.terminal), job)).filter((w) => w.terminal !== worker);
+  const liveThemeWarning = round.liveTheme === true ? `theme ${round.tokenProbe?.themeId ?? job.cwd ?? ""} is LIVE (role main): the worker pushes straight to what customers see now (owner decision 03/11/2026, unchanged), so your QA happens AFTER the push. The report must carry a pre-change backup manifest per pushed file, a smoke after EVERY push and a rollback statement; a copy-first theme (owner decision pending) would remove the exposure.` : null;
+  if (liveThemeWarning) process.stderr.write(`warning: liveTheme: ${liveThemeWarning}\n`);
   job.rounds.push(round);
+  if (cliApproval) job.approvals = [...(Array.isArray(job.approvals) ? job.approvals : []), { at: round.dispatchedAt, via: "dispatch", round: n, ...cliApproval }];
   job.state = "dispatched";
   saveJob(dir, job);
   emit({
@@ -1050,6 +1196,10 @@ async function cmdDispatch(flags) {
     ...(commit ? { commitHeadroomBytes: commit.headroomBytes, commitFloorBytes: commit.floorBytes } : {}),
     ...(job.cwd ? { cwd: job.cwd } : {}),
     ...(tokenProbe ? { tokenProbe } : {}),
+    ...(round.liveTheme === true ? { liveTheme: true, liveThemeWarning } : {}),
+    ...(round.skipTokenProbe ? { skipTokenProbe: round.skipTokenProbe } : {}),
+    ...(folderWarning ? { shopFolders: folderList, shopFolderWarning: folderWarning } : {}),
+    ...(cliApproval ? { ownerApproval: cliApproval } : {}),
     ...(replaced.length || mode === "followup"
       ? {
           ...(replaced.length ? { closeNow: replaced.filter((w) => w.runState !== "running").map((w) => w.terminal), replacedStillRunning: replaced.filter((w) => w.runState === "running").map((w) => w.terminal) } : {}),
@@ -1311,8 +1461,7 @@ function cmdLintReport(flags) {
     const record = pickRound(job, flags);
     round = record.n;
     kind = kindFlag ?? record.kind;
-    const approval = job.approval ?? {};
-    ctx = { kind, caps: record.caps, closeToken: approval.closeToken, tokenUsedAt: approval.tokenUsedAt, tokenUsedRound: approval.tokenUsedRound };
+    ctx = roundReportCtx(job, record, kind, loaded.dir);
     if (kind !== record.kind) extraWarnings.push(`--kind ${kind} differs from round ${record.n} kind ${record.kind}`);
   } else {
     const parsed = parseReport(text);
@@ -1373,8 +1522,7 @@ function cmdValidateReport(flags) {
   let needsInput = null;
   const warnings = [];
   if (text !== null) {
-    const approval = job.approval ?? {};
-    const v = validateReportText(text, job, round.n, { kind: round.kind, caps: round.caps, closeToken: approval.closeToken, tokenUsedAt: approval.tokenUsedAt, tokenUsedRound: approval.tokenUsedRound });
+    const v = validateReportText(text, job, round.n, roundReportCtx(job, round, round.kind, dir));
     needsInput = v.needsInput;
     status = v.status;
     json = v.json;
@@ -1523,8 +1671,9 @@ async function cmdVerifySheet(flags) {
     readError = e.message;
   }
   if (afterText !== null) fs.writeFileSync(path.join(dir, `sheet-after.r${round.n}.csv`), afterText);
-  const v = verifySheet({ beforeText: before, afterText, cols: job.subject.cols, claimed: claimedCells(rep), readError });
-  round.verification.sheet = { ...v, at: Date.now() };
+  const originalText = prior ? fs.readFileSync(path.join(dir, job.snapshotBefore), "utf8") : undefined;
+  const v = verifySheet({ beforeText: before, afterText, cols: job.subject.cols, claimed: claimedCells(rep), readError, originalText });
+  round.verification.sheet = { ...v, at: Date.now(), from: "verify-sheet" };
   const res = applyVerification(job, round);
   saveJob(dir, job);
   for (const n of v.notes) process.stderr.write(`sheet round ${round.n}: ${n}\n`);
@@ -1536,6 +1685,7 @@ async function cmdVerifySheet(flags) {
     status: v.status,
     changedCells: v.changedCells.length,
     claimed: v.claimedCount,
+    carried: v.carriedCount ?? 0,
     foreign: v.foreign.length,
     added: v.added.length,
     removed: v.removed.length,
@@ -1559,9 +1709,11 @@ export function followupPrefill(job, n) {
   const prev = [...job.rounds].reverse().find((r) => r.n < n && (r.kind === "work" || r.kind === "followup") && !r.deadAt);
   if (!prev) return "";
   const lines = [];
+  let carriedNote = false;
   try {
     const rep = JSON.parse(extractJson(fs.readFileSync(prev.reportPath, "utf8")));
     if (Array.isArray(rep.notChecked)) for (const x of rep.notChecked) if (typeof x === "string" && x.trim()) lines.push(`notChecked: ${x.trim()}`);
+    carriedNote = Array.isArray(rep.sheet?.cells) && rep.sheet.cells.length > 0;
   } catch {
     // no readable report: nothing to carry over from it
   }
@@ -1570,15 +1722,38 @@ export function followupPrefill(job, n) {
     const notes = Array.isArray(v.notes) ? v.notes.filter((x) => typeof x === "string" && x.trim()).join("; ") : "";
     lines.push(`${v.status} ${kind}${notes ? `: ${notes}` : ""}`);
   }
-  if (!lines.length) return "";
+  if (!lines.length && !carriedNote) return "";
   let body = lines.join("\n");
   if (body.length > PREFILL_MAX_CHARS) body = `${body.slice(0, PREFILL_MAX_CHARS - 1)}…`;
-  return `\n${PREFILL_HEADING}\nVòng ${prev.n}: các mục report chưa kiểm và ghi chú WARN/FAIL của Leader. Xử lý hoặc nêu lý do bỏ qua trong report.\n${wrapUntrusted(body, { label: `round-${prev.n}` })}\n`;
+  const sheetLine = carriedNote ? "Sheet: report vòng này chỉ claim ô đổi TRONG vòng này, hoặc ô đã đổi ở vòng trước và vẫn bằng `expect` (verify-sheet gọi là carried): cả hai đều qua. Không cần ghi lại ô cũ để chứng minh, và `keyText` có thể là chữ nguyên văn, tiền tố hoặc một đoạn duy nhất của ô.\n" : "";
+  return `\n${PREFILL_HEADING}\nVòng ${prev.n}: các mục report chưa kiểm và ghi chú WARN/FAIL của Leader. Xử lý hoặc nêu lý do bỏ qua trong report.\n${sheetLine}${lines.length ? `${wrapUntrusted(body, { label: `round-${prev.n}` })}\n` : ""}`;
 }
 
 function extractJson(text) {
   const m = /^```json[ \t]*\r?\n([\s\S]*?)\r?\n```[ \t]*$/m.exec(text);
   return m ? m[1] : "{}";
+}
+
+/**
+ * The owner's own words for a CLI command outside the approved set. A Leader may not approve a command on its own say-so
+ * (zesta-369: `hrv theme list` was approved in the Leader's answer); the quote is stored in job.approvals for the audit.
+ */
+function requireOwnerQuote(flags, mentions, where) {
+  const quote = one(flags, "owner-quote");
+  const list = mentions
+    .slice(0, 5)
+    .map((m) => `${m.command} (${m.why})`)
+    .join("; ");
+  if (quote === undefined || quote === true) {
+    throw new CliError(
+      EXIT.REFUSED,
+      `${where} names a CLI command outside the four forms of E:/Work/AGENTS.md section 8 and the three login forms: ${list}. A Leader may not approve other commands on its own: remove the line, or pass --owner-quote "<the owner's own words approving it>" (stored in job.approvals)`,
+      { commands: mentions.map((m) => m.command) },
+    );
+  }
+  const problem = ownerQuoteProblem(quote);
+  if (problem) throw new CliError(EXIT.USAGE, problem);
+  return { quote: String(quote).trim(), commands: mentions.map((m) => m.command) };
 }
 
 function cmdRecord(flags) {
@@ -1589,7 +1764,36 @@ function cmdRecord(flags) {
   const status = req(flags, "status");
   if (!VERIFY_KINDS.includes(kind)) throw new CliError(EXIT.USAGE, `--kind must be one of ${VERIFY_KINDS.join(", ")}`);
   if (!VERIFY_STATUSES.includes(status)) throw new CliError(EXIT.USAGE, `--status must be one of ${VERIFY_STATUSES.join(", ")}`);
-  round.verification[kind] = { status, notes: many(flags, "note"), at: Date.now() };
+  const passing = status === "PASS" || status === "WARN";
+  // A status is only as good as the file behind it (G1/G2): the evidence must exist, post-date the dispatch and say what the status says.
+  const ev = loadEvidence(many(flags, "evidence"), round.dispatchedAt);
+  if (ev.errors.length) throw new CliError(EXIT.REFUSED, `record --kind ${kind} --status ${status} refused: ${ev.errors.join(" | ")}`);
+  const themeShipped = job.subject?.kind === "feedback" && job.profile !== "sheet-only" && Boolean(job.subject.shop) && roundShipped(round);
+  const gaps = evidenceRefusals({ kind, status, entries: ev.entries, themeShipped });
+  if (gaps.length) throw new CliError(EXIT.REFUSED, `record --kind ${kind} --status ${status} refused: ${gaps.join(" | ")}`);
+  const at = Date.now();
+  const notes = many(flags, "note");
+  let entry = { status, notes, at, ...(ev.entries.length ? { evidence: ev.entries.map(evidenceRecord) } : {}) };
+  if (kind === "sheet" && passing) {
+    // G3: a sheet check is verify-sheet's result, or an override that states why a failed/absent check is acceptable.
+    const cur = round.verification.sheet;
+    const checked = cur?.from === "verify-sheet" && ["PASS", "WARN"].includes(cur.status);
+    const reason = String(one(flags, "override-reason") ?? "").trim();
+    if (checked) {
+      const worst = STATUS_ORDER[Math.max(STATUS_ORDER.indexOf(status), STATUS_ORDER.indexOf(cur.status))];
+      entry = { ...cur, status: worst, notes: [...(cur.notes ?? []), ...notes], recordedAt: at, ...(entry.evidence ? { evidence: entry.evidence } : {}) };
+    } else if (!reason) {
+      const seen = cur?.from === "verify-sheet" ? `the latest verify-sheet of round ${round.n} is ${cur.status}` : `verify-sheet has not run for round ${round.n}`;
+      throw new CliError(
+        EXIT.REFUSED,
+        `record --kind sheet --status ${status} refused: ${seen}. Run verify-sheet and fix what it lists, or pass --override-reason "<why the sheet is acceptable anyway>" (stored on the round and printed by needs-me and status)`,
+        { next: `node ${fwd(path.join(HERE, "leader-job.mjs"))} verify-sheet --job ${fwd(dir)} --round ${round.n}   (or record again with --override-reason "<why>")` },
+      );
+    } else {
+      entry.override = { reason, verifySheetStatus: cur?.from === "verify-sheet" ? cur.status : null, at };
+    }
+  }
+  round.verification[kind] = entry;
   const res = applyVerification(job, round);
   // Warn-only: what the worker did (transcript) vs what its report claims. Never blocks the record.
   let xcheck = null;
@@ -1598,8 +1802,20 @@ function cmdRecord(flags) {
     if (xcheck) round.xcheck = xcheck;
   } catch {}
   saveJob(dir, job);
-  emit({ cmd: "record", ok: status === "PASS" || status === "WARN", job: job.job, round: round.n, kind, status, state: job.state, missing: res.missing, ...(xcheck ? { xcheck: { corroborated: xcheck.corroborated.length, uncorroborated: xcheck.uncorroborated, contradicted: xcheck.contradicted } } : {}) });
-  return status === "PASS" || status === "WARN" ? EXIT.OK : EXIT.CHECK_FAILED;
+  emit({
+    cmd: "record",
+    ok: passing,
+    job: job.job,
+    round: round.n,
+    kind,
+    status: entry.status,
+    state: job.state,
+    missing: res.missing,
+    ...(entry.evidence ? { evidence: entry.evidence } : {}),
+    ...(entry.override ? { override: entry.override } : {}),
+    ...(xcheck ? { xcheck: { corroborated: xcheck.corroborated.length, uncorroborated: xcheck.uncorroborated, contradicted: xcheck.contradicted } } : {}),
+  });
+  return passing ? EXIT.OK : EXIT.CHECK_FAILED;
 }
 
 /**
@@ -1623,6 +1839,9 @@ function cmdAnswer(flags) {
     const listed = options.length ? options.map((o) => JSON.stringify(o)).join(", ") : "the report lists none";
     throw new CliError(EXIT.REFUSED, `--choice ${JSON.stringify(choice)} is not one of the options the worker listed (${listed}): quote one of them verbatim, or leave --choice out and put the decision in --text`);
   }
+  // The answer is typed into a worker pane: a CLI command in it needs the same owner words as one in a follow-up prompt.
+  const cliMentions = scanCliApprovals(`${text}\n${choice ?? ""}`);
+  const cliApproval = cliMentions.length ? requireOwnerQuote(flags, cliMentions, "the answer") : null;
   const run = readRun(runsDirOf(flags), round.worker.terminal);
   if (!run || run.unreadable) {
     throw new CliError(EXIT.REFUSED, `worker ${round.worker.terminal} has no readable run file: start a fresh worker and dispatch --kind followup with the answer as its prompt`);
@@ -1634,6 +1853,7 @@ function cmdAnswer(flags) {
   const question = report.needsInput?.question ?? null;
   round.answer = { at: now, text, choice, question, options, ...(report.needsInput?.onlyUser ? { onlyUser: true, reasons: report.needsInput.reasons ?? [] } : {}) };
   job.answers = [...(Array.isArray(job.answers) ? job.answers : []), { round: round.n, at: now, text, choice }];
+  if (cliApproval) job.approvals = [...(Array.isArray(job.approvals) ? job.approvals : []), { at: now, via: "answer", round: round.n, ...cliApproval }];
   // Reopen the same round: the worker's next turn counts as this round's turn (a new run after the current runSeq).
   round.preOmpSessionId = run.ompSessionId ?? round.preOmpSessionId;
   round.preRunSeq = typeof run.runSeq === "number" ? run.runSeq : 0;
@@ -1818,7 +2038,7 @@ export function nextCommands(job, dir) {
   const last = job.rounds.at(-1);
   const n = last?.n ?? 1;
   const adhoc = job.subject?.kind === "adhoc";
-  const record = (round, kinds) => kinds.map((k) => `${cli} record --job ${D} --round ${round} --kind ${k} --status PASS|WARN|FAIL|UNREADABLE`);
+  const record = (round, kinds) => kinds.map((k) => `${cli} record --job ${D} --round ${round} --kind ${k} --status PASS|WARN|FAIL|UNREADABLE${k === "storefront" || k === "dashboard" ? " --evidence <file of your measurement>" : ""}${k === "sheet" ? "   # PASS|WARN only after verify-sheet, or with --override-reason" : ""}`);
   switch (job.state) {
     case "open":
       return [`${cli} dispatch --job ${D} --worker <TERMINAL>`];
@@ -1908,7 +2128,7 @@ function cmdNext(flags) {
     job: job.job,
     jobDir: fwd(dir),
     state: job.state,
-    blocking: finishedUnsettled(job, runsDir) ?? blockingText(job),
+    blocking: finishedUnsettled(job, runsDir) ?? `${blockingText(job)}${overrideSuffix(job)}`,
     next: nextCommands(job, dir),
     ...(last ? { lastRound: { n: last.n, kind: last.kind, worker: last.worker?.terminal ?? null, reportStatus: last.report?.status ?? null, deadWhy: last.deadWhy ?? null } } : {}),
     ...(needsInput ? { needsInput } : {}),
@@ -1969,8 +2189,11 @@ function cmdStatus(flags) {
       })(),
       lastSettledAt: [...job.rounds].reverse().find((r) => r.settledAt)?.settledAt ?? null,
       lastWorker: last?.worker.terminal ?? null,
-      blocking: job.state === "closed" && leaks.length ? `close the leaked worker terminals: ${leaks.map((w) => w.terminal).join(", ")}` : finishedUnsettled(job, runsDir) ?? blockingText(job),
+      blocking: job.state === "closed" && leaks.length ? `close the leaked worker terminals: ${leaks.map((w) => w.terminal).join(", ")}` : finishedUnsettled(job, runsDir) ?? `${blockingText(job)}${overrideSuffix(job)}`,
       nextReportPath: reportPathFor(dir, job, job.rounds.length + 1),
+      ...(overridesOf(job).length ? { overrides: overridesOf(job) } : {}),
+      ...(job.rounds.some((r) => r.skipTokenProbe) ? { tokenProbeSkips: job.rounds.filter((r) => r.skipTokenProbe).map((r) => ({ round: r.n, ...r.skipTokenProbe })) } : {}),
+      ...(Array.isArray(job.approvals) && job.approvals.length ? { ownerApprovals: job.approvals.map((a) => ({ round: a.round, via: a.via, commands: a.commands, quote: a.quote })) } : {}),
       outstandingDevRows: latestSheet(job)?.outstandingDevRows?.length ?? null,
       liveWorkers: live,
       leakedWorkers: leaks.map((w) => w.terminal),
@@ -2353,7 +2576,7 @@ const NEXT_HINT_COMMANDS = new Set(["record", "approve", "close", "dispatch", "v
 
 /** The command shape to retype when a flag was wrong, so the option names never have to be guessed. */
 const COMMAND_FORMS = {
-  record: "record --job DIR --round N --kind dashboard|storefront|sheet|adhoc --status PASS|WARN|FAIL|UNREADABLE [--note TEXT]",
+  record: "record --job DIR --round N --kind dashboard|storefront|sheet|adhoc --status PASS|WARN|FAIL|UNREADABLE [--note TEXT] [--evidence FILE]... [--override-reason TEXT]",
   approve: "approve --job DIR [--allow-outstanding]   # only after the user's explicit yes",
   close: "close --job DIR [--without-done] [--keep-workers]",
   dispatch: "dispatch --job DIR --worker TERMINAL [--kind work|followup|close|review] [--prompt FILE] [--cwd DIR] [--skip-token-probe] [--allow-ide-suffix-model]",

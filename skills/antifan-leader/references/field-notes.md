@@ -18,3 +18,8 @@ Card passwords landed in two session logs when workers read `body.innerText` ins
 
 ## 2026-11-13 BILUX job
 A job ran 13 rounds because review rounds never counted and the extra-round flag had no limit; the ceilings in `feedback-rules-and-probes.md` came from it.
+
+## 2026-11-24 Worker-does, Leader-QAs gaps (owner: "Fix lại, Kaizen toàn bộ các sơ hở")
+- Role source: epres theme 1001522351, `hrv theme info --json` and the storefront at `/` (no `themeid`) both said `main`; the same storefront with `?themeid=1001522351` printed `Haravan.theme.role: "unpublished"`. A `?themeid=` preview therefore always reports `unpublished` and says nothing about the live role; trust `hrv-token-probe.mjs` / `hrv theme info --json` or the no-`themeid` page (password `haravan` per AGENTS §1.B).
+- Zesta-CUSNN: `backups/before-fetch-20261124-170952.zip` has 653 entries (413 assets, 152 snippets, 82 templates, 23 layout, 4 config) and every file mtime lies between 17:07 and 17:10 of that day, i.e. written by the same session's own earlier fetch (the folder was created 17:07:32); no older local file existed, so no earlier local-only work was overwritten. A second bound folder (`customizes/Zesta`, theme 1001507674) already existed and the Leader had not listed it (G8).
+- Proposal for the owner, NOT applied: copy-first for live themes (the worker duplicates the live theme, works and pushes only on the copy, the Leader QAs the copy, and only an approved copy is published). It removes the window in which a worker push is live before Leader QA; it needs a Haravan duplicate step and changes the 03/11/2026 decision, so it is yours to choose.

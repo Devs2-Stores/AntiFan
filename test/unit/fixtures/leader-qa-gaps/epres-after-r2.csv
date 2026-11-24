@@ -1,0 +1,17 @@
+Stage,ID,epres.myharavan.com,Mô tả,Ảnh 2 (bổ sung),Dev note kết quả
+Fixed,,,"bỏ các phần ""Đánh giá khách hàng"" ở tất cả các trang giúp em nhé ạ, vì các hình ảnh này là khách của nước ngoài nên không liên quan đến thị trường VN",,"Em đã fix ạ:
+- Đã ẩn các phần ""Đánh giá khách hàng"" ở Trang chủ, trang Our Innovation và trang chi tiết sản phẩm.
+- Số sao nhỏ trên thẻ sản phẩm vẫn giữ nguyên ạ."
+Fixed,,,"https://epres.myharavan.com/pages/our-innovation 
+
+sửa lại giao diện của section điều gì làm nên khoa học như ảnh mẫu bên phải ạ",,"Em đã fix ạ:
+- Section ""Điều gì làm khoa học của epres trở nên đột phá"" đã đổi sang dạng hàng thẻ bo góc theo ảnh mẫu, giữ nguyên nội dung các mục ""Không ..."".
+- Các thẻ hiện chưa có ảnh, anh/chị gửi ảnh từng thẻ nếu muốn thêm ạ."
+Fixed,,,"https://epres.myharavan.com/pages/our-story 
+
+chuyển cả trang https://epres.myharavan.com/pages/our-innovation sang trang câu chuyện, bên dưới section healthy hair 3-step",,"Em đã fix ạ:
+- Đã chuyển toàn bộ nội dung trang Our Innovation sang trang Our Story, nằm ngay bên dưới section Healthy Hair 3-Step.
+- Trang Our Innovation cũ vẫn còn, anh/chị cho em biết nếu muốn gỡ khỏi menu ạ."
+Fixed,,,"anh đẩy mục cách sử dụng của tất cả sp lên vị trí 1, khi vào xem trang chi tiết sp mặc định tab 1 luôn show ra nha ",,"Em đã fix ạ:
+- Mục ""Cách sử dụng"" đã được đưa lên vị trí đầu tiên ở tất cả sản phẩm.
+- Vào trang chi tiết sản phẩm, mục này mở sẵn mặc định."

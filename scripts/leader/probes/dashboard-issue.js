@@ -7,11 +7,13 @@
 // MEASURES: the originalFeedback item with String(x.id) === ID: host, shop, link, stage,
 //   deadline, tags, rowNumber, comment count and the first 160 chars of the last comment,
 //   plus Object.keys(x) so the Leader can see which fields exist.
+// COMMENTS: the dashboard list rows carry no comments array; they are read with the dashboard's own
+//   POST /api/getComments {rowNumber} (apiPost("getComments", ...), the call viewDetail makes; read-only), so
+//   commentsSource is "getComments" and commentCount is the real count. "none-found" means NOTHING was read:
+//   `leader-job.mjs record --kind dashboard` refuses PASS|WARN on such a probe.
 // DOES NOT PROVE: that the comment is visible to the customer, that quickUpdate persisted
-//   server-side (reload the page and run this probe again), or who wrote the comment. The
-//   comment field names are not verified against the dashboard source: the probe tries
-//   x.comments (array), x.commentCount and x.comment_count, and reports `commentsSource` so
-//   an unexpected shape is visible instead of silently reading as "0 comments".
+//   server-side (reload the page and run this probe again), or who wrote the comment. A comment
+//   shape other than {text, time, author} still shows up in lastCommentHead as JSON.
 (async () => {
   const ID = window.__PROBE_ID;
   if (ID === undefined || ID === null || String(ID) === "") {
@@ -30,6 +32,16 @@
   if (Array.isArray(x.comments)) {
     comments = x.comments;
     commentsSource = "comments[]";
+  } else if (typeof apiPost === "function" && x.rowNumber !== undefined && x.rowNumber !== null) {
+    try {
+      const r = await apiPost("getComments", { rowNumber: x.rowNumber });
+      if (r && r.success === true && Array.isArray(r.comments)) {
+        comments = r.comments;
+        commentsSource = "getComments";
+      }
+    } catch (e) {
+      comments = null;
+    }
   }
   const countField = x.commentCount ?? x.comment_count ?? null;
   const last = comments && comments.length ? comments[comments.length - 1] : null;
@@ -44,9 +56,11 @@
     stage: x.stage,
     deadline: x.deadline,
     tags: x.tags,
+    devNote: typeof x.devNote === "string" ? x.devNote.slice(0, 160) : null,
     commentCount: comments ? comments.length : countField,
     commentsSource: commentsSource ?? (countField !== null ? "commentCount" : "none-found"),
     lastCommentHead: lastText,
+    lastCommentAuthor: last && typeof last === "object" ? (last.author ?? null) : null,
     keys: Object.keys(x),
   };
 })()

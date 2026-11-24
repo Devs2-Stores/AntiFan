@@ -27,6 +27,23 @@ function readRun(runsDir, terminal) {
 /** Line 1 of a report as `STATUS: <word>`: only the word, and only when the file is newer than the round's dispatch. */
 const reportStatusOf = (round) => reportHeadOf(round)?.status ?? null;
 
+/** Manual overrides the Leader recorded over a failed or missing check: [{round, kind, reason, verifySheetStatus}]. */
+export function overridesOf(job) {
+  const out = [];
+  for (const r of Array.isArray(job?.rounds) ? job.rounds : []) {
+    for (const [kind, v] of Object.entries(r?.verification ?? {})) {
+      if (typeof v?.override?.reason === "string") out.push({ round: r.n, kind, reason: v.override.reason, verifySheetStatus: v.override.verifySheetStatus ?? null });
+    }
+  }
+  return out;
+}
+
+/** " [OVERRIDE sheet r1: <reason>]" for a job with a manual override, else "": the owner must see it next to the verdict. */
+export const overrideSuffix = (job) => {
+  const o = overridesOf(job);
+  return o.length ? ` [OVERRIDE ${o.map((x) => `${x.kind} r${x.round}: ${x.reason}`).join("; ")}]` : "";
+};
+
 /**
  * How far along a job is: its latest round, the worker's run file (silence, last tool) and the first line of the
  * round's report. Every field is null when its source is missing or half-written; it never throws.
@@ -126,7 +143,7 @@ export function buildBoard({ jobsRoot, runsDir, leader, now = Date.now(), staleH
       ageHours,
       rounds: job.rounds.length,
       ...progress,
-      blocking: finishedUnseen ? `worker ${last.worker?.terminal} FINISHED round ${last.n} (idle): run wait-any` : blockingText(job, last),
+      blocking: (finishedUnseen ? `worker ${last.worker?.terminal} FINISHED round ${last.n} (idle): run wait-any` : blockingText(job, last)) + overrideSuffix(job),
       needsMe,
       stale,
       deadWhy,

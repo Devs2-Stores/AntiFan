@@ -18,6 +18,7 @@ import { parseCsv, stringifyCsv } from "../../scripts/leader/csv.mjs";
 import { finishedUnsettled, judgeRound, parseArgv, sheetExportUrl, unsettledRoundError } from "../../scripts/leader/leader-job.mjs";
 import { parseReport, validateReportText } from "../../scripts/leader/report.mjs";
 import { analyzeSheet, diffSheets, outstandingDevRows, parseSheet, verifySheet } from "../../scripts/leader/sheet-diff.mjs";
+import { evidenceArgs } from "./leader-evidence-args.mjs";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const CLI = path.join(REPO, "scripts", "leader", "leader-job.mjs");
@@ -44,6 +45,7 @@ function world() {
   env.LEADER_RUNS_DIR = runs;
   env.ANTIFAN_TERMINAL_SESSION_ID = "terminal-1";
   env.LEADER_LEARN = "off";
+  env.WORK_ROOT = path.join(root, "work");
   return { root, jobs, runs, env };
 }
 
@@ -53,7 +55,7 @@ function world() {
  * init unless the call passes envOverride `{ KEEP_LEADER_QA: "1" }`. leader-job-handover.test.mjs covers the new model.
  */
 function cli(w, args, envOverride = {}) {
-  const r = spawnSync(process.execPath, [CLI, ...args], { encoding: "utf8", env: { ...w.env, ...envOverride } });
+  const r = spawnSync(process.execPath, [CLI, ...evidenceArgs(w, args)], { encoding: "utf8", env: { ...w.env, ...envOverride } });
   const lines = r.stdout.split("\n").filter((l) => l.startsWith("{")).map((l) => JSON.parse(l));
   const last = lines.at(-1);
   if (args[0] === "init" && r.status === 0 && last?.jobDir && !envOverride.KEEP_LEADER_QA) {
@@ -735,7 +737,12 @@ describe("dispatch / wait / validate-report through the CLI", () => {
     assert.equal(example.job, job.job);
     assert.equal(example.key, job.slug);
     assert.equal(example.round, 1);
-    assert.deepEqual(example.guard, { issueId: "9282", host: "Taiz", shop: "whenever.myshopify.com", sheetId: "SHEETWHEN" });
+    const { checkedAt, ...guardValues } = example.guard;
+    assert.deepEqual(guardValues, { issueId: "9282", host: "Taiz", shop: "whenever.myshopify.com", sheetId: "SHEETWHEN" });
+    // the worker swaps the ISO placeholders for the times it really ran the guard and wrote the sheet
+    example.guard.checkedAt = "2026-11-24T10:00:00Z";
+    example.sheet.writtenAt = "2026-11-24T10:05:00Z";
+    assert.ok(checkedAt, "the template asks for guard.checkedAt");
     // a worker only swaps the "..." / "<...>" placeholders for real content
     const task = "Rà theme: xác định section và chức năng tận dụng được, phần cần bổ sung";
     example.sheet.cells[0].keyText = task;

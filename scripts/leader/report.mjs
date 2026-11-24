@@ -14,11 +14,18 @@
 //     "storefront":{"measurements":[{"probe","url","viewport","selector","value"}]},      // worker smoke numbers only; the Leader's own QA is what verifies
 //     "handover":{"checks":[{"url":"...?themeid=...","viewport":"375x812","selector":"...","expect":"..."}],"backup":"<path>","risks":["..."]},
 //         // REQUIRED on a DONE work/followup report of a job started under the Leader-QA model (job.leaderQa); older jobs only get a warning
+//         // handover.backup = a folder whose manifest.json lists the pre-change copy of EVERY pushed file (schema leader-backup/1, see qa-gates.mjs);
+//         // handover.newFiles = pushed files that did not exist before; handover.reference = [{sheetKey,path,url,selector}] sample images the Leader compares against
+//     "guard":{..., "checkedAt":"<ISO time of the dashboard guard check>"}, "sheet":{..., "writtenAt":"<ISO time of the first sheet write>"},  // checkedAt must not be later than writtenAt
+//     "themeRole":"main|unpublished", "devSplit":{"opened":true|false,"reason":"..."},       // unpublished theme: the dev split is opened or the reason is given
+//     "rollback":{"ran":false,"note":"..."}                                               // live theme push: whether a rollback ran
 //     "verify":[{"cmd":"rg -n foo E:/Work/x.txt","expect":"foo"}],  // optional, ad-hoc only use: read-only commands for leader-job verify-adhoc
 //     "notChecked":["..."],                                  // REQUIRED when DONE
 //     "needsInput":{"question":"...","options":["a","b"]}    // REQUIRED when NEEDS_INPUT (2-3 options)
 //   }
 
+import fs from "node:fs";
+import { backupManifestProblems, pushedFilesOf } from "./qa-gates.mjs";
 import { normKey } from "./sheet-diff.mjs";
 
 export const REPORT_SCHEMA = "leader-report/1";
@@ -107,6 +114,72 @@ function validateHandover(j, status, job, ctx, errors) {
     }
   }
   if (status === "PENDING") warn("PENDING is not used in the Leader-QA model: report NEEDS_INPUT with a question and 2-3 options instead of asking the customer");
+}
+
+const isoTime = (v) => (isNonEmptyStr(v) && /^\d{4}-\d{2}-\d{2}T/.test(v.trim()) && Number.isFinite(Date.parse(v)) ? Date.parse(v) : null);
+
+/**
+ * What a work/followup round that shipped a theme change must prove about HOW it got there (user, 24/11/2026: "Kaizen toàn bộ
+ * các sơ hở"; measured on epres-371 and zesta-369): a pre-change copy of every pushed file (G4), a smoke after EVERY push and
+ * a stated rollback on a live theme (G5), the sample image kept next to the Leader's screenshot (G9), the dashboard guard
+ * checked before the first sheet write (G12) and the dev split opened on an unpublished theme (G12). Jobs started under the
+ * Leader-QA model (job.leaderQa) get errors; older jobs get warnings, so their reports stay valid.
+ */
+function validateShipping(j, status, job, ctx, errors) {
+  const workRound = (ctx.kind === "work" || ctx.kind === "followup") && job.subject?.kind !== "adhoc";
+  if (!workRound) return;
+  const strict = job.leaderQa === 1;
+  const issue = (m) => (strict ? errors.push(m) : ctx.warnings?.push(m));
+  const warn = (m) => ctx.warnings?.push(m);
+  const g = j.guard;
+  const sheet = j.sheet;
+  // Shapes: always checked when the field is present.
+  if (isObj(g) && g.checkedAt !== undefined && isoTime(g.checkedAt) === null) errors.push("guard.checkedAt must be an ISO time (for example 2026-11-24T10:03:12Z)");
+  if (isObj(sheet) && sheet.writtenAt !== undefined && isoTime(sheet.writtenAt) === null) errors.push("sheet.writtenAt must be an ISO time (for example 2026-11-24T10:07:40Z)");
+  if (j.rollback !== undefined && !(isObj(j.rollback) && typeof j.rollback.ran === "boolean" && (j.rollback.note === undefined || isStr(j.rollback.note)))) errors.push('rollback must be {"ran": true|false, "note": "..."}');
+  if (j.devSplit !== undefined && !(isObj(j.devSplit) && typeof j.devSplit.opened === "boolean" && (j.devSplit.reason === undefined || isStr(j.devSplit.reason)))) errors.push('devSplit must be {"opened": true|false, "reason": "..."}');
+  if (j.themeRole !== undefined && !isNonEmptyStr(j.themeRole)) errors.push("themeRole must be the role string hrv theme info reported (main, unpublished, ...)");
+  const h = j.handover;
+  if (isObj(h) && h.newFiles !== undefined && !isStrArray(h.newFiles)) errors.push("handover.newFiles must be an array of theme-relative paths");
+  if (isObj(h) && h.reference !== undefined) {
+    if (!Array.isArray(h.reference)) errors.push("handover.reference must be an array of {sheetKey, path, url, selector}");
+    else
+      h.reference.forEach((r, i) => {
+        if (!isObj(r) || !isNonEmptyStr(r.sheetKey) || !isNonEmptyStr(r.path) || !isNonEmptyStr(r.url) || (r.selector !== undefined && !isStr(r.selector))) errors.push(`handover.reference[${i}] must be {sheetKey, path, url, selector?} with non-empty sheetKey, path (the downloaded copy) and url (where it came from)`);
+        else if (!fs.existsSync(r.path)) warn(`handover.reference[${i}].path does not exist: ${r.path}`);
+      });
+  }
+  if (status !== "DONE") return;
+
+  const pushed = Array.isArray(j.pushed) ? j.pushed.filter(isStr) : [];
+  if (pushed.length) {
+    for (const p of backupManifestProblems(h, pushedFilesOf(j))) issue(p);
+    if (ctx.liveTheme === true) {
+      const smokes = Array.isArray(j.storefront?.measurements) ? j.storefront.measurements.length : 0;
+      if (smokes < pushed.length) issue(`live theme: ${pushed.length} push command(s) listed but only ${smokes} storefront.measurements; a smoke (HTTP 200, no Liquid error, changed element present) is required after EVERY push, one measurement per push`);
+      if (!isObj(j.rollback) || typeof j.rollback.ran !== "boolean") issue('live theme: the report must state whether a rollback ran: "rollback": {"ran": false, "note": "..."}');
+    }
+  }
+
+  if (ctx.referenceNeeded === true) {
+    const refs = isObj(h) && Array.isArray(h.reference) ? h.reference.filter((r) => isObj(r) && isNonEmptyStr(r.path)) : [];
+    if (!refs.length) warn("the task mentions a sample image (ảnh mẫu / như mẫu) but handover.reference is empty: download the sample into <jobdir>/reference/ and list {sheetKey, path, url, selector}; the Leader QA compares the result with it side by side");
+  }
+
+  const cells = isObj(sheet) && Array.isArray(sheet.cells) ? sheet.cells : [];
+  if (cells.length) {
+    const checked = isObj(g) ? isoTime(g.checkedAt) : null;
+    const written = isoTime(sheet?.writtenAt);
+    if (checked === null) issue("guard.checkedAt (ISO time of the dashboard guard check by id) is missing: the guard must run BEFORE the first sheet write and the report must say when");
+    if (written === null) issue("sheet.writtenAt (ISO time of the first sheet write) is missing");
+    if (checked !== null && written !== null && checked > written) issue(`guard.checkedAt ${g.checkedAt} is later than sheet.writtenAt ${sheet.writtenAt}: the sheet was written BEFORE the dashboard guard ran, which the header forbids`);
+  }
+
+  const role = isNonEmptyStr(j.themeRole) ? j.themeRole : isNonEmptyStr(ctx.themeRole) ? ctx.themeRole : /\brole\W{0,6}unpublished\b/i.test(JSON.stringify([j.evidence, h?.risks])) ? "unpublished" : null;
+  if (job.profile !== "sheet-only" && role && role !== "main") {
+    const d = j.devSplit;
+    if (!isObj(d) || (d.opened !== true && !isNonEmptyStr(d.reason))) warn(`the theme role is ${role} (not live): the header requires the \`hrv theme dev\` split opened before the first edit; report "devSplit": {"opened": true} or {"opened": false, "reason": "..."}`);
+  }
 }
 
 /**
@@ -226,6 +299,7 @@ export function validateReportObject(parsed, job, round, ctx = {}) {
   if (status === "DONE" && !Array.isArray(j.notChecked)) errors.push("DONE report must carry a notChecked array (what was NOT verified)");
   if (j.notChecked !== undefined && !isStrArray(j.notChecked)) errors.push("notChecked must be an array of strings");
   validateHandover(j, status, job, ctx, errors);
+  validateShipping(j, status, job, ctx, errors);
   if (status === "NEEDS_INPUT") {
     const n = j.needsInput;
     if (!isObj(n)) errors.push("NEEDS_INPUT report must carry needsInput {question, options}");

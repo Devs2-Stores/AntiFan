@@ -55,7 +55,7 @@ describe("hrv token preflight", () => {
     const w = world();
     const j = initJob(w);
     const theme = themeFolder(w);
-    const skipped = attempt(w, j, "terminal-7", ["--cwd", theme, "--skip-token-probe"], { LEADER_TOKEN_PROBE: FAIL() });
+    const skipped = attempt(w, j, "terminal-7", ["--cwd", theme, "--skip-token-probe", "--reason", "token vừa được owner login, probe chậm"], { LEADER_TOKEN_PROBE: FAIL() });
     assert.equal(skipped.code, 0, skipped.stderr);
     assert.equal(skipped.last.tokenProbe, undefined);
     assert.equal(skipped.last.round, 1);

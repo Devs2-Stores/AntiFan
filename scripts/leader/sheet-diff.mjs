@@ -167,6 +167,24 @@ export function diffSheets(before, after) {
 const short = (s, n = 70) => (s.length > n ? `${s.slice(0, n - 3)}...` : s);
 
 /**
+ * The data rows a claimed keyText points at, on text normalised by normKey (whitespace and line breaks collapsed): the whole
+ * cell, else a prefix of it, else a substring. The weaker tiers are only trusted when they point at ONE row; the caller
+ * reports several different rows as ambiguous.
+ * @returns {{tier:"exact"|"prefix"|"substring"|"none", rows:object[]}}
+ */
+export function matchClaimRows(rows, claimKey) {
+  const key = normKey(claimKey);
+  const data = rows.filter((r) => r.data);
+  const exact = data.filter((r) => r.key === key);
+  if (exact.length) return { tier: "exact", rows: exact };
+  if (!key) return { tier: "none", rows: [] };
+  const prefix = data.filter((r) => r.key.startsWith(key));
+  if (prefix.length) return { tier: "prefix", rows: prefix };
+  const sub = data.filter((r) => r.key.includes(key));
+  return { tier: sub.length ? "substring" : "none", rows: sub };
+}
+
+/**
  * @param {{beforeText:string, afterText:string|null, cols:object, claimed:Array<{key:string,col:string,expect:string,occurrence?:number}>, readError?:string}} p
  */
 export function verifySheet(p) {
@@ -182,12 +200,19 @@ export function verifySheet(p) {
   let fail = false;
   const claimedIds = new Set();
   const claims = p.claimed ?? [];
+  const original = p.originalText != null ? parseSheet(p.originalText, p.cols) : null;
+  let carried = 0;
   for (const c of claims) {
     const label = `"${short(normKey(c.key))}" / ${c.col}`;
-    const key = normKey(c.key);
-    const matches = after.rows.filter((r) => r.data && r.key === key);
+    const { tier, rows: matches } = matchClaimRows(after.rows, c.key);
     if (matches.length === 0) {
-      notes.push(`FAIL claimed row not found by text: ${label}`);
+      notes.push(`FAIL claimed row not found by text (tried the whole cell, a prefix, then a unique substring): ${label}`);
+      fail = true;
+      continue;
+    }
+    const distinct = new Set(matches.map((r) => r.key));
+    if (distinct.size > 1) {
+      notes.push(`FAIL claimed keyText is ambiguous (${tier} match of ${distinct.size} different rows: ${[...matches].slice(0, 3).map((r) => `row ${r.rowNumber}`).join(", ")}): give more of the cell text: ${label}`);
       fail = true;
       continue;
     }
@@ -207,11 +232,20 @@ export function verifySheet(p) {
       fail = true;
       continue;
     }
+    if (tier !== "exact") notes.push(`INFO claimed keyText matched row ${row.rowNumber} by ${tier}: ${label}`);
     const cellId = `${row.id}\u0000${c.col}`;
     claimedIds.add(cellId);
     const actual = row.cells[c.col];
     const prev = before.rows.find((r) => r.id === row.id)?.cells[c.col];
     if (prev === actual) {
+      // A later round restates the cells the earlier rounds wrote: unchanged since `before`, but different from the
+      // original snapshot and equal to what the report expects, so it is carried over, not a false claim.
+      const orig = original?.ok ? original.rows.find((r) => r.id === row.id)?.cells[c.col] : undefined;
+      if (orig !== undefined && orig !== actual && actual === normVal(c.expect)) {
+        carried += 1;
+        notes.push(`INFO carried from an earlier round: ${label} (row ${row.rowNumber})`);
+        continue;
+      }
       notes.push(`FAIL claimed but unchanged: ${label} (row ${row.rowNumber})`);
       fail = true;
     } else if (actual !== normVal(c.expect)) {
@@ -245,6 +279,7 @@ export function verifySheet(p) {
     added,
     removed,
     claimedCount: claims.length,
+    carriedCount: carried,
     outstandingDevRows: outstandingDevRows(after),
     doneKind: after.doneKind,
   };

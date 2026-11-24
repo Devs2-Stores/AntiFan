@@ -40,7 +40,7 @@ const binding = (folder) => {
   try {
     const j = JSON.parse(fs.readFileSync(path.join(folder, ".haravan-cli_local.json"), "utf8"));
     const out = {};
-    for (const k of ["org_id", "theme_id", "shop_domain"]) if (j?.[k] !== undefined && j[k] !== null && j[k] !== "") out[k] = String(j[k]);
+    for (const k of ["org_id", "theme_id", "theme_name", "shop_domain"]) if (j?.[k] !== undefined && j[k] !== null && j[k] !== "") out[k] = String(j[k]);
     return Object.keys(out).length ? out : undefined;
   } catch {
     return undefined;
@@ -56,6 +56,25 @@ function rows(parent, names, key) {
     if (hit) out.push({ folder: name, path: folder.replace(/\\/g, "/"), ...(b ? { binding: b } : {}) });
   }
   return out;
+}
+
+/**
+ * Folders bound to the same Haravan org as a folder that already matched, even when their name does not carry the shop
+ * (a second theme of the same shop in its own folder): one shop can have several folders, each bound to a different
+ * theme, and a caller that sees only the one named after the shop tells a worker to create a folder that exists.
+ */
+function withSameOrg(parent, hits) {
+  const orgs = new Set(hits.map((h) => h.binding?.org_id).filter(Boolean));
+  if (!orgs.size) return hits;
+  const seen = new Set(hits.map((h) => h.folder));
+  const extra = [];
+  for (const name of dirs(parent)) {
+    if (seen.has(name)) continue;
+    const folder = path.join(parent, name);
+    const b = binding(folder);
+    if (b?.org_id && orgs.has(b.org_id)) extra.push({ folder: name, path: folder.replace(/\\/g, "/"), binding: b, via: "org_id" });
+  }
+  return [...hits, ...extra];
 }
 
 export function index(query, { scratch = false, root = process.env.WORK_ROOT || "E:/Work" } = {}) {
@@ -80,7 +99,8 @@ export function index(query, { scratch = false, root = process.env.WORK_ROOT || 
   } catch {
     pagespeed = [];
   }
-  const out = { query: String(query), key, customizes: rows(customizes, dirs(customizes), key), themes, pagespeed };
+  const customizeRows = rows(customizes, dirs(customizes), key);
+  const out = { query: String(query), key, customizes: withSameOrg(customizes, customizeRows), themes, pagespeed };
   if (scratch) {
     const leader = path.join(root, "scratch", "leader");
     out.scratch = dirs(leader).filter((n) => norm(n).includes(key)).map((n) => ({ folder: n, path: path.join(leader, n).replace(/\\/g, "/") }));

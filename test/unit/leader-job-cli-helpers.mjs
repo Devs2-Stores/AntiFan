@@ -6,6 +6,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { evidenceArgs } from "./leader-evidence-args.mjs";
 
 export const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 export const CLI = path.join(REPO, "scripts", "leader", "leader-job.mjs");
@@ -26,14 +27,21 @@ export function world(extraEnv = {}) {
   const env = {};
   for (const [k, v] of Object.entries(process.env)) if (!k.startsWith("ANTIFAN_") && k !== "ELECTRON_RUN_AS_NODE" && k !== "SUPER_CORE_DB") env[k] = v;
   // ANTIFAN_CONFIG_DIR keeps dispatch off the real Leader registry (the default is the live data root).
-  Object.assign(env, { LEADER_JOBS_ROOT: jobs, LEADER_RUNS_DIR: runs, ANTIFAN_CONFIG_DIR: config, ANTIFAN_TERMINAL_SESSION_ID: "terminal-1", LEADER_LEARN: "off", ...extraEnv });
+  // WORK_ROOT keeps init and dispatch off the real E:/Work folders (shop-folder-index would match a fake shop like s.example on the first letter).
+  Object.assign(env, { LEADER_JOBS_ROOT: jobs, LEADER_RUNS_DIR: runs, ANTIFAN_CONFIG_DIR: config, ANTIFAN_TERMINAL_SESSION_ID: "terminal-1", LEADER_LEARN: "off", WORK_ROOT: path.join(root, "work"), ...extraEnv });
   return { root, jobs, runs, config, env };
 }
 
-export function cli(w, args, envOverride = {}) {
+/** The CLI exactly as typed: no evidence file is added to a record call (leader-qa-gaps.test.mjs tests the gate with it). */
+export function cliRaw(w, args, envOverride = {}) {
   const r = spawnSync(process.execPath, [CLI, ...args], { encoding: "utf8", env: { ...w.env, ...envOverride } });
   const lines = r.stdout.split("\n").filter((l) => l.startsWith("{")).map((l) => JSON.parse(l));
   return { code: r.status, lines, last: lines.at(-1), stderr: r.stderr, stdout: r.stdout };
+}
+
+/** The CLI for suites about ledger states: a record call the evidence gate would ask a file for gets one (see leader-evidence-args.mjs). */
+export function cli(w, args, envOverride = {}) {
+  return cliRaw(w, evidenceArgs(w, args), envOverride);
 }
 
 export const writeRun = (w, terminal, patch) =>
