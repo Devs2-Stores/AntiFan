@@ -485,7 +485,7 @@ describe("G6 a Leader may not approve a CLI command outside AGENTS.md section 8"
     const commands = found.map((f) => f.command);
     assert.ok(commands.some((c) => c.startsWith("hrv theme list")), `theme list is outside the set: ${commands}`);
     assert.ok(!commands.some((c) => /^hrv (select|theme info|theme fetch)/.test(c)), `allowed forms flagged: ${commands}`);
-    for (const ok of ["hrv select 123", "hrv theme info --json", "hrv theme fetch 5 --only config/settings_data.json", "hrv theme push --only a.liquid --nodelete", "hrv whoiam", "hrv refresh-all", "hrv login --no-open", "hrv theme dev"]) {
+    for (const ok of ["hrv select 123", "hrv select <orgId>", "hrv theme info --json", "hrv theme fetch 5 --only config/settings_data.json", "hrv theme push --only a.liquid --nodelete", "hrv whoiam", "hrv refresh-all", "hrv login --no-open", "hrv theme dev"]) {
       assert.deepEqual(scanCliApprovals(`chạy \`${ok}\` một lần`), [], ok);
     }
     for (const bad of ["hrv theme list", "hrv theme publish 5", "hrv theme push --force", "hrv refresh-all --force", "hrv login", "shopify theme push", "sapo theme dev", "haravan theme list", "hrv logout"]) {
@@ -621,18 +621,20 @@ describe("G7 --skip-token-probe needs a reason and cannot hide a dead token", ()
     assert.equal(cliRaw(w, ["status", "--job", j.dir]).lines[0].tokenProbeSkips[0].reason, "owner vừa login");
   });
 
-  test("after a probe that SAW the token dead, a skipped round's prompt gets the READ-ONLY block", () => {
+  test("after a probe that SAW the token dead, a skipped round's prompt gets the READ-ONLY block that still allows the four login lines", () => {
     const w = world();
     const j = initJob(w, "g7c");
     const theme = themeFolder(w);
     const dead = attempt(w, j, ["--cwd", theme], { LEADER_TOKEN_PROBE: DEAD() });
-    assert.equal(dead.code, 4);
+    assert.equal(dead.code, 0, dead.stderr);
     assert.match(j.job().tokenProbeFatal.error, /Token hết hạn/);
     const skipped = attempt(w, j, ["--skip-token-probe", "--reason", "cần đọc trang trước khi owner login"], { LEADER_TOKEN_PROBE: DEAD() });
     assert.equal(skipped.code, 0, skipped.stderr);
-    const prompt = fs.readFileSync(j.job().rounds[0].promptPath, "utf8");
-    assert.match(prompt, /# CHỈ ĐỌC cho tới khi Leader báo đã login/);
-    assert.match(prompt, /KHÔNG chạy lệnh hrv nào, KHÔNG sửa file theme, KHÔNG push/);
+    const prompt = fs.readFileSync(j.job().rounds[1].promptPath, "utf8");
+    assert.match(prompt, /# CHỈ ĐỌC cho tới khi `hrv theme info --json` trả đúng bound_id/);
+    assert.match(prompt, /KHÔNG sửa file theme, KHÔNG push/);
+    assert.ok(!/KHÔNG chạy lệnh hrv nào/.test(prompt), "the blanket ban on hrv is gone");
+    for (const line of ["hrv whoiam", "hrv refresh-all", "hrv login --no-open", "hrv select <orgId>"]) assert.ok(prompt.includes(line), `the read-only block names ${line}`);
     assert.equal(skipped.last.skipTokenProbe.afterFatalProbe, true);
   });
 
@@ -640,7 +642,8 @@ describe("G7 --skip-token-probe needs a reason and cannot hide a dead token", ()
     const w = world();
     const j = initJob(w, "g7d");
     const theme = themeFolder(w);
-    assert.equal(attempt(w, j, ["--cwd", theme], { LEADER_TOKEN_PROBE: DEAD() }).code, 4);
+    assert.equal(attempt(w, j, ["--cwd", theme], { LEADER_TOKEN_PROBE: DEAD() }).code, 0);
+    assert.ok(j.job().tokenProbeFatal);
     const ok = attempt(w, j, ["--cwd", theme], { LEADER_TOKEN_PROBE: probe(0, { ok: true, themeId: "5", orgId: "9", role: "unpublished" }) });
     assert.equal(ok.code, 0, ok.stderr);
     assert.equal(j.job().tokenProbeFatal, undefined);

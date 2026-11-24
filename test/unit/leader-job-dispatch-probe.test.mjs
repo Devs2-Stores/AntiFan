@@ -5,7 +5,9 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { after, describe, test } from "node:test";
 
-import { TEMP, cleanup, cli, initJob, world } from "./leader-job-cli-helpers.mjs";
+import { pathToFileURL } from "node:url";
+
+import { REPO, TEMP, cleanup, cli, initJob, world } from "./leader-job-cli-helpers.mjs";
 
 after(cleanup);
 
@@ -36,19 +38,78 @@ function attempt(w, j, worker, extra = [], env = {}) {
 }
 
 describe("hrv token preflight", () => {
-  test("an expired token refuses the work dispatch, names hrv login and records no round", () => {
+  test("an expired token no longer refuses: the prompt gets a # LOGIN block, the round records login and dispatch prints the owner notice", () => {
     const w = world();
     const j = initJob(w);
     const theme = themeFolder(w);
+    const before = Date.now();
+    const r = attempt(w, j, "terminal-7", ["--cwd", theme], { LEADER_TOKEN_PROBE: FAIL() });
+    assert.equal(r.code, 0, r.stderr);
+    assert.equal(r.last.round, 1);
+    assert.equal(j.job().state, "dispatched");
+    assert.equal(j.job().rounds.length, 1, "the round is recorded");
+    const login = j.job().rounds[0].login;
+    assert.equal(login.orgId, "9", "the org comes from the folder's binding");
+    assert.equal(login.email, "services@f1genz.com");
+    assert.match(login.reason, /Token hết hạn/);
+    assert.ok(login.since >= before, "since is the dispatch time, the lower bound for the OTP");
+    assert.match(r.last.ownerNotice, /services@f1genz\.com/);
+    assert.match(r.last.ownerNotice, /9/);
+    assert.ok(!r.last.ownerNotice.includes("\n"), "one line");
+    assert.deepEqual(r.last.login, login);
+    const prompt = fs.readFileSync(j.job().rounds[0].promptPath, "utf8");
+    assert.match(prompt, /^# LOGIN/m);
+    for (const line of ["`hrv whoiam`", "`hrv refresh-all`", "`hrv login --no-open`", "`hrv select 9`", "`hrv theme info --json`"]) assert.ok(prompt.includes(line), line);
+    assert.match(prompt, new RegExp(`otp-fetch\\.mjs --since ${login.since}`));
+    assert.match(prompt, /otp-fetch\.mjs --clear/);
+    assert.match(prompt, /Telegram/);
+    assert.match(prompt, /KHÔNG push/);
+    assert.ok(!/owner must run|The owner must/.test(prompt));
+    assert.ok(!prompt.includes("# CHỈ ĐỌC"), "the LOGIN round is not the skipped-probe read-only round");
+    assert.equal(j.job().tokenProbeFatal.orgId, "9", "the dead token stays remembered for a later --skip-token-probe");
+  });
+
+  test("a binding with no org_id is still refused, naming the missing field", () => {
+    const w = world();
+    const j = initJob(w);
+    const theme = themeFolder(w);
+    fs.writeFileSync(path.join(theme, ".haravan-cli_local.json"), JSON.stringify({ theme_id: 5 }));
     const refused = attempt(w, j, "terminal-7", ["--cwd", theme], { LEADER_TOKEN_PROBE: FAIL() });
     assert.equal(refused.code, 4, refused.stderr);
-    assert.match(refused.stderr, /hrv token is not usable/);
-    assert.match(refused.stderr, /Token hết hạn/);
-    assert.match(refused.stderr, /hrv login/);
-    assert.match(refused.last.next, /hrv login/);
-    assert.match(refused.last.next, /dispatch --job/);
-    assert.equal(j.job().state, "open");
+    assert.match(refused.stderr, /org_id/);
+    assert.match(refused.stderr, /\.haravan-cli_local\.json/);
     assert.equal(j.job().rounds.length, 0, "no round was recorded");
+  });
+
+  test("one login per job: a second dead-token dispatch after a LOGIN round is refused", () => {
+    const w = world();
+    const j = initJob(w);
+    const theme = themeFolder(w);
+    assert.equal(attempt(w, j, "terminal-7", ["--cwd", theme], { LEADER_TOKEN_PROBE: FAIL() }).code, 0);
+    const again = attempt(w, j, "terminal-7", ["--cwd", theme, "--allow-busy", "--allow-extra-round", "--reason", "retry"], { LEADER_TOKEN_PROBE: FAIL() });
+    assert.equal(again.code, 4, again.stderr);
+    assert.match(again.stderr, /one login per job|already tried a login/);
+    assert.equal(j.job().rounds.length, 1);
+  });
+
+  test("G6: the LOGIN block passes the CLI-approval scan, and a follow-up carrying it needs no owner quote", async () => {
+    const { scanCliApprovals } = await import(pathToFileURL(path.join(REPO, "scripts", "leader", "qa-gates.mjs")).href);
+    const w = world();
+    const j = initJob(w);
+    const theme = themeFolder(w);
+    assert.equal(attempt(w, j, "terminal-7", ["--cwd", theme], { LEADER_TOKEN_PROBE: FAIL() }).code, 0);
+    const withBlock = fs.readFileSync(j.job().rounds[0].promptPath, "utf8");
+    assert.match(withBlock, /^# LOGIN/m);
+    assert.deepEqual(scanCliApprovals(withBlock), [], "the four login lines are inside AGENTS.md section 8");
+    for (const line of ["hrv whoiam", "hrv refresh-all", "hrv login --no-open", "hrv select 9"]) assert.deepEqual(scanCliApprovals(`chạy \`${line}\` một lần`), [], line);
+    // the same text as a follow-up: no --owner-quote, no refusal
+    const file = path.join(w.root, `followup-${++n}.md`);
+    fs.writeFileSync(file, `${withBlock}\nGhi report vào {{REPORT_PATH}}\n`);
+    const followup = cli(w, ["dispatch", "--job", j.dir, "--worker", "terminal-7", "--kind", "followup", "--prompt", file, "--cwd", theme, "--allow-busy", "--allow-extra-round", "--reason", "G6"], { LEADER_TOKEN_PROBE: OK() });
+    assert.equal(followup.code, 0, followup.stderr);
+    assert.equal(followup.last.ownerApproval, undefined);
+    const text = fs.readFileSync(file, "utf8");
+    assert.equal(text.match(/^# LOGIN/gm).length, 1, "the block is not added twice");
   });
 
   test("--skip-token-probe, an unaskable probe and a healthy one let the dispatch through and report the result", () => {

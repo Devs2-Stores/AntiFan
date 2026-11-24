@@ -155,11 +155,14 @@ Commands
        A close round's prompt carries APPROVAL_TOKEN (from approve); the worker must echo it as "closeToken" in its report.
        --cwd DIR is the worker's project folder; the first dispatch stores it as job.cwd. For a non-adhoc job whose folder
        holds .haravan-cli_local.json (a bound theme), dispatch runs scripts/leader/hrv-token-probe.mjs there (8 s deadline)
-       BEFORE the round is recorded: an expired/unrefreshable hrv token refuses the dispatch (exit 4) and tells you the
-       owner must run 'hrv login' for that shop, instead of a worker spending the whole round on it. A probe that cannot
-       run (no CLI helper, no binding, timeout) only warns; --skip-token-probe skips the probe but needs --reason "<why>" (stored on
-       the round, printed by status); when an earlier probe of this job saw a dead token, a skipped round's prompt gets a READ-ONLY
-       block until the owner has logged in.
+       BEFORE the round is recorded. An expired/unrefreshable hrv token no longer refuses the dispatch (owner Tài, 24/11/2026):
+       the prompt gets a '# LOGIN' block (the worker signs in as services@f1genz.com with the OTP that scripts/leader/otp-fetch.mjs
+       reads from the otp-inbox Worker; the org comes from .haravan-cli_local.json org_id), the round records login {orgId, email,
+       reason, since} and the output carries ownerNotice: ONE line for you to send the owner at once (no answer awaited). A binding
+       with no numeric org_id, or a job that already ran a LOGIN round (one login per job), is still refused (exit 4). A probe that
+       cannot run (no CLI helper, no binding, timeout) only warns; --skip-token-probe skips the probe but needs --reason "<why>"
+       (stored on the round, printed by status); when an earlier probe of this job saw a dead token, a skipped round's prompt gets a
+       READ-ONLY block until 'hrv theme info --json' reports the bound theme again (the four login lines stay allowed there).
        A theme bound to a LIVE theme (probe role main) is announced as liveTheme:true (output + stderr). A job without the copyFirst marker
        pushes straight to it (owner decision 03/11/2026), so your QA comes after the push; the round then needs a pre-change backup manifest,
        one smoke per push and a rollback statement in its report. A job with the marker (set by init since 24/11/2026, owner decision
@@ -734,11 +737,51 @@ function roundShipped(round) {
 }
 
 const STATUS_ORDER = ["PASS", "WARN", "FAIL", "UNREADABLE"];
-const READ_ONLY_HEADING = "# CHỈ ĐỌC cho tới khi Leader báo đã login";
+const READ_ONLY_HEADING = "# CHỈ ĐỌC cho tới khi `hrv theme info --json` trả đúng bound_id";
 
 /** The prompt block a round gets when its token probe was skipped after an earlier probe saw a dead hrv token. */
 function readOnlyBlock(fatal) {
-  return `\n${READ_ONLY_HEADING}\nLần probe trước của job này thấy token hrv không dùng được (theme ${fatal.themeId ?? "?"}, org ${fatal.orgId ?? "?"}: ${fatal.error ?? "không rõ"}) và Leader bỏ qua probe vòng này. Cho tới khi Leader báo đã login: chỉ ĐỌC (đọc file, đo storefront, ghi report). KHÔNG chạy lệnh hrv nào, KHÔNG sửa file theme, KHÔNG push. Việc cần hrv thì ghi STATUS: NEEDS_INPUT nêu đúng chỗ vướng.\n`;
+  return `\n${READ_ONLY_HEADING}\nLần probe trước của job này thấy token hrv không dùng được (theme ${fatal.themeId ?? "?"}, org ${fatal.orgId ?? "?"}: ${fatal.error ?? "không rõ"}) và Leader bỏ qua probe vòng này. Cho tới khi \`hrv theme info --json\` (cwd = thư mục project) trả đúng bound_id: chỉ ĐỌC (đọc file, đo storefront, ghi report). KHÔNG sửa file theme, KHÔNG push, KHÔNG lệnh theme ghi nào. Lệnh hrv tự chạy được: \`hrv theme info --json\` và, chỉ khi một khối \`# LOGIN\` của job này cho phép (tối đa MỘT lần login cho cả job), bốn dòng đăng nhập \`hrv whoiam\`, \`hrv refresh-all\`, \`hrv login --no-open\`, \`hrv select <orgId>\`. Việc cần thêm lệnh hrv khác thì ghi STATUS: NEEDS_INPUT nêu đúng chỗ vướng.\n`;
+}
+
+// ---------------------------------------------------------------- LOGIN round (dead hrv token)
+//
+// Owner Tài, 24/11/2026 (ak-atoz, brief Confirm): when the token of an org is dead the worker signs in itself with services@f1genz.com
+// ("Chỉ email rồi nhập OTP (không có mật khẩu)"); the OTP comes from the otp-inbox Worker (Zoho webhook) through scripts/leader/otp-fetch.mjs;
+// the owner gets one notice line when the login starts and is not asked ("Leader gửi anh một dòng thông báo lúc bắt đầu đăng nhập, không chờ
+// anh trả lời"). The four lines the block names are the ones E:/Work/AGENTS.md section 8 lets a Leader's worker type.
+
+const LOGIN_EMAIL = "services@f1genz.com";
+const LOGIN_HEADING = "# LOGIN: token hrv hết hạn, tự đăng nhập bằng services@f1genz.com (owner Tài, 24/11/2026)";
+
+/** The org of a theme folder, read from its binding (the only source the login round trusts). null when it has no numeric org_id. */
+function bindingOrgId(cwd) {
+  try {
+    const binding = JSON.parse(fs.readFileSync(path.join(cwd, ".haravan-cli_local.json"), "utf8"));
+    const id = String(binding?.org_id ?? "");
+    return /^\d+$/.test(id) ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The Vietnamese `# LOGIN` block of a work/followup prompt. Names only commands AGENTS.md section 8 allows; holds no secret. */
+function loginBlock({ orgId, email, reason, since, themeId }) {
+  const otp = fwd(path.join(HERE, "otp-fetch.mjs"));
+  return [
+    LOGIN_HEADING,
+    `Leader đã đo: token hrv của org ${orgId} (theme ${themeId ?? "?"}) không dùng được: ${reason}. Owner Tài ra lệnh trực tiếp (24/11/2026): worker tự đăng nhập bằng tài khoản \`${email}\` ("Chỉ email rồi nhập OTP (không có mật khẩu)"); mã OTP lấy từ hộp otp-inbox (webhook Zoho), Telegram Web chỉ là dự phòng. Điều kiện (1) của bullet "Đăng nhập Haravan do Leader duyệt" (E:/Work/AGENTS.md §8) thoả bởi khối này: orgId ${orgId}, email trên, đúng bốn dòng dưới, tối đa MỘT lần login và MỘT lần gửi lại OTP cho cả job; sai thì dừng và ghi STATUS: NEEDS_INPUT, không thử cách khác.`,
+    `Cho tới khi \`hrv theme info --json\` (cwd = thư mục project) trả đúng bound_id: KHÔNG sửa file theme, KHÔNG push, KHÔNG lệnh theme ghi nào. Mỗi lệnh hrv là MỘT dòng đơn bằng tool bash, cwd = thư mục project (không \`;\`, \`&&\`, \`|\`, redirect).`,
+    `1. \`hrv whoiam\` (đọc bảng một lần, không redirect ra file): org ${orgId} có trong danh sách thì làm bước 2, vắng thì nhảy sang bước 3.`,
+    `2. \`hrv refresh-all\` (không thêm cờ), rồi \`hrv theme info --json\`: thành công và trả đúng bound_id thì XONG, không login, không OTP; ghi hai kết quả đo vào evidence.`,
+    `3. Login (token vẫn chết hoặc org vắng): mở trước một tab AntiFan mới (anti.browser.tabs.create). Chạy \`hrv login --no-open\` bằng tool bash với async:true (CLI chờ tối đa 300 s; không ghi URL nó in ra vào report), mở \`http://localhost:9999/login\` ở tab đó, ở accounts.haravan.com gõ email \`${email}\` rồi Tiếp tục. Trang \`/account/verify-otp\` có sáu ô một ký tự: KHÔNG rời trang đó. Nếu Haravan đòi mật khẩu thì ghi NEEDS_INPUT (tài khoản này không có mật khẩu).`,
+    `4. Lấy OTP, một dòng bằng tool bash: \`node ${otp} --since ${since} --wait 120\`. Nó chờ mã từ otp-inbox (poll 5 s), đưa mã thẳng vào clipboard và chỉ in \`{found,len,ageSec}\`, không bao giờ in mã. \`found:true\`: dán bằng anti.agent.sequence (Ctrl+V vào ô OTP đầu tiên; dán điền hết sáu ô), rồi NGAY \`node ${otp} --clear\` để ghi đè clipboard bằng chuỗi rỗng.`,
+    `5. Dự phòng: \`found:false\` sau 120 s thì đọc OTP bằng Telegram Web đã đăng nhập theo skill haravan-login-via-otp (references/telegram-otp.md: lọc From Haravan, tuổi tối đa 120 s, đường mã trang → clipboard → Ctrl+V → clipboard rỗng). Vẫn không có mã dùng được: gửi lại OTP MỘT lần bằng nút gửi lại của trang rồi lặp bước 4 (cùng \`--since ${since}\`); hết lần gửi lại thì NEEDS_INPUT, không login lần hai.`,
+    `6. CLI in "Đăng nhập thành công." thì \`hrv select ${orgId}\` (đúng orgId này), rồi \`hrv theme info --json\` phải trả đúng bound_id; sau đó mới làm việc của job.`,
+    `7. Dọn: clipboard rỗng, đóng tab đã mở, dừng tiến trình login. Report ghi trong evidence: có login hay không, số lần gửi lại OTP, nguồn mã (otp-inbox hoặc Telegram), kết quả \`hrv theme info --json\`.`,
+    `Bí mật: mã OTP không bao giờ xuất hiện trong kết quả tool, report, file, log, lệnh hay \`learn\` (chỉ found/len/ageSec và boolean); KHÔNG screenshot, snapshot hay dom trang OTP và Telegram Web; kết quả tool nào cũng được ghi nguyên văn vào session.`,
+    "",
+  ].join("\n");
 }
 
 const ADHOC_REFUSED_FLAGS = ["issue-id", "shop", "sheet", "gid", "no-sheet", "snapshot-file", "cols-work", "cols-owner", "cols-note", "cols-done", "keys", "profile"];
@@ -1176,8 +1219,8 @@ async function cmdDispatch(flags) {
   if (block) process.stderr.write(`warning: ${block.note}\n`);
   if (!workerModel.model) process.stderr.write(`note: model: unknown for worker ${worker} (no OMP transcript and no modelRoles.default in ${fwd(configFile)}); the round continues\n`);
   // The worker's project folder: --cwd on the first dispatch, remembered on the job for later rounds. A folder bound to
-  // a Haravan theme gets its hrv session probed first, because an expired token fails every theme command a worker would
-  // try and can only be fixed by the owner's own `hrv login`.
+  // a Haravan theme gets its hrv session probed first: an expired token fails every theme command a worker would try, so
+  // the round gets a LOGIN block (services@f1genz.com + OTP from otp-inbox) instead of a refusal.
   const cwdFlag = one(flags, "cwd");
   let themeCwd = typeof job.cwd === "string" && job.cwd ? path.resolve(job.cwd) : null;
   if (cwdFlag !== undefined) {
@@ -1204,25 +1247,41 @@ async function cmdDispatch(flags) {
     throw new CliError(EXIT.USAGE, '--skip-token-probe needs --reason "<why the hrv token check is skipped>": the reason is stored on the round and printed by status');
   }
   let tokenProbe = null;
+  let login = null;
   if (themeCwd && job.subject.kind !== "adhoc" && !skipProbe && fs.existsSync(path.join(themeCwd, ".haravan-cli_local.json"))) {
     tokenProbe = runTokenProbe(themeCwd);
     if (tokenProbe.fatal && (kind === "work" || kind === "followup")) {
       // Remembered on the job: a later --skip-token-probe must not hide that this token was seen dead.
       job.tokenProbeFatal = { at: Date.now(), themeId: tokenProbe.themeId, orgId: tokenProbe.orgId, error: tokenProbe.error };
       saveJob(dir, job);
-      const retry = `node ${fwd(path.join(HERE, "leader-job.mjs"))} dispatch --job ${fwd(dir)} --worker ${worker}${kind === "work" ? "" : ` --kind ${kind}`}`;
-      throw new CliError(
-        EXIT.REFUSED,
-        `hrv token is not usable in ${fwd(themeCwd)} (theme ${tokenProbe.themeId ?? "?"}, org ${tokenProbe.orgId ?? "?"}): ${tokenProbe.error}. The owner must run \`hrv login\` for that org in that folder (it needs their own credentials), then dispatch again; a worker cannot refresh it and would spend its whole round discovering that`,
-        { themeId: tokenProbe.themeId, orgId: tokenProbe.orgId, probeError: tokenProbe.error, next: `the owner runs \`hrv login\` for org ${tokenProbe.orgId ?? "?"} in ${fwd(themeCwd)}; then: ${retry}` },
-      );
+      // A dead token is no longer a refusal (owner Tài, 24/11/2026): the round signs in itself. Only what the login needs is checked here.
+      const orgId = bindingOrgId(themeCwd);
+      const tried = job.rounds.find((r) => r.login && !r.deadAt);
+      const where = `hrv token is not usable in ${fwd(themeCwd)} (theme ${tokenProbe.themeId ?? "?"}, org ${tokenProbe.orgId ?? "?"}): ${tokenProbe.error}`;
+      if (!orgId) {
+        throw new CliError(
+          EXIT.REFUSED,
+          `${where}. The login round cannot name the org: .haravan-cli_local.json in that folder has no numeric org_id. Add the org (node ${fwd(path.join(HERE, "shop-org-resolve.mjs"))} <domain> prints it, hrv-whoiam-find.mjs lists the orgs of the signed-in account), then dispatch again`,
+          { themeId: tokenProbe.themeId, orgId: tokenProbe.orgId, probeError: tokenProbe.error, next: `put org_id into ${fwd(path.join(themeCwd, ".haravan-cli_local.json"))}, then dispatch again` },
+        );
+      }
+      if (tried) {
+        throw new CliError(
+          EXIT.REFUSED,
+          `${where}. Round ${tried.n} of this job already tried a login (one login per job, E:/Work/AGENTS.md section 8) and the token is still dead: stop, read that round's report, and ask the owner`,
+          { themeId: tokenProbe.themeId, orgId, probeError: tokenProbe.error, loginRound: tried.n, next: `read round ${tried.n}'s report; the login budget of this job is spent, so ask the owner before another attempt` },
+        );
+      }
+      login = { orgId, email: LOGIN_EMAIL, reason: String(tokenProbe.error ?? "không rõ").replace(/\s+/g, " ").slice(0, 200), since: Date.now() };
+      if (!rendered.includes(LOGIN_HEADING)) rendered = `${rendered.replace(/\s*$/, "")}\n${loginBlock({ ...login, themeId: tokenProbe.themeId })}`;
+      process.stderr.write(`warning: ${where}; LOGIN round: the worker signs in as ${LOGIN_EMAIL} (OTP from otp-inbox) - send the owner the ownerNotice line, no answer is awaited\n`);
     }
     if (tokenProbe.ok === true) delete job.tokenProbeFatal;
     if (tokenProbe.ok === false) {
       process.stderr.write(`warning: hrv token probe in ${fwd(themeCwd)} could not answer (${tokenProbe.error}); dispatch continues, verify the hrv session before the worker edits\n`);
     }
   }
-  // --skip-token-probe after a probe that saw the token dead: the round may only read until the owner has logged in.
+  // --skip-token-probe after a probe that saw the token dead: the round may only read until `hrv theme info --json` reports the bound theme.
   const priorFatal = skipProbe && (kind === "work" || kind === "followup") && job.tokenProbeFatal ? job.tokenProbeFatal : null;
   if (priorFatal && !rendered.includes(READ_ONLY_HEADING)) rendered = `${rendered.replace(/\s*$/, "")}\n${readOnlyBlock(priorFatal)}`;
   // Copy-first (owner 24/11/2026): a work/followup round on the LIVE theme's folder pushes only to the shop's staging theme.
@@ -1299,6 +1358,7 @@ async function cmdDispatch(flags) {
     Object.assign(round, { themeRole: themeState.themeRole, liveTheme: themeState.liveTheme, ...(themeState.liveThemeId ? { liveThemeId: themeState.liveThemeId } : {}), ...(themeState.roleFromRound ? { roleFromRound: themeState.roleFromRound } : {}) });
   }
   if (copyFirst) round.copyFirst = copyFirst;
+  if (login) round.login = login;
   if (skipProbe) round.skipTokenProbe = { reason: skipReason, ...(priorFatal ? { afterFatalProbe: true } : {}) };
   const replaced = liveWorkers(job, runsDir, inUseElsewhere(readLeaderJobs(job.leader?.terminal), job)).filter((w) => w.terminal !== worker);
   const liveThemeWarning = round.liveTheme === true ? liveThemeText(job, round, kind) : null;
@@ -1333,6 +1393,12 @@ async function cmdDispatch(flags) {
     ...(commit ? { commitHeadroomBytes: commit.headroomBytes, commitFloorBytes: commit.floorBytes } : {}),
     ...(job.cwd ? { cwd: job.cwd } : {}),
     ...(tokenProbe ? { tokenProbe } : {}),
+    ...(login
+      ? {
+          login,
+          ownerNotice: `Đang tự đăng nhập Haravan org ${login.orgId} bằng ${login.email} cho job ${job.job} (token hết hạn: ${login.reason.slice(0, 80)}); mã OTP lấy từ otp-inbox, anh không cần làm gì.`,
+        }
+      : {}),
     ...(round.liveTheme === true ? { liveTheme: true, liveThemeWarning } : {}),
     ...(copyFirst ? { copyFirst } : {}),
     ...(round.skipTokenProbe ? { skipTokenProbe: round.skipTokenProbe } : {}),

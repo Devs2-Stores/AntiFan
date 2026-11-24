@@ -168,7 +168,7 @@ export function cliMentionVerdict(tool, tokens) {
     case "refresh-all":
       return has("--force") ? "`hrv refresh-all --force` is not one of the approved login forms" : null;
     case "login":
-      return has("--no-open") ? null : "`hrv login` without --no-open is the owner's own command (credentials), not a worker's";
+      return has("--no-open") ? null : "`hrv login` without --no-open opens a browser window; a worker types only `hrv login --no-open` (AGENTS.md section 8)";
     default:
       // Vietnamese prose also starts with "hrv" ("hrv sau khi ..."): only a verb the CLI has counts as a command.
       return OTHER_CLI_VERBS.has(verb) || verb === "list" || verb === "refresh" ? `\`hrv ${verb}\` is outside the four forms of AGENTS.md section 8 and the three login forms` : null;
