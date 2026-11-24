@@ -52,6 +52,7 @@ import {
   DEVICE_PATH_RE,
   extractTargetPaths,
   planEvalSelfSpawn,
+  planSecretExposure,
   planToolCall,
   READ_TOOLS,
   REFUSAL_CODES,
@@ -486,6 +487,23 @@ async function gateApprovalTampering(
 }
 
 /**
+ * The refusal for a Leader worker's call that would show it the otp-inbox read key (the key file, an `ANTIFAN_SECRET_*` read, an
+ * environment dump; see `planSecretExposure`), or null. A non-worker session is not held to it, and the registry is read only for a
+ * call the plan would refuse. The audit row carries no command text: it could hold the very thing being protected.
+ */
+async function gateSecretExposure(
+  session: GuardSession,
+  tool: string,
+  input: Record<string, unknown>,
+  targets: string[],
+): Promise<string | null> {
+  const plan = planSecretExposure(tool, input, targets);
+  if (plan.decision !== "block" || !(await isLeaderWorker())) return null;
+  appendRows(session, [rowFor(session, tool, "", "block", plan.code)]);
+  return plan.reason;
+}
+
+/**
  * Whether a `bash` / `eval` call the guard failed to classify names the theme CLI inside an
  * AntiFan terminal (every terminal carries `ANTIFAN_TERMINAL_SESSION_ID`); the caller then
  * refuses it only for a Leader's worker. A failure while reading the call itself counts as a
@@ -664,6 +682,12 @@ export default function editGuardHook(pi: GuardPi): void {
       if (tampering !== null) {
         warnSafely(pi, tampering);
         return { block: true, reason: tampering };
+      }
+
+      const exposure = await gateSecretExposure(session, normalizedTool, input, targets);
+      if (exposure !== null) {
+        warnSafely(pi, exposure);
+        return { block: true, reason: exposure };
       }
 
       if (normalizedTool === "bash") {

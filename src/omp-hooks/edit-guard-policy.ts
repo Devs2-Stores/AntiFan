@@ -39,6 +39,8 @@ export const REFUSAL_CODES = {
    * kernel that path is the `omp` binary, so the call opens a child agent session. See `planEvalSelfSpawn`.
    */
   EVAL_SELF_SPAWN: "REFUSED_EVAL_SELF_SPAWN",
+  /** A Leader's worker names the otp-inbox key file, reads an `ANTIFAN_SECRET_*` variable or dumps the environment. See `planSecretExposure`. */
+  SECRET_EXPOSURE: "REFUSED_SECRET_EXPOSURE",
 } as const;
 
 /** Calls that start a process: node's `child_process` family, `Bun.spawn*`, `Bun.$`, a tagged `$` or `sh` template. */
@@ -75,6 +77,54 @@ export function planEvalSelfSpawn(language: unknown, code: unknown): EvalSelfSpa
     code: REFUSAL_CODES.EVAL_SELF_SPAWN,
     reason: `${REFUSAL_CODES.EVAL_SELF_SPAWN}: trong ô eval, process.execPath (và process.argv0, process.argv[0]) là binary của omp, không phải node; lệnh này sẽ mở một phiên agent con mang quyền terminal của bạn, mỗi argv thành một tin nhắn user, và ô eval treo tới khi bị kill. Hãy chạy chương trình node bằng tool bash ("node <file>"), hoặc spawn chuỗi "node" thay cho process.execPath.`,
   };
+}
+
+export interface SecretExposurePlan {
+  decision: "allow" | "block";
+  code: string;
+  reason: string;
+}
+
+/** The otp-inbox read-key file (`%USERPROFILE%/.antifan/otp-inbox*.env`, outside every repo) or anything under a `.antifan/otp-inbox` folder. */
+const OTP_ENV_FILE_RE = /otp-inbox[\w.-]*\.env\b|[\\/]\.antifan[\\/]+otp-inbox/i;
+
+/** An expansion or API read of an `ANTIFAN_SECRET_*` variable (the otp-inbox read key lives in one). A plain mention in a search is not a read. */
+const SECRET_VAR_READ_RE =
+  /(?:\$\{?|%|\benv:|process\s*\.\s*env\s*(?:\.|\[\s*["'`])|os\s*\.\s*environ\s*(?:\.get)?\s*[[(]\s*["']|os\s*\.\s*getenv\s*\(\s*["']|\bprintenv\s+(?:-\S+\s+)*|GetEnvironmentVariable\s*\(\s*["']|(?<![\w.$])env\s*\(\s*["'`])ANTIFAN_SECRET_/i;
+
+/** Listing the whole environment drive in PowerShell: `Get-ChildItem env:`, `gci env:`, `dir env:`, `Get-Item env:*`. */
+const ENV_DRIVE_LISTING_RE = /(?<![\w-])(?:Get-ChildItem|Get-Item|gci|gi|dir|ls)\s+(?:-\w+\s+)*(?:-Path\s+)?["']?env:/i;
+
+/** A bare command whose output is the whole environment (the segment is what sits between `;`, `&`, `|` and newlines). */
+const ENV_DUMP_SEGMENT_RE = /^(?:env(?:\s+-[0a-z]+)*|printenv|set|export\s+-p|declare\s+-[px]+|typeset\s+-x|cmd(?:\.exe)?\s+\/c\s+set)\s*(?:\d?>>?\s*\S+)?\s*$/i;
+
+/** An eval cell handing a bare environment dump to a shell sink: `sh("printenv")`, `os.system("env")`, `subprocess.run(["set"])`. */
+const EVAL_ENV_DUMP_SINK_RE = /\b(?:sh|exec|execSync|system|popen|run|call|check_output|Popen|spawnSync|spawn)\s*\(\s*\[?\s*(?:command\s*[:=]\s*)?["'`]\s*(?:env|printenv|set)\s*["'`]/;
+
+/** A program printing or copying the whole environment: `console.log(process.env)`, `Object.entries(os.environ)`, `{...process.env}` into output. */
+const ENV_DUMP_CALL_RE =
+  /\b(?:console\s*\.\s*(?:log|dir|info|error)|JSON\s*\.\s*stringify|Object\s*\.\s*(?:keys|entries|values|assign)|util\s*\.\s*inspect|print|pprint|json\s*\.\s*dumps|dict|list)\s*\(\s*(?:\{\s*\}\s*,\s*)?(?:process\s*\.\s*env|os\s*\.\s*environ)\s*[,)]|\bin\s+os\s*\.\s*environ\b/;
+
+const SECRET_EXPOSURE_REASON = `${REFUSAL_CODES.SECRET_EXPOSURE}: the otp-inbox read key lives in %USERPROFILE%/.antifan/otp-inbox*.env and in the ANTIFAN_SECRET_* variables, and every tool result is copied verbatim into the session log. Only scripts/leader/otp-fetch.mjs reads them: run \`node E:/Work/apps/AntiFan/scripts/leader/otp-fetch.mjs ...\` (it prints {found,len,ageSec} only) and never print, read, copy or list that file, those variables or the whole environment.`;
+
+/**
+ * Refuses a call that would put the otp-inbox read key in front of a model: a tool target (read, grep, edit, ...) or a shell/eval text
+ * that names the key file, a read of an `ANTIFAN_SECRET_*` variable, or a dump of the whole environment (`env`, `printenv`,
+ * `Get-ChildItem env:`, `console.log(process.env)`, `env()` in an eval cell). `otp-fetch.mjs` itself is no exception to make: it reads the file
+ * as a child process, and the command that runs it names neither the file nor a variable. A rail against slips, not a seal: a program built to
+ * hide the path still gets through. Applied to a Leader's worker only (see `edit-guard.ts`).
+ */
+export function planSecretExposure(tool: unknown, input: Record<string, unknown> | undefined, targets: readonly string[] = []): SecretExposurePlan {
+  const allow: SecretExposurePlan = { decision: "allow", code: "", reason: "" };
+  const block: SecretExposurePlan = { decision: "block", code: REFUSAL_CODES.SECRET_EXPOSURE, reason: SECRET_EXPOSURE_REASON };
+  const name = typeof tool === "string" ? tool.trim().toLowerCase() : "";
+  if (targets.some((target) => OTP_ENV_FILE_RE.test(target))) return block;
+  const text = name === "bash" ? input?.command : name === "eval" ? input?.code : undefined;
+  if (typeof text !== "string" || text.length === 0) return allow;
+  if (OTP_ENV_FILE_RE.test(text) || SECRET_VAR_READ_RE.test(text) || ENV_DRIVE_LISTING_RE.test(text) || ENV_DUMP_CALL_RE.test(text)) return block;
+  if (name === "eval" && (/(?<![\w.$])env\s*\(\s*\)/.test(text) || EVAL_ENV_DUMP_SINK_RE.test(text))) return block;
+  if (text.split(/[;&|\r\n]+/).some((segment) => ENV_DUMP_SEGMENT_RE.test(segment.trim()))) return block;
+  return allow;
 }
 
 export const PATH_INPUT_KEYS = ["path", "file", "filePath", "target", "filename"];

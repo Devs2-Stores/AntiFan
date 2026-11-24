@@ -723,6 +723,8 @@ function roundReportCtx(job, record, kind, dir) {
     stagingFolder: record.copyFirst?.stagingFolder ?? null,
     stagingThemeId: record.copyFirst?.stagingThemeId ?? null,
     liveClose: kind === "close" ? liveCloseInfo(job) : null,
+    // a LOGIN round: the only org `hrv select` may name in its report
+    loginOrgId: record.login?.orgId ?? null,
   };
 }
 
@@ -766,20 +768,22 @@ function bindingOrgId(cwd) {
 }
 
 /** The Vietnamese `# LOGIN` block of a work/followup prompt. Names only commands AGENTS.md section 8 allows; holds no secret. */
-function loginBlock({ orgId, email, reason, since, themeId }) {
+function loginBlock({ orgId, email, reason, themeId, job }) {
   const otp = fwd(path.join(HERE, "otp-fetch.mjs"));
+  const jobName = String(job ?? "job").replace(/[^\w.-]/g, "_").slice(0, 80) || "job";
   return [
     LOGIN_HEADING,
     `Leader đã đo: token hrv của org ${orgId} (theme ${themeId ?? "?"}) không dùng được: ${reason}. Owner Tài ra lệnh trực tiếp (24/11/2026): worker tự đăng nhập bằng tài khoản \`${email}\` ("Chỉ email rồi nhập OTP (không có mật khẩu)"); mã OTP lấy từ hộp otp-inbox (webhook Zoho), Telegram Web chỉ là dự phòng. Điều kiện (1) của bullet "Đăng nhập Haravan do Leader duyệt" (E:/Work/AGENTS.md §8) thoả bởi khối này: orgId ${orgId}, email trên, đúng bốn dòng dưới, tối đa MỘT lần login và MỘT lần gửi lại OTP cho cả job; sai thì dừng và ghi STATUS: NEEDS_INPUT, không thử cách khác.`,
     `Cho tới khi \`hrv theme info --json\` (cwd = thư mục project) trả đúng bound_id: KHÔNG sửa file theme, KHÔNG push, KHÔNG lệnh theme ghi nào. Mỗi lệnh hrv là MỘT dòng đơn bằng tool bash, cwd = thư mục project (không \`;\`, \`&&\`, \`|\`, redirect).`,
     `1. \`hrv whoiam\` (đọc bảng một lần, không redirect ra file): org ${orgId} có trong danh sách thì làm bước 2, vắng thì nhảy sang bước 3.`,
     `2. \`hrv refresh-all\` (không thêm cờ), rồi \`hrv theme info --json\`: thành công và trả đúng bound_id thì XONG, không login, không OTP; ghi hai kết quả đo vào evidence.`,
-    `3. Login (token vẫn chết hoặc org vắng): mở trước một tab AntiFan mới (anti.browser.tabs.create). Chạy \`hrv login --no-open\` bằng tool bash với async:true (CLI chờ tối đa 300 s; không ghi URL nó in ra vào report), mở \`http://localhost:9999/login\` ở tab đó, ở accounts.haravan.com gõ email \`${email}\` rồi Tiếp tục. Trang \`/account/verify-otp\` có sáu ô một ký tự: KHÔNG rời trang đó. Nếu Haravan đòi mật khẩu thì ghi NEEDS_INPUT (tài khoản này không có mật khẩu).`,
-    `4. Lấy OTP, một dòng bằng tool bash: \`node ${otp} --since ${since} --wait 120\` (số \`--since\` đã là mốc dưới Leader tính lúc dispatch: giữ nguyên, đừng thay). Nó chờ mã từ otp-inbox (poll 5 s), đưa mã thẳng vào clipboard và chỉ in \`{found,len,ageSec}\`, không bao giờ in mã. \`found:true\`: dán bằng anti.agent.sequence (Ctrl+V vào ô OTP đầu tiên; dán điền hết sáu ô), rồi NGAY \`node ${otp} --clear\` để ghi đè clipboard bằng chuỗi rỗng.`,
-    `5. Dự phòng: \`found:false\` sau 120 s thì đọc OTP bằng Telegram Web đã đăng nhập theo skill haravan-login-via-otp (references/telegram-otp.md: lọc From Haravan, tuổi tối đa 120 s, đường mã trang → clipboard → Ctrl+V → clipboard rỗng). Vẫn không có mã dùng được: gửi lại OTP MỘT lần bằng nút gửi lại của trang rồi lặp bước 4 (cùng \`--since ${since}\`); hết lần gửi lại thì NEEDS_INPUT, không login lần hai.`,
-    `6. CLI in "Đăng nhập thành công." thì \`hrv select ${orgId}\` (đúng orgId này), rồi \`hrv theme info --json\` phải trả đúng bound_id; sau đó mới làm việc của job.`,
-    `7. Dọn: clipboard rỗng, đóng tab đã mở, dừng tiến trình login. Report ghi trong evidence: có login hay không, số lần gửi lại OTP, nguồn mã (otp-inbox hoặc Telegram), kết quả \`hrv theme info --json\`.`,
-    `Bí mật: mã OTP không bao giờ xuất hiện trong kết quả tool, report, file, log, lệnh hay \`learn\` (chỉ found/len/ageSec và boolean); KHÔNG screenshot, snapshot hay dom trang OTP và Telegram Web; kết quả tool nào cũng được ghi nguyên văn vào session.`,
+    `3. Khoá đăng nhập toàn máy (clipboard, hộp thư services@ và phiên accounts.haravan.com dùng chung, nên mỗi lúc chỉ một job đăng nhập): một dòng bash \`node ${otp} --lock --job ${jobName}\`. Exit 4 kèm {locked:true,holder}: job khác đang đăng nhập, chờ \`sleep 60\` rồi thử lại, tối đa 10 lần (khoá tự hết hạn sau 10 phút); vẫn bị giữ thì NEEDS_INPUT, KHÔNG đăng nhập khi không có khoá.`,
+    `4. Login (token vẫn chết hoặc org vắng): mở trước một tab AntiFan mới (anti.browser.tabs.create). Chạy \`hrv login --no-open\` bằng tool bash với async:true (CLI chờ tối đa 300 s; không ghi URL nó in ra vào report), mở \`http://localhost:9999/login\` ở tab đó, ở accounts.haravan.com gõ email \`${email}\`. Nếu Haravan đòi mật khẩu thì ghi NEEDS_INPUT (tài khoản này không có mật khẩu). MỘT mốc t0 duy nhất cho cả khối: NGAY TRƯỚC khi bấm nút gửi (Tiếp tục), chạy một dòng bash \`node ${otp} --now\` và giữ số \`now\` nó in làm t0 (đồng hồ máy này; KHÔNG dùng giờ dispatch, KHÔNG dùng giờ Haravan hiện mã), rồi mới bấm. Trang \`/account/verify-otp\` có sáu ô một ký tự: KHÔNG rời trang đó.`,
+    `5. Lấy OTP, một dòng bash: \`node ${otp} --since <t0> --wait 120\` (t0 của bước 4). Nó chờ mã từ otp-inbox (poll 5 s), tự quy đổi t0 sang giờ của Worker khi Worker báo serverNow (in thêm \`skewSec\`), đưa mã thẳng vào clipboard và chỉ in \`{found,len,ageSec}\`, không bao giờ in mã. \`found:true\`: dán bằng anti.agent.sequence (Ctrl+V vào ô OTP đầu tiên; dán điền hết sáu ô), rồi NGAY \`node ${otp} --clear\` để ghi đè clipboard bằng chuỗi rỗng (Windows có thể giữ lịch sử clipboard: dán xong là xoá, không để mã nằm lại).`,
+    `6. Dự phòng: \`found:false\` sau 120 s thì đọc OTP bằng Telegram Web đã đăng nhập theo skill haravan-login-via-otp (references/telegram-otp.md: lọc From Haravan, tuổi tối đa 120 s, đường mã trang → clipboard → Ctrl+V → clipboard rỗng). Vẫn không có mã dùng được: gửi lại OTP MỘT lần bằng nút gửi lại của trang; NGAY TRƯỚC khi bấm nút đó chạy lại \`node ${otp} --now\` lấy t0 MỚI rồi lặp bước 5 với t0 mới. Hết lần gửi lại thì NEEDS_INPUT, không login lần hai.`,
+    `7. Trang OrgSelect: chọn đúng org ${orgId}. Nếu OrgSelect của \`${email}\` KHÔNG có org ${orgId} (org thuộc tài khoản khác; đã đo: Apshop 1000129940 thuộc hangquoctai.157@gmail.com): KHÔNG chọn org khác, KHÔNG \`hrv select\` org khác, KHÔNG bấm đồng ý; dừng, làm bước 8 rồi ghi STATUS: NEEDS_INPUT nêu "org ${orgId} không có trong tài khoản ${email}" cùng tên các shop thấy được (chỉ tên). Có org đó thì bấm đồng ý; CLI in "Đăng nhập thành công." thì \`hrv select ${orgId}\` (đúng orgId này; validate-report từ chối id khác), rồi \`hrv theme info --json\` phải trả đúng bound_id; sau đó mới làm việc của job.`,
+    `8. Dọn: clipboard rỗng (\`node ${otp} --clear\`), rồi nhả khoá \`node ${otp} --unlock --job ${jobName}\` (cả khi NEEDS_INPUT hay lỗi), đóng tab đã mở, dừng tiến trình login. Report ghi trong evidence: có login hay không, số lần gửi lại OTP, nguồn mã (otp-inbox hoặc Telegram), kết quả \`hrv theme info --json\`.`,
+    `Bí mật: mã OTP không bao giờ xuất hiện trong kết quả tool, report, file, log, lệnh hay \`learn\` (chỉ found/len/ageSec/skewSec và boolean); KHÔNG screenshot, snapshot hay dom trang OTP và Telegram Web; không đọc file cấu hình otp-inbox hay in biến môi trường ANTIFAN_SECRET_* (hook từ chối); kết quả tool nào cũng được ghi nguyên văn vào session.`,
     "",
   ].join("\n");
 }
@@ -1257,7 +1261,7 @@ async function cmdDispatch(flags) {
       // A dead token is no longer a refusal (owner Tài, 24/11/2026): the round signs in itself. Only what the login needs is checked here.
       // A close round without a usable binding org only warns (it was never refused for a dead token); work/followup rounds are refused.
       const orgId = bindingOrgId(themeCwd);
-      const tried = job.rounds.find((r) => r.login && !r.deadAt);
+      const tried = job.rounds.find((r) => r.login); // a round whose worker died spent the login too: one login per job
       const where = `hrv token is not usable in ${fwd(themeCwd)} (theme ${tokenProbe.themeId ?? "?"}, org ${tokenProbe.orgId ?? "?"}): ${tokenProbe.error}`;
       if (!orgId && kind === "close") {
         process.stderr.write(`warning: ${where}; .haravan-cli_local.json has no numeric org_id, so no LOGIN block was attached: the close round will report NEEDS_INPUT\n`);
@@ -1278,12 +1282,12 @@ async function cmdDispatch(flags) {
               orgId,
               probeError: tokenProbe.error,
               loginRound: tried.n,
-              next: `the job's one login is spent (round ${tried.n}); a real retry needs the owner to sign in first. For a read-only round meanwhile: dispatch again with --skip-token-probe --reason "<why>" (its prompt is READ-ONLY and names no login)`,
+              next: `the job's one login is spent (round ${tried.n}${tried.deadAt ? ", its worker died" : ""}). The owner is never handed a login to do: read that round's report and relay its cause to the owner as a NEEDS_INPUT (org ${orgId} is not in the ${LOGIN_EMAIL} account, the OTP never arrived, Haravan asked for a password). For a read-only round meanwhile: dispatch again with --skip-token-probe --reason "<why>" (its prompt is READ-ONLY and names no login)`,
             },
           );
         }
-        login = { orgId, email: LOGIN_EMAIL, reason: String(tokenProbe.error ?? "không rõ").replace(/\s+/g, " ").slice(0, 200), since: Date.now() };
-        if (!rendered.includes(LOGIN_HEADING)) rendered = `${rendered.replace(/\s*$/, "")}\n${loginBlock({ ...login, themeId: tokenProbe.themeId })}`;
+        login = { orgId, email: LOGIN_EMAIL, reason: String(tokenProbe.error ?? "không rõ").replace(/\s+/g, " ").slice(0, 200), at: Date.now() };
+        if (!rendered.includes(LOGIN_HEADING)) rendered = `${rendered.replace(/\s*$/, "")}\n${loginBlock({ ...login, themeId: tokenProbe.themeId, job: job.job })}`;
         process.stderr.write(`warning: ${where}; LOGIN round: the worker signs in as ${LOGIN_EMAIL} (OTP from otp-inbox) - send the owner the ownerNotice line, no answer is awaited\n`);
       }
     }
@@ -2410,7 +2414,7 @@ function cmdStatus(flags) {
       nextReportPath: reportPathFor(dir, job, job.rounds.length + 1),
       ...(overridesOf(job).length ? { overrides: overridesOf(job) } : {}),
       ...(job.rounds.some((r) => r.skipTokenProbe) ? { tokenProbeSkips: job.rounds.filter((r) => r.skipTokenProbe).map((r) => ({ round: r.n, ...r.skipTokenProbe })) } : {}),
-      ...(job.rounds.some((r) => r.login) ? { loginRounds: job.rounds.filter((r) => r.login).map((r) => ({ round: r.n, orgId: r.login.orgId, email: r.login.email, since: r.login.since, dead: Boolean(r.deadAt) })) } : {}),
+      ...(job.rounds.some((r) => r.login) ? { loginRounds: job.rounds.filter((r) => r.login).map((r) => ({ round: r.n, orgId: r.login.orgId, email: r.login.email, at: r.login.at, dead: Boolean(r.deadAt) })) } : {}),
       ...(Array.isArray(job.approvals) && job.approvals.length ? { ownerApprovals: job.approvals.map((a) => ({ round: a.round, via: a.via, commands: a.commands, quote: a.quote })) } : {}),
       outstandingDevRows: latestSheet(job)?.outstandingDevRows?.length ?? null,
       liveWorkers: live,

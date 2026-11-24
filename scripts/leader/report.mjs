@@ -27,7 +27,7 @@
 //   }
 
 import fs from "node:fs";
-import { backupManifestProblems, copyFirstStagingProblems, liveCloseProblems, pushedFilesOf } from "./qa-gates.mjs";
+import { backupManifestProblems, copyFirstStagingProblems, liveCloseProblems, loginSelectProblems, pushedFilesOf } from "./qa-gates.mjs";
 import { normKey } from "./sheet-diff.mjs";
 
 export const REPORT_SCHEMA = "leader-report/1";
@@ -308,6 +308,7 @@ export function validateReportObject(parsed, job, round, ctx = {}) {
   if (j.notChecked !== undefined && !isStrArray(j.notChecked)) errors.push("notChecked must be an array of strings");
   validateHandover(j, status, job, ctx, errors);
   validateShipping(j, status, job, ctx, errors);
+  if (ctx.loginOrgId) errors.push(...loginSelectProblems(j, ctx.loginOrgId));
   if (status === "NEEDS_INPUT") {
     const n = j.needsInput;
     if (!isObj(n)) errors.push("NEEDS_INPUT report must carry needsInput {question, options}");

@@ -6,15 +6,21 @@
 // the clipboard through the stdin of `clip` (never a command line, so no process list or log can hold it) and the worker pastes
 // it with Ctrl+V. stdout is ONE json line {found, len, ageSec}; the code, the read key and the mail are never printed.
 //
-//   node otp-fetch.mjs --since <epochMs> [--wait <seconds, default 120>]   wait for a code newer than `since`, copy it
+//   node otp-fetch.mjs --now                                                print {now: <epochMs>}: the t0 to take RIGHT BEFORE clicking the "send / resend OTP" button
+//   node otp-fetch.mjs --since <t0> [--wait <seconds, default 120>]        wait for a code newer than t0, copy it
 //   node otp-fetch.mjs --clear                                              overwrite the clipboard with an empty string
+//   node otp-fetch.mjs --lock --job <name> | --unlock --job <name>          machine-wide login lock (one Haravan login at a time, 10 min expiry)
+//
+// The Worker's answer carries `serverNow`; when it does, t0 (a local clock) is converted to the Worker's clock before the next poll and
+// stdout reports `skewSec` (server minus local), so a fast or slow local clock cannot make a valid code look old.
 //
 // Config (contract 24/11/2026): env ANTIFAN_SECRET_OTP_INBOX_URL / ANTIFAN_SECRET_OTP_INBOX_KEY, else the same KEY=VALUE lines in
-// %USERPROFILE%/.antifan/otp-inbox.env (outside every repo). Env wins over the file.
-// Exit: 0 found (or clipboard cleared) | 1 no code within --wait | 2 usage or config | 3 the Worker refused (401/HTTP error) or the clipboard failed.
+// %USERPROFILE%/.antifan/otp-inbox.env (outside every repo). Env wins over the file. The URL must be https (the read key travels in a
+// Bearer header); only a loopback host may use http (tests).
+// Exit: 0 found / cleared / lock taken | 1 no code within --wait | 2 usage or config | 3 the Worker refused (401/HTTP error) or the clipboard failed | 4 login lock held by another job.
 //
 // Test seams: OTP_FETCH_ENV_FILE (config file path), OTP_FETCH_POLL_MS (poll interval, default 5000), OTP_FETCH_CLIPBOARD_FILE
-// (write the code into this file instead of the clipboard).
+// (write the code into this file instead of the clipboard), OTP_FETCH_LOCK_FILE (lock file path).
 
 import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
@@ -27,6 +33,8 @@ const KEY_KEY = "ANTIFAN_SECRET_OTP_INBOX_KEY";
 const DEFAULT_WAIT_S = 120;
 const DEFAULT_POLL_MS = 5000;
 const REQUEST_TIMEOUT_MS = 8000;
+const LOCK_TTL_MS = 10 * 60 * 1000;
+const DEFAULT_LOCK_FILE = "E:/Work/scratch/leader/.hrv-login.lock";
 
 /** KEY=VALUE lines; `#` comments and blank lines skipped; one pair of surrounding quotes stripped. */
 export function parseEnvText(text) {
@@ -53,7 +61,18 @@ export function readConfig(env = process.env) {
   const url = (env[URL_KEY] || fromFile[URL_KEY] || "").trim().replace(/\/+$/, "");
   const key = (env[KEY_KEY] || fromFile[KEY_KEY] || "").trim();
   const missing = [url ? null : URL_KEY, key ? null : KEY_KEY].filter(Boolean);
-  return { url, key, missing };
+  return { url, key, missing, insecure: url !== "" && !isSecureUrl(url) };
+}
+
+/** https, or http on a loopback host (the test Worker). Anything else would send the Bearer key in clear. */
+export function isSecureUrl(url) {
+  let u;
+  try {
+    u = new URL(url);
+  } catch {
+    return false;
+  }
+  return u.protocol === "https:" || (u.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]"].includes(u.hostname));
 }
 
 const emit = (obj) => process.stdout.write(`${JSON.stringify(obj)}\n`);
@@ -69,11 +88,15 @@ export function setClipboard(text, env = process.env) {
   return !r.error && r.status === 0;
 }
 
-/** One GET /otp. Resolves {kind: "found"|"none"|"unauthorized"|"http"|"network"|"bad", ...}; never throws, never carries the key. */
+/**
+ * One GET /otp. Resolves {kind: "found"|"none"|"unauthorized"|"http"|"network"|"bad"|"burned", serverNow?, skewMs?, ...}; never throws,
+ * never carries the key. `skewMs` (Worker clock minus local clock, round trip halved) is present when the Worker sent `serverNow`.
+ */
 async function readOnce(cfg, since) {
   let res;
+  const sentAt = Date.now();
   try {
-    res = await fetch(`${cfg.url}/otp?since=${encodeURIComponent(String(since))}`, { headers: { Authorization: `Bearer ${cfg.key}` }, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+    res = await fetch(`${cfg.url}/otp?since=${encodeURIComponent(String(Math.round(since)))}`, { headers: { Authorization: `Bearer ${cfg.key}` }, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
   } catch {
     return { kind: "network" };
   }
@@ -85,25 +108,98 @@ async function readOnce(cfg, since) {
   } catch {
     return { kind: "bad" };
   }
-  if (!body || body.found !== true) return { kind: "none" };
+  const receivedLocal = Date.now();
+  const serverNow = Number.isFinite(body?.serverNow) ? Number(body.serverNow) : null;
+  const skewMs = serverNow === null ? undefined : serverNow - (sentAt + receivedLocal) / 2;
+  if (!body || body.found !== true) return { kind: "none", skewMs };
   const otp = typeof body.otp === "string" ? body.otp : "";
   if (!/^[A-Za-z0-9]{4,12}$/.test(otp)) return { kind: "burned" }; // found:true but unusable: the Worker already deleted the code
   const receivedAt = Number.isFinite(body.receivedAt) ? Number(body.receivedAt) : null;
-  return { kind: "found", otp, receivedAt };
+  return { kind: "found", otp, receivedAt, skewMs };
 }
 
 function parseArgs(argv) {
-  const flags = { since: null, wait: DEFAULT_WAIT_S, clear: false };
+  const flags = { since: null, wait: DEFAULT_WAIT_S, clear: false, now: false, lock: false, unlock: false, job: "unknown" };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--clear") flags.clear = true;
-    else if (a === "--since" || a === "--wait") {
+    else if (a === "--now") flags.now = true;
+    else if (a === "--lock") flags.lock = true;
+    else if (a === "--unlock") flags.unlock = true;
+    else if (a === "--job") {
+      const v = argv[++i];
+      if (v === undefined || !/^[\w.-]{1,80}$/.test(v)) return { error: "--job needs the job name (letters, digits, . _ -)" };
+      flags.job = v;
+    } else if (a === "--since" || a === "--wait") {
       const v = argv[++i];
       if (v === undefined || !/^\d+(\.\d+)?$/.test(v)) return { error: `${a} needs a non-negative number` };
       flags[a.slice(2)] = Number(v);
     } else return { error: `unknown argument ${a.startsWith("-") ? a : "(positional)"}` };
   }
   return { flags };
+}
+
+const readLock = (file) => {
+  try {
+    const h = JSON.parse(fs.readFileSync(file, "utf8"));
+    return { job: String(h.job ?? "unknown"), pid: Number(h.pid) || null, at: Number(h.at) || 0 };
+  } catch {
+    return null;
+  }
+};
+const holderView = (h, now) => ({ job: h.job, pid: h.pid, ageSec: Math.max(0, Math.round((now - h.at) / 1000)) });
+
+/**
+ * The machine-wide Haravan login lock (one login at a time: the clipboard, the services@ mailbox and the accounts.haravan.com session
+ * are shared). Created atomically WITH its content (written to a temp file, then hard-linked into place: the link fails when the lock
+ * exists, and nobody ever sees a half-written lock); a lock older than 10 minutes is dead and is replaced; the same job may take it again.
+ * @returns {{code: number, out: object}}
+ */
+export function takeLock(file, job, now = Date.now()) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = `${file}.${process.pid}.tmp`;
+  try {
+    fs.writeFileSync(tmp, JSON.stringify({ job, pid: process.pid, at: now }));
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        fs.linkSync(tmp, file);
+        return { code: 0, out: { acquired: true, job, expiresInSec: LOCK_TTL_MS / 1000 } };
+      } catch (e) {
+        if (e.code !== "EEXIST") return { code: 3, out: { acquired: false, error: `lock file: ${e.code ?? "error"}` } };
+      }
+      const holder = readLock(file);
+      if (holder && now - holder.at <= LOCK_TTL_MS && holder.job !== job) return { code: 4, out: { acquired: false, locked: true, holder: holderView(holder, now) } };
+      // Expired, unreadable or our own earlier lock: replace it, but only if it is still the file we just judged (a racing taker may have replaced it).
+      const again = readLock(file);
+      if ((again?.at ?? null) === (holder?.at ?? null) && (again?.pid ?? null) === (holder?.pid ?? null)) {
+        try {
+          fs.unlinkSync(file);
+        } catch {}
+      }
+    }
+  } finally {
+    try {
+      fs.unlinkSync(tmp);
+    } catch {}
+  }
+  const holder = readLock(file);
+  return { code: 4, out: { acquired: false, locked: true, ...(holder ? { holder: holderView(holder, now) } : {}) } };
+}
+
+/** Release the lock when `job` holds it (or nobody does). Another job's live lock is left alone. */
+export function releaseLock(file, job, now = Date.now()) {
+  const holder = readLock(file);
+  if (!holder) {
+    try {
+      fs.unlinkSync(file); // an unreadable lock file is garbage
+    } catch {}
+    return { code: 0, out: { released: true, held: false } };
+  }
+  if (holder.job !== job && now - holder.at <= LOCK_TTL_MS) return { code: 4, out: { released: false, locked: true, holder: holderView(holder, now) } };
+  try {
+    fs.unlinkSync(file);
+  } catch {}
+  return { code: 0, out: { released: true, held: true } };
 }
 
 export async function main(argv = process.argv.slice(2), env = process.env) {
@@ -113,6 +209,20 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     return 2;
   }
   const { flags } = parsed;
+  if (flags.now) {
+    emit({ now: Date.now() });
+    return 0;
+  }
+  if (flags.lock || flags.unlock) {
+    if (flags.lock && flags.unlock) {
+      emit({ error: "--lock and --unlock are two commands" });
+      return 2;
+    }
+    const file = env.OTP_FETCH_LOCK_FILE || DEFAULT_LOCK_FILE;
+    const r = flags.lock ? takeLock(file, flags.job) : releaseLock(file, flags.job);
+    emit(r.out);
+    return r.code;
+  }
   if (flags.clear) {
     const ok = setClipboard("", env);
     emit({ cleared: ok });
@@ -123,20 +233,39 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     emit({ found: false, error: `config missing: ${cfg.missing.join(", ")}` });
     return 2;
   }
+  if (cfg.insecure) {
+    emit({ found: false, error: `${URL_KEY} must be an https URL (the read key is sent in a Bearer header); only a loopback host may use http` });
+    return 2;
+  }
   const started = Date.now();
   const since = flags.since ?? started;
+  let sinceSent = since; // the t0 in the Worker's clock once the Worker has told us its time
+  let skewMs = null;
+  const skewField = () => (skewMs === null ? {} : { skewSec: Math.round(skewMs / 1000) });
   const pollMs = Math.max(1, Number(env.OTP_FETCH_POLL_MS) || DEFAULT_POLL_MS);
   const deadline = started + flags.wait * 1000;
   let last = { kind: "none" };
+  let fastRepoll = true;
   for (;;) {
-    last = await readOnce(cfg, since);
+    const usedSince = sinceSent;
+    last = await readOnce(cfg, usedSince);
+    if (last.skewMs !== undefined) {
+      skewMs = last.skewMs;
+      sinceSent = since + skewMs;
+    }
     if (last.kind === "found") {
-      if (!setClipboard(last.otp, env)) {
-        emit({ found: true, copied: false, len: last.otp.length, error: "clipboard write failed" });
-        return 3;
+      // A code the Worker already deleted but that predates t0 in the Worker's clock (local clock slow): not ours, keep waiting for the real one.
+      if (skewMs !== null && last.receivedAt !== null && last.receivedAt <= sinceSent) {
+        last = { kind: "none" };
+      } else {
+        if (!setClipboard(last.otp, env)) {
+          emit({ found: true, copied: false, len: last.otp.length, error: "clipboard write failed" });
+          return 3;
+        }
+        const nowServer = Date.now() + (skewMs ?? 0);
+        emit({ found: true, len: last.otp.length, ageSec: last.receivedAt == null ? null : Math.max(0, Math.round((nowServer - last.receivedAt) / 1000)), ...skewField() });
+        return 0;
       }
-      emit({ found: true, len: last.otp.length, ageSec: last.receivedAt == null ? null : Math.max(0, Math.round((Date.now() - last.receivedAt) / 1000)) });
-      return 0;
     }
     if (last.kind === "burned") {
       emit({ found: false, error: "worker returned an unusable code and deleted it: resend the OTP, then run this again" });
@@ -147,10 +276,12 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
       return 3;
     }
     if (Date.now() + pollMs > deadline) break;
-    await sleep(pollMs);
+    // The answer revealed a Worker clock that moves t0 by more than a second: ask again at once with the corrected t0 (a stale t0 hides a valid code).
+    if (fastRepoll && Math.abs(sinceSent - usedSince) > 1000) fastRepoll = false;
+    else await sleep(pollMs);
   }
   const error = last.kind === "none" ? undefined : last.kind === "http" ? `worker answered HTTP ${last.status}` : last.kind === "bad" ? "worker answered an unreadable body" : "worker unreachable";
-  emit({ found: false, waitedSec: Math.round((Date.now() - started) / 1000), ...(error ? { error } : {}) });
+  emit({ found: false, waitedSec: Math.round((Date.now() - started) / 1000), ...skewField(), ...(error ? { error } : {}) });
   return last.kind === "http" ? 3 : 1;
 }
 

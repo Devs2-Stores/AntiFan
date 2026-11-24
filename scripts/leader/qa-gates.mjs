@@ -190,6 +190,21 @@ export function scanCliApprovals(text) {
   return found;
 }
 
+/**
+ * A LOGIN round (`round.login`) signs in for ONE org. A report that names `hrv select <id>` with another numeric id (in summary, evidence,
+ * commands, risks, notChecked or the needsInput text) shows the worker picked a different org than the one the Leader approved
+ * (measured on 261124-1910: it ran `hrv select` for VYAN when Apshop was absent from the account). Prose such as "hrv select org khác" is not an id.
+ * @returns {string[]} problems; [] when the round has no login or every named id is the approved one
+ */
+export function loginSelectProblems(json, loginOrgId) {
+  const want = isStr(loginOrgId) || typeof loginOrgId === "number" ? String(loginOrgId) : "";
+  if (!want || !isObj(json)) return [];
+  const texts = [json.summary, ...["evidence", "commands", "risks", "notChecked", "pushed"].flatMap((k) => (Array.isArray(json[k]) ? json[k] : [])), json.needsInput?.question, ...(Array.isArray(json.needsInput?.options) ? json.needsInput.options : [])].filter(isStr);
+  const wrong = new Set();
+  for (const t of texts) for (const m of t.matchAll(/(?<![\w./-])hrv\s+select\s+(\d+)\b/g)) if (m[1] !== want) wrong.add(m[1]);
+  return [...wrong].map((id) => `LOGIN round: the report names \`hrv select ${id}\` but this round was approved to sign in to org ${want} only (AGENTS.md section 8): if org ${want} is absent from the account's OrgSelect, select nothing, report NEEDS_INPUT, and do not quote another org's select command`);
+}
+
 /** One-line owner quote for --owner-quote: the owner's own words, 1-500 chars, no control characters. */
 export function ownerQuoteProblem(quote) {
   const q = String(quote ?? "").trim();

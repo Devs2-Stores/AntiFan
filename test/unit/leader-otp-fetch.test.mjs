@@ -182,4 +182,120 @@ describe("otp-fetch", () => {
     assert.equal((await run(["--since", "abc"])).code, 2);
     assert.equal((await run(["--wat"])).code, 2);
   });
+
+  // ---- clock skew (review finding 7): t0 is a local clock, receivedAt a Worker clock
+
+  /** A Worker whose clock is local + offsetMs. It honours `since` like the real one: it hands over (and deletes) the first queued code newer than it. */
+  async function skewedWorker(offsetMs, queue) {
+    return fakeWorker((req) => {
+      const since = Number(new URL(req.url, "http://x").searchParams.get("since"));
+      const serverNow = Date.now() + offsetMs;
+      const i = queue.findIndex((c) => c.receivedAt > since);
+      if (i < 0) return [200, { found: false, serverNow }];
+      const [c] = queue.splice(i, 1);
+      return [200, { found: true, otp: c.otp, receivedAt: c.receivedAt, serverNow }];
+    });
+  }
+
+  test("a local clock 60 s ahead of the Worker no longer hides a valid code: t0 is converted to the Worker's clock and skewSec is reported", async () => {
+    const offset = -60000;
+    const w = await skewedWorker(offset, [{ otp: CODE, receivedAt: Date.now() + offset - 3000 }]);
+    const r = await run(["--since", String(Date.now() - 10000), "--wait", "10"], cfg(w));
+    w.close();
+    assert.equal(r.code, 0, r.stderr);
+    assert.equal(r.clip, CODE);
+    const out = JSON.parse(r.stdout.trim());
+    assert.equal(out.found, true);
+    assert.ok(Math.abs(out.skewSec - -60) <= 2, `skewSec ${out.skewSec}`);
+    assert.ok(out.ageSec >= 2 && out.ageSec <= 8, `ageSec ${out.ageSec}`);
+    assert.equal(w.seen.length, 2, "one poll to learn the clock, one corrected poll");
+    noSecrets(r);
+  });
+
+  test("a local clock 60 s behind: a code older than t0 that the Worker still hands over is discarded, the real one is taken", async () => {
+    const offset = 60000;
+    const STALE = "ZZ9999";
+    const nowW = Date.now() + offset;
+    const w = await skewedWorker(offset, [
+      { otp: STALE, receivedAt: nowW - 30000 }, // newer than the local t0 as a raw number, older than t0 on the Worker's clock
+      { otp: CODE, receivedAt: nowW + 500 },
+    ]);
+    const r = await run(["--since", String(Date.now() - 5000), "--wait", "10"], cfg(w));
+    w.close();
+    assert.equal(r.code, 0, r.stderr);
+    assert.equal(r.clip, CODE, "the stale code must never reach the clipboard");
+    assert.ok(Math.abs(JSON.parse(r.stdout.trim()).skewSec - 60) <= 2);
+    assert.ok(!r.stdout.includes(STALE));
+  });
+
+  test("no serverNow in the answer: behaviour is unchanged and no skewSec is printed", async () => {
+    const w = await fakeWorker(() => [200, { found: true, otp: CODE, receivedAt: Date.now() }]);
+    const r = await run(["--since", "1", "--wait", "5"], cfg(w));
+    w.close();
+    assert.equal(r.code, 0, r.stderr);
+    assert.ok(!("skewSec" in JSON.parse(r.stdout.trim())));
+  });
+
+  test("--now prints the local epoch ms to use as t0 and needs no config", async () => {
+    const before = Date.now();
+    const r = await run(["--now"]);
+    assert.equal(r.code, 0, r.stderr);
+    const { now } = JSON.parse(r.stdout.trim());
+    assert.ok(now >= before && now <= Date.now());
+  });
+
+  // ---- https only (review finding 12)
+
+  test("a non-https URL is refused before any request (the Bearer key would travel in clear); loopback http is the test exception", async () => {
+    const r = await run(["--since", "1", "--wait", "0"], { ANTIFAN_SECRET_OTP_INBOX_URL: "http://otp-inbox.example.workers.dev", ANTIFAN_SECRET_OTP_INBOX_KEY: KEY });
+    assert.equal(r.code, 2);
+    assert.match(JSON.parse(r.stdout.trim()).error, /https/);
+    assert.equal(r.clip, null);
+    noSecrets(r);
+    const r2 = await run(["--since", "1", "--wait", "0"], { ANTIFAN_SECRET_OTP_INBOX_URL: "ftp://x.example", ANTIFAN_SECRET_OTP_INBOX_KEY: KEY });
+    assert.equal(r2.code, 2);
+  });
+
+  // ---- machine-wide login lock (review finding 8)
+
+  describe("login lock", () => {
+    const lockEnv = (name) => ({ OTP_FETCH_LOCK_FILE: path.join(TEMP, `${name}.lock`) });
+    const out = (r) => JSON.parse(r.stdout.trim());
+
+    test("the first job takes it, another job is told who holds it, the holder may take it again and release it", async () => {
+      const env = lockEnv("basic");
+      const a = await run(["--lock", "--job", "job-a"], env);
+      assert.equal(a.code, 0, a.stderr);
+      assert.equal(out(a).acquired, true);
+      const b = await run(["--lock", "--job", "job-b"], env);
+      assert.equal(b.code, 4);
+      assert.equal(out(b).locked, true);
+      assert.equal(out(b).holder.job, "job-a");
+      assert.equal((await run(["--lock", "--job", "job-a"], env)).code, 0, "the holder may re-take it (a resend)");
+      const stolen = await run(["--unlock", "--job", "job-b"], env);
+      assert.equal(stolen.code, 4, "another job cannot release it");
+      assert.ok(fs.existsSync(env.OTP_FETCH_LOCK_FILE));
+      const done = await run(["--unlock", "--job", "job-a"], env);
+      assert.equal(done.code, 0);
+      assert.ok(!fs.existsSync(env.OTP_FETCH_LOCK_FILE));
+      assert.equal((await run(["--lock", "--job", "job-b"], env)).code, 0);
+    });
+
+    test("a lock older than 10 minutes is dead and is replaced; releasing when nothing is held succeeds", async () => {
+      const env = lockEnv("stale");
+      fs.writeFileSync(env.OTP_FETCH_LOCK_FILE, JSON.stringify({ job: "dead-job", pid: 1, at: Date.now() - 11 * 60 * 1000 }));
+      const r = await run(["--lock", "--job", "job-c"], env);
+      assert.equal(r.code, 0, r.stdout);
+      assert.equal(JSON.parse(fs.readFileSync(env.OTP_FETCH_LOCK_FILE, "utf8")).job, "job-c");
+      assert.equal((await run(["--unlock", "--job", "job-c"], env)).code, 0);
+      assert.equal((await run(["--unlock", "--job", "job-c"], env)).code, 0);
+    });
+
+    test("six jobs racing for the lock: exactly one wins (atomic create)", async () => {
+      const env = lockEnv("race");
+      const results = await Promise.all(["j1", "j2", "j3", "j4", "j5", "j6"].map((j) => run(["--lock", "--job", j], env)));
+      assert.equal(results.filter((r) => r.code === 0).length, 1, results.map((r) => r.code).join(","));
+      assert.equal(results.filter((r) => r.code === 4).length, 5);
+    });
+  });
 });

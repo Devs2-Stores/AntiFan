@@ -3725,3 +3725,46 @@ test('the prelude shell engine and nested bash tool calls are process sinks judg
   ];
   for (const cell of allowed) assert.equal(themePolicy.planEvalThemeCode(cell).decision, 'allow', cell);
 });
+
+// ---------------------------------------------------------------------------
+// otp-inbox read key: a Leader worker may not read, print or list it (review finding 9)
+// ---------------------------------------------------------------------------
+
+const SECRET_CORPUS = JSON.parse(fs.readFileSync(path.join(REPO, "test", "fixtures", "secret-exposure", "shapes.json"), "utf8")).entries;
+
+test("secret-exposure corpus: the pure plan refuses every key-reading shape and lets the look-alikes through", () => {
+  assert.ok(SECRET_CORPUS.filter((e) => e.expect === "block").length >= 25 && SECRET_CORPUS.filter((e) => e.expect === "pass").length >= 12, "the corpus keeps both sides");
+  const failed = [];
+  for (const entry of SECRET_CORPUS) {
+    const plan = policy.planSecretExposure(entry.tool, entry.input, policy.extractTargetPaths(entry.input));
+    const got = plan.decision === "block" ? "block" : "pass";
+    if (got !== entry.expect) failed.push(`${entry.id}: ${got}, want ${entry.expect}`);
+    if (plan.decision === "block") assert.ok(plan.reason.startsWith("REFUSED_SECRET_EXPOSURE:"), entry.id);
+  }
+  assert.deepEqual(failed, []);
+});
+
+test("secret-exposure corpus at the tool_call door: refused for a Leader worker with an audit row that holds no command text, untouched for any other session", async () => {
+  const root = makeThemeWorkspace();
+  try {
+    const failed = [];
+    let n = 0;
+    for (const entry of SECRET_CORPUS) {
+      n += 1;
+      const asWorker = await asTerminal(true, () => runTool(root, `sess-secret-${n}`, entry.tool, entry.input));
+      if (entry.expect === "block") {
+        if (asWorker?.block !== true || !asWorker.reason.startsWith("REFUSED_SECRET_EXPOSURE:")) failed.push(`${entry.id}: worker not refused (${asWorker?.reason?.slice(0, 50) ?? "passed"})`);
+        const rows = readLog(root, `sess-secret-${n}`);
+        const last = rows.at(-1);
+        if (last?.code !== "REFUSED_SECRET_EXPOSURE" || last.path !== "") failed.push(`${entry.id}: audit row ${JSON.stringify(last)}`);
+        const other = await asTerminal(false, () => runTool(root, `sess-secret-other-${n}`, entry.tool, entry.input));
+        if (other?.reason?.startsWith("REFUSED_SECRET_EXPOSURE:")) failed.push(`${entry.id}: a non-worker session was refused`);
+      } else if (asWorker?.reason?.startsWith("REFUSED_SECRET_EXPOSURE:")) {
+        failed.push(`${entry.id}: look-alike refused`);
+      }
+    }
+    assert.deepEqual(failed, []);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
