@@ -311,9 +311,20 @@ const PRINT_ONLY_ACTIONS: Record<string, true> = { list: true, info: true, help:
  */
 export function planWorkerThemeCommand(cmd: ThemeCommand, boundThemeId: string | null): ThemeCommandPlan {
   const plan = planThemeCommand(cmd, boundThemeId);
-  if (plan.decision === "block" || !cmd.chained) return plan;
-  if (cmd.flags.some((flag) => flag === "--help" || flag === "-h")) return plan;
-  if (PRINT_ONLY_ACTIONS[cmd.action] === true) return plan;
+  if (plan.decision === "block" || !cmd.chained || cmd.flags.some((flag) => flag === "--help" || flag === "-h") || PRINT_ONLY_ACTIONS[cmd.action] === true) {
+    // `hrv theme fetch <id>` writes .haravan-cli_local.json: run in a folder bound to another theme it re-points the
+    // folder at <id>, so the next push goes there. Copy-first keeps a live folder and a staging folder side by side, and a
+    // fetch of the live id inside the staging folder would turn the staging folder into a live one. Only an unbound folder
+    // may fetch another id (that is how a new folder gets its binding). A chained line is refused as COMPLEX first.
+    if (plan.decision === "allow" && cmd.cli === "hrv" && cmd.action === "fetch" && cmd.themeId !== null && boundThemeId !== null && cmd.themeId !== boundThemeId && !cmd.flags.some((flag) => flag === "--help" || flag === "-h")) {
+      return {
+        decision: "block",
+        code: THEME_PUSH_CODES.PUSH_FOREIGN_THEME,
+        reason: `${THEME_PUSH_CODES.PUSH_FOREIGN_THEME}: '${cmd.text}' fetches theme ${cmd.themeId}, but this workspace is bound to theme ${boundThemeId} (.haravan-cli_local.json), and hrv theme fetch <id> re-points the folder at <id> (a later push would go there). Fetch only the bound id here; a copy of a file from another theme goes through the other theme's own folder. ${ASK}`,
+      };
+    }
+    return plan;
+  }
   return {
     decision: "block",
     code: THEME_PUSH_CODES.COMPLEX,

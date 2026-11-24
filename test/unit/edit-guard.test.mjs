@@ -1741,6 +1741,34 @@ test("plain theme commands a worker may run, and lines that only look close, are
   }
 });
 
+test("a worker's hrv theme fetch of another theme id is refused: it would re-point the bound folder (a staging folder would become the live theme)", async () => {
+  const root = makeThemeWorkspace();
+  bindShop(root);
+  const stub = installInfoStub({ role: "unpublished" });
+  try {
+    await asTerminal(true, async () => {
+      const foreign = await runBash(root, "sess-fetch-foreign", "hrv theme fetch 999000111 --only sections/a.liquid");
+      assert.equal(foreign?.block, true, "a fetch of an id other than the bound one must be refused");
+      assert.ok(foreign.reason.startsWith("REFUSED_THEME_PUSH_FOREIGN_THEME:"), foreign.reason);
+      assert.equal(await runBash(root, "sess-fetch-bound", "hrv theme fetch 1001507144 --only sections/a.liquid"), null, "the bound id is still fetched");
+      assert.equal(await runBash(root, "sess-fetch-noid", "hrv theme fetch --only sections/a.liquid"), null, "no id means the bound theme");
+      assert.equal(await runBash(root, "sess-fetch-numeric-only", "hrv theme fetch 1001507144 --only assets/404"), null);
+    });
+    // a folder with no binding yet is how a new staging folder gets bound to its own theme
+    const fresh = makeThemeWorkspace();
+    try {
+      await asTerminal(true, async () => {
+        assert.equal(await runBash(fresh, "sess-fetch-unbound", "hrv theme fetch 999000111"), null, "an unbound folder may fetch the theme it will be bound to");
+      });
+    } finally {
+      fs.rmSync(fresh, { recursive: true, force: true });
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(stub.dir, { recursive: true, force: true });
+  }
+});
+
 test("a worker's eval cell naming haravan-cli or a quote-split CLI word is refused", async () => {
   const root = makeThemeWorkspace();
   bindShop(root);

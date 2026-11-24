@@ -93,6 +93,27 @@ describe("an ad-hoc job through the whole ledger", () => {
     assert.equal(c.last.state, "closed");
   });
 
+  test("next in state user-approved names close --job, not the dispatch --kind close an ad-hoc job refuses", () => {
+    const w = world();
+    const j = adhocJob(w);
+    writeRun(w, "terminal-7", { runSeq: 0, state: "idle" });
+    assert.equal(cli(w, ["dispatch", "--job", j.dir, "--worker", "terminal-7", "--prompt", j.prompt]).code, 0);
+    settle(w, { dir: j.dir }, "terminal-7", 1);
+    fs.writeFileSync(j.job().rounds[0].reportPath, adhocReport(j.job(), 1));
+    assert.equal(cli(w, ["validate-report", "--job", j.dir]).code, 0);
+    assert.equal(cli(w, ["record", "--job", j.dir, "--round", "1", "--kind", "adhoc", "--status", "PASS", "--note", "đã kiểm"]).code, 0);
+    assert.equal(cli(w, ["approve", "--job", j.dir]).code, 0);
+    const n = cli(w, ["next", "--job", j.dir]);
+    assert.equal(n.last.state, "user-approved");
+    const text = n.last.next.join("\n");
+    assert.match(text, / close --job /);
+    assert.doesNotMatch(text, /--kind close/);
+    assert.doesNotMatch(n.last.blocking, /dispatch --kind close/);
+    // the command it prints is the one that works
+    fs.rmSync(path.join(w.runs, "terminal-7.json"));
+    assert.equal(cli(w, ["close", "--job", j.dir]).last.state, "closed");
+  });
+
   test("a record on a closed job corrects its note and leaves the job closed", () => {
     const w = world();
     const j = adhocJob(w);
