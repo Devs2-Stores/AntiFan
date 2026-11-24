@@ -65,7 +65,7 @@ export function initJob(w, slug = "job", issueId = "1", opts = {}) {
     fn(job);
     fs.writeFileSync(file, JSON.stringify(job, null, 2));
   };
-  if (!opts.leaderQa) patch((job) => delete job.leaderQa);
+  if (!opts.leaderQa) patch((job) => { delete job.leaderQa; delete job.shipGates; });
   return { dir, job: () => JSON.parse(fs.readFileSync(path.join(dir, "job.json"), "utf8")), patch };
 }
 

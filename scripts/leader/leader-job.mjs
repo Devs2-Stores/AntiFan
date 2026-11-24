@@ -817,6 +817,7 @@ async function cmdInit(flags) {
     snapshotBefore: "snapshot-before.csv",
     profile,
     leaderQa: 1,
+    shipGates: 1,
     state: "open",
     rounds: [],
   };
@@ -1840,7 +1841,7 @@ function cmdAnswer(flags) {
     throw new CliError(EXIT.REFUSED, `--choice ${JSON.stringify(choice)} is not one of the options the worker listed (${listed}): quote one of them verbatim, or leave --choice out and put the decision in --text`);
   }
   // The answer is typed into a worker pane: a CLI command in it needs the same owner words as one in a follow-up prompt.
-  const cliMentions = scanCliApprovals(`${text}\n${choice ?? ""}`);
+  const cliMentions = scanCliApprovals(text);
   const cliApproval = cliMentions.length ? requireOwnerQuote(flags, cliMentions, "the answer") : null;
   const run = readRun(runsDirOf(flags), round.worker.terminal);
   if (!run || run.unreadable) {

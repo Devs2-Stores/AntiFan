@@ -123,12 +123,13 @@ const isoTime = (v) => (isNonEmptyStr(v) && /^\d{4}-\d{2}-\d{2}T/.test(v.trim())
  * các sơ hở"; measured on epres-371 and zesta-369): a pre-change copy of every pushed file (G4), a smoke after EVERY push and
  * a stated rollback on a live theme (G5), the sample image kept next to the Leader's screenshot (G9), the dashboard guard
  * checked before the first sheet write (G12) and the dev split opened on an unpublished theme (G12). Jobs started under the
- * Leader-QA model (job.leaderQa) get errors; older jobs get warnings, so their reports stay valid.
+ * Leader-QA model that carry the `shipGates` marker (set by `init` since 24/11/2026) get errors; jobs started earlier keep
+ * only warnings, so a report of an already running job does not start failing.
  */
 function validateShipping(j, status, job, ctx, errors) {
   const workRound = (ctx.kind === "work" || ctx.kind === "followup") && job.subject?.kind !== "adhoc";
   if (!workRound) return;
-  const strict = job.leaderQa === 1;
+  const strict = job.shipGates === 1;
   const issue = (m) => (strict ? errors.push(m) : ctx.warnings?.push(m));
   const warn = (m) => ctx.warnings?.push(m);
   const g = j.guard;

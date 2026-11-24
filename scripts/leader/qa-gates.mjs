@@ -170,7 +170,8 @@ export function cliMentionVerdict(tool, tokens) {
     case "login":
       return has("--no-open") ? null : "`hrv login` without --no-open is the owner's own command (credentials), not a worker's";
     default:
-      return `\`hrv ${verb}\` is outside the four forms of AGENTS.md section 8 and the three login forms`;
+      // Vietnamese prose also starts with "hrv" ("hrv sau khi ..."): only a verb the CLI has counts as a command.
+      return OTHER_CLI_VERBS.has(verb) || verb === "list" || verb === "refresh" ? `\`hrv ${verb}\` is outside the four forms of AGENTS.md section 8 and the three login forms` : null;
   }
 }
 

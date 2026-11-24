@@ -62,6 +62,7 @@ function cli(w, args, envOverride = {}) {
     const file = path.join(last.jobDir, "job.json");
     const job = JSON.parse(fs.readFileSync(file, "utf8"));
     delete job.leaderQa;
+    delete job.shipGates;
     fs.writeFileSync(file, JSON.stringify(job, null, 2));
   }
   return { code: r.status, lines, last, stderr: r.stderr, stdout: r.stdout };

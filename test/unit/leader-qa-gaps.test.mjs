@@ -334,7 +334,7 @@ describe("G1/G2 record needs evidence; the dashboard probe really reads comments
 // ================================================================ G4 + G5 + G9 + G12 report validators
 
 describe("G4/G5/G9/G12 report checks", () => {
-  const JOB = { job: "j-1", slug: "j", leaderQa: 1, profile: "haravan", subject: { kind: "feedback", issueId: "1", host: "Taiz", shop: "epres.myharavan.com", sheetId: "S" } };
+  const JOB = { job: "j-1", slug: "j", leaderQa: 1, shipGates: 1, profile: "haravan", subject: { kind: "feedback", issueId: "1", host: "Taiz", shop: "epres.myharavan.com", sheetId: "S" } };
   const guard = (over = {}) => ({ issueId: "1", host: "Taiz", shop: "epres.myharavan.com", sheetId: "S", ...over });
   const handover = (over = {}) => ({ checks: [{ url: "https://epres.myharavan.com/?themeid=1", viewport: "375x812", selector: ".x", expect: "ok" }], risks: [], ...over });
   const smoke = { probe: "smoke", url: "u", viewport: "375x812", selector: ".x", value: "HTTP 200" };
@@ -393,7 +393,7 @@ describe("G4/G5/G9/G12 report checks", () => {
   });
 
   test("G4: a job started before the Leader-QA model only gets a warning", () => {
-    const old = { ...JOB, leaderQa: undefined };
+    const old = { ...JOB, shipGates: undefined };
     const r = run({ ...R2, handover: handover() }, {}, old);
     assert.deepEqual(r.errors, []);
     assert.match(r.warnings.join("\n"), /handover\.backup is missing/);
@@ -451,7 +451,7 @@ describe("G4/G5/G9/G12 report checks", () => {
     assert.match(withTimes(undefined, isoAt(5)).errors.join("\n"), /guard\.checkedAt .* is missing/);
     assert.match(withTimes(isoAt(1), undefined).errors.join("\n"), /sheet\.writtenAt .* is missing/);
     assert.match(withTimes("yesterday", isoAt(5)).errors.join("\n"), /guard\.checkedAt must be an ISO time/);
-    const old = run({ guard: guard(), sheet: { cells }, handover: handover() }, {}, { ...JOB, leaderQa: undefined, profile: "sheet-only" });
+    const old = run({ guard: guard(), sheet: { cells }, handover: handover() }, {}, { ...JOB, shipGates: undefined, profile: "sheet-only" });
     assert.deepEqual(old.errors, []);
     assert.match(old.warnings.join("\n"), /guard\.checkedAt .* is missing/);
     // zesta-369 round 1 wrote the sheet first and ran the guard after
@@ -557,6 +557,24 @@ describe("G6 a Leader may not approve a CLI command outside AGENTS.md section 8"
     assert.equal(ok.code, 0, ok.stderr);
     assert.equal(j.job().approvals[0].via, "answer");
     assert.equal(cliRaw(w, ["answer", "--job", j.dir, "--text", "x"]).code, 4, "state is dispatched now");
+  });
+
+  test("answer: --choice is the worker's own option text and is not scanned (only --text is the Leader's words)", () => {
+    const w = world();
+    const j = initJob(w, "g6b");
+    assert.equal(dispatch(w, j, "terminal-7", "work").code, 0);
+    assert.equal(settle(w, j, "terminal-7", 1).code, 0);
+    const option = "User hrv login org 200001186776 và cho biết id theme CUSNN";
+    writeReport(j, 1, { status: "NEEDS_INPUT", needsInput: { question: "Tìm theme thế nào?", options: [option, "Cách 2"] } });
+    assert.equal(validate(w, j, 1).code, 0);
+    const r = cliRaw(w, ["answer", "--job", j.dir, "--text", "chọn phương án 1", "--choice", option]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.equal(j.job().approvals, undefined);
+  });
+
+  test("scan: Vietnamese prose that starts with 'hrv' (hrv sau khi, hrv cli ghi nhận) is not a command", () => {
+    assert.deepEqual(scanCliApprovals("Làm theo hrv sau khi login. hrv cli ghi nhận themeid nào thì push đúng id đó."), []);
+    assert.equal(scanCliApprovals("chạy `hrv theme list` đi").length, 1);
   });
 });
 
