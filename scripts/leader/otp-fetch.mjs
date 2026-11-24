@@ -7,7 +7,7 @@
 // it with Ctrl+V. stdout is ONE json line {found, len, ageSec}; the code, the read key and the mail are never printed.
 //
 //   node otp-fetch.mjs --now                                                print {now: <epochMs>}: the t0 to take RIGHT BEFORE clicking the "send / resend OTP" button
-//   node otp-fetch.mjs --since <t0> [--wait <seconds, default 120>]        wait for a code newer than t0, copy it
+//   node otp-fetch.mjs --since <t0> --job <name> [--wait <seconds, default 120>]   wait for a code newer than t0, copy it (the job must hold the lock)
 //   node otp-fetch.mjs --clear                                              overwrite the clipboard with an empty string
 //   node otp-fetch.mjs --lock --job <name> | --renew --job <name> | --unlock --job <name>   machine-wide login lock (one Haravan login at a time, 20 min expiry, --renew restarts it)
 //
