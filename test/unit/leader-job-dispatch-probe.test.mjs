@@ -323,26 +323,149 @@ describe("hrv token preflight", () => {
     assert.equal(ok.last.tokenProbe.role, "main");
   });
 
-  test("an ad-hoc job and a folder with no binding are never refused by the probe", () => {
+  test("a folder with no binding is never refused by the probe, and a --cwd that does not exist is a flag error", () => {
     const w = world();
-    const init = cli(w, ["init", "--kind", "adhoc", "--slug", "cleanup"]);
-    assert.equal(init.code, 0, init.stderr);
-    const dir = init.last.jobDir;
-    const prompt = path.join(w.root, "adhoc.md");
-    fs.writeFileSync(prompt, `Dọn file của job ${path.basename(dir)}.\nGhi report vào {{REPORT_PATH}}\n`);
-    const adhoc = cli(w, ["dispatch", "--job", dir, "--worker", "terminal-7", "--prompt", prompt, "--cwd", themeFolder(w)], { LEADER_TOKEN_PROBE: FAIL() });
-    assert.equal(adhoc.code, 0, adhoc.stderr);
-    assert.equal(adhoc.last.tokenProbe, undefined);
-
     const j = initJob(w);
     const plain = path.join(w.root, "plain-folder");
     fs.mkdirSync(plain, { recursive: true });
     const noBinding = attempt(w, j, "terminal-8", ["--cwd", plain], { LEADER_TOKEN_PROBE: FAIL() });
     assert.equal(noBinding.code, 0, noBinding.stderr);
     assert.equal(noBinding.last.tokenProbe, undefined);
-    // A --cwd that does not exist is a flag error, not a probe question.
     const missing = attempt(w, j, "terminal-9", ["--cwd", path.join(w.root, "nope")], { LEADER_TOKEN_PROBE: FAIL() });
     assert.equal(missing.code, 2);
     assert.match(missing.stderr, /is not a directory/);
+  });
+});
+
+describe("ad-hoc job with --cwd: the same token probe and LOGIN block as a feedback job", () => {
+  function adhocJob(w, slug = "cleanup") {
+    const init = cli(w, ["init", "--kind", "adhoc", "--slug", slug]);
+    assert.equal(init.code, 0, init.stderr);
+    const dir = init.last.jobDir;
+    return { dir, job: () => JSON.parse(fs.readFileSync(path.join(dir, "job.json"), "utf8")) };
+  }
+  function dispatchAdhoc(w, a, extra = [], env = {}, worker = "terminal-7") {
+    const prompt = path.join(w.root, `adhoc-${++n}.md`);
+    fs.writeFileSync(prompt, `Việc của job ${a.job().job}.\nGhi report vào {{REPORT_PATH}}\n`);
+    return cli(w, ["dispatch", "--job", a.dir, "--worker", worker, "--prompt", prompt, ...extra], env);
+  }
+  const writeAdhocReport = (a, round, over = {}) => {
+    const job = a.job();
+    const json = { schema: "leader-report/1", status: "DONE", job: job.job, key: job.slug, round, summary: "ok", notChecked: ["x"], ...over };
+    fs.writeFileSync(job.rounds[round - 1].reportPath, `STATUS: ${json.status}\n\nprose\n\n\`\`\`json\n${JSON.stringify(json, null, 2)}\n\`\`\`\n`);
+  };
+
+  test("dead token: the prompt gets the LOGIN block with --job <job>, the round records cwd and login, dispatch prints the owner notice", () => {
+    const w = world();
+    const a = adhocJob(w);
+    const theme = themeFolder(w);
+    const r = dispatchAdhoc(w, a, ["--cwd", theme], { LEADER_TOKEN_PROBE: FAIL() });
+    assert.equal(r.code, 0, r.stderr);
+    assert.equal(r.last.tokenProbe.fatal, true);
+    assert.equal(r.last.login.orgId, "9");
+    assert.match(r.last.ownerNotice, /services@f1genz\.com/);
+    const round = a.job().rounds[0];
+    assert.equal(round.login.orgId, "9");
+    assert.equal(round.login.email, "services@f1genz.com");
+    assert.equal(round.cwd, theme.replace(/\\/g, "/"));
+    assert.equal(round.loginBlock, true);
+    assert.ok(!JSON.stringify(round).includes("# LOGIN"), "the flag only: no block text in job.json");
+    const prompt = fs.readFileSync(round.promptPath, "utf8");
+    assert.match(prompt, /^# LOGIN/m);
+    assert.ok(prompt.includes(`otp-fetch.mjs --lock --job ${a.job().job}`));
+    assert.ok(prompt.includes(`--since <t0> --wait 120 --job ${a.job().job}`));
+    assert.ok(prompt.includes("`hrv select 9`"));
+    assert.equal(a.job().tokenProbeFatal.orgId, "9");
+  });
+
+  test("live token: no LOGIN block, the round records cwd and loginBlock:false", () => {
+    const w = world();
+    const a = adhocJob(w);
+    const theme = themeFolder(w);
+    const r = dispatchAdhoc(w, a, ["--cwd", theme], { LEADER_TOKEN_PROBE: OK() });
+    assert.equal(r.code, 0, r.stderr);
+    assert.equal(r.last.tokenProbe.ok, true);
+    assert.equal(r.last.login, undefined);
+    const round = a.job().rounds[0];
+    assert.equal(round.login, undefined);
+    assert.equal(round.loginBlock, false);
+    assert.equal(round.cwd, theme.replace(/\\/g, "/"));
+    assert.ok(!fs.readFileSync(round.promptPath, "utf8").includes("# LOGIN"));
+  });
+
+  test("no --cwd, or a --cwd with no binding: as before (no probe, no LOGIN block, no error)", () => {
+    const w = world();
+    const a = adhocJob(w);
+    const none = dispatchAdhoc(w, a, [], { LEADER_TOKEN_PROBE: FAIL() });
+    assert.equal(none.code, 0, none.stderr);
+    assert.equal(none.last.tokenProbe, undefined);
+    assert.equal(a.job().rounds[0].loginBlock, false);
+    assert.equal(a.job().rounds[0].cwd, undefined);
+
+    const w2 = world();
+    const b = adhocJob(w2, "plain");
+    const plain = path.join(w2.root, "plain-folder");
+    fs.mkdirSync(plain, { recursive: true });
+    const r = dispatchAdhoc(w2, b, ["--cwd", plain], { LEADER_TOKEN_PROBE: FAIL() });
+    assert.equal(r.code, 0, r.stderr);
+    assert.equal(r.last.tokenProbe, undefined);
+    assert.equal(b.job().rounds[0].loginBlock, false);
+    assert.equal(b.job().rounds[0].cwd, plain.replace(/\\/g, "/"));
+    assert.ok(!fs.readFileSync(b.job().rounds[0].promptPath, "utf8").includes("# LOGIN"));
+  });
+
+  test("--skip-token-probe skips the probe (reason required) and attaches no LOGIN block", () => {
+    const w = world();
+    const a = adhocJob(w);
+    const theme = themeFolder(w);
+    const noReason = dispatchAdhoc(w, a, ["--cwd", theme, "--skip-token-probe"], { LEADER_TOKEN_PROBE: FAIL() });
+    assert.equal(noReason.code, 2, noReason.stderr);
+    const r = dispatchAdhoc(w, a, ["--cwd", theme, "--skip-token-probe", "--reason", "đã đăng nhập"], { LEADER_TOKEN_PROBE: FAIL() });
+    assert.equal(r.code, 0, r.stderr);
+    assert.equal(r.last.tokenProbe, undefined);
+    assert.equal(a.job().rounds[0].loginBlock, false);
+    assert.equal(a.job().rounds[0].skipTokenProbe.reason, "đã đăng nhập");
+  });
+
+  test("the feedback-only shop folder scan does not run for an ad-hoc job (no shop to read, no error)", () => {
+    const w = world();
+    const a = adhocJob(w);
+    const r = dispatchAdhoc(w, a, ["--cwd", themeFolder(w)], { LEADER_TOKEN_PROBE: OK() });
+    assert.equal(r.code, 0, r.stderr);
+    assert.equal(r.last.shopFolders, undefined);
+    assert.equal(r.last.shopFolderWarning, undefined);
+  });
+
+  test("one login per job, binding without org_id, and the report's `hrv select` check apply as for a feedback job", () => {
+    const w = world();
+    const a = adhocJob(w);
+    const theme = themeFolder(w);
+    assert.equal(dispatchAdhoc(w, a, ["--cwd", theme], { LEADER_TOKEN_PROBE: FAIL() }).code, 0);
+    const again = dispatchAdhoc(w, a, ["--cwd", theme, "--allow-busy", "--allow-extra-round", "--reason", "retry"], { LEADER_TOKEN_PROBE: FAIL() });
+    assert.equal(again.code, 4, again.stderr);
+    assert.match(again.stderr, /one login per job|already tried a login/);
+    assert.equal(a.job().rounds.length, 1);
+
+    settle(w, a, "terminal-7", 1);
+    writeAdhocReport(a, 1, { evidence: ["hrv select 200000878093 -> ok"] });
+    const bad = cli(w, ["validate-report", "--job", a.dir]);
+    assert.equal(bad.code, 1, bad.stderr);
+    assert.match(bad.last.errors.join("\n"), /names `hrv select 200000878093`/);
+    const lint = cli(w, ["lint-report", "--file", a.job().rounds[0].reportPath, "--job", a.dir, "--kind", "work"]);
+    assert.equal(lint.code, 1, lint.stderr);
+    writeAdhocReport(a, 1, { evidence: ["hrv select 9 -> ok", "hrv theme info --json -> bound_id 5"] });
+    assert.equal(cli(w, ["validate-report", "--job", a.dir]).code, 0);
+
+    const w2 = world();
+    const b = adhocJob(w2, "noorg");
+    const folder = themeFolder(w2);
+    fs.writeFileSync(path.join(folder, ".haravan-cli_local.json"), JSON.stringify({ theme_id: 5 }));
+    const refused = dispatchAdhoc(w2, b, ["--cwd", folder], { LEADER_TOKEN_PROBE: FAIL() });
+    assert.equal(refused.code, 4, refused.stderr);
+    assert.match(refused.stderr, /org_id/);
+    assert.equal(b.job().rounds.length, 0);
+
+    const status = cli(w, ["status", "--job", a.dir]);
+    assert.equal(status.lines[0].loginRounds[0].orgId, "9");
   });
 });

@@ -153,8 +153,9 @@ Commands
        --kind review starts a read-only reviewer over the earlier rounds' reports (template review-followup.md); its
        report carries review {verdict PASS|CONCERNS|FAIL, findings[]} and never changes the verification of the work round.
        A close round's prompt carries APPROVAL_TOKEN (from approve); the worker must echo it as "closeToken" in its report.
-       --cwd DIR is the worker's project folder; the first dispatch stores it as job.cwd. For a non-adhoc job whose folder
-       holds .haravan-cli_local.json (a bound theme), dispatch runs scripts/leader/hrv-token-probe.mjs there (8 s deadline)
+       --cwd DIR is the worker's project folder; the first dispatch stores it as job.cwd. For a job (feedback or ad-hoc, owner Tài
+       24/11/2026) whose folder holds .haravan-cli_local.json (a bound theme), dispatch runs scripts/leader/hrv-token-probe.mjs there
+       (8 s deadline; an ad-hoc job without --cwd, or with a folder that is not a bound theme, is dispatched as before)
        BEFORE the round is recorded. An expired/unrefreshable hrv token no longer refuses the dispatch (owner Tài, 24/11/2026):
        the prompt gets a '# LOGIN' block (the worker signs in as services@f1genz.com with the OTP that scripts/leader/otp-fetch.mjs
        reads from the otp-inbox Worker; the org comes from .haravan-cli_local.json org_id), the round records login {orgId, email,
@@ -163,6 +164,9 @@ Commands
        cannot run (no CLI helper, no binding, timeout) only warns; --skip-token-probe skips the probe but needs --reason "<why>"
        (stored on the round, printed by status); when an earlier probe of this job saw a dead token, a skipped round's prompt gets a
        READ-ONLY block until 'hrv theme info --json' reports the bound theme again (the four login lines stay allowed there).
+       Every round records cwd (the worker's folder, when there is one) and loginBlock (true when the prompt carries the LOGIN block;
+       a flag only, the block text stays in the prompt file); the 'hrv select' check of validate-report/lint-report, the one login per job
+       and status.loginRounds apply to an ad-hoc job exactly as to a feedback job.
        A theme bound to a LIVE theme (probe role main) is announced as liveTheme:true (output + stderr). A job without the copyFirst marker
        pushes straight to it (owner decision 03/11/2026), so your QA comes after the push; the round then needs a pre-change backup manifest,
        one smoke per push and a rollback statement in its report. A job with the marker (set by init since 24/11/2026, owner decision
@@ -1252,7 +1256,7 @@ async function cmdDispatch(flags) {
   }
   let tokenProbe = null;
   let login = null;
-  if (themeCwd && job.subject.kind !== "adhoc" && !skipProbe && fs.existsSync(path.join(themeCwd, ".haravan-cli_local.json"))) {
+  if (themeCwd && !skipProbe && fs.existsSync(path.join(themeCwd, ".haravan-cli_local.json"))) {
     tokenProbe = runTokenProbe(themeCwd);
     if (tokenProbe.fatal && kind !== "review") {
       // Remembered on the job: a later --skip-token-probe must not hide that this token was seen dead.
@@ -1373,6 +1377,8 @@ async function cmdDispatch(flags) {
     Object.assign(round, { themeRole: themeState.themeRole, liveTheme: themeState.liveTheme, ...(themeState.liveThemeId ? { liveThemeId: themeState.liveThemeId } : {}), ...(themeState.roleFromRound ? { roleFromRound: themeState.roleFromRound } : {}) });
   }
   if (copyFirst) round.copyFirst = copyFirst;
+  if (themeCwd) round.cwd = fwd(themeCwd);
+  round.loginBlock = Boolean(login); // flag only: the block text lives in the prompt file, never in job.json
   if (login) round.login = login;
   if (skipProbe) round.skipTokenProbe = { reason: skipReason, ...(priorFatal ? { afterFatalProbe: true } : {}) };
   const replaced = liveWorkers(job, runsDir, inUseElsewhere(readLeaderJobs(job.leader?.terminal), job)).filter((w) => w.terminal !== worker);
