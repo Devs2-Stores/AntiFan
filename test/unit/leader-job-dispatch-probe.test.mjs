@@ -63,7 +63,7 @@ describe("hrv token preflight", () => {
     for (const line of ["`hrv whoiam`", "`hrv refresh-all`", "`hrv login --no-open`", "`hrv select 9`", "`hrv theme info --json`"]) assert.ok(prompt.includes(line), line);
     assert.ok(!/--since \d{10,}/.test(prompt), "the block carries no pre-computed --since: the worker takes t0 itself");
     assert.match(prompt, /otp-fetch\.mjs --now/);
-    assert.match(prompt, /otp-fetch\.mjs --since <t0> --wait 120/);
+    assert.match(prompt, /otp-fetch\.mjs --since <t0> --wait 120 --job /);
     assert.match(prompt, /NGAY TRƯỚC khi bấm/);
     assert.match(prompt, /otp-fetch\.mjs --clear/);
     assert.match(prompt, /Telegram/);
@@ -148,6 +148,41 @@ describe("hrv token preflight", () => {
     assert.match(lines[lock], /\{locked:true,holder\}/);
   });
 
+  test("the LOGIN block gives every otp-fetch call its --job, waits out the 20 minute lock, renews it, and sends exit 2/3 to NEEDS_INPUT verbatim", () => {
+    const w = world();
+    const j = initJob(w, "lockjob2");
+    const theme = themeFolder(w);
+    assert.equal(attempt(w, j, "terminal-7", ["--cwd", theme], { LEADER_TOKEN_PROBE: FAIL() }).code, 0);
+    const prompt = fs.readFileSync(j.job().rounds[0].promptPath, "utf8");
+    const jobName = j.job().job;
+    const lines = prompt.split(/\r?\n/);
+    const step = (re) => lines.find((l) => re.test(l));
+    const lockStep = step(/^3\. Khoá đăng nhập toàn máy/);
+    assert.match(lockStep, /tối đa 21 lần/, "21 x sleep 60 outlasts the 20 minute lock expiry");
+    assert.match(lockStep, /dài hơn hạn 20 phút/);
+    assert.doesNotMatch(lockStep, /tối đa 10 lần|10 phút/);
+    assert.match(lockStep, new RegExp(`--renew --job ${jobName}`));
+    assert.match(lockStep, /Exit 3 .*lock file: EPERM.*NEEDS_INPUT, trích NGUYÊN VĂN/, "an exit 3 lock error is a NEEDS_INPUT quoted verbatim");
+    const readStep = step(/^5\. Lấy OTP/);
+    assert.match(readStep, new RegExp(`--since <t0> --wait 120 --job ${jobName}`));
+    assert.match(readStep, /Exit 3 .*NEEDS_INPUT, trích NGUYÊN VĂN/);
+    assert.match(readStep, /KHÔNG đi tìm file cấu hình/);
+    assert.match(step(/^6\. Dự phòng/), new RegExp(`--renew --job ${jobName}`));
+    for (const l of lines) for (const m of l.matchAll(/otp-fetch\.mjs\s+(--lock|--unlock|--renew|--since)\b([^`]*)`/g)) assert.match(m[2], /--job /, `otp-fetch ${m[1]} carries --job: ${m[0]}`);
+    assert.ok(!/ask the owner/.test(prompt));
+  });
+
+  test("the one-login-per-job refusal no longer says to ask the owner (it matches next: relay the cause as NEEDS_INPUT)", () => {
+    const w = world();
+    const j = initJob(w);
+    const theme = themeFolder(w);
+    assert.equal(attempt(w, j, "terminal-7", ["--cwd", theme], { LEADER_TOKEN_PROBE: FAIL() }).code, 0);
+    const again = attempt(w, j, "terminal-7", ["--cwd", theme, "--allow-busy", "--allow-extra-round", "--reason", "retry"], { LEADER_TOKEN_PROBE: FAIL() });
+    assert.equal(again.code, 4, again.stderr);
+    assert.doesNotMatch(again.stderr, /ask the owner/i);
+    assert.match(again.stderr, /next says what to relay to the owner/);
+  });
+
   test("validate-report: a LOGIN round's report may only name `hrv select` of the org it was approved for", () => {
     const w = world();
     const j = initJob(w);
@@ -167,6 +202,32 @@ describe("hrv token preflight", () => {
     writeReport(j, 1, { evidence: ["hrv select 9 -> ok", "hrv theme info --json -> bound_id 5", "không chạy hrv select org khác vì org 9 vắng"] });
     const good = cli(w, ["validate-report", "--job", j.dir]);
     assert.equal(good.code, 0, good.stderr);
+  });
+
+  test("validate-report: the cmd of checks, handover.checks and verify entries is scanned for another org's select; a NEEDS_INPUT that quotes it is not", () => {
+    const w = world();
+    const j = initJob(w);
+    const theme = themeFolder(w);
+    assert.equal(attempt(w, j, "terminal-7", ["--cwd", theme], { LEADER_TOKEN_PROBE: FAIL() }).code, 0);
+    settle(w, j, "terminal-7", 1);
+    const errorsOf = () => cli(w, ["validate-report", "--job", j.dir]).last.errors.join("\n");
+
+    writeReport(j, 1, { checks: [{ cmd: "hrv select 4242", result: "ok" }] });
+    assert.match(errorsOf(), /names `hrv select 4242`/, "checks[].cmd");
+    writeReport(j, 1, { handover: { checks: [{ cmd: "hrv select 5151", url: "https://x?themeid=5", viewport: "375x812", selector: "body", expect: "ok" }], backup: "none", risks: [] } });
+    assert.match(errorsOf(), /names `hrv select 5151`/, "handover.checks[].cmd");
+    writeReport(j, 1, { verify: [{ cmd: "hrv select 6161", expect: "ok" }] });
+    assert.match(errorsOf(), /names `hrv select 6161`/, "verify[].cmd");
+
+    writeReport(j, 1, { checks: [{ cmd: "hrv select 9", result: "ok" }], verify: [{ cmd: "hrv theme info --json", expect: "bound_id" }] });
+    assert.doesNotMatch(errorsOf(), /org 9 only/, "the approved org in a cmd is fine");
+
+    writeReport(j, 1, {
+      status: "NEEDS_INPUT",
+      summary: "org 9 vắng trong OrgSelect",
+      needsInput: { question: "Worker đã KHÔNG chạy `hrv select 200000878093` (id của shop khác) vì org 9 vắng; anh chọn hướng nào?", options: ["Đăng nhập tài khoản khác", "Bỏ qua job"] },
+    });
+    assert.doesNotMatch(errorsOf(), /org 9 only/, "a needsInput quote of another id is a warning, not a command that ran");
   });
 
   test("validate-report: a round without a LOGIN block is not subject to the select check", () => {

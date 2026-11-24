@@ -88,42 +88,83 @@ export interface SecretExposurePlan {
 /** The otp-inbox read-key file (`%USERPROFILE%/.antifan/otp-inbox*.env`, outside every repo) or anything under a `.antifan/otp-inbox` folder. */
 const OTP_ENV_FILE_RE = /otp-inbox[\w.-]*\.env\b|[\\/]\.antifan[\\/]+otp-inbox/i;
 
+/**
+ * The user's home `.antifan` folder (it holds the otp-inbox key file): `~/.antifan`, `C:/Users/<x>/.antifan`, `/c/Users/<x>/.antifan`,
+ * `$HOME/.antifan`, `$env:USERPROFILE\.antifan`, `%USERPROFILE%\.antifan`. A workspace `.antifan` folder elsewhere does not match.
+ */
+const HOME_ANTIFAN_DIR_RE =
+  /(?:~|%(?:USERPROFILE|HOME)%|\$\{?(?:HOME|USERPROFILE)\}?|\$env:(?:USERPROFILE|HOME)|(?:Users|home)[\\/]+[^\\/\r\n"'|;&<>]+)[\\/]+\.antifan(?![\w-])/i;
+
+/** A shell command that prints or copies file content (a bare directory listing is not one). */
+const FILE_CONTENT_VERB_RE =
+  /(?<![\w.-])(?:cat|type|more|less|head|tail|gc|Get-Content|rg|grep|egrep|fgrep|findstr|Select-String|sls|awk|sed|cp|copy|Copy-Item|xxd|od|strings|jq)(?![\w-])/i;
+
+/** An eval cell that builds a path into the home `.antifan` folder from a home helper (`os.homedir()`, `Path.home()`, `expanduser`, `USERPROFILE`). */
+const EVAL_HOME_ANTIFAN_RE = /\.antifan\b/;
+const EVAL_HOME_TOKEN_RE = /homedir|expanduser|Path\s*\.\s*home|USERPROFILE|(?<![\w.$])HOME(?![\w])|["'`]~/;
+
 /** An expansion or API read of an `ANTIFAN_SECRET_*` variable (the otp-inbox read key lives in one). A plain mention in a search is not a read. */
 const SECRET_VAR_READ_RE =
   /(?:\$\{?|%|\benv:|process\s*\.\s*env\s*(?:\.|\[\s*["'`])|os\s*\.\s*environ\s*(?:\.get)?\s*[[(]\s*["']|os\s*\.\s*getenv\s*\(\s*["']|\bprintenv\s+(?:-\S+\s+)*|GetEnvironmentVariable\s*\(\s*["']|(?<![\w.$])env\s*\(\s*["'`])ANTIFAN_SECRET_/i;
 
-/** Listing the whole environment drive in PowerShell: `Get-ChildItem env:`, `gci env:`, `dir env:`, `Get-Item env:*`. */
-const ENV_DRIVE_LISTING_RE = /(?<![\w-])(?:Get-ChildItem|Get-Item|gci|gi|dir|ls)\s+(?:-\w+\s+)*(?:-Path\s+)?["']?env:/i;
+/**
+ * Listing the whole environment drive in PowerShell: `Get-ChildItem env:`, `gci env:`, `dir env:`, `ls env:ANTIFAN*` (a bare `env:` or any
+ * wildcard), or `Get-Item env:*`. `Get-Item env:PATH` and `Get-ChildItem env:PATH` name one variable and pass.
+ */
+const ENV_DRIVE_LISTING_RE =
+  /(?<![\w-])(?:(?:Get-ChildItem|gci|dir|ls)\s+(?:-\w+\s+)*(?:-Path\s+)?["']?env:(?:\w*\*|(?!\w))|(?:Get-Item|gi)\s+(?:-\w+\s+)*(?:-Path\s+)?["']?env:\w*\*)/i;
 
 /** A bare command whose output is the whole environment (the segment is what sits between `;`, `&`, `|` and newlines). */
-const ENV_DUMP_SEGMENT_RE = /^(?:env(?:\s+-[0a-z]+)*|printenv|set|export\s+-p|declare\s+-[px]+|typeset\s+-x|cmd(?:\.exe)?\s+\/c\s+set)\s*(?:\d?>>?\s*\S+)?\s*$/i;
+const ENV_DUMP_SEGMENT_RE = /^(?:env(?:\s+-[0a-z]+)*|printenv|export\s+-p|declare\s+-[px]+|typeset\s+-x|cmd(?:\.exe)?\s+\/c\s+set)\s*(?:\d?>>?\s*\S+)?\s*$/i;
+
+/** `set` alone dumps the shell variables, but as a line of a longer script it is just as often an ordinary word: judged only when it is the whole command. */
+const SET_DUMP_RE = /^set\s*(?:\d?>>?\s*\S+)?\s*$/i;
 
 /** An eval cell handing a bare environment dump to a shell sink: `sh("printenv")`, `os.system("env")`, `subprocess.run(["set"])`. */
 const EVAL_ENV_DUMP_SINK_RE = /\b(?:sh|exec|execSync|system|popen|run|call|check_output|Popen|spawnSync|spawn)\s*\(\s*\[?\s*(?:command\s*[:=]\s*)?["'`]\s*(?:env|printenv|set)\s*["'`]/;
 
-/** A program printing or copying the whole environment: `console.log(process.env)`, `Object.entries(os.environ)`, `{...process.env}` into output. */
-const ENV_DUMP_CALL_RE =
-  /\b(?:console\s*\.\s*(?:log|dir|info|error)|JSON\s*\.\s*stringify|Object\s*\.\s*(?:keys|entries|values|assign)|util\s*\.\s*inspect|print|pprint|json\s*\.\s*dumps|dict|list)\s*\(\s*(?:\{\s*\}\s*,\s*)?(?:process\s*\.\s*env|os\s*\.\s*environ)\s*[,)]|\bin\s+os\s*\.\s*environ\b/;
+/**
+ * A program printing the whole environment: `console.log(process.env)`, `print(os.environ)`, `JSON.stringify(process.env)`, `print(dict(os.environ))`,
+ * `Object.entries(process.env)`. Copying or merging it (`Object.assign({}, process.env, ...)`, `dict(os.environ, K=v)`), counting or testing it
+ * (`Object.keys(process.env).length`, `"X" in os.environ`) is how a child process gets its environment and stays allowed.
+ */
+const ENV_REF = String.raw`(?:process\s*\.\s*env|os\s*\.\s*environ)`;
+const ENV_DUMP_CALL_RE = new RegExp(
+  String.raw`\b(?:console\s*\.\s*(?:log|dir|info|error|warn)|JSON\s*\.\s*stringify|util\s*\.\s*inspect|print|pprint|json\s*\.\s*dumps)\s*\(\s*(?:(?:dict|sorted|list)\s*\(\s*)?${ENV_REF}\s*[,)]|\bObject\s*\.\s*(?:entries|values)\s*\(\s*${ENV_REF}\s*\)`,
+);
 
-const SECRET_EXPOSURE_REASON = `${REFUSAL_CODES.SECRET_EXPOSURE}: the otp-inbox read key lives in %USERPROFILE%/.antifan/otp-inbox*.env and in the ANTIFAN_SECRET_* variables, and every tool result is copied verbatim into the session log. Only scripts/leader/otp-fetch.mjs reads them: run \`node E:/Work/apps/AntiFan/scripts/leader/otp-fetch.mjs ...\` (it prints {found,len,ageSec} only) and never print, read, copy or list that file, those variables or the whole environment.`;
+const SECRET_EXPOSURE_REASON = `${REFUSAL_CODES.SECRET_EXPOSURE}: the otp-inbox read key lives in %USERPROFILE%/.antifan/otp-inbox*.env and in the ANTIFAN_SECRET_* variables, and every tool result is copied verbatim into the session log. Only scripts/leader/otp-fetch.mjs reads them: run \`node E:/Work/apps/AntiFan/scripts/leader/otp-fetch.mjs ...\` (it prints {found,len,ageSec} only) and never print, read, copy or list that file, the content of the %USERPROFILE%/.antifan folder, those variables or the whole environment. Printing the whole environment is refused; naming one variable (process.env.NODE_ENV, printenv PATH) and passing it to a child process (Object.assign({}, process.env, {...})) are fine.`;
+
+/** A git commit message may name the key file (it prints nothing about it): drop its quoted -m payloads, unless one holds a command substitution. */
+function withoutCommitMessages(text: string): string {
+  if (!/\bgit\s+(?:-C\s+\S+\s+)?commit\b/i.test(text)) return text;
+  return text.replace(/(?:^|\s)(?:-m|--message)(?:\s+|=)("(?:[^"\\]|\\.)*"|'[^']*')/g, (whole, payload: string) => (/\$\(|`/.test(payload) ? whole : " "));
+}
 
 /**
- * Refuses a call that would put the otp-inbox read key in front of a model: a tool target (read, grep, edit, ...) or a shell/eval text
- * that names the key file, a read of an `ANTIFAN_SECRET_*` variable, or a dump of the whole environment (`env`, `printenv`,
- * `Get-ChildItem env:`, `console.log(process.env)`, `env()` in an eval cell). `otp-fetch.mjs` itself is no exception to make: it reads the file
- * as a child process, and the command that runs it names neither the file nor a variable. A rail against slips, not a seal: a program built to
- * hide the path still gets through. Applied to a Leader's worker only (see `edit-guard.ts`).
+ * Refuses a call that would put the otp-inbox read key in front of a model: a tool target (read, grep, glob, edit, ...) or a shell/eval text
+ * that names the key file, reads the content of the home `.antifan` folder, reads an `ANTIFAN_SECRET_*` variable, or prints the whole
+ * environment (`env`, `printenv`, `Get-ChildItem env:`, `console.log(process.env)`, `env()` in an eval cell). `otp-fetch.mjs` itself is no
+ * exception to make: it reads the file as a child process, and the command that runs it names neither the file nor a variable. A rail
+ * against slips, not a seal: a program built to hide the path still gets through. Applied to a Leader's worker only (see `edit-guard.ts`).
  */
 export function planSecretExposure(tool: unknown, input: Record<string, unknown> | undefined, targets: readonly string[] = []): SecretExposurePlan {
   const allow: SecretExposurePlan = { decision: "allow", code: "", reason: "" };
   const block: SecretExposurePlan = { decision: "block", code: REFUSAL_CODES.SECRET_EXPOSURE, reason: SECRET_EXPOSURE_REASON };
   const name = typeof tool === "string" ? tool.trim().toLowerCase() : "";
-  if (targets.some((target) => OTP_ENV_FILE_RE.test(target))) return block;
-  const text = name === "bash" ? input?.command : name === "eval" ? input?.code : undefined;
-  if (typeof text !== "string" || text.length === 0) return allow;
+  if (targets.some((target) => OTP_ENV_FILE_RE.test(target) || HOME_ANTIFAN_DIR_RE.test(target))) return block;
+  const raw = name === "bash" ? input?.command : name === "eval" ? input?.code : undefined;
+  if (typeof raw !== "string" || raw.length === 0) return allow;
+  const text = name === "bash" ? withoutCommitMessages(raw) : raw;
   if (OTP_ENV_FILE_RE.test(text) || SECRET_VAR_READ_RE.test(text) || ENV_DRIVE_LISTING_RE.test(text) || ENV_DUMP_CALL_RE.test(text)) return block;
+  if (name === "bash" && HOME_ANTIFAN_DIR_RE.test(text) && FILE_CONTENT_VERB_RE.test(text)) return block;
   if (name === "eval" && (/(?<![\w.$])env\s*\(\s*\)/.test(text) || EVAL_ENV_DUMP_SINK_RE.test(text))) return block;
-  if (text.split(/[;&|\r\n]+/).some((segment) => ENV_DUMP_SEGMENT_RE.test(segment.trim()))) return block;
+  if (name === "eval" && EVAL_HOME_ANTIFAN_RE.test(text) && EVAL_HOME_TOKEN_RE.test(text)) return block;
+  if (name === "bash") {
+    const segments = text.split(/[;&|\r\n]+/).map((segment) => segment.trim());
+    if (segments.some((segment) => ENV_DUMP_SEGMENT_RE.test(segment))) return block;
+    if (!/[\r\n]/.test(text.trim()) && segments.some((segment) => SET_DUMP_RE.test(segment))) return block;
+  }
   return allow;
 }
 

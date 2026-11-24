@@ -40,13 +40,23 @@ async function fakeWorker(handler) {
   return { url: `http://127.0.0.1:${server.address().port}`, seen, close: () => (server.listening ? server.close() : undefined) };
 }
 
-/** Run the script; resolves {code, stdout, stderr, clip}. `clip` is what the clipboard seam received (null when untouched). */
-function run(args, env = {}) {
+/**
+ * Run the script; resolves {code, stdout, stderr, clip}. `clip` is what the clipboard seam received (null when untouched).
+ * A read (no --now/--clear/--lock/--renew/--unlock) needs `--job` and a login lock held by that job: unless `opts.raw`, the helper seeds a
+ * fresh lock for job "tester" and adds `--job tester`, so the tests below exercise the read itself; the lock tests pass `raw`.
+ */
+function run(args, env = {}, opts = {}) {
   const clipFile = path.join(TEMP, `clip-${++seq}.txt`);
   const envFile = path.join(TEMP, `env-${seq}.env`);
+  const isRead = !["--now", "--clear", "--lock", "--renew", "--unlock"].some((f) => args.includes(f));
+  const lockFile = env.OTP_FETCH_LOCK_FILE ?? path.join(TEMP, `lock-${seq}.lock`);
+  if (isRead && !opts.raw) {
+    fs.writeFileSync(lockFile, JSON.stringify({ job: "tester", pid: 1, at: Date.now() }));
+    args = [...args, "--job", "tester"];
+  }
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [SCRIPT, ...args], {
-      env: { ...process.env, ANTIFAN_SECRET_OTP_INBOX_URL: "", ANTIFAN_SECRET_OTP_INBOX_KEY: "", OTP_FETCH_ENV_FILE: envFile, OTP_FETCH_CLIPBOARD_FILE: clipFile, OTP_FETCH_POLL_MS: "50", ...env },
+      env: { ...process.env, ANTIFAN_SECRET_OTP_INBOX_URL: "", ANTIFAN_SECRET_OTP_INBOX_KEY: "", OTP_FETCH_ENV_FILE: envFile, OTP_FETCH_CLIPBOARD_FILE: clipFile, OTP_FETCH_POLL_MS: "50", OTP_FETCH_LOCK_FILE: lockFile, ...env },
       windowsHide: true,
     });
     let stdout = "";
@@ -161,12 +171,15 @@ describe("otp-fetch", () => {
     assert.equal(other.seen.length, 1, "the env URL won over the file URL");
   });
 
-  test("missing config names the missing keys only (exit 2)", async () => {
+  test("missing config names the missing keys and sends the worker to the Leader, not to a search (exit 2)", async () => {
     const r = await run(["--since", "1"]);
     assert.equal(r.code, 2);
     const out = JSON.parse(r.stdout.trim());
     assert.match(out.error, /ANTIFAN_SECRET_OTP_INBOX_URL/);
     assert.match(out.error, /ANTIFAN_SECRET_OTP_INBOX_KEY/);
+    assert.match(out.error, /tell the Leader/);
+    assert.match(out.error, /NEEDS_INPUT/);
+    assert.doesNotMatch(out.error, /\.env|%USERPROFILE%|\.antifan|file/i, "the message does not hand the worker a place to look");
   });
 
   test("--clear overwrites the clipboard with an empty string and needs no config", async () => {
@@ -281,21 +294,92 @@ describe("otp-fetch", () => {
       assert.equal((await run(["--lock", "--job", "job-b"], env)).code, 0);
     });
 
-    test("a lock older than 10 minutes is dead and is replaced; releasing when nothing is held succeeds", async () => {
+    test("a lock older than 20 minutes is dead and is replaced; one of 11 minutes is still live; releasing when nothing is held succeeds", async () => {
+      const live = lockEnv("live11");
+      fs.writeFileSync(live.OTP_FETCH_LOCK_FILE, JSON.stringify({ job: "slow-job", pid: 1, at: Date.now() - 11 * 60 * 1000 }));
+      const blocked = await run(["--lock", "--job", "job-x"], live, { raw: true });
+      assert.equal(blocked.code, 4, "11 minutes is inside the 20 minute expiry");
+      assert.equal(out(blocked).holder.job, "slow-job");
       const env = lockEnv("stale");
-      fs.writeFileSync(env.OTP_FETCH_LOCK_FILE, JSON.stringify({ job: "dead-job", pid: 1, at: Date.now() - 11 * 60 * 1000 }));
-      const r = await run(["--lock", "--job", "job-c"], env);
+      fs.writeFileSync(env.OTP_FETCH_LOCK_FILE, JSON.stringify({ job: "dead-job", pid: 1, at: Date.now() - 21 * 60 * 1000 }));
+      const r = await run(["--lock", "--job", "job-c"], env, { raw: true });
       assert.equal(r.code, 0, r.stdout);
       assert.equal(JSON.parse(fs.readFileSync(env.OTP_FETCH_LOCK_FILE, "utf8")).job, "job-c");
-      assert.equal((await run(["--unlock", "--job", "job-c"], env)).code, 0);
-      assert.equal((await run(["--unlock", "--job", "job-c"], env)).code, 0);
+      assert.equal((await run(["--unlock", "--job", "job-c"], env, { raw: true })).code, 0);
+      assert.equal((await run(["--unlock", "--job", "job-c"], env, { raw: true })).code, 0);
     });
 
     test("six jobs racing for the lock: exactly one wins (atomic create)", async () => {
       const env = lockEnv("race");
-      const results = await Promise.all(["j1", "j2", "j3", "j4", "j5", "j6"].map((j) => run(["--lock", "--job", j], env)));
+      const results = await Promise.all(["j1", "j2", "j3", "j4", "j5", "j6"].map((j) => run(["--lock", "--job", j], env, { raw: true })));
       assert.equal(results.filter((r) => r.code === 0).length, 1, results.map((r) => r.code).join(","));
       assert.equal(results.filter((r) => r.code === 4).length, 5);
+    });
+
+    test("six jobs racing to replace an EXPIRED lock: exactly one wins and the winner's lock is never deleted by a loser", async () => {
+      for (let round = 0; round < 3; round++) {
+        const env = lockEnv(`race-expired-${round}`);
+        fs.writeFileSync(env.OTP_FETCH_LOCK_FILE, JSON.stringify({ job: "dead-job", pid: 1, at: Date.now() - 30 * 60 * 1000 }));
+        const names = ["k1", "k2", "k3", "k4", "k5", "k6"];
+        const results = await Promise.all(names.map((j) => run(["--lock", "--job", j], env, { raw: true })));
+        const winners = results.map((r, i) => (r.code === 0 ? names[i] : null)).filter(Boolean);
+        assert.equal(winners.length, 1, `round ${round}: ${results.map((r) => r.code).join(",")}`);
+        assert.equal(results.filter((r) => r.code === 4).length, 5, `round ${round}`);
+        assert.equal(JSON.parse(fs.readFileSync(env.OTP_FETCH_LOCK_FILE, "utf8")).job, winners[0], "the file holds the winner's lock");
+      }
+    });
+
+    test("--job is required for every lock command and for a read (exit 2); --now and --clear need none", async () => {
+      const env = lockEnv("nojob");
+      for (const args of [["--lock"], ["--unlock"], ["--renew"], ["--since", "1", "--wait", "0"], []]) {
+        const r = await run(args, env, { raw: true });
+        assert.equal(r.code, 2, `${args.join(" ")}: ${r.stdout}`);
+        assert.match(out(r).error, /--job/);
+      }
+      assert.ok(!fs.existsSync(env.OTP_FETCH_LOCK_FILE), "an unnamed lock is never created");
+      assert.equal((await run(["--now"], env, { raw: true })).code, 0);
+      assert.equal((await run(["--clear"], env, { raw: true })).code, 0);
+    });
+
+    test("reading a code needs the lock for that job: no lock, another job's lock and an expired own lock all end in exit 4 before any request", async () => {
+      const w = await fakeWorker(() => [200, { found: true, otp: CODE, receivedAt: Date.now() }]);
+      const env = { ...lockEnv("reader"), ...cfg(w) };
+      const none = await run(["--since", "1", "--wait", "0", "--job", "job-r"], env, { raw: true });
+      assert.equal(none.code, 4);
+      assert.match(out(none).error, /--lock/);
+      assert.equal(none.clip, null);
+      fs.writeFileSync(env.OTP_FETCH_LOCK_FILE, JSON.stringify({ job: "someone-else", pid: 1, at: Date.now() }));
+      const other = await run(["--since", "1", "--wait", "0", "--job", "job-r"], env, { raw: true });
+      assert.equal(other.code, 4);
+      assert.equal(out(other).locked, true);
+      assert.equal(out(other).holder.job, "someone-else");
+      fs.writeFileSync(env.OTP_FETCH_LOCK_FILE, JSON.stringify({ job: "job-r", pid: 1, at: Date.now() - 25 * 60 * 1000 }));
+      const expired = await run(["--since", "1", "--wait", "0", "--job", "job-r"], env, { raw: true });
+      assert.equal(expired.code, 4);
+      assert.match(out(expired).error, /--renew/);
+      assert.equal(w.seen.length, 0, "no request reached the Worker");
+      assert.equal((await run(["--renew", "--job", "job-r"], env, { raw: true })).code, 0);
+      const ok = await run(["--since", "1", "--wait", "0", "--job", "job-r"], env, { raw: true });
+      w.close();
+      assert.equal(ok.code, 0, ok.stdout);
+      assert.equal(ok.clip, CODE);
+      noSecrets(ok);
+    });
+
+    test("--renew restarts the clock of the holder's own lock and refuses another job's lock or no lock", async () => {
+      const env = lockEnv("renew");
+      fs.writeFileSync(env.OTP_FETCH_LOCK_FILE, JSON.stringify({ job: "job-a", pid: 1, at: Date.now() - 19 * 60 * 1000 }));
+      const mine = await run(["--renew", "--job", "job-a"], env, { raw: true });
+      assert.equal(mine.code, 0, mine.stdout);
+      assert.equal(out(mine).renewed, true);
+      assert.ok(Date.now() - JSON.parse(fs.readFileSync(env.OTP_FETCH_LOCK_FILE, "utf8")).at < 60_000, "the lock was written again with a fresh time");
+      const other = await run(["--renew", "--job", "job-b"], env, { raw: true });
+      assert.equal(other.code, 4);
+      assert.equal(out(other).renewed, false);
+      assert.equal(JSON.parse(fs.readFileSync(env.OTP_FETCH_LOCK_FILE, "utf8")).job, "job-a", "another job's renew changes nothing");
+      assert.equal((await run(["--unlock", "--job", "job-a"], env, { raw: true })).code, 0);
+      const none = await run(["--renew", "--job", "job-a"], env, { raw: true });
+      assert.equal(none.code, 4, "nothing to renew");
     });
   });
 });

@@ -3071,6 +3071,42 @@ test("a worker's bash and terminal.write paths gate Haravan sign-in with no CLI 
   }
 });
 
+test("hrv select <org>: refused at both worker doors for an org other than the org_id of the folder's .haravan-cli_local.json; unchanged without a binding or without org_id", async () => {
+  const entries = readCorpus("hrv-select-org.json");
+  assert.ok(entries.some((e) => e.expect === "allow") && entries.some((e) => e.expect !== "allow"), "the corpus keeps both sides");
+  const failed = [];
+  let n = 4000;
+  for (const entry of entries) {
+    n += 1;
+    const root = makeThemeWorkspace();
+    try {
+      const bindingFile = path.join(root, ".haravan-cli_local.json");
+      if (entry.binding === "org+theme") fs.writeFileSync(bindingFile, JSON.stringify({ org_id: 200000878093, theme_id: 1001507144 }));
+      else if (entry.binding === "theme-only") fs.writeFileSync(bindingFile, JSON.stringify({ theme_id: 1001507144 }));
+      const gate = await draftProbe.gateThemeLine({ text: entry.text, cwd: root, timeoutMs: 20_000 });
+      const gateGot = gate.decision === "block" ? gate.code : gate.decision;
+      if (gateGot !== entry.expect) failed.push(`${entry.id}: terminal door ${gateGot}, want ${entry.expect}`);
+      if (entry.reasonHas && !(gate.reason ?? "").includes(entry.reasonHas)) failed.push(`${entry.id}: terminal door reason lacks '${entry.reasonHas}': ${(gate.reason ?? "").slice(0, 120)}`);
+      await asTerminal(true, async () => {
+        const refused = await runBash(root, `sess-select-${n}`, entry.text);
+        if (entry.expect === "allow") {
+          if (refused !== null) failed.push(`${entry.id}: bash door refused ${refused.reason.slice(0, 80)}`);
+        } else if (refused?.block !== true || !refused.reason.startsWith(`${entry.expect}:`)) {
+          failed.push(`${entry.id}: bash door ${refused?.reason?.slice(0, 60) ?? "passed"}, want ${entry.expect}`);
+        } else if (entry.reasonHas && !refused.reason.includes(entry.reasonHas)) {
+          failed.push(`${entry.id}: bash door reason lacks '${entry.reasonHas}'`);
+        }
+      });
+      await asTerminal(false, async () => {
+        assert.equal(await runBash(root, `sess-select-user-${n}`, entry.text), null, `${entry.id}: a session that is not a worker is not gated`);
+      });
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  }
+  assert.deepEqual(failed, []);
+});
+
 // ---- Shell escapes that make the analyzer read other words than the shell runs ----
 
 for (const [label, line] of [

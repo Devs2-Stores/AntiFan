@@ -9,7 +9,7 @@
 //   node otp-fetch.mjs --now                                                print {now: <epochMs>}: the t0 to take RIGHT BEFORE clicking the "send / resend OTP" button
 //   node otp-fetch.mjs --since <t0> [--wait <seconds, default 120>]        wait for a code newer than t0, copy it
 //   node otp-fetch.mjs --clear                                              overwrite the clipboard with an empty string
-//   node otp-fetch.mjs --lock --job <name> | --unlock --job <name>          machine-wide login lock (one Haravan login at a time, 10 min expiry)
+//   node otp-fetch.mjs --lock --job <name> | --renew --job <name> | --unlock --job <name>   machine-wide login lock (one Haravan login at a time, 20 min expiry, --renew restarts it)
 //
 // The Worker's answer carries `serverNow`; when it does, t0 (a local clock) is converted to the Worker's clock before the next poll and
 // stdout reports `skewSec` (server minus local), so a fast or slow local clock cannot make a valid code look old.
@@ -17,7 +17,8 @@
 // Config (contract 24/11/2026): env ANTIFAN_SECRET_OTP_INBOX_URL / ANTIFAN_SECRET_OTP_INBOX_KEY, else the same KEY=VALUE lines in
 // %USERPROFILE%/.antifan/otp-inbox.env (outside every repo). Env wins over the file. The URL must be https (the read key travels in a
 // Bearer header); only a loopback host may use http (tests).
-// Exit: 0 found / cleared / lock taken | 1 no code within --wait | 2 usage or config | 3 the Worker refused (401/HTTP error) or the clipboard failed | 4 login lock held by another job.
+// Exit: 0 found / cleared / lock taken / renewed / released | 1 no code within --wait | 2 usage (--job missing) or config (not configured: report to the Leader) | 3 the Worker refused (401/HTTP error), the clipboard failed or the lock file failed | 4 login lock held by another job (or, when reading, not held by this --job).
+// Reading a code needs `--job <name>` and the login lock held by that job (take it with --lock first): the clipboard and the mailbox are shared, so a job that does not hold the lock may not use them.
 //
 // Test seams: OTP_FETCH_ENV_FILE (config file path), OTP_FETCH_POLL_MS (poll interval, default 5000), OTP_FETCH_CLIPBOARD_FILE
 // (write the code into this file instead of the clipboard), OTP_FETCH_LOCK_FILE (lock file path).
@@ -33,7 +34,7 @@ const KEY_KEY = "ANTIFAN_SECRET_OTP_INBOX_KEY";
 const DEFAULT_WAIT_S = 120;
 const DEFAULT_POLL_MS = 5000;
 const REQUEST_TIMEOUT_MS = 8000;
-const LOCK_TTL_MS = 10 * 60 * 1000;
+const LOCK_TTL_MS = 20 * 60 * 1000;
 const DEFAULT_LOCK_FILE = "E:/Work/scratch/leader/.hrv-login.lock";
 
 /** KEY=VALUE lines; `#` comments and blank lines skipped; one pair of surrounding quotes stripped. */
@@ -119,13 +120,14 @@ async function readOnce(cfg, since) {
 }
 
 function parseArgs(argv) {
-  const flags = { since: null, wait: DEFAULT_WAIT_S, clear: false, now: false, lock: false, unlock: false, job: "unknown" };
+  const flags = { since: null, wait: DEFAULT_WAIT_S, clear: false, now: false, lock: false, unlock: false, renew: false, job: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--clear") flags.clear = true;
     else if (a === "--now") flags.now = true;
     else if (a === "--lock") flags.lock = true;
     else if (a === "--unlock") flags.unlock = true;
+    else if (a === "--renew") flags.renew = true;
     else if (a === "--job") {
       const v = argv[++i];
       if (v === undefined || !/^[\w.-]{1,80}$/.test(v)) return { error: "--job needs the job name (letters, digits, . _ -)" };
@@ -148,58 +150,147 @@ const readLock = (file) => {
   }
 };
 const holderView = (h, now) => ({ job: h.job, pid: h.pid, ageSec: Math.max(0, Math.round((now - h.at) / 1000)) });
+const sleepSync = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+
+/**
+ * Runs `fn` while holding `<file>.guard`, the mutex around every judge-then-replace/delete of the lock (a guard left by a crashed process is
+ * dropped after 10 s). Without it, a taker that judged the old lock dead could unlink the live lock a faster taker had just put in its place.
+ * Throws (code EBUSY) when the guard stays busy for 2 s.
+ */
+function withGuard(file, fn) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const guard = `${file}.guard`;
+  const giveUpAt = Date.now() + 2000;
+  let fd;
+  for (;;) {
+    try {
+      fd = fs.openSync(guard, "wx");
+      break;
+    } catch (e) {
+      if (e.code !== "EEXIST" && e.code !== "EPERM" && e.code !== "EACCES") throw e; // EPERM/EACCES: Windows while the other taker's guard is being deleted
+      try {
+        if (Date.now() - fs.statSync(guard).mtimeMs > 10_000) fs.unlinkSync(guard);
+      } catch {}
+      if (Date.now() > giveUpAt) throw Object.assign(new Error("lock guard busy"), { code: "EBUSY" });
+      sleepSync(25);
+    }
+  }
+  try {
+    return fn();
+  } finally {
+    try {
+      fs.closeSync(fd);
+    } catch {}
+    try {
+      fs.unlinkSync(guard);
+    } catch {}
+  }
+}
+
+const heldBy = (holder, now) => ({ code: 4, out: { locked: true, ...(holder ? { holder: holderView(holder, now) } : {}) } });
 
 /**
  * The machine-wide Haravan login lock (one login at a time: the clipboard, the services@ mailbox and the accounts.haravan.com session
  * are shared). Created atomically WITH its content (written to a temp file, then hard-linked into place: the link fails when the lock
- * exists, and nobody ever sees a half-written lock); a lock older than 10 minutes is dead and is replaced; the same job may take it again.
+ * exists, and nobody ever sees a half-written lock); a lock older than 20 minutes is dead and is replaced; the same job may take it again.
+ * Replacing a lock that exists happens under the guard mutex, so the check and the delete cannot straddle another taker's replacement.
  * @returns {{code: number, out: object}}
  */
 export function takeLock(file, job, now = Date.now()) {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.tmp`;
   try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(tmp, JSON.stringify({ job, pid: process.pid, at: now }));
-    for (let attempt = 0; attempt < 3; attempt++) {
+    const acquired = { code: 0, out: { acquired: true, job, expiresInSec: LOCK_TTL_MS / 1000 } };
+    try {
+      fs.linkSync(tmp, file);
+      return acquired;
+    } catch (e) {
+      if (e.code !== "EEXIST") throw e;
+    }
+    return withGuard(file, () => {
+      const holder = readLock(file);
+      if (holder && now - holder.at <= LOCK_TTL_MS && holder.job !== job) {
+        const r = heldBy(holder, now);
+        return { code: r.code, out: { acquired: false, ...r.out } };
+      }
+      // Expired, unreadable or our own earlier lock, judged under the guard: replace it.
+      try {
+        fs.unlinkSync(file);
+      } catch (e) {
+        if (e.code !== "ENOENT") throw e;
+      }
       try {
         fs.linkSync(tmp, file);
-        return { code: 0, out: { acquired: true, job, expiresInSec: LOCK_TTL_MS / 1000 } };
+        return acquired;
       } catch (e) {
-        if (e.code !== "EEXIST") return { code: 3, out: { acquired: false, error: `lock file: ${e.code ?? "error"}` } };
+        if (e.code !== "EEXIST") throw e;
+        // A taker found the file missing and created a lock in the gap: that lock is live.
+        const r = heldBy(readLock(file), now);
+        return { code: r.code, out: { acquired: false, ...r.out } };
       }
-      const holder = readLock(file);
-      if (holder && now - holder.at <= LOCK_TTL_MS && holder.job !== job) return { code: 4, out: { acquired: false, locked: true, holder: holderView(holder, now) } };
-      // Expired, unreadable or our own earlier lock: replace it, but only if it is still the file we just judged (a racing taker may have replaced it).
-      const again = readLock(file);
-      if ((again?.at ?? null) === (holder?.at ?? null) && (again?.pid ?? null) === (holder?.pid ?? null)) {
-        try {
-          fs.unlinkSync(file);
-        } catch {}
-      }
-    }
+    });
+  } catch (e) {
+    return { code: 3, out: { acquired: false, error: `lock file: ${e.code ?? "error"}` } };
   } finally {
     try {
       fs.unlinkSync(tmp);
     } catch {}
   }
+}
+
+/** Restart the 20 minute clock of the lock `job` holds (even one that just expired, while nobody has taken it). Another job's lock, or none: exit 4. */
+export function renewLock(file, job, now = Date.now()) {
+  const tmp = `${file}.${process.pid}.renew.tmp`;
+  try {
+    return withGuard(file, () => {
+      const holder = readLock(file);
+      if (!holder || holder.job !== job) {
+        const r = heldBy(holder, now);
+        return { code: r.code, out: { renewed: false, held: false, ...r.out } };
+      }
+      fs.writeFileSync(tmp, JSON.stringify({ job, pid: process.pid, at: now }));
+      fs.renameSync(tmp, file);
+      return { code: 0, out: { renewed: true, job, expiresInSec: LOCK_TTL_MS / 1000 } };
+    });
+  } catch (e) {
+    return { code: 3, out: { renewed: false, error: `lock file: ${e.code ?? "error"}` } };
+  } finally {
+    try {
+      fs.unlinkSync(tmp);
+    } catch {}
+  }
+}
+
+/** Whether `job` holds a live lock: {ok:true}, or {ok:false, out} with the exit-4 answer for a reader that does not. */
+export function checkLockHeld(file, job, now = Date.now()) {
   const holder = readLock(file);
-  return { code: 4, out: { acquired: false, locked: true, ...(holder ? { holder: holderView(holder, now) } : {}) } };
+  if (holder && holder.job === job && now - holder.at <= LOCK_TTL_MS) return { ok: true };
+  const expiredOwn = holder && holder.job === job;
+  const hint = expiredOwn ? "your login lock expired: run --renew --job <name> (or --lock) first" : "this job does not hold the login lock: run --lock --job <name> first";
+  return { ok: false, out: { found: false, error: hint, ...(holder && !expiredOwn ? { locked: true, holder: holderView(holder, now) } : { locked: false }) } };
 }
 
 /** Release the lock when `job` holds it (or nobody does). Another job's live lock is left alone. */
 export function releaseLock(file, job, now = Date.now()) {
-  const holder = readLock(file);
-  if (!holder) {
-    try {
-      fs.unlinkSync(file); // an unreadable lock file is garbage
-    } catch {}
-    return { code: 0, out: { released: true, held: false } };
-  }
-  if (holder.job !== job && now - holder.at <= LOCK_TTL_MS) return { code: 4, out: { released: false, locked: true, holder: holderView(holder, now) } };
   try {
-    fs.unlinkSync(file);
-  } catch {}
-  return { code: 0, out: { released: true, held: true } };
+    return withGuard(file, () => {
+      const holder = readLock(file);
+      if (!holder) {
+        try {
+          fs.unlinkSync(file); // an unreadable lock file is garbage
+        } catch {}
+        return { code: 0, out: { released: true, held: false } };
+      }
+      if (holder.job !== job && now - holder.at <= LOCK_TTL_MS) return { code: 4, out: { released: false, locked: true, holder: holderView(holder, now) } };
+      try {
+        fs.unlinkSync(file);
+      } catch {}
+      return { code: 0, out: { released: true, held: true } };
+    });
+  } catch (e) {
+    return { code: 3, out: { released: false, error: `lock file: ${e.code ?? "error"}` } };
+  }
 }
 
 export async function main(argv = process.argv.slice(2), env = process.env) {
@@ -213,13 +304,19 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     emit({ now: Date.now() });
     return 0;
   }
-  if (flags.lock || flags.unlock) {
-    if (flags.lock && flags.unlock) {
-      emit({ error: "--lock and --unlock are two commands" });
-      return 2;
-    }
-    const file = env.OTP_FETCH_LOCK_FILE || DEFAULT_LOCK_FILE;
-    const r = flags.lock ? takeLock(file, flags.job) : releaseLock(file, flags.job);
+  const lockFile = env.OTP_FETCH_LOCK_FILE || DEFAULT_LOCK_FILE;
+  const lockOps = [flags.lock, flags.unlock, flags.renew].filter(Boolean).length;
+  if (lockOps > 1) {
+    emit({ error: "--lock, --renew and --unlock are three commands: run one" });
+    return 2;
+  }
+  if (!flags.clear && flags.job === null) {
+    // A lock command or a read names the job that owns the login (two unnamed jobs would share one lock).
+    emit({ error: "--job <name> is required: your job id (the name of your job directory); it names the login lock owner" });
+    return 2;
+  }
+  if (lockOps === 1) {
+    const r = flags.lock ? takeLock(lockFile, flags.job) : flags.renew ? renewLock(lockFile, flags.job) : releaseLock(lockFile, flags.job);
     emit(r.out);
     return r.code;
   }
@@ -228,9 +325,14 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     emit({ cleared: ok });
     return ok ? 0 : 3;
   }
+  const held = checkLockHeld(lockFile, flags.job);
+  if (!held.ok) {
+    emit(held.out);
+    return 4;
+  }
   const cfg = readConfig(env);
   if (cfg.missing.length) {
-    emit({ found: false, error: `config missing: ${cfg.missing.join(", ")}` });
+    emit({ found: false, error: `otp-inbox is not set up on this machine (missing: ${cfg.missing.join(", ")}). Do not search for it: tell the Leader (report STATUS: NEEDS_INPUT and quote this line).` });
     return 2;
   }
   if (cfg.insecure) {

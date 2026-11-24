@@ -223,13 +223,16 @@ export async function gateThemeLine(o: {
     return { decision: "block", code: line.code, reason: line.reason, command: line.command };
   }
   const bindingRoot = findBindingRoot(o.cwd);
-  const boundThemeId = bindingRoot === null ? null : (resolveShopIdentity(bindingRoot)?.themeId ?? null);
+  const identity = bindingRoot === null ? null : resolveShopIdentity(bindingRoot);
+  const boundThemeId = identity?.themeId ?? null;
+  // Only the CLI's own binding file names the org `hrv select` may pick; a workspace-context fallback does not.
+  const boundOrgId = identity?.source === "cli_local" ? identity.orgId : null;
   const sapoRoot = findSapoBindingRoot(o.cwd);
   const sapoBoundThemeId = sapoRoot === null ? null : readSapoBoundThemeId(sapoRoot);
   const verified: string[] = [];
   const approved: PushApprovalUse[] = [];
   for (const cmd of line.commands) {
-    const plan = planWorkerThemeCommand(cmd, cmd.cli === "sapo" ? sapoBoundThemeId : boundThemeId);
+    const plan = planWorkerThemeCommand(cmd, cmd.cli === "sapo" ? sapoBoundThemeId : boundThemeId, boundOrgId);
     let verdict: { decision: "allow" } | { decision: "block"; code: string; reason: string };
     if (plan.decision === "verify-draft" && bindingRoot !== null) {
       const run = await runHrv(bindingRoot, "theme info -j", o.timeoutMs);

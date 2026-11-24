@@ -1,0 +1,16 @@
+{
+  "description": "A worker's Haravan `select <org_id>` judged against the org_id of the .haravan-cli_local.json of the folder the line runs in (the login round signs in for that org only). `binding`: org+theme (org_id 200000878093 and theme_id), theme-only (no org_id) or none (no file). `expect`: the verdict at the bash door and the terminal door: allow, or a refusal code. `reasonHas` is a substring the refusal must carry.",
+  "entries": [
+    { "id": "select-other-org-than-binding", "binding": "org+theme", "text": "hrv select 1000129940", "expect": "REFUSED_THEME_REMOTE_OP", "reasonHas": "bound to org 200000878093" },
+    { "id": "select-other-org-names-the-fix", "binding": "org+theme", "text": "hrv select 4242", "expect": "REFUSED_THEME_REMOTE_OP", "reasonHas": "hrv select 200000878093" },
+    { "id": "select-other-org-haravan-word", "binding": "org+theme", "text": "haravan select 1000129940", "expect": "REFUSED_THEME_REMOTE_OP", "reasonHas": "bound to org 200000878093" },
+    { "id": "select-the-bound-org", "binding": "org+theme", "text": "hrv select 200000878093", "expect": "allow" },
+    { "id": "select-help-is-not-a-select", "binding": "org+theme", "text": "hrv select --help", "expect": "allow" },
+    { "id": "whoiam-under-binding", "binding": "org+theme", "text": "hrv whoiam", "expect": "allow" },
+    { "id": "refresh-all-under-binding", "binding": "org+theme", "text": "hrv refresh-all", "expect": "allow" },
+    { "id": "login-under-binding", "binding": "org+theme", "text": "hrv login --no-open", "expect": "allow" },
+    { "id": "bare-select-still-refused", "binding": "org+theme", "text": "hrv select", "expect": "REFUSED_THEME_REMOTE_OP", "reasonHas": "one numeric org id" },
+    { "id": "select-any-org-without-binding", "binding": "none", "text": "hrv select 1000129940", "expect": "allow" },
+    { "id": "select-any-org-binding-without-org-id", "binding": "theme-only", "text": "hrv select 1000129940", "expect": "allow" }
+  ]
+}

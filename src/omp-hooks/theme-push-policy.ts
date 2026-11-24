@@ -251,9 +251,11 @@ const HRV_AUTH_ALLOWED_TEXT = "hrv whoiam, hrv refresh-all (no --force), hrv sel
  * `--force`, `select <org_id>` and `login --no-open`, each alone on its line and with no option
  * before the command word. Everything else (`logout`, a bare `select` or `login`, `-t`/`--token`,
  * `--print-url`) stays the user's. The hook cannot tell whether the Leader named the line in the
- * worker's prompt; that part of the rule lives in the prompt.
+ * worker's prompt; that part of the rule lives in the prompt. `boundOrgId` is the `org_id` of the
+ * `.haravan-cli_local.json` the line runs under (null when the folder has none): `select` of another
+ * org is refused, because the login round signs in for the org of the folder it was dispatched to.
  */
-function planHrvAuthCommand(cmd: ThemeCommand): ThemeCommandPlan {
+function planHrvAuthCommand(cmd: ThemeCommand, boundOrgId: string | null = null): ThemeCommandPlan {
   const block = (why: string): ThemeCommandPlan => ({
     decision: "block",
     code: THEME_PUSH_CODES.REMOTE_OP,
@@ -279,9 +281,15 @@ function planHrvAuthCommand(cmd: ThemeCommand): ThemeCommandPlan {
       }
       return block("takes no argument or option.");
     case "select":
-      return args.length === 1 && /^\d+$/.test(args[0] ?? "")
-        ? { decision: "allow" }
-        : block("must be 'select <org_id>' with one numeric org id and nothing else; a bare select opens an interactive menu.");
+      if (!(args.length === 1 && /^\d+$/.test(args[0] ?? ""))) {
+        return block("must be 'select <org_id>' with one numeric org id and nothing else; a bare select opens an interactive menu.");
+      }
+      if (boundOrgId !== null && args[0] !== boundOrgId) {
+        return block(
+          `selects org ${args[0]}, but the theme folder this line runs in is bound to org ${boundOrgId} (.haravan-cli_local.json org_id). Run 'hrv select ${boundOrgId}' only; if org ${boundOrgId} is not in the OrgSelect list of the account that signed in, select nothing and report STATUS: NEEDS_INPUT naming the shops you can see (names only).`,
+        );
+      }
+      return { decision: "allow" };
     case "login":
       return args.length === 1 && args[0] === "--no-open"
         ? { decision: "allow" }
@@ -309,8 +317,8 @@ const PRINT_ONLY_ACTIONS: Record<string, true> = { list: true, info: true, help:
  * already refuses keeps its own code. The Leader's own guard keeps using `planThemeCommand`: it only
  * asks whether a command writes, and chains reads freely.
  */
-export function planWorkerThemeCommand(cmd: ThemeCommand, boundThemeId: string | null): ThemeCommandPlan {
-  const plan = planThemeCommand(cmd, boundThemeId);
+export function planWorkerThemeCommand(cmd: ThemeCommand, boundThemeId: string | null, boundOrgId: string | null = null): ThemeCommandPlan {
+  const plan = planThemeCommand(cmd, boundThemeId, boundOrgId);
   if (plan.decision === "block" || !cmd.chained || cmd.flags.some((flag) => flag === "--help" || flag === "-h") || PRINT_ONLY_ACTIONS[cmd.action] === true) {
     // `hrv theme fetch <id>` writes .haravan-cli_local.json: run in a folder bound to another theme it re-points the
     // folder at <id>, so the next push goes there. Copy-first keeps a live folder and a staging folder side by side, and a
@@ -336,7 +344,7 @@ export function planWorkerThemeCommand(cmd: ThemeCommand, boundThemeId: string |
  * One command against the worker's bound theme id (`null` when the workspace has
  * no `.haravan-cli_local.json`).
  */
-export function planThemeCommand(cmd: ThemeCommand, boundThemeId: string | null): ThemeCommandPlan {
+export function planThemeCommand(cmd: ThemeCommand, boundThemeId: string | null, boundOrgId: string | null = null): ThemeCommandPlan {
   const action = cmd.action;
   if (cmd.cli === "bizweb") {
     return {
@@ -346,7 +354,7 @@ export function planThemeCommand(cmd: ThemeCommand, boundThemeId: string | null)
     };
   }
   if (cmd.cli === "sapo") return planSapoCommand(cmd, boundThemeId);
-  if (cmd.auth === true) return planHrvAuthCommand(cmd);
+  if (cmd.auth === true) return planHrvAuthCommand(cmd, boundOrgId);
   if (cmd.cli === "hrv" && cmd.flags.some((flag) => flag === "--prune" || flag.startsWith("--prune="))) {
     if (!cmd.flags.some((flag) => flag === "--help" || flag === "-h")) {
       return {
