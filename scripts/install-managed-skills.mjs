@@ -15,7 +15,7 @@
  *
  * Options:
  *   --skill NAME        limit to one skill (default: every skills/<name>/ holding a SKILL.md)
- *   --target-root DIR   managed-skills directory (default: ~/.omp/agent/managed-skills)
+ *   --target-root DIR   one skills directory (default: BOTH ~/.omp/agent/managed-skills and ~/.claude/skills)
  *   --source-root DIR   skills source directory (default: <repo>/skills)
  *   --force             `--install` only: skip the size guard
  *
@@ -268,11 +268,25 @@ export function run(argv, io = {}) {
   try {
     const options = parseArgs(argv);
     const sourceRoot = path.resolve(options.sourceRoot ?? path.join(ROOT, "skills"));
-    const targetRoot = path.resolve(options.targetRoot ?? path.join(os.homedir(), ".omp", "agent", "managed-skills"));
+    // OMP loads skills from ~/.claude/skills as well as ~/.omp/agent/managed-skills; a stale copy in either
+    // one shadows the repo (measured 24/11/2026: .claude/skills/antifan-leader lacked --evidence/getComments
+    // while managed-skills matched). Default is both roots; --target-root narrows to one.
+    const targetRoots = options.targetRoot
+      ? [path.resolve(options.targetRoot)]
+      : [path.join(os.homedir(), ".omp", "agent", "managed-skills"), path.join(os.homedir(), ".claude", "skills")];
     const skills = discoverSkills(sourceRoot, options.skill);
-    if (options.mode === "install") return install(skills, sourceRoot, targetRoot, options.force, log, err);
-    if (options.mode === "rollback") return rollback(skills, targetRoot, log, err);
-    return check(skills, sourceRoot, targetRoot, log);
+    let code = 0;
+    for (const targetRoot of targetRoots) {
+      if (targetRoots.length > 1) log(`== ${targetRoot}`);
+      const rc =
+        options.mode === "install"
+          ? install(skills, sourceRoot, targetRoot, options.force, log, err)
+          : options.mode === "rollback"
+            ? rollback(skills, targetRoot, log, err)
+            : check(skills, sourceRoot, targetRoot, log);
+      code = Math.max(code, rc);
+    }
+    return code;
   } catch (error) {
     err(`[install-managed-skills] failed: ${error?.message ?? error}`);
     return 2;

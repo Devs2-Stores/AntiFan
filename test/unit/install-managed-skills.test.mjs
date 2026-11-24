@@ -225,3 +225,31 @@ test("the repo's antifan-leader skill is installable and passes its own check", 
   assert.match(checked.out, /MATCH\s+references\/feedback-case\.md/);
   assert.match(checked.out, /MATCH\s+references\/leader-discipline\.md/);
 });
+
+test("without --target-root both ~/.omp/agent/managed-skills and ~/.claude/skills are installed and checked (a stale .claude copy shadowed the repo on 24/11/2026)", () => {
+  const box = sandbox();
+  writeSkill(box.sourceRoot, "demo", { "SKILL.md": `${FRONTMATTER("demo")}v1\n` });
+  const home = path.join(TEMP, `home-${counter}`);
+  fs.mkdirSync(home, { recursive: true });
+  const run = (...args) => {
+    const env = { ...process.env, HOME: home, USERPROFILE: home };
+    for (const key of Object.keys(env)) if (key.startsWith("ANTIFAN_")) delete env[key];
+    const r = spawnSync(process.execPath, [SCRIPT, ...args, "--source-root", box.sourceRoot], { encoding: "utf8", env });
+    return { code: r.status, out: r.stdout, err: r.stderr };
+  };
+  const omp = path.join(home, ".omp", "agent", "managed-skills", "demo", "SKILL.md");
+  const claude = path.join(home, ".claude", "skills", "demo", "SKILL.md");
+  assert.equal(run("--check").code, 1, "nothing installed yet");
+  const installed = run("--install");
+  assert.equal(installed.code, 0, installed.err);
+  assert.equal(fs.readFileSync(omp, "utf8"), `${FRONTMATTER("demo")}v1\n`);
+  assert.equal(fs.readFileSync(claude, "utf8"), `${FRONTMATTER("demo")}v1\n`);
+  assert.equal(run("--check").code, 0);
+  fs.writeFileSync(claude, `${FRONTMATTER("demo")}stale\n`);
+  const drift = run("--check");
+  assert.equal(drift.code, 1, "drift in only one root is reported");
+  assert.match(drift.out, /\.claude[\\/]skills/);
+  assert.match(drift.out, /STALE\s+SKILL\.md/);
+  assert.equal(run("--install").code, 0);
+  assert.equal(fs.readFileSync(claude, "utf8"), `${FRONTMATTER("demo")}v1\n`);
+});
