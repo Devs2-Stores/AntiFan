@@ -90,7 +90,7 @@ describe("validateCapsEcho", () => {
 describe("dispatch --cap / --forbid end to end", () => {
   const dispatchCaps = (w, j) => dispatch(w, j, "terminal-7", "work", "", ["--cap", "spend=100", "--cap", "joins=8", "--forbid", "caption-edit"]);
 
-  test("stored on the round, rendered into the prompt, ttb-dash runcaps line included", () => {
+  test("stored on the round, rendered into the prompt, core Gác Studio runcaps line included", () => {
     const w = world();
     const j = initJob(w);
     const d = dispatchCaps(w, j);
@@ -100,7 +100,7 @@ describe("dispatch --cap / --forbid end to end", () => {
     assert.match(text, /GIỚI HẠN HÀNH ĐỘNG/);
     assert.match(text, /`spend` = 100/);
     assert.match(text, /CẤM: caption-edit/);
-    assert.match(text, /ttbdash\.runcaps init .*--spend 100 --joins 8 --forbid "caption-edit"/);
+    assert.match(text, /gacstudio\.runcaps init .*--spend 100 --joins 8 --forbid "caption-edit"/);
     assert.match(text, /TTB_RUN_CAPS=/);
   });
 

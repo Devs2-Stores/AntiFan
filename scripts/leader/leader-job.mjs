@@ -84,7 +84,7 @@ function capsPromptBlock(caps, capsFile) {
   if (ttb.length || caps.forbid.length) {
     const args = [...ttb.map((k) => `--${k} ${caps.limits[k]}`), ...caps.forbid.map((t) => `--forbid ${JSON.stringify(t)}`)].join(" ");
     lines.push(
-      `- Một hành động chỉ bị chặn bằng mã khi script ttb-dash thực hiện nó gọi \`runcaps.charge\`; hành động khác chỉ được giữ bằng report \`caps\` ở trên và việc Leader tự kiểm, nên đừng coi "CẤM" là có rào cản kỹ thuật. Nếu bạn chạy script ttb-dash (Wan/chi tiền, join nhóm...): trong thư mục E:/Work/ttb-dash chạy đúng một lần \`python -m ttbdash.runcaps init ${capsFile} ${args}\` (đọc E:/Work/ttb-dash/ttbdash/runcaps.py nếu cần đúng cú pháp), rồi đặt biến môi trường \`TTB_RUN_CAPS=${capsFile}\` cho mọi lệnh ttb-dash của bạn. Exit 5 từ \`runcaps charge\` nghĩa là bị từ chối: dừng, đừng thử lách.`,
+      `- Một hành động chỉ bị chặn bằng mã khi script core Gác Studio thực hiện nó gọi \`runcaps.charge\`; hành động khác chỉ được giữ bằng report \`caps\` ở trên và việc Leader tự kiểm, nên đừng coi "CẤM" là có rào cản kỹ thuật. Nếu bạn chạy script core Gác Studio (Wan/chi tiền, join nhóm...): trong thư mục E:/Work/apps/Gác Studio/core chạy đúng một lần \`python -m gacstudio.runcaps init ${capsFile} ${args}\` (đọc E:/Work/apps/Gác Studio/core/gacstudio/runcaps.py nếu cần đúng cú pháp), rồi đặt biến môi trường \`TTB_RUN_CAPS=${capsFile}\` cho mọi lệnh core Gác Studio của bạn. Exit 5 từ \`runcaps charge\` nghĩa là bị từ chối: dừng, đừng thử lách.`,
     );
   }
   return `${lines.join("\n")}\n`;
@@ -149,7 +149,7 @@ Commands
        --cap name=NUMBER (repeatable, e.g. --cap spend=30000 --cap joins=8) and --forbid "<action>" (repeatable, e.g. --forbid caption-edit)
        are stored on the round and written into the worker prompt; the report must echo caps {used:{name:N}, forbiddenDone:[]} and
        validate-report fails when used exceeds a cap, a counter is missing, or forbiddenDone is not empty. spend/joins/forbid also tell
-       the worker to start ttb-dash runcaps (code-enforced) with TTB_RUN_CAPS=<jobdir>/<slug>.rN.caps.json.
+       the worker to start core Gác Studio runcaps (code-enforced) with TTB_RUN_CAPS=<jobdir>/<slug>.rN.caps.json.
        --kind review starts a read-only reviewer over the earlier rounds' reports (template review-followup.md); its
        report carries review {verdict PASS|CONCERNS|FAIL, findings[]} and never changes the verification of the work round.
        A close round's prompt carries APPROVAL_TOKEN (from approve); the worker must echo it as "closeToken" in its report.

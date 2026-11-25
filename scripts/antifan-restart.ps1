@@ -7,7 +7,7 @@
      .compiled\src\main\index.js and .compiled\.tsbuildinfo) the script prints BUILD_STALE and
      stops, unless -AllowStale is passed.
   2. Finds the one running main process (the owner of the bridge listener).
-     It also stops (ENGAGE_SESSION_ACTIVE) while a ttb-dash Page engagement session holds the shared
+     It also stops (ENGAGE_SESSION_ACTIVE) while a core Gác Studio Page engagement session holds the shared
      Facebook login (identity.lock held or identity.json present in -EngageDir), even with -Force,
      unless -IgnoreEngageSession is passed.
   3. Asks it to quit by launching the Electron executable with --antifan-quit-request. The
@@ -44,7 +44,7 @@ param(
   # then %APPDATA%\AntiFan\data, the same order StorageLocations uses.
   [string]$DataRoot = '',
   [switch]$IgnoreEngageSession,
-  # ttb-dash Page engagement (E:\Work\Gác\plans\reports\engage); written with [char] so the path survives a
+  # core Gác Studio Page engagement (E:\Work\Gác\plans\reports\engage); written with [char] so the path survives a
   # Windows PowerShell 5 read of this file as ANSI
   [string]$EngageDir = ("E:\Work\G" + [char]0xE1 + "c\plans\reports\engage")
 )
@@ -144,7 +144,7 @@ for ($i = 0; $i -lt 16 -and $p; $i++) {
   $p = $proc.ParentProcessId
 }
 
-# A ttb-dash engagement session drives the shared Facebook login through this app: it holds identity.lock while it
+# A core Gác Studio engagement session drives the shared Facebook login through this app: it holds identity.lock while it
 # runs and writes identity.json while the browser acts as a Page. A restart in the middle kills its tab and can leave
 # every Facebook tab acting as that Page (27/10/2026 10:13, a -Force restart cut the Bep session).
 if (-not $IgnoreEngageSession -and (Test-Path $EngageDir)) {
@@ -155,7 +155,7 @@ if (-not $IgnoreEngageSession -and (Test-Path $EngageDir)) {
   }
   $lockPath = Join-Path $EngageDir 'identity.lock'
   if (Test-Path $lockPath) {
-    # ttb-dash takes the lock with msvcrt.locking on byte 0 (LockFile), the same lock FileStream.Lock tests
+    # core Gác Studio takes the lock with msvcrt.locking on byte 0 (LockFile), the same lock FileStream.Lock tests
     $held = $false
     $fs = $null
     try {
