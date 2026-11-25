@@ -1741,7 +1741,7 @@ test("plain theme commands a worker may run, and lines that only look close, are
   }
 });
 
-test("a worker's hrv theme fetch of another theme id is refused: it would re-point the bound folder (a staging folder would become the live theme)", async () => {
+test("a worker's hrv theme fetch of another theme id is refused: it would re-point the bound folder at that theme", async () => {
   const root = makeThemeWorkspace();
   bindShop(root);
   const stub = installInfoStub({ role: "unpublished" });
@@ -1754,7 +1754,7 @@ test("a worker's hrv theme fetch of another theme id is refused: it would re-poi
       assert.equal(await runBash(root, "sess-fetch-noid", "hrv theme fetch --only sections/a.liquid"), null, "no id means the bound theme");
       assert.equal(await runBash(root, "sess-fetch-numeric-only", "hrv theme fetch 1001507144 --only assets/404"), null);
     });
-    // a folder with no binding yet is how a new staging folder gets bound to its own theme
+    // a folder with no binding yet is how a new folder gets bound to its own theme
     const fresh = makeThemeWorkspace();
     try {
       await asTerminal(true, async () => {

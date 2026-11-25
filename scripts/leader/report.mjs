@@ -18,16 +18,14 @@
 //         // handover.newFiles = pushed files that did not exist before; handover.reference = [{sheetKey,path,url,selector}] sample images the Leader compares against
 //     "guard":{..., "checkedAt":"<ISO time of the dashboard guard check>"}, "sheet":{..., "writtenAt":"<ISO time of the first sheet write>"},  // checkedAt must not be later than writtenAt
 //     "themeRole":"main|unpublished", "devSplit":{"opened":true|false,"reason":"..."},       // unpublished theme: the dev split is opened or the reason is given
-//     "rollback":{"ran":false,"note":"..."}                                               // live theme push: whether a rollback ran (not asked of a copy-first work round; asked of the live close push)
-//     "staging":{"themeId":"<id>","folder":"<staging folder>","role":"unpublished"},      // copy-first work/followup round on the live folder: where the pushes went (see qa-gates.mjs copyFirstStagingProblems)
-//     "settingsKeys":["..."], "settingsReapply":{"keys":["..."]}                           // config/settings_data.json keys changed on staging / re-applied on a fresh live fetch by the close round
+//     "rollback":{"ran":false,"note":"..."}                                               // live theme push: whether a rollback ran
 //     "verify":[{"cmd":"rg -n foo E:/Work/x.txt","expect":"foo"}],  // optional, ad-hoc only use: read-only commands for leader-job verify-adhoc
 //     "notChecked":["..."],                                  // REQUIRED when DONE
 //     "needsInput":{"question":"...","options":["a","b"]}    // REQUIRED when NEEDS_INPUT (2-3 options)
 //   }
 
 import fs from "node:fs";
-import { backupManifestProblems, copyFirstStagingProblems, liveCloseProblems, loginSelectProblems, pushedFilesOf } from "./qa-gates.mjs";
+import { backupManifestProblems, loginSelectProblems, pushedFilesOf } from "./qa-gates.mjs";
 import { normKey } from "./sheet-diff.mjs";
 
 export const REPORT_SCHEMA = "leader-report/1";
@@ -152,10 +150,6 @@ function validateShipping(j, status, job, ctx, errors) {
         else if (!fs.existsSync(r.path)) warn(`handover.reference[${i}].path does not exist: ${r.path}`);
       });
   }
-  // Copy-first (owner 24/11/2026): a job started with the `copyFirst` marker, dispatched on the live theme's folder, pushes only to the
-  // shop's staging theme. Errors whatever the status: a NEEDS_INPUT report that already pushed to live is the worst case.
-  const copyFirstLive = job.copyFirst === 1 && ctx.copyFirst === true && ctx.liveTheme === true;
-  if (copyFirstLive) errors.push(...copyFirstStagingProblems(j, status, ctx));
   if (status !== "DONE") return;
 
   const pushed = Array.isArray(j.pushed) ? j.pushed.filter(isStr) : [];
@@ -163,9 +157,8 @@ function validateShipping(j, status, job, ctx, errors) {
     for (const p of backupManifestProblems(h, pushedFilesOf(j))) issue(p);
     if (ctx.liveTheme === true) {
       const smokes = Array.isArray(j.storefront?.measurements) ? j.storefront.measurements.length : 0;
-      if (smokes < pushed.length) issue(`${copyFirstLive ? "staging theme" : "live theme"}: ${pushed.length} push command(s) listed but only ${smokes} storefront.measurements; a smoke (HTTP 200, no Liquid error, changed element present) is required after EVERY push, one measurement per push`);
-      // On staging nothing customers see can break, so no rollback statement is asked; the live push of the close round has one.
-      if (!copyFirstLive && (!isObj(j.rollback) || typeof j.rollback.ran !== "boolean")) issue('live theme: the report must state whether a rollback ran: "rollback": {"ran": false, "note": "..."}');
+      if (smokes < pushed.length) issue(`live theme: ${pushed.length} push command(s) listed but only ${smokes} storefront.measurements; a smoke (HTTP 200, no Liquid error, changed element present) is required after EVERY push, one measurement per push`);
+      if (!isObj(j.rollback) || typeof j.rollback.ran !== "boolean") issue('live theme: the report must state whether a rollback ran: "rollback": {"ran": false, "note": "..."}');
     }
   }
 
@@ -341,8 +334,6 @@ export function validateReportObject(parsed, job, round, ctx = {}) {
     } else if (ctx.tokenUsedAt != null && ctx.tokenUsedRound !== round) {
       errors.push("close token was already used by another report");
     }
-    // A live copy-first job: the close round first pushes exactly the QA'd files to the live theme.
-    if (job.copyFirst === 1 && ctx.liveClose) errors.push(...liveCloseProblems(j, ctx.liveClose));
   }
   return errors;
 }

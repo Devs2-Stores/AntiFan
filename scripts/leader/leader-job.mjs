@@ -22,7 +22,7 @@ import { wrapUntrusted } from "./untrusted.mjs";
 import { readRegistry } from "./fleet-watch.mjs";
 import { crossCheckRound } from "./evidence-xcheck.mjs";
 import { blockWarning, defaultAuthDb, defaultConfigFile, isIdeSuffixRoute, providerBlock, resolveWorkerModel } from "./worker-model.mjs";
-import { evidenceRecord, evidenceRefusals, loadEvidence, ownerQuoteProblem, qaFilesOf, scanCliApprovals } from "./qa-gates.mjs";
+import { evidenceRecord, evidenceRefusals, loadEvidence, ownerQuoteProblem, scanCliApprovals } from "./qa-gates.mjs";
 import { index as shopFolderIndex } from "./shop-folder-index.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -167,13 +167,10 @@ Commands
        Every round records cwd (the worker's folder, when there is one) and loginBlock (true when the prompt carries the LOGIN block;
        a flag only, the block text stays in the prompt file); the 'hrv select' check of validate-report/lint-report, the one login per job
        and status.loginRounds apply to an ad-hoc job exactly as to a feedback job.
-       A theme bound to a LIVE theme (probe role main) is announced as liveTheme:true (output + stderr). A job without the copyFirst marker
-       pushes straight to it (owner decision 03/11/2026), so your QA comes after the push; the round then needs a pre-change backup manifest,
-       one smoke per push and a rollback statement in its report. A job with the marker (set by init since 24/11/2026, owner decision
-       "copy-first") dispatched with --cwd = the live folder probes the sibling <folder>-staging, appends a COPY-FIRST block to the prompt
-       (the worker pushes ONLY to the shop's reusable staging theme) and prints copyFirst {stagingFolder, stagingExists, stagingThemeId,
-       stagingRole}; a staging folder bound to the live theme or to a main theme is refused (exit 4). The close round of such a job pushes
-       exactly the QA'd files to live. With --cwd the output also warns when the shop has several bound theme folders (shopFolders).
+       A theme bound to a LIVE theme (probe role main) is announced as liveTheme:true (output + stderr): the worker pushes straight to
+       it (owner decision 03/11/2026, unchanged), so your QA comes after the push; the round then needs a pre-change backup manifest,
+       one smoke per push and a rollback statement in its report. With --cwd the output also warns when the shop has several bound
+       theme folders (shopFolders).
        A followup round whose prompt names a CLI command outside E:/Work/AGENTS.md section 8 (hrv select, hrv theme info|fetch|push,
        plus hrv whoiam, hrv refresh-all, hrv login --no-open and hrv theme dev) is refused (exit 4) unless --owner-quote "<the
        owner's own words>" is given; the quote is stored in job.approvals[].
@@ -520,9 +517,9 @@ function readTemplate(name) {
   return fs.readFileSync(path.join(HERE, "templates", name), "utf8");
 }
 
-/** Keep the blocks of the active flavours: the profile, `sheet` / `nosheet` and any `extra` flavour (a close round of a live copy-first job: `liveship`). */
-function applyProfile(tpl, profile, hasSheet = true, extra = []) {
-  const active = new Set([profile, hasSheet ? "sheet" : "nosheet", ...extra]);
+/** Keep the blocks of the active flavours: the profile and `sheet` / `nosheet`. */
+function applyProfile(tpl, profile, hasSheet = true) {
+  const active = new Set([profile, hasSheet ? "sheet" : "nosheet"]);
   return tpl.replace(/<!-- if:(\w+) -->\r?\n([\s\S]*?)<!-- endif -->\r?\n/g, (_, p, body) => (active.has(p) ? body : ""));
 }
 
@@ -550,18 +547,6 @@ function jobVars(job, n, reportPath, kind = "work", dir = null) {
   // The close token only ever goes into a close round's prompt: a work round that quotes it would let customer text forge a close.
   if (kind === "close" && typeof job.approval?.closeToken === "string") vars.CLOSE_TOKEN = job.approval.closeToken;
   if (kind === "review") vars.REVIEW_TARGETS = job.rounds.filter((r) => r.kind !== "review").map((r) => r.reportPath).join("\n");
-  if (kind === "close") {
-    const live = liveCloseInfo(job);
-    if (live) {
-      Object.assign(vars, {
-        LIVE_THEME_ID: live.liveThemeId ?? "<id theme live>",
-        LIVE_FOLDER: live.liveFolder,
-        STAGING_THEME_ID: live.stagingThemeId ?? "<id staging>",
-        QA_FILES: live.qaFiles.join(" "),
-        SETTINGS_KEYS: live.settingsKeys.length ? live.settingsKeys.join(", ") : "(report vòng work không liệt kê; đối chiếu bản staging với bản live)",
-      });
-    }
-  }
   return vars;
 }
 
@@ -720,13 +705,6 @@ function roundReportCtx(job, record, kind, dir) {
     liveTheme: typeof record.liveTheme === "boolean" ? record.liveTheme : null,
     themeRole: typeof record.themeRole === "string" ? record.themeRole : null,
     referenceNeeded: referenceNeeded(job, record, dir),
-    // copy-first (owner 24/11/2026): where this round was told to push, and for a close round what it must push to live.
-    copyFirst: Boolean(record.copyFirst),
-    liveThemeId: record.liveThemeId ?? record.tokenProbe?.themeId ?? null,
-    liveFolder: record.copyFirst?.liveFolder ?? null,
-    stagingFolder: record.copyFirst?.stagingFolder ?? null,
-    stagingThemeId: record.copyFirst?.stagingThemeId ?? null,
-    liveClose: kind === "close" ? liveCloseInfo(job) : null,
     // a LOGIN round: the only org `hrv select` may name in its report
     loginOrgId: record.login?.orgId ?? null,
   };
@@ -891,8 +869,6 @@ async function cmdInit(flags) {
     profile,
     leaderQa: 1,
     shipGates: 1,
-    // Copy-first (owner 24/11/2026): on a live theme the worker pushes only to the shop's staging theme; the close round pushes the QA'd files to live. Jobs without this marker keep the 03/11/2026 rules.
-    ...(profile === "haravan" ? { copyFirst: 1 } : {}),
     state: "open",
     rounds: [],
   };
@@ -1000,113 +976,6 @@ function runTokenProbe(cwd) {
   return { ok: false, fatal: r.status === 1, themeId, orgId, error };
 }
 
-// ---------------------------------------------------------------- copy-first (live theme)
-//
-// Owner Tài, 24/11/2026 (Leader form, option "Áp copy-first (giao một vòng Kaizen nữa)"), on the proposal: "với theme live, worker nhân
-// bản theme rồi chỉ push lên bản sao; Leader QA bản sao; anh duyệt xong mới publish". Customers must not see a change before the Leader's
-// QA and the owner's yes. "Publish" here is NOT promoting the copy to the main theme (that would lose what the merchant saved after the
-// copy and the snippets other apps installed): the close round pushes exactly the QA'd files from the live-bound folder to the live theme.
-// Jobs started before this marker (job.copyFirst absent) keep the 03/11/2026 rules untouched.
-
-const COPY_FIRST_HEADING = "# COPY-FIRST: theme live (owner Tài, 24/11/2026)";
-
-/** The theme a round targets: this round's probe, else the one an earlier round measured. {} when nothing is known. */
-function resolveThemeState(job, tokenProbe) {
-  if (typeof tokenProbe?.role === "string") return { themeRole: tokenProbe.role, liveTheme: tokenProbe.role === "main", liveThemeId: tokenProbe.themeId ?? null };
-  const known = [...job.rounds].reverse().find((r) => typeof r.liveTheme === "boolean");
-  if (!known) return {};
-  return { themeRole: known.themeRole, liveTheme: known.liveTheme, liveThemeId: known.liveThemeId ?? known.tokenProbe?.themeId ?? null, roleFromRound: known.n };
-}
-
-const stagingFolderOf = (liveFolder) => `${fwd(liveFolder).replace(/\/+$/, "")}-staging`;
-
-/**
- * Where a copy-first round on the live folder pushes: the shop's one reusable staging theme, bound in the sibling `<live folder>-staging`.
- * A staging folder that already exists is probed: bound to the live theme, or to a theme whose role is main, it refuses the dispatch (a push
- * from there would reach customers). A missing folder only means the worker creates the staging theme first.
- */
-function probeStaging(liveFolder, liveThemeId, skipProbe, retry) {
-  const folder = stagingFolderOf(liveFolder);
-  const state = { liveFolder: fwd(liveFolder), stagingFolder: folder, stagingExists: fs.existsSync(path.join(folder, ".haravan-cli_local.json")), stagingThemeId: null, stagingRole: null };
-  if (!state.stagingExists || skipProbe) return state;
-  const p = runTokenProbe(folder);
-  state.ok = p.ok;
-  if (p.error) state.error = p.error;
-  if (p.ok) {
-    state.stagingThemeId = p.themeId;
-    state.stagingRole = p.role ?? null;
-    if (p.role === "main" || (liveThemeId && p.themeId === String(liveThemeId))) {
-      throw new CliError(
-        EXIT.REFUSED,
-        `the staging folder ${folder} is bound to theme ${p.themeId} (role ${p.role ?? "?"}), which is the LIVE theme: a push from there would reach customers before your QA. Re-bind it to the shop's staging theme (the owner's own \`hrv select\`/fetch in that folder) or remove the folder, then dispatch again`,
-        { stagingFolder: folder, stagingThemeId: p.themeId, stagingRole: p.role ?? null, next: `fix the binding of ${folder} (it must report an unpublished theme other than ${liveThemeId ?? "the live one"}); then: ${retry}` },
-      );
-    }
-  }
-  return state;
-}
-
-/** The Vietnamese block a copy-first work/followup prompt gets: the worker pushes to staging, never to live. */
-function copyFirstBlock(cf, liveThemeId, job) {
-  const shop = job.subject?.shop ?? "<shop>";
-  const S = cf.stagingThemeId;
-  const ready = cf.stagingExists && S
-    ? `Staging ĐÃ CÓ: theme ${S} (role ${cf.stagingRole ?? "?"}) bind ở \`${cf.stagingFolder}\`. Chạy \`hrv theme info --json\` với cwd = thư mục đó: phải trả đúng id ${S}, role unpublished; lệch thì NEEDS_INPUT, không sửa gì.`
-    : cf.stagingExists
-      ? `Thư mục staging \`${cf.stagingFolder}\` đã có binding nhưng Leader chưa đọc được theme của nó (${cf.error ?? "không rõ"}): chạy \`hrv theme info --json\` ở đó; phải báo role unpublished và id KHÁC ${liveThemeId ?? "theme live"}, nếu không thì NEEDS_INPUT.`
-      : `Staging CHƯA CÓ (không có \`${cf.stagingFolder}/.haravan-cli_local.json\`). Tạo MỘT lần, owner đã duyệt đúng việc này (E:/Work/AGENTS.md §8 "Copy-first"; phạm vi: chỉ nhân bản theme LIVE của shop ${shop}, chỉ khi chưa có staging, không publish, không xoá theme nào): (a) \`hrv theme list\` (cwd = thư mục live): nếu đã có theme role unpublished tên chứa "QA staging" thì DÙNG nó, không nhân bản; (b) chưa có thì trong Admin \`/admin/sale_channels/online_store/themes\` (nội dung nằm trong iframe web.haravan.app/themes: anti.browser.evaluate_frame với frameUrl, click theo toạ độ) bấm "Sao chép" đúng theme live ${liveThemeId ?? ""}, đổi tên bản sao thành \`<Tên shop> QA staging\`, chờ tới khi \`hrv theme list\` thấy nó (có thể mất nhiều phút; shop đầy giới hạn theme thì NEEDS_INPUT, KHÔNG xoá theme để lấy chỗ); (c) tạo thư mục \`${cf.stagingFolder}\` bằng MỘT lệnh bash riêng, rồi MỘT lệnh \`hrv theme fetch <id staging>\` với cwd = thư mục đó (thư mục chưa bind nên hook cho phép; CLI tự ghi binding, KHÔNG sửa \`.haravan-cli_local.json\` bằng tay; CLI đòi org thì NEEDS_INPUT kèm đúng dòng \`hrv select <org id>\` cho Leader duyệt); (d) \`hrv theme info --json\` ở đó phải báo role unpublished; ghi \`staging.created: true\` vào report.`;
-  return [
-    COPY_FIRST_HEADING,
-    `Thư mục bind của job này là theme LIVE (role main, id ${liveThemeId ?? "?"}): mọi push lên đó khách thấy ngay, trước cả QA của Leader. Chủ shop và owner Tài đã chốt (24/11/2026): "với theme live, worker nhân bản theme rồi chỉ push lên bản sao; Leader QA bản sao; anh duyệt xong mới publish". Quy trình này THAY mục 2-3 của header cho theme live; \`validate-report\` từ chối report có push nhắm theme live trong vòng này.`,
-    `1. Staging: mỗi shop dùng MỘT theme staging tái dùng (không nhân bản mỗi job), thư mục bind riêng \`${cf.stagingFolder}\`. ${ready}`,
-    `2. Đồng bộ live sang staging TRƯỚC khi sửa, đúng các file sẽ sửa (để Leader QA đo đúng bản sẽ lên live): với mỗi file, \`hrv theme fetch ${liveThemeId ?? "<id live>"} --only <file>\` với cwd = thư mục LIVE (fetch live CHỈ ở thư mục live), chép file đó sang thư mục staging bằng \`cp\` (đường dẫn tuyệt đối, không \`cd\`), rồi \`hrv theme push --only <file> --nodelete\` với cwd = thư mục STAGING. Bản vừa fetch từ live cũng là backup (\`handover.backup\`, nguồn remote-fetch): chép ra \`backup/\` cạnh report TRƯỚC khi sửa. Ghi các file đã đồng bộ vào \`staging.synced\`.`,
-    `3. Sửa file trong thư mục STAGING và push CHỈ từ đó: \`hrv theme push --only <file> --nodelete\` với cwd = thư mục staging (hook kiểm \`hrv theme info -j\` ở đó trả đúng id staging). KHÔNG push từ thư mục live, KHÔNG chạy \`hrv theme fetch <id khác id đã bind>\` trong thư mục nào đã bind (hook REFUSED_THEME_PUSH_FOREIGN_THEME: nó trỏ lại thư mục sang theme kia), KHÔNG publish, KHÔNG \`hrv theme dev\` trên live. Với \`config/settings_data.json\`: sửa key trên bản staging, ghi từng key đã đổi vào \`settingsKeys\` của report; vòng đóng áp lại đúng các key đó lên bản fetch mới của live (không đẩy nguyên file staging: merchant có thể đã lưu setting sau lúc nhân bản).`,
-    `4. Smoke sau MỖI push trên storefront \`?themeid=<id staging>\` (HTTP 200, không \`Liquid error\`, phần tử đã sửa có trong DOM). Không cần rollback statement: staging khách không thấy.`,
-    `5. Report: khối \`staging\` {"themeId": "<id staging>", "folder": "${cf.stagingFolder}", "role": "unpublished", "synced": [...], "created": true|false}; MỖI dòng \`pushed\` ghi rõ đích, vd "hrv theme push --only sections/x.liquid --nodelete (theme <id staging>, cwd ${cf.stagingFolder})"; mọi \`handover.checks[].url\` là \`?themeid=<id staging>\`; \`themeRole\` là role của theme live ("main") vì thư mục bind là live. Leader QA bản staging; khi owner duyệt, Leader sinh vòng đóng đẩy ĐÚNG các file đã QA lên live (smoke, kiểm Liquid error, rollback bằng backup nếu lỗi).`,
-    "",
-  ].join("\n");
-}
-
-/** The one-line live-theme warning of a dispatch: copy-first jobs say where pushes go; older jobs keep the 03/11/2026 wording. */
-function liveThemeText(job, round, kind) {
-  const id = round.liveThemeId ?? round.tokenProbe?.themeId ?? job.cwd ?? "";
-  if (job.copyFirst !== 1) {
-    return `theme ${id} is LIVE (role main): the worker pushes straight to what customers see now (owner decision 03/11/2026; this job started before copy-first), so your QA happens AFTER the push. The report must carry a pre-change backup manifest per pushed file, a smoke after EVERY push and a rollback statement.`;
-  }
-  if (kind === "close") return `theme ${id} is LIVE (role main): this close round pushes the files you QA'd on staging to the live theme (exactly those), smokes and rolls back from the backup on a Liquid error. Record a storefront QA on LIVE after it.`;
-  return `theme ${id} is LIVE (role main), copy-first applies: the worker pushes only to the shop's staging theme (${stagingFolderOf(job.cwd ?? "")}); you QA the staging theme (handover.checks carry ?themeid=<staging id>), and only after the owner's yes the close round pushes the QA'd files to live.`;
-}
-
-/** The parsed reports of the copy-first work/followup rounds that were accepted: what sits on staging after the Leader's QA. */
-function copyFirstReports(job) {
-  const out = [];
-  for (const r of job.rounds) {
-    if ((r.kind !== "work" && r.kind !== "followup") || !r.copyFirst || r.deadAt || !r.report?.valid) continue;
-    try {
-      out.push(JSON.parse(extractJson(fs.readFileSync(r.reportPath, "utf8"))));
-    } catch {}
-  }
-  return out;
-}
-
-/** What the close round of a live copy-first job pushes: the QA'd files and the two theme ids. null when nothing was staged. */
-function liveCloseInfo(job) {
-  if (job.copyFirst !== 1) return null;
-  const live = [...job.rounds].reverse().find((r) => r.copyFirst);
-  if (!live) return null;
-  const reports = copyFirstReports(job);
-  const qaFiles = qaFilesOf(reports);
-  if (!qaFiles.length) return null;
-  return {
-    qaFiles,
-    liveThemeId: live.liveThemeId ?? live.tokenProbe?.themeId ?? null,
-    liveFolder: live.copyFirst.liveFolder,
-    stagingFolder: live.copyFirst.stagingFolder,
-    stagingThemeId: reports.at(-1)?.staging?.themeId ?? live.copyFirst.stagingThemeId ?? null,
-    settingsKeys: [...new Set(reports.flatMap((r) => (Array.isArray(r.settingsKeys) ? r.settingsKeys.filter((k) => typeof k === "string") : [])))],
-  };
-}
-
 async function cmdDispatch(flags) {
   const { dir, job } = loadJob(flags);
   if (job.state === "closed") throw new CliError(EXIT.REFUSED, "job is closed");
@@ -1154,8 +1023,7 @@ async function cmdDispatch(flags) {
   if (!promptPath) {
     promptPath = promptPathFor(dir, job, n);
     if (kind === "close" || kind === "review") {
-      const template = readTemplate(kind === "close" ? "close-followup.md" : "review-followup.md");
-      fs.writeFileSync(promptPath, kind === "close" ? applyProfile(template, "close", false, liveCloseInfo(job) ? ["liveship"] : []) : template);
+      fs.writeFileSync(promptPath, readTemplate(kind === "close" ? "close-followup.md" : "review-followup.md"));
     } else if (!fs.existsSync(promptPath)) {
       throw new CliError(EXIT.USAGE, `missing required --prompt (round ${n} has no ${path.basename(promptPath)} to default to)`);
     }
@@ -1303,14 +1171,6 @@ async function cmdDispatch(flags) {
   // --skip-token-probe after a probe that saw the token dead: the round may only read until `hrv theme info --json` reports the bound theme.
   const priorFatal = skipProbe && (kind === "work" || kind === "followup") && job.tokenProbeFatal ? job.tokenProbeFatal : null;
   if (priorFatal && !rendered.includes(READ_ONLY_HEADING)) rendered = `${rendered.replace(/\s*$/, "")}\n${readOnlyBlock(priorFatal)}`;
-  // Copy-first (owner 24/11/2026): a work/followup round on the LIVE theme's folder pushes only to the shop's staging theme.
-  const themeState = resolveThemeState(job, tokenProbe);
-  let copyFirst = null;
-  if (job.copyFirst === 1 && themeState.liveTheme === true && themeCwd && (kind === "work" || kind === "followup")) {
-    copyFirst = probeStaging(themeCwd, themeState.liveThemeId, skipProbe, `${fwd(path.join(HERE, "leader-job.mjs"))} dispatch --job ${fwd(dir)} --worker ${worker}${kind === "work" ? "" : ` --kind ${kind}`}`);
-    if (copyFirst.ok === false) process.stderr.write(`warning: the staging folder ${copyFirst.folder} could not be probed (${copyFirst.error}); the worker checks it first\n`);
-    if (!rendered.includes(COPY_FIRST_HEADING)) rendered = `${rendered.replace(/\s*$/, "")}\n${copyFirstBlock(copyFirst, themeState.liveThemeId, job)}`;
-  }
   let mode = one(flags, "mode") || "auto";
   if (!["auto", "fresh", "followup"].includes(mode)) throw new CliError(EXIT.USAGE, "--mode must be auto, fresh or followup");
   if (mode === "auto") mode = run && run.ompSessionId && run.state !== "ended" ? "followup" : "fresh";
@@ -1371,18 +1231,22 @@ async function cmdDispatch(flags) {
   if (caps) round.caps = caps;
   if (tokenProbe) {
     round.tokenProbe = { ok: tokenProbe.ok, fatal: tokenProbe.fatal, themeId: tokenProbe.themeId, orgId: tokenProbe.orgId, ...(tokenProbe.role ? { role: tokenProbe.role } : {}), ...(tokenProbe.error ? { error: tokenProbe.error } : {}) };
+    if (typeof tokenProbe.role === "string") {
+      round.themeRole = tokenProbe.role;
+      round.liveTheme = tokenProbe.role === "main";
+    }
   }
-  // This round's probe, else (skipped probe, no binding) the theme an earlier round measured.
-  if (typeof themeState.liveTheme === "boolean") {
-    Object.assign(round, { themeRole: themeState.themeRole, liveTheme: themeState.liveTheme, ...(themeState.liveThemeId ? { liveThemeId: themeState.liveThemeId } : {}), ...(themeState.roleFromRound ? { roleFromRound: themeState.roleFromRound } : {}) });
+  if (typeof round.liveTheme !== "boolean") {
+    // No probe this round (skipped, or no binding): the theme is the one an earlier round measured.
+    const known = [...job.rounds].reverse().find((r) => typeof r.liveTheme === "boolean");
+    if (known) Object.assign(round, { themeRole: known.themeRole, liveTheme: known.liveTheme, roleFromRound: known.n });
   }
-  if (copyFirst) round.copyFirst = copyFirst;
   if (themeCwd) round.cwd = fwd(themeCwd);
   round.loginBlock = Boolean(login); // flag only: the block text lives in the prompt file, never in job.json
   if (login) round.login = login;
   if (skipProbe) round.skipTokenProbe = { reason: skipReason, ...(priorFatal ? { afterFatalProbe: true } : {}) };
   const replaced = liveWorkers(job, runsDir, inUseElsewhere(readLeaderJobs(job.leader?.terminal), job)).filter((w) => w.terminal !== worker);
-  const liveThemeWarning = round.liveTheme === true ? liveThemeText(job, round, kind) : null;
+  const liveThemeWarning = round.liveTheme === true ? `theme ${round.tokenProbe?.themeId ?? job.cwd ?? ""} is LIVE (role main): the worker pushes straight to what customers see now (owner decision 03/11/2026, unchanged), so your QA happens AFTER the push. The report must carry a pre-change backup manifest per pushed file, a smoke after EVERY push and a rollback statement.` : null;
   if (liveThemeWarning) process.stderr.write(`warning: liveTheme: ${liveThemeWarning}\n`);
   job.rounds.push(round);
   if (cliApproval) job.approvals = [...(Array.isArray(job.approvals) ? job.approvals : []), { at: round.dispatchedAt, via: "dispatch", round: n, ...cliApproval }];
@@ -1421,7 +1285,6 @@ async function cmdDispatch(flags) {
         }
       : {}),
     ...(round.liveTheme === true ? { liveTheme: true, liveThemeWarning } : {}),
-    ...(copyFirst ? { copyFirst } : {}),
     ...(round.skipTokenProbe ? { skipTokenProbe: round.skipTokenProbe } : {}),
     ...(folderWarning ? { shopFolders: folderList, shopFolderWarning: folderWarning } : {}),
     ...(cliApproval ? { ownerApproval: cliApproval } : {}),
@@ -1612,8 +1475,7 @@ async function cmdWaitAny(flags) {
 
 function requiredKindsFor(round, json, job) {
   if (round.kind === "review") return [];
-  // A live copy-first close pushes the QA'd files to the live theme: the Leader records a final storefront QA on LIVE before the job closes.
-  if (round.kind === "close") return job?.copyFirst === 1 && Array.isArray(json?.pushed) && json.pushed.length ? ["dashboard", "storefront"] : ["dashboard"];
+  if (round.kind === "close") return ["dashboard"];
   // An ad-hoc job has no sheet or dashboard; applyVerification still wants one recorded PASS before "verified".
   if (job?.subject?.kind === "adhoc") return json?.storefront ? ["storefront"] : [];
   // A job without a sheet still needs an independent check of the dashboard row: with nothing required,

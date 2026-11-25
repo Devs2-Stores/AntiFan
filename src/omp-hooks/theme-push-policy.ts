@@ -321,9 +321,9 @@ export function planWorkerThemeCommand(cmd: ThemeCommand, boundThemeId: string |
   const plan = planThemeCommand(cmd, boundThemeId, boundOrgId);
   if (plan.decision === "block" || !cmd.chained || cmd.flags.some((flag) => flag === "--help" || flag === "-h") || PRINT_ONLY_ACTIONS[cmd.action] === true) {
     // `hrv theme fetch <id>` writes .haravan-cli_local.json: run in a folder bound to another theme it re-points the
-    // folder at <id>, so the next push goes there. Copy-first keeps a live folder and a staging folder side by side, and a
-    // fetch of the live id inside the staging folder would turn the staging folder into a live one. Only an unbound folder
-    // may fetch another id (that is how a new folder gets its binding). A chained line is refused as COMPLEX first.
+    // folder at <id>, so the next push goes there. A folder bound to one theme must never be turned into a folder bound to
+    // another by a worker's fetch. Only an unbound folder may fetch another id (that is how a new folder gets its binding).
+    // A chained line is refused as COMPLEX first.
     if (plan.decision === "allow" && cmd.cli === "hrv" && cmd.action === "fetch" && cmd.themeId !== null && boundThemeId !== null && cmd.themeId !== boundThemeId && !cmd.flags.some((flag) => flag === "--help" || flag === "-h")) {
       return {
         decision: "block",
