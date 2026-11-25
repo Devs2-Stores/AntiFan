@@ -1668,6 +1668,48 @@ export class AttachmentRegistry {
       return { revoked, expired, retained };
     });
   }
+
+  /**
+   * Release every active binding minted from a terminal that no longer exists.
+   *
+   * `boundPid` and the lease deadline cannot answer for an agent whose terminal was closed:
+   * the MCP proxy holding the binding can outlive its shell for seconds, may be shared, and
+   * the socket-close release waits out `suspendedGraceMs`, so the binding keeps a page busy
+   * exactly when the project window closes itself because its terminals stopped. The
+   * terminal the session was minted from (`originTerminalSessionId`, stamped from the
+   * measured terminal scope) is the second proof of a gone owner.
+   *
+   * Ownership is the exact id: a record without an origin terminal, or whose terminal the
+   * predicate does not report gone, is never touched, and a predicate that throws keeps the
+   * binding — the direction that leaves a live session intact. Revocation is the same
+   * durable mutation as `revokeForAttempt`.
+   */
+  async revokeGoneOriginTerminalAttachments(
+    isTerminalGone: (terminalSessionId: string) => boolean
+  ): Promise<{ revoked: string[]; retained: number }> {
+    return await this.runWithMutationLock(async () => {
+      const revoked: string[] = [];
+      let retained = 0;
+      for (const record of [...this.records.values()]) {
+        if (record.state !== 'active' && record.state !== 'suspended') continue;
+        const origin = record.originTerminalSessionId;
+        if (typeof origin !== 'string' || origin.length === 0) continue;
+        let gone: boolean;
+        try {
+          gone = isTerminalGone(origin) === true;
+        } catch {
+          gone = false;
+        }
+        if (!gone) {
+          retained++;
+          continue;
+        }
+        await this.revokeAttachmentUnlocked(record.id);
+        revoked.push(record.id);
+      }
+      return { revoked, retained };
+    });
+  }
   getRecord(attachmentId: string): ExecutionAttachmentRecord | undefined {
     const record = this.records.get(attachmentId);
     return record ? { ...record } : undefined;

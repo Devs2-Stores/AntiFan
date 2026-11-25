@@ -194,6 +194,22 @@ export class RunService {
     }
     return { interrupted };
   }
+
+  /**
+   * Release the sessions minted from terminals that no longer exist: their bindings are
+   * revoked (see `AttachmentRegistry.revokeGoneOriginTerminalAttachments`), and the runs left
+   * without a live binding are then ended through the same reap the close gate uses, so a
+   * closed worker terminal leaves neither a page held nor a run 'streaming'. Only sessions
+   * whose origin terminal the predicate reports gone are released; a run bound to any other
+   * live attachment keeps its state.
+   */
+  public async releaseGoneTerminalSessions(
+    isTerminalGone: (terminalSessionId: string) => boolean
+  ): Promise<{ revoked: string[]; interrupted: string[] }> {
+    const { revoked } = await this.attachments.revokeGoneOriginTerminalAttachments(isTerminalGone);
+    if (revoked.length === 0) return { revoked, interrupted: [] };
+    return { revoked, interrupted: this.reapGoneOwnerRuns().interrupted };
+  }
   createRun(projectId: string, workspaceId: string, chatId: string, backendId: string): RunRecord {
     const chat = this.chats.get(chatId, projectId, workspaceId);
     const now = Date.now();

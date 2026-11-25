@@ -84,6 +84,24 @@ export type CloseLiveUseTerminalState =
   | { readonly available: false; readonly detail: string };
 
 /**
+ * Which terminals provably no longer exist, as a predicate over a terminal id. `undefined`
+ * when the terminal list cannot be read: with no list nothing is proven gone, so the caller
+ * releases nothing. A terminal is gone when it is absent from the list or reported
+ * `closed`; a terminal that merely sleeps, has exited its shell, or reports no state is
+ * not proof of anything and counts as present.
+ */
+export function terminalGonePredicate(state: CloseLiveUseTerminalState): ((terminalSessionId: string) => boolean) | undefined {
+  if (state.available !== true) return undefined;
+  const present = new Set<string>();
+  for (const session of state.sessions) {
+    if (session && typeof session.id === 'string' && session.id.length > 0 && session.state !== 'closed') {
+      present.add(session.id);
+    }
+  }
+  return (terminalSessionId) => !present.has(terminalSessionId);
+}
+
+/**
  * The close-admission table as this module reads it. `PageCloseReservations` (the singleton
  * table of `project-close-coordinator`) satisfies it as it stands, and a test can answer
  * with a hand-built table because the type is structural.
