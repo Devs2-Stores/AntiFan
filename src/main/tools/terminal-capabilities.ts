@@ -35,6 +35,7 @@ import { LINE_MAX_CHARS, MESSAGE_CONTROL_CHARS, MESSAGE_PASSTHROUGH_SIGIL, Worke
 import { APPROVAL_SELF_CODE } from '../../omp-hooks/theme-push-approval';
 import { THEME_PUSH_CODES } from '../../omp-hooks/theme-push-policy';
 import { recordLifecycleEvent } from '../diagnostics/main-lifecycle-log';
+import { snapshotProcessesCached, type ProcessRow } from '../process/theme-watcher-processes';
 
 /**
  * Read-only lifecycle view of a terminal record.
@@ -212,6 +213,22 @@ const TERMINAL_CANCELLATION_ACK_MS = 5_000;
  * `policy.timeoutMs - cancellationAckTimeoutMs`.
  */
 const CREATE_POLICY_TIMEOUT_MS = 15_000;
+
+/**
+ * The most live panes one agent tab may hold under its home terminal. Every pane is a shell, a console
+ * host, a PTY and an xterm in the renderer: a tab that opened one per command (9 in 8 minutes) made the
+ * whole app lag. At the limit `terminal.create` hands back an idle pane or refuses with TERMINAL_LIMIT.
+ */
+export const MAX_AGENT_PANES_PER_TAB = 4;
+
+/** A pane just handed out is not handed out again before its holder writes to it: two creates in a row mean two panes. */
+const PANE_CLAIM_AFTER_CREATE_MS = 30_000;
+/** After a write the command may not have started its process yet; the pane still reads as having no child until it does. */
+const PANE_CLAIM_AFTER_WRITE_MS = 3_000;
+/** One process-table read may take this long (wmic, then PowerShell as fallback) before the pane is simply treated as busy. */
+const IDLE_PROBE_TIMEOUT_MS = 4_000;
+/** A table read this recent answers the idle check: creates arrive in bursts, and a shell that went busy in the last second is covered by the claim. */
+const IDLE_PROBE_MAX_AGE_MS = 1_500;
 
 /** Execution deadline of `terminal.wait`: the platform aborts the call when it is spent. The policy adds the ack to it. */
 export const TERMINAL_WAIT_BUDGET_MS = 30_000;
@@ -918,6 +935,63 @@ function findReusableOwnTerminal(
   return undefined;
 }
 
+/** Panes the agent tab holds under its home that cost a shell: not exited, closed or parked asleep. */
+function liveOwnPanes(
+  terminal: TerminalManager,
+  scope: Extract<TerminalCallerScope, { bound: true }>,
+  agentOwnerKey: string
+): SessionSummary[] {
+  return terminal.listSessions(true).filter(
+    (row) =>
+      row.ownerKey === agentOwnerKey &&
+      row.state !== 'exited' &&
+      row.state !== 'closed' &&
+      row.state !== 'sleeping' &&
+      scope.ownership.isHomeSplit(scope.homeId, row.id)
+  );
+}
+
+/**
+ * The agent's own pane that has finished its work, or undefined when none can be shown to have.
+ *
+ * The manager has no foreground signal and a ConPTY transcript is a repaint stream, so a prompt cannot be
+ * read off it. The operating system can say it: an interactive shell with no child process is waiting at its
+ * prompt, and one running `git`, `node` or an agent has a child. A pane is a candidate only when it is the
+ * caller's, under its home, in the folder asked for (the home terminal's own when none is), not on the
+ * alternate screen, not handed out and still unwritten, and its summary carries a shell pid. Anything that
+ * cannot be shown idle (no pid from an older daemon, an unreadable process table) is treated as busy.
+ */
+async function findIdleOwnTerminal(
+  terminal: TerminalManager,
+  scope: Extract<TerminalCallerScope, { bound: true }>,
+  agentOwnerKey: string,
+  requestedCwd: string | undefined,
+  claimedUntil: Map<string, number>,
+  readProcesses: () => Promise<readonly ProcessRow[] | null>
+): Promise<SessionSummary | undefined> {
+  const rows = terminal.listSessions(true);
+  const folder = typeof requestedCwd === 'string' && requestedCwd.trim() ? requestedCwd.trim() : rows.find((row) => row.id === scope.homeId)?.cwd;
+  const wantedFolder = folder ? canonicalFolderKey(folder) : undefined;
+  const now = Date.now();
+  const candidates = liveOwnPanes(terminal, scope, agentOwnerKey).filter((row) => {
+    const until = claimedUntil.get(row.id);
+    if (until !== undefined && until <= now) claimedUntil.delete(row.id);
+    else if (until !== undefined) return false;
+    if (row.state !== 'running' || row.altScreen || typeof row.shellPid !== 'number') return false;
+    return wantedFolder === undefined || canonicalFolderKey(row.cwd) === wantedFolder;
+  });
+  if (candidates.length === 0) return undefined;
+  const processes = await readProcesses();
+  if (!processes) return undefined;
+  const alive = new Set<number>();
+  const parents = new Set<number>();
+  for (const process of processes) {
+    alive.add(process.pid);
+    parents.add(process.ppid);
+  }
+  return candidates.find((row) => alive.has(row.shellPid as number) && !parents.has(row.shellPid as number));
+}
+
 /** What a test may substitute for the production wiring of {@link registerTerminalCapabilities}. */
 export interface TerminalCapabilityDeps {
   /** Time a worker's `hrv theme info -j` probe may take inside `terminal.write` (default 7 s, inside the call's 10 s execution budget). */
@@ -930,6 +1004,10 @@ export interface TerminalCapabilityDeps {
   installedHooksStale?: () => StaleHook[];
   /** How long `terminal.write` waits to see an idle OMP start a run after a Leader's prompt (default 5 s; a call may pass its own, up to 7 s; always cut to the call budget). */
   deliveryWaitMs?: number;
+  /** Live panes one agent tab may hold (default {@link MAX_AGENT_PANES_PER_TAB}). */
+  maxAgentPanes?: number;
+  /** The process table `terminal.create` reads to tell an idle pane from a busy one (default: a fresh `wmic`/PowerShell read, shared within 1.5 s). */
+  readProcesses?: () => Promise<readonly ProcessRow[] | null>;
 }
 
 /**
@@ -947,6 +1025,10 @@ export function registerTerminalCapabilities(
   const workerProbeTimeoutMs = deps.probeTimeoutMs ?? WORKER_PROBE_TIMEOUT_MS;
   const workerInputGate = new WorkerTerminalInputGate({ probeTimeoutMs: workerProbeTimeoutMs });
   const daemonStatus = deps.daemonStatus ?? daemonVersionStatus;
+  const maxAgentPanes = deps.maxAgentPanes ?? MAX_AGENT_PANES_PER_TAB;
+  const readProcesses = deps.readProcesses ?? (() => snapshotProcessesCached(IDLE_PROBE_MAX_AGE_MS, IDLE_PROBE_TIMEOUT_MS));
+  // Pane id -> epoch ms before which it is not handed out as an idle pane (see the PANE_CLAIM_* constants).
+  const claimedUntil = new Map<string, number>();
   catalogue.register<{ sessionId: string; input?: string; message?: string; key?: string; keys?: string[]; force?: boolean; shell?: boolean; deliveryWaitMs?: number }, TerminalWriteResult>({
     name: 'terminal.write',
     description:
@@ -1048,6 +1130,7 @@ export function registerTerminalCapabilities(
           const refusedOnPurpose = registry.isLeader(params.sessionId) || (owner !== undefined && owner.leaderId !== scope.homeId && registry.isLeader(owner.leaderId));
           if (!refusedOnPurpose) registryNote = " Leader registry could not be saved: this terminal's OMP is not gated.";
         }
+        if (delivered !== false) claimedUntil.set(params.sessionId, Date.now() + PANE_CLAIM_AFTER_WRITE_MS);
         const after = probeTerminalLifecycle(terminal, params.sessionId) || before;
         const woke = wasSleeping && after !== undefined && after.state !== 'sleeping';
         const result: TerminalWriteResult = {
@@ -1422,8 +1505,9 @@ export function registerTerminalCapabilities(
     },
   });
 
-  // Reuse creates from one tab run one at a time. `reuse` looks for a live shell and then mints one, so
-  // two racing on a tab would both mint. A plain create never looks, so it is never queued.
+  // Creates from one tab run one at a time. Each looks at the tab's panes (an idle one to hand back, the
+  // count against the limit) and then mints one, so two racing on a tab would both see the same idle pane
+  // or both pass the limit.
   // A predecessor is waited for at most the create policy timeout: a createSession that never settles
   // (a stalled daemon socket) fails its own caller at that deadline, and must not hold the tab's later
   // creates hostage. The queue tail never rejects, so a failure cannot wedge a tab either.
@@ -1434,12 +1518,10 @@ export function registerTerminalCapabilities(
     timer.unref?.();
     return Promise.race([pending, deadline]).finally(() => clearTimeout(timer));
   };
-  const serializeReuseCreatePerTab = async <T>(
+  const serializeCreatePerTab = async <T>(
     context: CapabilityRequestContext | AuthenticatedCapabilityContext | undefined,
-    enabled: boolean,
     work: () => Promise<T>
   ): Promise<T> => {
-    if (!enabled) return work();
     const scope = resolveTerminalCallerScope(ownership, context);
     if (!scope.bound) return work();
     const queueKey = scope.tabId || scope.homeId;
@@ -1467,7 +1549,7 @@ export function registerTerminalCapabilities(
   >({
     name: 'terminal.create',
     description:
-      'Create a new terminal split pane under the terminal you run in (always a new pane, never the user\'s own split). You can only ever drive the panes under your own terminal, so this is the only way to get a shell. Close panes you no longer need with terminal.close. reuse:true returns your own idle pane for the same folder instead of a new one; use it only when that pane is idle, because a pane still running a command receives the input. A Leader terminal (marked by the user) that passes cwd without parentId instead mints a BASE terminal in the project that owns that folder, named by `name`, and registers it as its worker; `minted: { capsuleId }` in the result means this call created the folder\'s project capsule (none existed), which terminal.close { removeMintedProject: true } can remove again when the folder is under a Leader scratch folder. A split minted under a terminal a Leader drives is registered as that Leader\'s worker too, so the theme-push rules that apply to the worker apply in the split',
+      'Create a new terminal split pane under the terminal you run in (never the user\'s own split). You can only ever drive the panes under your own terminal, so this is the only way to get a shell. Panes are limited per tab (default 4 live shells): when one of yours in the same folder has finished its command (its shell runs no child process) it is handed back instead of a new one, with reused:true, and it keeps its current directory, environment and scrollback; at the limit with no finished pane the call is refused with TERMINAL_LIMIT, so close panes you no longer need with terminal.close. reuse:false always asks for a new pane (still subject to the limit); reuse:true returns any live pane of yours for the folder even when it is still running a command, so use it only when you know that pane is idle. A Leader terminal (marked by the user) that passes cwd without parentId instead mints a BASE terminal in the project that owns that folder, named by `name`, and registers it as its worker; `minted: { capsuleId }` in the result means this call created the folder\'s project capsule (none existed), which terminal.close { removeMintedProject: true } can remove again when the folder is under a Leader scratch folder. A split minted under a terminal a Leader drives is registered as that Leader\'s worker too, so the theme-push rules that apply to the worker apply in the split',
     risk: 'write',
     policy: {
       effect: 'management',
@@ -1493,13 +1575,13 @@ export function registerTerminalCapabilities(
         parentId: { type: 'string', description: 'Omit. An agent always splits its own terminal; any other value is refused' },
         initialCols: { type: 'number' },
         initialRows: { type: 'number' },
-        reuse: { type: 'boolean', description: 'Return your own live pane for the same cwd instead of creating one (only when it is idle)' },
+        reuse: { type: 'boolean', description: 'Omit: a finished pane of yours for the same folder is handed back (reused:true), otherwise a new one is created. false: always a new pane. true: any live pane of yours for the folder, even a busy one' },
       },
     },
     execute: (
       params: { cwd?: string; name?: string; capsuleId?: string; parentId?: string; initialCols?: number; initialRows?: number; reuse?: boolean },
       context?: CapabilityRequestContext | AuthenticatedCapabilityContext
-    ) => serializeReuseCreatePerTab(context, params.reuse === true, async () => {
+    ) => serializeCreatePerTab(context, async () => {
       // Scope is resolved BEFORE a shell exists: a pane minted for a caller that cannot be attributed
       // to a home terminal would be an ownerless terminal inside the shared namespace.
       const scope = resolveTerminalCallerScope(ownership, context);
@@ -1559,13 +1641,41 @@ export function registerTerminalCapabilities(
       }
       // The pane is filed under the caller's own agent key, never the user's or a project window's.
       const agentOwnerKey = agentTerminalOwnerKey(scope.tabId);
-      // Opt-in only: the terminal manager has no busy/foreground signal, so a pane handed back
-      // implicitly could be mid-command (a timed-out wait is exactly when an agent asks for another
-      // shell) and would swallow the next command. A different folder or a pane that has exited
-      // still mints a fresh one.
+      // A pane handed out waits for its holder's first write before it can be handed out again.
+      const claim = (paneId: string): void => {
+        claimedUntil.set(paneId, Date.now() + PANE_CLAIM_AFTER_CREATE_MS);
+      };
       if (params.reuse === true) {
+        // Explicit and unverified: the caller vouches that the pane is idle. A different folder or a pane
+        // that has exited still mints a fresh one.
         const reusable = findReusableOwnTerminal(terminal, scope, agentOwnerKey, params.cwd);
-        if (reusable) return { sessionId: reusable.id, ownerBound: true, reused: true, cwd: reusable.cwd };
+        if (reusable) {
+          claim(reusable.id);
+          return { sessionId: reusable.id, ownerBound: true, reused: true, cwd: reusable.cwd };
+        }
+      } else if (params.reuse !== false) {
+        const idle = await findIdleOwnTerminal(terminal, scope, agentOwnerKey, params.cwd, claimedUntil, readProcesses);
+        if (idle) {
+          claim(idle.id);
+          // `cwd` is the folder the pane was minted in: a `cd` typed since then is not in the record.
+          return {
+            sessionId: idle.id,
+            ownerBound: true,
+            reused: true,
+            cwd: idle.cwd,
+            warning: `Pane "${idle.id}" was reused: it keeps its shell state, and its directory is the folder it was created in (${idle.cwd}) unless a command since changed it. Start the next command with an explicit cd, or use absolute paths; pass reuse:false for a fresh shell.`,
+          };
+        }
+      }
+      const held = liveOwnPanes(terminal, scope, agentOwnerKey);
+      if (held.length >= maxAgentPanes) {
+        const heldIds = held.map((row) => row.id);
+        throw new CapabilityError(
+          'TERMINAL_LIMIT',
+          `TERMINAL_LIMIT: this tab already holds ${held.length} live panes (limit ${maxAgentPanes}): ${heldIds.join(', ')}, and none of them could be shown to have finished its command. ` +
+            'Run the next command in one of them with terminal.write once it is done (terminal.wait shows when), or close a pane you no longer need with terminal.close, then call terminal.create again',
+          { limit: maxAgentPanes, held: heldIds, retryable: false }
+        );
       }
       const id = await terminal.createSplitSession(scope.homeId, params.cwd, params.initialCols, params.initialRows, { ownerKey: agentOwnerKey });
       if (typeof id !== 'string' || !id) {
@@ -1574,6 +1684,7 @@ export function registerTerminalCapabilities(
           `No session id was issued: your terminal "${scope.homeId}" is missing, disposed, or already a split`
         );
       }
+      claim(id);
       // A split of a Leader's worker is the same worker: an OMP started in it must find a record and be gated,
       // even when the Leader that drove the parent is gone. A split that cannot be recorded is closed again.
       const registry = LeaderRegistry.getInstance();

@@ -10,7 +10,9 @@ import {
   resolveHomeBaseTerminal,
   isLiveSplitOf,
   type TerminalOwnershipPort,
+  type TerminalCapabilityDeps,
 } from '../../src/main/tools/terminal-capabilities';
+import type { ProcessRow } from '../../src/main/process/theme-watcher-processes';
 import {
   CapabilityError,
   issueRuntimeLease,
@@ -389,6 +391,8 @@ describe('Terminal Capabilities, Generation Tracking & Wait Lifecycle (Phase 04)
     disposed?: boolean;
     role?: string;
     spaceTerminalId?: string;
+    shellPid?: number;
+    altScreen?: boolean;
   }
   interface SplitCreateCall {
     parentId: string;
@@ -404,6 +408,7 @@ describe('Terminal Capabilities, Generation Tracking & Wait Lifecycle (Phase 04)
     liveTabs?: string[];
     activeId?: string;
     createSplit?: (parentId: string) => Promise<string>;
+    deps?: TerminalCapabilityDeps;
   }
 
   const attachmentContext = (attachmentId: string) => ({
@@ -491,7 +496,7 @@ describe('Terminal Capabilities, Generation Tracking & Wait Lifecycle (Phase 04)
       tabAffiliation: (tabId) => ({ live: (options.liveTabs ?? Object.values(options.tabs)).includes(tabId) }),
     };
     const scoped = newCatalogue();
-    registerTerminalCapabilities(scoped, facade, ownership);
+    registerTerminalCapabilities(scoped, facade, ownership, options.deps);
     return { rows, calls, facade, scoped };
   };
   const forbidden = (err: unknown): boolean => err instanceof CapabilityError && err.code === 'TERMINAL_FORBIDDEN';
@@ -603,7 +608,7 @@ describe('Terminal Capabilities, Generation Tracking & Wait Lifecycle (Phase 04)
     await assert.rejects(() => unwired.dispatch('terminal.write', { sessionId: 'split-user', input: 'x' }, attachmentContext('att-mine')), forbidden);
   });
 
-  it('12. terminal.create always mints a NEW split under the home, stamped with the agent key, even beside the user\'s own split', async () => {
+  it('12. terminal.create mints a NEW split under the home, stamped with the agent key, when no pane of the tab is verified idle (fixtures carry no shellPid), even beside the user\'s own split', async () => {
     const { rows, calls, scoped } = buildScenario({
       rows: homeRows(),
       tabs: { 'att-mine': 'tab-mine' },
@@ -668,6 +673,7 @@ describe('Terminal Capabilities, Generation Tracking & Wait Lifecycle (Phase 04)
       rows: homeRows(),
       tabs: { 'att-mine': 'tab-mine' },
       homes: { 'att-mine': 'terminal-home' },
+      deps: { maxAgentPanes: 20 },
     });
     const ctx = attachmentContext('att-mine');
     type CreateResult = { sessionId: string; ownerBound?: boolean; reused?: boolean; cwd?: string };
@@ -703,7 +709,7 @@ describe('Terminal Capabilities, Generation Tracking & Wait Lifecycle (Phase 04)
     const userFolder = await create({ cwd: 'E:/Work/home', reuse: true });
     assert.notStrictEqual(userFolder.sessionId, 'split-user');
 
-    // Reuse is opt-in: without it a compatible, possibly busy pane is never handed back.
+    // Without an explicit reuse, a pane is handed back only when its shell is verified idle (none carries a shellPid here).
     const plain = await create({ cwd: 'E:/Work/home/third' });
     assert.notStrictEqual(plain.sessionId, third.sessionId);
     assert.strictEqual(plain.reused, undefined);
@@ -712,6 +718,103 @@ describe('Terminal Capabilities, Generation Tracking & Wait Lifecycle (Phase 04)
     rows.push({ id: 'terminal-stale-agent', cwd: 'E:/Work/home/stale', state: 'running', ownerKey: 'agent:tab-mine' });
     const stale = await create({ cwd: 'E:/Work/home/stale', reuse: true });
     assert.notStrictEqual(stale.sessionId, 'terminal-stale-agent');
+  });
+
+  it('14a. A pane that finished its command is handed back by default; a busy, claimed, dead or foreign-folder one is not', async () => {
+    // Field report: an agent minted a pane per `git show` (8 live shells) and the app lagged. The operating
+    // system says whether a shell is at its prompt: an idle shell has no child process.
+    // The clock moves minutes here; the suite's 60 s lease must outlive it.
+    const leaseExpiry = lease.expiresAt;
+    (lease as { expiresAt: number }).expiresAt = Date.now() + 3_600_000;
+    mock.timers.enable({ apis: ['Date'], now: Date.now() });
+    try {
+      let table: ProcessRow[] | null = [{ pid: 500, ppid: 1, command: '' }];
+      const rows = homeRows();
+      rows.push({ id: 'split-own', cwd: 'E:/Work/home', state: 'running', splitOf: 'terminal-home', ownerKey: 'agent:tab-mine', shellPid: 500 });
+      const { calls, scoped } = buildScenario({
+        rows,
+        tabs: { 'att-mine': 'tab-mine' },
+        homes: { 'att-mine': 'terminal-home' },
+        deps: { maxAgentPanes: 20, readProcesses: async () => table },
+      });
+      const ctx = attachmentContext('att-mine');
+      type CreateResult = { sessionId: string; reused?: boolean; cwd?: string; warning?: string };
+      const create = (params: Record<string, unknown> = {}) => scoped.dispatch('terminal.create', params, ctx) as Promise<CreateResult>;
+
+      const idle = await create();
+      assert.strictEqual(idle.sessionId, 'split-own');
+      assert.strictEqual(idle.reused, true);
+      assert.strictEqual(idle.cwd, 'E:/Work/home');
+      assert.match(String(idle.warning), /explicit cd/);
+      assert.strictEqual(calls.splitCreates.length, 0, 'no PTY is spawned for a pane that is free');
+
+      // Handed out and not yet written to: a second create in a row means a second pane.
+      const second = await create();
+      assert.notStrictEqual(second.sessionId, 'split-own');
+      assert.strictEqual(second.reused, undefined);
+
+      // The holder's write keeps the pane out of circulation for the moment the command needs to start a process.
+      mock.timers.tick(31_000);
+      await scoped.dispatch('terminal.write', { sessionId: 'split-own', input: 'git show\r\n' }, ctx);
+      assert.notStrictEqual((await create()).sessionId, 'split-own', 'a command just typed has not spawned its child yet');
+      mock.timers.tick(4_000);
+      assert.strictEqual((await create()).sessionId, 'split-own', 'once the grace is over and no child runs, the pane is free again');
+
+      // A shell with a child process (git, node, an agent) is busy.
+      mock.timers.tick(31_000);
+      table = [{ pid: 500, ppid: 1, command: '' }, { pid: 900, ppid: 500, command: '' }];
+      assert.notStrictEqual((await create()).sessionId, 'split-own');
+
+      // A pane whose shell is absent from the table cannot be shown idle, nor can an unreadable table.
+      mock.timers.tick(31_000);
+      table = [{ pid: 123, ppid: 1, command: '' }];
+      assert.notStrictEqual((await create()).sessionId, 'split-own');
+      table = null;
+      assert.notStrictEqual((await create()).sessionId, 'split-own');
+
+      // Free, but not what was asked for: another folder, a full-screen program, an explicit new pane.
+      table = [{ pid: 500, ppid: 1, command: '' }];
+      assert.notStrictEqual((await create({ cwd: 'E:/Work/home/elsewhere' })).sessionId, 'split-own');
+      const row = rows.find((r) => r.id === 'split-own');
+      assert.ok(row);
+      row.altScreen = true;
+      assert.notStrictEqual((await create()).sessionId, 'split-own');
+      row.altScreen = false;
+      assert.notStrictEqual((await create({ reuse: false })).sessionId, 'split-own');
+      assert.strictEqual((await create()).sessionId, 'split-own', 'and it is free for the plain call that follows');
+    } finally {
+      mock.timers.reset();
+      (lease as { expiresAt: number }).expiresAt = leaseExpiry;
+    }
+  });
+
+  it('14b. A tab holds at most the limit of live panes; a finished pane frees its place and nobody else\'s panes count', async () => {
+    const rows = homeRows();
+    rows.push({ id: 'split-foreign-agent', cwd: 'E:/Work/home', state: 'running', splitOf: 'terminal-home', ownerKey: 'agent:tab-other' });
+    const { calls, scoped } = buildScenario({
+      rows,
+      tabs: { 'att-mine': 'tab-mine' },
+      homes: { 'att-mine': 'terminal-home' },
+      deps: { maxAgentPanes: 2, readProcesses: async () => null },
+    });
+    const ctx = attachmentContext('att-mine');
+    const create = (params: Record<string, unknown> = {}) => scoped.dispatch('terminal.create', params, ctx) as Promise<{ sessionId: string }>;
+
+    const first = await create();
+    const second = await create();
+    const refusal = (err: unknown): boolean =>
+      err instanceof CapabilityError && err.code === 'TERMINAL_LIMIT' && err.message.includes(first.sessionId) && err.message.includes(second.sessionId);
+    await assert.rejects(() => create(), refusal);
+    await assert.rejects(() => create({ reuse: false }), refusal, 'an explicit new pane is held to the limit too');
+    assert.strictEqual(calls.splitCreates.length, 2, 'a refused create must leave no session behind');
+
+    // A pane that exited costs no shell, so its place is free; the user's split and another tab's pane never counted.
+    const firstRow = rows.find((r) => r.id === first.sessionId);
+    assert.ok(firstRow);
+    firstRow.state = 'exited';
+    const third = await create();
+    assert.ok(third.sessionId && ![first.sessionId, second.sessionId].includes(third.sessionId));
+    assert.strictEqual(calls.splitCreates.length, 3);
   });
 
   it('15. Concurrent reuse creates from one tab mint a single pane', async () => {
