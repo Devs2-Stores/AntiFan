@@ -13,10 +13,8 @@ import { makeControlPlaneId, issueRuntimeLease } from '../../src/shared/control-
 import {
   collectCloseLiveUse,
   projectLiveUseAttachments,
-  terminalGonePredicate,
   type CloseLiveUseAttachmentRecord,
   type CloseLiveUsePort,
-  type CloseLiveUseTerminalState,
 } from '../../src/main/browser/close-live-use';
 import { PageCloseReservations, type LiveUseRequest } from '../../src/main/browser/project-close-coordinator';
 
@@ -96,8 +94,6 @@ describe('terminal close releases the sessions minted from it', () => {
     });
   }
 
-  const closed = (id: string): CloseLiveUseTerminalState => ({ available: true, sessions: [{ id, state: 'closed' }] });
-
   it('frees the page and ends the run once the origin terminal is closed', async () => {
     const { runtime, dataRoot, workspaceRoot, projectId, workspaceId } = makeRuntime();
     try {
@@ -108,28 +104,13 @@ describe('terminal close releases the sessions minted from it', () => {
       assert.equal(before.state, 'busy', 'a live binding and a streaming run hold the page');
       assert.equal(runtime.runs.getRun(session.run.id).state, 'streaming');
 
-      const gone = terminalGonePredicate(closed('terminal-1216'));
-      assert.ok(gone, 'a readable terminal list yields a predicate');
-      const released = await runtime.runs.releaseGoneTerminalSessions(gone);
+      const released = await runtime.runs.releaseGoneTerminalSessions((id) => id === 'terminal-1216');
 
       assert.deepEqual(released.revoked, [session.launch.attachmentId]);
       assert.deepEqual(released.interrupted, [session.run.id]);
       assert.equal(runtime.runs.attachments.getRecord(session.launch.attachmentId)?.state, 'revoked');
       assert.equal(runtime.runs.getRun(session.run.id).state, 'interrupted');
       assert.equal(collectCloseLiveUse(PAGE_REQUEST, livePort(runtime, [session.run.id])).state, 'idle');
-    } finally {
-      cleanup([dataRoot, workspaceRoot]);
-    }
-  });
-
-  it('treats a terminal that vanished from the list as gone', async () => {
-    const { runtime, dataRoot, workspaceRoot, projectId, workspaceId } = makeRuntime();
-    try {
-      const session = await mint(runtime, projectId, workspaceId, PAGE, 'terminal-1216');
-      const gone = terminalGonePredicate({ available: true, sessions: [{ id: 'terminal-9', state: 'running' }] });
-      assert.ok(gone);
-      const released = await runtime.runs.releaseGoneTerminalSessions(gone);
-      assert.deepEqual(released.revoked, [session.launch.attachmentId]);
     } finally {
       cleanup([dataRoot, workspaceRoot]);
     }
@@ -143,16 +124,7 @@ describe('terminal close releases the sessions minted from it', () => {
       const leader = await mint(runtime, projectId, workspaceId, 'tab-leader', 'terminal-100');
       const external = await mint(runtime, projectId, workspaceId, 'tab-external', undefined);
 
-      const gone = terminalGonePredicate({
-        available: true,
-        sessions: [
-          { id: 'terminal-1216', state: 'closed' },
-          { id: 'terminal-1215', state: 'running' },
-          { id: 'terminal-100', state: 'sleeping' },
-        ],
-      });
-      assert.ok(gone);
-      const released = await runtime.runs.releaseGoneTerminalSessions(gone);
+      const released = await runtime.runs.releaseGoneTerminalSessions((id) => id === 'terminal-1216');
 
       assert.deepEqual(released.revoked, [doomed.launch.attachmentId]);
       assert.deepEqual(released.interrupted, [doomed.run.id]);
@@ -165,17 +137,13 @@ describe('terminal close releases the sessions minted from it', () => {
     }
   });
 
-  it('releases nothing when the terminal list cannot be read, or reports no state for the terminal', async () => {
+  it('releases nothing while no terminal has been reported closed', async () => {
     const { runtime, dataRoot, workspaceRoot, projectId, workspaceId } = makeRuntime();
     try {
       const session = await mint(runtime, projectId, workspaceId, PAGE, 'terminal-1216');
-
-      assert.equal(terminalGonePredicate({ available: false, detail: 'the terminal host daemon is not connected' }), undefined);
-
-      const unknownState = terminalGonePredicate({ available: true, sessions: [{ id: 'terminal-1216' }] });
-      assert.ok(unknownState);
-      const released = await runtime.runs.releaseGoneTerminalSessions(unknownState);
+      const released = await runtime.runs.releaseGoneTerminalSessions(() => false);
       assert.deepEqual(released.revoked, []);
+      assert.deepEqual(released.interrupted, []);
       assert.equal(runtime.runs.attachments.getRecord(session.launch.attachmentId)?.state, 'active');
       assert.equal(runtime.runs.getRun(session.run.id).state, 'streaming');
     } finally {

@@ -76,7 +76,6 @@ import {
   collectCloseLiveUse,
   projectLiveUseAttachments,
   ORPHANED_RUN_STATE,
-  terminalGonePredicate,
   type CloseLiveUseAffinity,
   type CloseLiveUseAttachmentRecord,
   type CloseLiveUsePort,
@@ -1496,20 +1495,29 @@ async function releaseGoneOwnerBindings(): Promise<void> {
 }
 
 /**
- * Release the sessions minted from a terminal that no longer exists (a worker the Leader or
- * the user closed). The owner pid sweep above cannot do it in time: the MCP proxy holding the
- * binding outlives its shell for a moment and the socket-close release waits out a grace
- * period, while the project window closes itself 600 ms after its terminals stop. Reading the
- * terminal list is the second proof of a gone owner; an unreadable list proves nothing and
- * releases nothing. Runs left without a live binding end through the same reap.
+ * Terminals the terminal host reported closed (`session-closed`, the explicit signal
+ * `TerminalManager.closeSession`/`kill` emit and the daemon relays) whose agent sessions have
+ * not been released yet. Only this signal proves a terminal gone: a session list that is
+ * empty or partial after a daemon reconnect proves nothing, and a sleeping terminal never
+ * emits it. A PTY that exits on its own emits nothing and stays with the pid and lease sweep.
  */
-async function releaseGoneTerminalSessions(trigger: 'close-read' | 'terminal-event'): Promise<void> {
+const closedTerminalIds = new Set<string>();
+
+/**
+ * Release the sessions minted from the terminals reported closed (a worker the Leader or the
+ * user closed). The owner pid sweep above cannot do it in time: the MCP proxy holding the
+ * binding outlives its shell for a moment and the socket-close release waits out a grace
+ * period, while the project window closes itself 600 ms after its terminals stop. Runs left
+ * without a live binding end through the same reap. Idempotent: the close gate runs it too,
+ * so a measurement taken right after the event sees the released state.
+ */
+async function releaseClosedTerminalSessions(trigger: 'close-read' | 'terminal-event'): Promise<void> {
   const runs = controlPlane?.runs;
-  if (!runs) return;
+  if (!runs || closedTerminalIds.size === 0) return;
+  const ids = new Set(closedTerminalIds);
   try {
-    const isGone = terminalGonePredicate(closeLiveUsePort.terminalState());
-    if (!isGone) return;
-    const released = await runs.releaseGoneTerminalSessions(isGone);
+    const released = await runs.releaseGoneTerminalSessions((terminalSessionId) => ids.has(terminalSessionId));
+    for (const id of ids) closedTerminalIds.delete(id);
     if (released.revoked.length > 0) {
       recordLifecycleEvent('terminal-close.session-release', {
         trigger,
@@ -1525,7 +1533,7 @@ async function releaseGoneTerminalSessions(trigger: 'close-read' | 'terminal-eve
 /** One authoritative read (see `close-live-use`), classified into idle / busy / unknown. */
 async function readLiveUse(request: LiveUseRequest): Promise<LiveUseReport> {
   await releaseGoneOwnerBindings();
-  await releaseGoneTerminalSessions('close-read');
+  await releaseClosedTerminalSessions('close-read');
   // A run whose owner process is gone can never call endSession again: without
   // this reap it would report 'streaming' to every close/quit question forever.
   try {
@@ -1828,30 +1836,13 @@ function scheduleProjectInactivityCheck(): void {
   projectInactivityTimer.unref();
 }
 
-let terminalSessionReleaseTimer: NodeJS.Timeout | undefined;
-let terminalSessionReleaseKey: string | undefined;
-/**
- * A terminal that closes takes its agent sessions with it. The list of live terminals only
- * changes when one starts or stops, so the release runs once per change (after the burst of
- * session events settles) instead of on every state tick.
- */
-function scheduleTerminalSessionRelease(): void {
-  clearTimeout(terminalSessionReleaseTimer);
-  terminalSessionReleaseTimer = setTimeout(() => {
-    terminalSessionReleaseTimer = undefined;
-    if (isShuttingDown || !controlPlane) return;
-    const state = closeLiveUsePort.terminalState();
-    if (state.available !== true) return;
-    const key = state.sessions
-      .filter((session) => session.state !== 'closed')
-      .map((session) => session.id)
-      .sort()
-      .join('|');
-    if (key === terminalSessionReleaseKey) return;
-    terminalSessionReleaseKey = key;
-    void releaseGoneTerminalSessions('terminal-event');
-  }, 250);
-  terminalSessionReleaseTimer.unref();
+/** A terminal that closes takes its agent sessions with it: release them as the signal arrives. */
+function onTerminalSessionClosed(payload: unknown): void {
+  if (!payload || typeof payload !== 'object' || !('id' in payload)) return;
+  const id = payload.id;
+  if (typeof id !== 'string' || id.length === 0) return;
+  closedTerminalIds.add(id);
+  void releaseClosedTerminalSessions('terminal-event');
 }
 
 /**
@@ -4160,7 +4151,7 @@ async function createWindow(): Promise<void> {
   // replacing the per-host listener+filter fan-out.
   TerminalOutputRouter.getInstance().attach(terminalManager as unknown as EventEmitter);
   terminalManager.on('session', scheduleProjectInactivityCheck);
-  terminalManager.on('session', scheduleTerminalSessionRelease);
+  terminalManager.on('session-closed', onTerminalSessionClosed);
   // Seed the baseline from the terminals that exist right now, so a stop that is the first
   // event this process sees still has a "was running" to compare against.
   scheduleProjectInactivityCheck();
