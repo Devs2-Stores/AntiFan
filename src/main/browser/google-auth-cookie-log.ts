@@ -28,20 +28,29 @@ export type GoogleAuthCookieRecord =
 
 export type GoogleAuthCookieSink = (record: GoogleAuthCookieRecord) => void;
 
-/** The account session (`SID` family) and its rotated freshness tokens (`__Secure-*PSIDTS`). */
+/** The account session (`SID` family), rotated freshness tokens (`__Secure-*PSIDTS`) and the DBS/xsrf satellites (`*SIDCC`, `SIDTS`, `LSID`, `__Host-*`) that share its purge bucket. */
 export const GOOGLE_SESSION_COOKIE_NAMES: Readonly<Record<string, true>> = {
   SID: true,
   HSID: true,
   SSID: true,
   APISID: true,
   SAPISID: true,
+  LSID: true,
+  SIDCC: true,
+  SIDTS: true,
   LOGIN_INFO: true,
+  ACCOUNT_CHOOSER: true,
   '__Secure-1PSID': true,
   '__Secure-3PSID': true,
   '__Secure-1PAPISID': true,
   '__Secure-3PAPISID': true,
   '__Secure-1PSIDTS': true,
   '__Secure-3PSIDTS': true,
+  '__Secure-1PSIDCC': true,
+  '__Secure-3PSIDCC': true,
+  '__Host-GAPS': true,
+  '__Host-1PLSID': true,
+  '__Host-3PLSID': true,
 };
 
 export const GOOGLE_AUTH_COOKIE_BATCH_MS = 250;

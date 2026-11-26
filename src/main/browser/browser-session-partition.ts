@@ -5,6 +5,7 @@ import { armCookieDurability } from './cookie-durability';
 import { armCookieEvictionLog } from './cookie-eviction-log';
 import { armGoogleAuthCookieLog } from './google-auth-cookie-log';
 import { armStorefrontPasswordCookieGuard } from './storefront-password-cookie-guard';
+import { armGoogleAuthCookieGuard } from './google-auth-cookie-guard';
 import { recordLifecycleEvent } from '../diagnostics/main-lifecycle-log';
 import { installWebPermissionPolicy } from './web-permission-policy';
 export type BrowserSessionUserAgentMode = 'clean' | 'native';
@@ -157,6 +158,7 @@ export function configureBrowserSessionPartition(
       armCookieEvictionLog(sess, partition, (batch) => recordLifecycleEvent('cookies.evicted', { ...batch }));
       armGoogleAuthCookieLog(sess, partition, (record) => recordLifecycleEvent('cookies.googleAuth', { ...record }));
       armStorefrontPasswordCookieGuard(sess, partition, (record) => recordLifecycleEvent('cookies.storefrontGuard', { ...record }));
+      armGoogleAuthCookieGuard(sess, partition, (record) => recordLifecycleEvent('cookies.googleAuthGuard', { ...record }));
     }
   }
 
